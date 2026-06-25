@@ -104,11 +104,12 @@ class LadybugDialect:
         return "datetime()"
 
     @staticmethod
-    def now_param(database_type: str | None) -> dict[str, str]:
+    def now_param(database_type: str | None) -> dict[str, int]:
         """Get now parameter for Cypher query.
 
         Neo4j: {} (no parameter needed, uses datetime())
-        LadybugDB: {"now": datetime.now(UTC).isoformat()}
+        LadybugDB: {"now": int(datetime.now(UTC).timestamp())}
+        Note: LadybugDB stores DateTime as INT64 (Unix timestamp).
 
         Args:
             database_type: Database type string.
@@ -119,5 +120,5 @@ class LadybugDialect:
         if LadybugDialect.is_ladybug(database_type):
             from datetime import UTC, datetime
 
-            return {"now": datetime.now(UTC).isoformat()}
+            return {"now": int(datetime.now(UTC).timestamp())}
         return {}

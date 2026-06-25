@@ -27,10 +27,14 @@ class ModularityCalculator:
 
     Args:
         pool: Graph database connection pool.
+        database_type: Database type string ("neo4j" or "ladybug").
     """
 
-    def __init__(self, pool: GraphPool) -> None:
+    def __init__(self, pool: GraphPool, database_type: str | None = None) -> None:
+        from core.constants import DatabaseType
+
         self._pool = pool
+        self._database_type = database_type or DatabaseType.NEO4J.value
 
     async def _calculate_modularity(self) -> float | None:
         """Calculate current graph modularity.
@@ -38,11 +42,25 @@ class ModularityCalculator:
         Returns:
             Modularity score or None if calculation fails.
         """
-        query = """
+        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
+
+        is_ladybug = LadybugDialect.is_ladybug(self._database_type)
+        # LadybugDB uses r.edge_type instead of type(r)
+        type_expr = "r.edge_type" if is_ladybug else "type(r)"
+        # LadybugDB has no pruned property on Entity nodes
+        pruned_cond_e1 = LadybugDialect.pruned_condition(self._database_type, "e1")
+        pruned_cond_e2 = LadybugDialect.pruned_condition(self._database_type, "e2")
+
+        where_parts = [f"NOT {type_expr} IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']"]
+        if pruned_cond_e1:
+            where_parts.append(f"({pruned_cond_e1})")
+        if pruned_cond_e2:
+            where_parts.append(f"({pruned_cond_e2})")
+        where_clause = " AND ".join(where_parts)
+
+        query = f"""
         MATCH (e1:Entity)-[r]->(e2:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e1.pruned IS NULL OR e1.pruned = false)
-          AND (e2.pruned IS NULL OR e2.pruned = false)
+        WHERE {where_clause}
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
                coalesce(r.weight, 1.0) AS weight
@@ -72,9 +90,14 @@ class ModularityCalculator:
         Returns:
             Dict mapping entity canonical name to community ID (int).
         """
-        query = """
+        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
+
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e")
+        where_clause = f"WHERE {pruned_cond}" if pruned_cond else ""
+
+        query = f"""
         MATCH (e:Entity)<-[:HAS_ENTITY]-(c:Community)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
+        {where_clause}
         RETURN e.canonical_name AS entity_name, c.id AS community_id
         """
 

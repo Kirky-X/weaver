@@ -199,14 +199,18 @@ class DiffWriter:
         Returns:
             Number of reports marked stale.
         """
+        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
+
         if not community_ids:
             return 0
 
         # Get current entity counts
-        counts_query = """
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e")
+        pruned_clause = f"AND ({pruned_cond})" if pruned_cond else ""
+        counts_query = f"""
         MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)
         WHERE c.id IN $community_ids
-          AND (e.pruned IS NULL OR e.pruned = false)
+          {pruned_clause}
         RETURN c.id AS community_id, count(e) AS entity_count
         """
 
@@ -228,18 +232,20 @@ class DiffWriter:
             return 0
 
         # Mark reports stale
-        stale_query = """
+        now_expr = LadybugDialect.now_expression(self._database_type)
+        stale_params: dict[str, object] = LadybugDialect.now_param(self._database_type)
+        stale_query = f"""
         MATCH (c:Community)-[:HAS_REPORT]->(r:CommunityReport)
         WHERE c.id IN $community_ids
         SET r.stale = true,
-            r.stale_at = datetime()
+            r.stale_at = {now_expr}
         RETURN count(r) AS stale_count
         """
 
         try:
-            results = await self._pool.execute_query(
-                stale_query, {"community_ids": stale_communities}
-            )
+            exec_params = {"community_ids": stale_communities}
+            exec_params.update(stale_params)
+            results = await self._pool.execute_query(stale_query, exec_params)
             count = results[0]["stale_count"] if results else 0
             log.info("reports_marked_stale", count=count, communities=stale_communities)
             return count
@@ -405,28 +411,35 @@ class DiffWriter:
         Returns:
             Dict with created and reassigned counts.
         """
+        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
+
         created_communities: set[str] = set()
         reassigned = 0
 
+        is_ladybug = LadybugDialect.is_ladybug(self._database_type)
+        now_expr = LadybugDialect.now_expression(self._database_type)
+        # LadybugDB doesn't support elementId(), use id property instead
+        id_expr = "e.id" if is_ladybug else "elementId(e)"
+        params: dict[str, object] = LadybugDialect.now_param(self._database_type)
+
         for node_id, community_id in new_assignments.items():
             try:
-                query = """
-                MERGE (c:Community {id: $community_id})
+                query = f"""
+                MERGE (c:Community {{id: $community_id}})
                 ON CREATE SET
-                    c.created_at = datetime(),
+                    c.created_at = {now_expr},
                     c.level = 0,
                     c.entity_count = 0
                 WITH c
                 MATCH (e)
-                WHERE elementId(e) = $node_id
+                WHERE {id_expr} = $node_id
                 MERGE (c)-[r:HAS_ENTITY]->(e)
                 WITH c, count(r) AS added
                 SET c.entity_count = c.entity_count + added
                 """
-                await self._pool.execute_query(
-                    query,
-                    {"community_id": community_id, "node_id": node_id},
-                )
+                exec_params = {"community_id": community_id, "node_id": node_id}
+                exec_params.update(params)
+                await self._pool.execute_query(query, exec_params)
                 created_communities.add(community_id)
                 reassigned += 1
             except Exception as exc:

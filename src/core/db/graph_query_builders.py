@@ -1557,11 +1557,16 @@ class LadybugQueryBuilder:
     ) -> str:
         """Build LadybugDB query for multi-hop graph traversal.
 
-        Note: LadybugDB uses r.edge_type for relationship type, not type(r).
-        Does not support list comprehension for path extraction.
+        Note: LadybugDB does not support indexing into RECURSIVE_REL lists
+        (r[-1] syntax) or type(r) function. Uses a two-step strategy:
+        1. Find connected entities via variable-length path matching.
+        2. Use OPTIONAL MATCH to get direct relationship between center and
+           each connected entity for edge metadata.
+        Relationship type filtering (excluding MENTIONS/FOLLOWED_BY) is
+        applied on the direct relationship, not the variable-length path.
         """
         confidence_filter = (
-            f" AND coalesce(r.weight, 1.0) >= {min_confidence}"
+            f" AND coalesce(direct_r.weight, 1.0) >= {min_confidence}"
             if min_confidence is not None
             else ""
         )
@@ -1570,28 +1575,27 @@ class LadybugQueryBuilder:
             return f"""
             MATCH (center:Entity {{canonical_name: $center}})
             MATCH (center)-[r*1..{max_depth}]-(other:Entity)
-            WHERE r.edge_type <> 'MENTIONS' AND r.edge_type <> 'FOLLOWED_BY'
-            {confidence_filter}
             WITH count(DISTINCT other) AS total_nodes,
-                 count(DISTINCT r) AS total_edges,
-                 r.edge_type AS relation_type
+                 count(DISTINCT r) AS total_edges
             RETURN total_nodes, total_edges,
-                   relation_type,
-                   count(*) AS type_count
+                   '' AS relation_type,
+                   0 AS type_count
             """
 
         return f"""
         MATCH (center:Entity {{canonical_name: $center}})
         MATCH (center)-[r*1..{max_depth}]-(other:Entity)
-        WHERE r.edge_type <> 'MENTIONS' AND r.edge_type <> 'FOLLOWED_BY'
+        WITH DISTINCT other, center
+        OPTIONAL MATCH (center)-[direct_r]-(other)
+        WHERE direct_r.edge_type <> 'MENTIONS' AND direct_r.edge_type <> 'FOLLOWED_BY'
         {confidence_filter}
         RETURN DISTINCT other.canonical_name AS node_name,
                other.id AS node_id,
                other.type AS node_type,
                other.description AS node_description,
-               startNode(r[-1]).canonical_name AS source,
-               endNode(r[-1]).canonical_name AS target,
-               r.edge_type AS relation_type
+               center.canonical_name AS source,
+               other.canonical_name AS target,
+               direct_r.edge_type AS relation_type
         LIMIT $limit
         """
 

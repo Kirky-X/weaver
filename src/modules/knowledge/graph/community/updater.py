@@ -123,7 +123,7 @@ class IncrementalCommunityUpdater:
 
         # Compose collaborators, sharing the same pool and wiring cross-service
         # references back to this updater (used only at call time).
-        self._modularity_calculator = ModularityCalculator(pool)
+        self._modularity_calculator = ModularityCalculator(pool, database_type=self._database_type)
         self._diff_writer = DiffWriter(pool, database_type=self._database_type)
         self._clustering_service = SubgraphClusteringService(
             pool=pool,

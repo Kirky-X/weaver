@@ -403,6 +403,20 @@ class CommunityRepairService:
             if result.success:
                 total_repaired += result.affected_count
 
+        # Repair missing reports (generate reports for communities without them)
+        if IssueType.MISSING_REPORT in issue_types:
+            missing_community_ids = [
+                i.community_id
+                for i in repairable_issues
+                if i.issue_type == IssueType.MISSING_REPORT and i.community_id
+            ]
+            result = await self.repair_missing_reports(
+                community_ids=missing_community_ids, dry_run=dry_run
+            )
+            results.append(result)
+            if result.success:
+                total_repaired += result.affected_count
+
         duration = (time.monotonic() - start) * 1000
 
         log.info(
@@ -416,4 +430,53 @@ class CommunityRepairService:
             results=results,
             total_repaired=total_repaired,
             duration_ms=duration,
+        )
+
+    async def repair_missing_reports(
+        self,
+        community_ids: list[str],
+        dry_run: bool = False,
+    ) -> RepairResult:
+        """Generate missing reports for communities without them.
+
+        Args:
+            community_ids: List of community IDs needing reports.
+            dry_run: If True, only count without generating.
+
+        Returns:
+            RepairResult with count of reports generated.
+        """
+        if self._report_generator is None:
+            return RepairResult(
+                repair_type="generate_missing_reports",
+                affected_count=0,
+                success=False,
+                error="report_generator not configured",
+            )
+
+        if dry_run:
+            return RepairResult(
+                repair_type="generate_missing_reports",
+                affected_count=len(community_ids),
+                success=True,
+                error="dry_run",
+            )
+
+        success_count = 0
+        for cid in community_ids:
+            try:
+                result = await self._report_generator.regenerate_report(cid)
+                if result:
+                    success_count += 1
+            except Exception as exc:
+                log.warning(
+                    "missing_report_generation_failed",
+                    community_id=cid,
+                    error=str(exc),
+                )
+
+        return RepairResult(
+            repair_type="generate_missing_reports",
+            affected_count=success_count,
+            success=success_count > 0,
         )

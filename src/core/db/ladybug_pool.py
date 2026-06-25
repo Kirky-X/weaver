@@ -14,6 +14,7 @@ from typing import Any
 
 import real_ladybug as ladybug
 
+from core.observability import get_logger
 from core.utils.paths import data_path
 
 # Global write lock for LadybugDB (only one write transaction at a time)
@@ -37,6 +38,14 @@ class LadybugPool:
     DEFAULT_MAX_DB_SIZE = 1 * 1024 * 1024 * 1024  # 1GB = 2^30
     # Default buffer pool size: 256MB (controls mmap allocation)
     DEFAULT_BUFFER_POOL_SIZE = 256 * 1024 * 1024  # 256MB
+    # Default query timeout: 30 seconds (enforced by LadybugDB C engine)
+    DEFAULT_QUERY_TIMEOUT_MS = 30_000
+    # Async-level timeout for query execution (secondary defense when
+    # set_query_timeout doesn't work or real_ladybug swallows CancelledError)
+    ASYNC_QUERY_TIMEOUT_SECONDS = 30.0
+    # Max concurrent queries (connections + threads). Default is 4, but we
+    # increase to 16 to prevent pool exhaustion when queries hang.
+    MAX_CONCURRENT_QUERIES = 16
 
     @property
     def database_type(self) -> str:
@@ -69,7 +78,13 @@ class LadybugPool:
             max_db_size=self._max_db_size,
             buffer_pool_size=self._buffer_pool_size,
         )
-        self._conn = ladybug.AsyncConnection(self._db)
+        # Increase max_concurrent_queries to prevent pool exhaustion
+        self._conn = ladybug.AsyncConnection(
+            self._db, max_concurrent_queries=self.MAX_CONCURRENT_QUERIES
+        )
+        # Set query timeout at connection level (enforced by C engine).
+        # This is the primary defense against hung queries.
+        self._conn.set_query_timeout(self.DEFAULT_QUERY_TIMEOUT_MS)
 
     def startup_sync(self) -> None:
         """Initialize the LadybugDB connection (sync version for fallback use)."""
@@ -79,7 +94,10 @@ class LadybugPool:
             max_db_size=self._max_db_size,
             buffer_pool_size=self._buffer_pool_size,
         )
-        self._conn = ladybug.AsyncConnection(self._db)
+        self._conn = ladybug.AsyncConnection(
+            self._db, max_concurrent_queries=self.MAX_CONCURRENT_QUERIES
+        )
+        self._conn.set_query_timeout(self.DEFAULT_QUERY_TIMEOUT_MS)
 
     async def shutdown(self) -> None:
         """Close the connection.
@@ -127,16 +145,73 @@ class LadybugPool:
     async def _execute_query_internal(
         self, query: str, parameters: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        """Internal query execution without lock."""
-        result = await self._conn.execute(query, parameters)
-        rows: list[dict[str, Any]] = []
+        """Internal query execution without lock.
 
-        while result.has_next():
-            row = result.get_next()
-            column_names = result.get_column_names()
-            rows.append(dict(zip(column_names, row)))
+        Uses asyncio.wait with timeout as secondary defense against hung queries.
+        The primary defense is set_query_timeout() called during startup.
 
-        return rows
+        Note: real_ladybug's AsyncConnection.execute catches CancelledError
+        without re-raising, making asyncio.wait_for ineffective. asyncio.wait
+        with timeout returns control without relying on CancelledError propagation.
+
+        Important: We do NOT call task.cancel() after timeout because
+        real_ladybug's CancelledError handler calls conn.interrupt() which
+        may block the event loop. We also do NOT call _interrupt_all_connections()
+        because conn.interrupt() may cause deadlock. Instead, we rely on
+        set_query_timeout() (enforced by C engine) to kill hung queries.
+        """
+        loop = asyncio.get_running_loop()
+        # Run the entire query execution and result fetching in a thread
+        # to avoid any blocking C calls from blocking the event loop.
+        task = asyncio.ensure_future(
+            loop.run_in_executor(
+                self._conn.executor,
+                self._execute_and_fetch,
+                query,
+                parameters,
+            )
+        )
+        _done, pending = await asyncio.wait({task}, timeout=self.ASYNC_QUERY_TIMEOUT_SECONDS)
+
+        if task in pending:
+            # Task is still running after timeout.
+            # Do NOT call task.cancel() — real_ladybug's CancelledError handler
+            # calls conn.interrupt() which may block the event loop.
+            # Do NOT call _interrupt_all_connections() — conn.interrupt() may
+            # cause deadlock. Rely on set_query_timeout() to kill the query.
+            log = get_logger(__name__)
+            log.warning(
+                "ladybug_query_timeout",
+                timeout_seconds=self.ASYNC_QUERY_TIMEOUT_SECONDS,
+                query_preview=query[:200],
+            )
+            raise TimeoutError(
+                f"LadybugDB query timed out after "
+                f"{self.ASYNC_QUERY_TIMEOUT_SECONDS}s: {query[:200]}"
+            )
+
+        # Task completed — get result (may raise if task failed)
+        return task.result()
+
+    def _execute_and_fetch(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+        """Execute query and fetch all results (runs in thread pool).
+
+        This method uses a synchronous Connection directly (not AsyncConnection)
+        to avoid the connection pool counter issues. The Connection is acquired
+        from the AsyncConnection's pool and released after use.
+        """
+        # Acquire a connection from the AsyncConnection's pool
+        conn = self._conn.acquire_connection()
+        try:
+            result = conn.execute(query, parameters)
+            rows: list[dict[str, Any]] = []
+            while result.has_next():
+                row = result.get_next()
+                column_names = result.get_column_names()
+                rows.append(dict(zip(column_names, row)))
+            return rows
+        finally:
+            self._conn.release_connection(conn)
 
     @asynccontextmanager
     async def session_context(self) -> AsyncIterator[ladybug.AsyncConnection]:

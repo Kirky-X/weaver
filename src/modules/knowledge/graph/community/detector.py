@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections import defaultdict
@@ -499,9 +500,9 @@ class CommunityDetector:
         system_prompt = prompt_loader.get("community_title", "system")
         user_template = prompt_loader.get("community_title", "user")
 
-        for community in communities:
+        async def _generate_one(community: Community) -> None:
             if community.level < 0 or not community.entity_ids:
-                continue
+                return
 
             entities_text = ", ".join(community.entity_ids[:20])
             user_content = user_template.format(entities=entities_text)
@@ -529,6 +530,10 @@ class CommunityDetector:
                     community_id=community.id,
                     error=str(exc),
                 )
+
+        # Parallelize LLM calls — LLM client's semaphore (concurrency=5)
+        # controls actual concurrency, so gather() is safe.
+        await asyncio.gather(*[_generate_one(c) for c in communities])
 
     def _create_orphan_community(self, orphan_entities: list[str]) -> Community:
         """Create a special community for orphan entities.
@@ -567,10 +572,14 @@ class CommunityDetector:
         if not edges or not clusters:
             return 0.0
 
-        # Build node -> cluster mapping (using level 0 for leaf clusters)
+        # Build node -> cluster mapping (using deepest level for leaf clusters)
+        # Note: level 0 is NOT always the leaf level. In hierarchical Leiden,
+        # current_level = max_depth - depth, so leaf clusters may be at level 10.
+        # We use the minimum level (deepest recursion) as the leaf layer.
+        min_level = min((c.level for c in clusters if c.level >= 0), default=0)
         node_to_cluster: dict[str, int] = {}
         for c in clusters:
-            if c.level == 0:  # Leaf level
+            if c.level == min_level:  # Leaf level (deepest recursion)
                 node_to_cluster[c.node] = c.cluster
 
         if not node_to_cluster:

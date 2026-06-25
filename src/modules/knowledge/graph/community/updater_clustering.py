@@ -427,11 +427,19 @@ class SubgraphClusteringService:
         if not node_ids:
             return {}
 
-        query = """
-        MATCH (e)<-[:HAS_ENTITY]-(c:Community)
-        WHERE elementId(e) IN $node_ids
-        RETURN elementId(e) AS node_id, c.id AS community_id
-        """
+        # LadybugDB doesn't support elementId(), use id property instead
+        if self._database_type == DatabaseType.LADYBUG.value:
+            query = """
+            MATCH (e)<-[:HAS_ENTITY]-(c:Community)
+            WHERE e.id IN $node_ids
+            RETURN e.id AS node_id, c.id AS community_id
+            """
+        else:
+            query = """
+            MATCH (e)<-[:HAS_ENTITY]-(c:Community)
+            WHERE elementId(e) IN $node_ids
+            RETURN elementId(e) AS node_id, c.id AS community_id
+            """
 
         try:
             results = await self._pool.execute_query(query, {"node_ids": node_ids})

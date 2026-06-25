@@ -47,11 +47,14 @@ class Neo4jCommunityRepo:
 
         For Neo4j, returns ("datetime()", "datetime()", None) — timestamps are Cypher expressions.
         For LadybugDB, returns ("$created_at", "$updated_at", now_ms) — timestamps are parameters.
+
+        Note: Returned expressions do NOT include trailing commas. Callers must add commas
+        in the query template as needed (between properties, but not after the last property).
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
             now = self._now_ts()
             return "$created_at", "$updated_at", now
-        return "datetime(),", "datetime(),", None
+        return "datetime()", "datetime()", None
 
     def _format_children_ids_param(self, children_ids: list[str] | None) -> tuple[str, str]:
         """Return (param_value_for_ladybug, param_value_for_neo4j) for children_ids.
@@ -194,13 +197,13 @@ class Neo4jCommunityRepo:
                     modularity: $modularity,
                     created_at: """
             + created_at_cypher
-            + """
-            updated_at: """
+            + """,
+                    updated_at: """
             + updated_at_cypher
             + """
-        })
-        RETURN c.id AS id
-        """
+                })
+                RETURN c.id AS id
+                """
         )
         params = {
             "id": community_id,

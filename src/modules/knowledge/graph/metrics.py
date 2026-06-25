@@ -113,9 +113,17 @@ class GraphQualityMetrics:
             pool: Graph database connection pool.
             query_builder: Optional query builder for database-specific syntax.
             db_type: Database type ('neo4j' or 'ladybug'), used to create
-                query_builder if not provided.
+                query_builder if not provided. When left as default 'neo4j',
+                auto-detects from pool.database_type attribute if available.
         """
         self._pool = pool
+        # Auto-detect database type from pool attribute when caller didn't
+        # explicitly pass a non-default value. This fixes endpoints that
+        # construct GraphQualityMetrics without the db_type parameter.
+        if db_type == DatabaseType.NEO4J.value:
+            detected = getattr(pool, "database_type", None)
+            if detected == DatabaseType.LADYBUG.value:
+                db_type = DatabaseType.LADYBUG.value
         self._query_builder = query_builder or create_graph_query_builder(db_type)
         self._db_type = db_type
 

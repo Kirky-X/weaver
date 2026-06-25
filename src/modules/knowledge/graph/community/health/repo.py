@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.constants import DatabaseType
 from core.observability import get_logger
+from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
@@ -33,6 +35,8 @@ class CommunityHealthRepo:
             pool: Graph database connection pool.
         """
         self._pool = pool
+        # Detect database type from pool attribute (LadybugPool/Neo4jPool)
+        self._database_type = getattr(pool, "database_type", DatabaseType.NEO4J.value)
 
     async def find_empty_communities(self) -> list[dict[str, Any]]:
         """Find communities with no associated entities.
@@ -67,10 +71,12 @@ class CommunityHealthRepo:
         Returns:
             List of dicts with community_id, stored_count, actual_count.
         """
-        query = """
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e")
+        pruned_clause = f"AND ({pruned_cond})" if pruned_cond else ""
+        query = f"""
         MATCH (c:Community)
         OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
+        {pruned_clause}
         WITH c, count(e) AS actual_count
         WHERE c.entity_count <> actual_count
         RETURN c.id AS community_id,
@@ -95,10 +101,13 @@ class CommunityHealthRepo:
         Returns:
             List of dicts with community_id, title, level.
         """
+        # LadybugDB doesn't support NOT EXISTS subquery, use LEFT JOIN approach
         query = """
         MATCH (c:Community)
         WHERE c.level >= 0
-          AND NOT EXISTS((c)<-[:REPORTS_ON]-(:CommunityReport))
+        OPTIONAL MATCH (c)<-[:REPORTS_ON]-(r:CommunityReport)
+        WITH c, r
+        WHERE r IS NULL
         RETURN c.id AS community_id, c.title AS title, c.level AS level
         ORDER BY c.level DESC, c.title
         """
@@ -123,19 +132,34 @@ class CommunityHealthRepo:
         Returns:
             List of dicts with community_id, report_id, stale, updated_at.
         """
-        query = """
-        MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
-        WHERE r.stale = true
-           OR r.updated_at < datetime() - duration('P' + $days + 'D')
-        RETURN c.id AS community_id,
-               r.id AS report_id,
-               r.stale AS stale,
-               r.updated_at AS updated_at
-        ORDER BY r.updated_at ASC
-        """
+        # LadybugDB doesn't support datetime() or duration() functions
+        # For LadybugDB, only check the stale flag (skip time-based check)
+        if LadybugDialect.is_ladybug(self._database_type):
+            query = """
+            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+            WHERE r.stale = true
+            RETURN c.id AS community_id,
+                   r.id AS report_id,
+                   r.stale AS stale,
+                   r.updated_at AS updated_at
+            ORDER BY r.updated_at ASC
+            """
+            params: dict[str, Any] = {}
+        else:
+            query = """
+            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+            WHERE r.stale = true
+               OR r.updated_at < datetime() - duration('P' + $days + 'D')
+            RETURN c.id AS community_id,
+                   r.id AS report_id,
+                   r.stale AS stale,
+                   r.updated_at AS updated_at
+            ORDER BY r.updated_at ASC
+            """
+            params = {"days": days_threshold}
 
         try:
-            results = await self._pool.execute_query(query, {"days": days_threshold})
+            results = await self._pool.execute_query(query, params)
             return [dict(r) for r in results if r.get("community_id")]
         except Exception as exc:
             log.error("find_stale_reports_failed", error=str(exc))
