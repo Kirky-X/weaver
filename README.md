@@ -131,7 +131,7 @@ uv pip install "spacy-pkuseg>=0.0.27,<0.1.0"
 uv run python -m spacy download zh_core_web_lg
 
 # 可选：安装英文模型
-uv run python -m spacy download en_core_web_sm
+uv run python -m spacy download en_core_web_lg
 
 # 可选：安装更精确的 transformer 模型（需要额外依赖）
 # uv pip install spacy-transformers
@@ -146,7 +146,7 @@ uv run python -m spacy download en_core_web_sm
 | `zh_core_web_lg`  | ~600MB | spacy-pkuseg                 | 推荐：标准版，精度更高 |
 | `zh_core_web_sm`  | ~40MB  | spacy-pkuseg                 | 轻量级，无需 GPU  |
 | `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度最高，需要 GPU |
-| `en_core_web_sm`  | ~12MB  | -                            | 英文处理        |
+| `en_core_web_lg`  | ~560MB | -                            | 推荐：英文处理，精度更高 |
 
 **实体类型映射**：
 
