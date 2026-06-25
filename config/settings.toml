@@ -74,12 +74,12 @@ enable_simhash_dedup = true
 simhash_hamming_threshold = 3
 
 [observability]
-otlp_endpoint = "http://localhost:4317"
+otlp_endpoint = ""
 
 [spacy]
 force_install = false
 strict_mode = true
-models = ["zh_core_web_lg", "en_core_web_sm"]
+models = ["zh_core_web_lg", "en_core_web_lg"]
 
 [entity]
 disable_data_metrics_nodes = false

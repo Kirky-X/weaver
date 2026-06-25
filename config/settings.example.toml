@@ -130,19 +130,19 @@ otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to 
 # spaCy model detection and installation settings
 force_install = false                  # Auto-install missing models at startup
 strict_mode = true                     # Fail startup if installation fails (when force_install=true)
-models = ["zh_core_web_lg", "en_core_web_sm"]  # Models to check/install
+models = ["zh_core_web_lg", "en_core_web_lg"]  # Models to check/install
 
 # Local wheel file paths for offline installation (optional)
 # [spacy.local_paths]
 # zh_core_web_lg = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
-# en_core_web_sm = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
+# en_core_web_lg = "/path/to/en_core_web_lg-3.7.0-py3-none-any.whl"
 
 # Local model paths for runtime loading (optional, overrides env vars)
 # Priority: settings config > environment variables > installed models
 # Chinese model path (wheel file or directory), higher priority than SPACY_ZH_MODEL_PATH env var
 # zh_model_path = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
 # English model path (wheel file or directory), higher priority than SPACY_EN_MODEL_PATH env var
-# en_model_path = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
+# en_model_path = "/path/to/en_core_web_lg-3.7.0-py3-none-any.whl"
 
 # ============================================================
 # Entity Extraction Configuration
