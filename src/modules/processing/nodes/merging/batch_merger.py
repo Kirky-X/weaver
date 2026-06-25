@@ -133,6 +133,10 @@ class BatchMergerNode:
         if not active_states:
             return states
 
+        # Initialize is_merged flag for all active states (default False, set True by _llm_merge)
+        for s in active_states:
+            s.setdefault("is_merged", False)
+
         ids = [s["raw"].url for s in active_states]
         vectors = [s["vectors"]["content"] for s in active_states]
         uf = UnionFind(ids)

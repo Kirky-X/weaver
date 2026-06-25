@@ -619,6 +619,18 @@ class LLMClient:
             if cp_config.response_format is not None and "response_format" not in request_payload:
                 request_payload["response_format"] = cp_config.response_format
 
+        # Auto-enable JSON mode when structured output is expected but response_format is not configured.
+        # This prevents LLM from returning non-JSON content (e.g., greetings, conversational text)
+        # when output_model is provided, which would cause parse failures downstream.
+        if output_model is not None and "response_format" not in request_payload:
+            request_payload["response_format"] = "json"
+            log.warning(
+                "structured_output_auto_json_mode",
+                call_point=call_point,
+                output_model=output_model.__name__,
+                hint="Auto-enabled JSON mode. Set response_format='json' in [call-points.X] to suppress this warning",
+            )
+
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
             # Extract string value from CallPoint enum if needed

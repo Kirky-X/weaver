@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from urllib.parse import urlparse
 
@@ -24,6 +25,48 @@ MIN_ARTICLE_LENGTH = 100
 
 # Maximum total time for a single crawl_batch call (seconds)
 MAX_CRAWL_BATCH_TIME = 300  # 5 minutes
+
+# HTML title extraction patterns (ordered by priority)
+_OG_TITLE_RE = re.compile(
+    r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+_OG_TITLE_RE_REVERSED = re.compile(
+    r'<meta\s+content=["\']([^"\']+)["\']\s+property=["\']og:title["\']',
+    re.IGNORECASE,
+)
+_TITLE_TAG_RE = re.compile(r"<title[^>]*>([^<]+)</title>", re.IGNORECASE)
+
+
+def _extract_title_from_html(html: str) -> str | None:
+    """Extract page title from HTML when trafilatura fails.
+
+    Tries in order:
+    1. <meta property="og:title" content="..."> (most reliable for news sites)
+    2. <title>...</title> tag
+
+    Args:
+        html: Raw HTML content.
+
+    Returns:
+        Extracted title string, or None if no title found.
+
+    """
+    # 1. Try Open Graph title meta tag (preferred for news sites)
+    match = _OG_TITLE_RE.search(html) or _OG_TITLE_RE_REVERSED.search(html)
+    if match:
+        title = match.group(1).strip()
+        if title:
+            return title
+
+    # 2. Fall back to <title> tag
+    match = _TITLE_TAG_RE.search(html)
+    if match:
+        title = match.group(1).strip()
+        if title:
+            return title
+
+    return None
 
 
 class Crawler:
@@ -131,9 +174,37 @@ class Crawler:
                         html_content = html
                         body = trafilatura.extract(html, include_comments=False) or ""
 
+            # Extract title from HTML if not provided by RSS/source
+            title = item.title
+            if not title and html_content:
+                # 1. Try trafilatura first (best quality when it works)
+                try:
+                    bare = trafilatura.bare_extraction(html_content, include_comments=False)
+                    if bare and bare.title:
+                        title = bare.title
+                        log.debug(
+                            "crawler_title_extracted_trafilatura",
+                            url=item.url,
+                            title=title[:50],
+                        )
+                except Exception as exc:
+                    log.debug("crawler_title_trafilatura_failed", url=item.url, error=str(exc))
+
+                # 2. Fallback: parse <meta og:title> or <title> tag from HTML
+                #    trafilatura returns title=None for some sites (e.g. IT之家, Solidot)
+                if not title:
+                    extracted = _extract_title_from_html(html_content)
+                    if extracted:
+                        title = extracted
+                        log.debug(
+                            "crawler_title_extracted_html_tag",
+                            url=item.url,
+                            title=title[:50],
+                        )
+
             return RawArticle(
                 url=item.url,
-                title=item.title,
+                title=title,
                 body=body,
                 html=html_content,
                 source=item.source,

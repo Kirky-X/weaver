@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from core.constants import DatabaseType, HealthCheckStatus
@@ -63,17 +64,35 @@ class EmbeddingServiceWrapper:
     Implements: EmbeddingServiceProtocol
     """
 
+    # Timeout for embedding API calls (prevents indefinite blocking when
+    # LLM provider like Ollama is not responding)
+    EMBED_TIMEOUT_SECONDS = 30.0
+
     def __init__(self, llm_client: Any) -> None:
         self._llm = llm_client
 
     async def embed(self, text: str) -> list[float]:
         """Compute embedding for a single text."""
-        embeddings = await self._llm.embed_default([text])
-        return embeddings[0]
+        try:
+            embeddings = await asyncio.wait_for(
+                self._llm.embed_default([text]),
+                timeout=self.EMBED_TIMEOUT_SECONDS,
+            )
+            return embeddings[0]
+        except TimeoutError as exc:
+            raise RuntimeError(f"Embedding timed out after {self.EMBED_TIMEOUT_SECONDS}s") from exc
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Compute embeddings for multiple texts."""
-        return await self._llm.embed_default(texts)
+        try:
+            return await asyncio.wait_for(
+                self._llm.embed_default(texts),
+                timeout=self.EMBED_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"Embedding batch timed out after {self.EMBED_TIMEOUT_SECONDS}s"
+            ) from exc
 
     def is_ready(self) -> bool:
         """Check if the embedding service is ready."""
@@ -639,6 +658,19 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
+        # Causal Inference - Extract causal edges from graph (every 2 hours)
+        # Note: causal service is initialized in startup() before _setup_scheduler
+        if self._causal_inference_service is not None:
+            scheduler.add_job(
+                self._causal_inference_service.infer_and_create_causal_edges,
+                IntervalTrigger(hours=2),
+                id="causal_inference",
+                name="Extract causal edges from graph",
+                max_instances=1,
+                coalesce=True,
+            )
+            log.info("causal_inference_job_registered")
+
         # Startup: run sync once immediately
         scheduler.add_job(
             jobs.sync_pending_to_neo4j,
@@ -1054,6 +1086,10 @@ class ContainerLifecycleMixin:
         await self.init_conflict_detector()
         await self.init_shift_detector()
         await self.init_briefing_engine()
+
+        # Initialize causal inference service before scheduler setup
+        # (scheduler is sync, so causal service must be ready beforehand)
+        await self.init_causal_inference_service()
 
         self._setup_scheduler()
 

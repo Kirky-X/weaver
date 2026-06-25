@@ -14,6 +14,7 @@ Operations performed:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -228,17 +229,20 @@ class StructuralConsolidationWorker:
         Returns:
             List of ConsolidationResults for processed events.
         """
-        results: list[ConsolidationResult] = []
-
+        # Dequeue all events first, then process in parallel.
+        # LLM client's semaphore (concurrency=5) controls actual concurrency.
+        event_ids: list[str] = []
         for _ in range(batch_size):
             event_id = await self._queue.dequeue()
             if event_id is None:
                 break
+            event_ids.append(event_id)
 
-            result = await self.process_event(event_id)
-            results.append(result)
+        if not event_ids:
+            return []
 
-        return results
+        results = await asyncio.gather(*[self.process_event(eid) for eid in event_ids])
+        return list(results)
 
     async def _discover_entity_links(
         self,

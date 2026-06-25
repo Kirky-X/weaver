@@ -468,6 +468,20 @@ class ContainerServicesMixin:
             )
         return self._smart_fetcher
 
+    def smart_fetcher(self) -> Any:
+        """Get smart fetcher for URL/feed fetching.
+
+        Returns:
+            SmartFetcher instance.
+
+        Raises:
+            RuntimeError: If smart fetcher not initialized.
+
+        """
+        if self._smart_fetcher is None:
+            raise RuntimeError("Smart fetcher not initialized. Call init_smart_fetcher() first.")
+        return self._smart_fetcher
+
     def crawler(self) -> Crawler:
         """Get crawler."""
         from modules.ingestion import Crawler

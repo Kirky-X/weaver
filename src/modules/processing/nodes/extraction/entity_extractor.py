@@ -38,7 +38,17 @@ _DEFAULT_RELATION_TYPES = """
 竞争: 实体之间的竞争关系
 """.strip()
 
-ALLOWED_ENTITY_TYPES = {"人物", "组织机构", "地点", "事件", "数据指标", "法规与政策", "未知"}
+ALLOWED_ENTITY_TYPES = {
+    "人物",
+    "组织机构",
+    "地点",
+    "产品",
+    "事件",
+    "概念",
+    "数据指标",
+    "法规与政策",
+    "未知",
+}
 
 
 class EntityExtractorNode:
@@ -233,6 +243,24 @@ class EntityExtractorNode:
             )
             state["entities"] = result.entities
             state["relations"] = result.relations
+
+            # Normalize relation types (map English/alias names to Chinese standard)
+            if self._relation_type_normalizer:
+                normalized_relations = []
+                for rel in state["relations"]:
+                    raw_type = rel.get("relation_type", "")
+                    try:
+                        normalized = await self._relation_type_normalizer.normalize(raw_type)
+                        if normalized.name:
+                            rel["relation_type"] = normalized.name
+                    except Exception as e:
+                        log.warning(
+                            "relation_type_normalize_failed",
+                            raw_type=raw_type,
+                            error=str(e),
+                        )
+                    normalized_relations.append(rel)
+                state["relations"] = normalized_relations
 
             # Post-validation: validate entity types against allowed list
             for entity in state["entities"]:

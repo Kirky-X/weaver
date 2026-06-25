@@ -18,10 +18,10 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import json_repair
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 
 from config.settings import SchedulerSettings
-from core.db import Article, PersistStatus
+from core.db import Article, ArticleCore, PersistStatus
 from core.observability import get_logger
 from core.observability.metrics import metrics
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
@@ -123,9 +123,20 @@ class ConsistencyJobs:
                     # Attempt Neo4j write
                     await self._graph_writer.write(state)
 
-                    # Update status
-                    article.persist_status = self._graph_writer.done_status
+                    # Update status on base table (articles_core) — DuckDB
+                    # does not allow UPDATE on the articles VIEW.
+                    done_status = self._graph_writer.done_status
+                    await session.execute(
+                        update(ArticleCore)
+                        .where(ArticleCore.id == article.id)
+                        .values(
+                            persist_status=done_status,
+                            updated_at=datetime.now(UTC),
+                        )
+                    )
                     await session.commit()
+                    # Keep local object in sync to avoid stale state warnings
+                    article.persist_status = done_status
                     retry_count += 1
                     consecutive_failures = 0
 

@@ -26,6 +26,7 @@ class NewsItem:
         title: The article title.
         source: Source identifier (e.g. RSS feed URL or name).
         source_host: The hostname of the source.
+        source_id: The SourceConfig.id this item originated from (e.g. "rss-cnbeta").
         publish_time: Publication date from the feed.
         description: Brief description/summary from the feed.
         body: Full article body text. When present (e.g. from content:encoded
@@ -36,6 +37,7 @@ class NewsItem:
     title: str
     source: str = ""
     source_host: str = ""
+    source_id: str | None = None
     publish_time: datetime | None = None
     description: str = ""
     body: str = ""

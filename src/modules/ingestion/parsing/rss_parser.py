@@ -116,6 +116,7 @@ class RSSParser(BaseSourceParser):
                     title=entry.get("title", ""),
                     source=config.name,
                     source_host=host,
+                    source_id=config.id,
                     publish_time=pub_date,
                     description=entry.get("summary", ""),
                     body=body,

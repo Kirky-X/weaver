@@ -44,7 +44,7 @@ class GLiNERConfig:
     threshold: float = 0.5
     max_input_length: int = 4096
     labels: list[str] = field(
-        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品与技术"]
+        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品", "概念"]
     )
 
 
