@@ -526,10 +526,11 @@ class ArticleRepo:
             await session.commit()
 
     async def mark_terminal_by_url(self, source_url: str) -> bool:
-        """Mark a terminal article as PG_DONE by source URL.
+        """Mark a terminal article as PG_DONE and set fallback analysis values.
 
-        Used for articles that failed processing but need persist_status updated
-        so they don't stay stuck in PENDING state.
+        Terminal articles (classified as not-news) get is_news=False and
+        neutral fallback values so the API returns meaningful data instead
+        of all-null rows.
 
         Args:
             source_url: The article's source URL.
@@ -538,15 +539,35 @@ class ArticleRepo:
             True if an article was updated, False otherwise.
         """
         async with self._pool.session() as session:
+            # Update ArticleCore: persist_status + score/sentiment_score fallback
+            # Note: score and sentiment_score are in ArticleCore, NOT ArticleAnalysis
             result = await session.execute(
                 update(ArticleCore)
                 .where(ArticleCore.source_url == source_url)
                 .where(ArticleCore.persist_status == PersistStatus.PENDING)
                 .values(
                     persist_status=PersistStatus.PG_DONE,
+                    score=0.0,
+                    sentiment_score=0.0,
                     updated_at=datetime.now(UTC),
                 )
             )
+
+            # Update ArticleAnalysis: is_news=False + neutral sentiment
+            # This prevents all-null rows for terminal articles
+            await session.execute(
+                update(ArticleAnalysis)
+                .where(
+                    ArticleAnalysis.article_id.in_(
+                        select(ArticleCore.id).where(ArticleCore.source_url == source_url)
+                    )
+                )
+                .values(
+                    is_news=False,
+                    sentiment="neutral",
+                )
+            )
+
             await session.commit()
             updated = result.rowcount > 0
             if updated:
@@ -697,6 +718,7 @@ class ArticleRepo:
             core = ArticleCore(
                 source_url=normalized_url,
                 source_host=raw.source_host or "",
+                source_id=raw.source_id,
                 title=raw.title or "",
                 persist_status=PersistStatus.PENDING,
                 content_hash=content_hash,
@@ -1337,7 +1359,7 @@ class ArticleRepo:
                                                 WHERE id IN (SELECT id FROM duplicates)
                                                 """))
 
-            removed_count = result.rowcount or 0
+            removed_count = result.rowcount if (result.rowcount and result.rowcount > 0) else 0
 
             # Count how many unique URLs we kept
             kept_result = await session.execute(
@@ -1387,3 +1409,124 @@ class ArticleRepo:
             )
             await session.commit()
             return result.rowcount > 0
+
+    async def search_by_text(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search articles by title or body containing the query text.
+
+        This is a fallback search when graph-based entity search returns
+        no results. Uses `func.lower().contains()` for case-insensitive
+        matching (DuckDB compatible; ILIKE may not work in DuckDB).
+
+        Args:
+            query: Search query string.
+            limit: Maximum number of results.
+
+        Returns:
+            List of article dicts with id, title, body_excerpt, source_url,
+            source_host, summary, publish_time.
+        """
+        if not query or not query.strip():
+            return []
+
+        query_lower = query.strip().lower()
+
+        async with self._pool.session() as session:
+            # Search by title first (higher priority), then by body.
+            # Use func.lower().contains() for DuckDB compatibility.
+            stmt = (
+                select(
+                    Article.id,
+                    Article.title,
+                    Article.body,
+                    Article.source_url,
+                    Article.source_host,
+                    Article.summary,
+                    Article.publish_time,
+                )
+                .where(
+                    func.lower(Article.title).contains(query_lower)
+                    | func.lower(Article.body).contains(query_lower)
+                )
+                .order_by(Article.publish_time.desc())
+                .limit(limit)
+            )
+
+            try:
+                result = await session.execute(stmt)
+                rows = result.all()
+            except Exception as exc:
+                log.warning("search_by_text_failed", error=str(exc), query=query)
+                return []
+
+            articles: list[dict[str, Any]] = []
+            for row in rows:
+                body_text = row.body or ""
+                # Extract a relevant excerpt from the body
+                excerpt = self._extract_excerpt(body_text, query_lower, max_chars=300)
+                articles.append(
+                    {
+                        "id": str(row.id),
+                        "title": row.title,
+                        "body_excerpt": excerpt,
+                        "source_url": row.source_url,
+                        "source_host": row.source_host,
+                        "summary": row.summary,
+                        "publish_time": row.publish_time.isoformat() if row.publish_time else None,
+                    }
+                )
+
+            if articles:
+                log.info(
+                    "search_by_text_found",
+                    count=len(articles),
+                    query=query,
+                )
+            return articles
+
+    @staticmethod
+    def _extract_excerpt(
+        body: str,
+        query_lower: str,
+        max_chars: int = 300,
+    ) -> str:
+        """Extract a relevant excerpt from article body around the query match.
+
+        Args:
+            body: Article body text.
+            query_lower: Lowercased query string.
+            max_chars: Maximum excerpt length.
+
+        Returns:
+            Excerpt string with ellipsis if truncated.
+        """
+        if not body:
+            return ""
+
+        body_lower = body.lower()
+        pos = body_lower.find(query_lower)
+        if pos == -1:
+            # Try word-by-word matching for multi-word queries
+            words = query_lower.split()
+            for word in words:
+                if len(word) >= 2:
+                    pos = body_lower.find(word)
+                    if pos != -1:
+                        break
+
+        if pos == -1:
+            # No match found, return beginning
+            return body[:max_chars] + ("..." if len(body) > max_chars else "")
+
+        # Extract context around the match
+        start = max(0, pos - max_chars // 3)
+        end = min(len(body), start + max_chars)
+        excerpt = body[start:end]
+        if start > 0:
+            excerpt = "..." + excerpt
+        if end < len(body):
+            excerpt = excerpt + "..."
+        return excerpt
