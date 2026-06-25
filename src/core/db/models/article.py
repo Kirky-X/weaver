@@ -58,6 +58,7 @@ class ArticleCore(Base):
     )
     source_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     source_host: Mapped[str | None] = mapped_column(String(200))
+    source_id: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[CategoryType | None] = mapped_column(
         Enum(
@@ -360,6 +361,7 @@ class Article(Base):
     )
     source_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     source_host: Mapped[str | None] = mapped_column(String(200))
+    source_id: Mapped[str | None] = mapped_column(String(100))
     is_news: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)

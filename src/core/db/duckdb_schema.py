@@ -39,6 +39,7 @@ SCHEMA_QUERIES = [
         id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
         source_url VARCHAR NOT NULL UNIQUE,
         source_host VARCHAR,
+        source_id VARCHAR,
         title VARCHAR,
         category VARCHAR,
         language VARCHAR,
@@ -466,6 +467,9 @@ async def initialize_duckdb_schema(pool) -> None:
             except Exception as exc:
                 log.warning("duckdb_table_create_failed", error=str(exc))
 
+        # Upgrade existing tables with missing columns (for pre-existing DBs)
+        await _upgrade_schema(session)
+
         # Create views
         for query in VIEW_QUERIES:
             try:
@@ -484,6 +488,33 @@ async def initialize_duckdb_schema(pool) -> None:
         raise
     finally:
         await session.close()
+
+
+# ── Schema Upgrades (for pre-existing DBs) ───────────────────────────
+
+
+async def _upgrade_schema(session) -> None:
+    """Apply incremental schema upgrades for pre-existing databases.
+
+    CREATE TABLE IF NOT EXISTS skips existing tables, so new columns added
+    in later versions need explicit ALTER TABLE statements.
+    """
+    # Migration 25: Add source_id to articles_core
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'articles_core' AND column_name = 'source_id'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(text("ALTER TABLE articles_core ADD COLUMN source_id VARCHAR"))
+            # Recreate articles VIEW to pick up the new column (SELECT c.* needs re-evaluation)
+            await session.execute(text("DROP VIEW IF EXISTS articles"))
+            await session.execute(text(VIEW_QUERIES[0]))
+            log.info("duckdb_schema_upgrade_added_source_id")
+        except Exception as exc:
+            log.warning("duckdb_schema_upgrade_source_id_failed", error=str(exc))
 
 
 # ── Seed Data ────────────────────────────────────────────────────────
