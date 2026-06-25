@@ -204,7 +204,7 @@ class BM25Retriever:
     """
 
     # Stemmer is not needed for Chinese, only for English
-    SUPPORTED_LANGUAGES = {"zh": "zh_core_web_lg", "en": "en_core_web_sm"}
+    SUPPORTED_LANGUAGES = {"zh": "zh_core_web_lg", "en": "en_core_web_lg"}
 
     # File names
     INDEX_FILE = "bm25_index"

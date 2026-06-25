@@ -130,6 +130,7 @@ class GlobalSearchEngine:
         max_tokens = max_tokens or self._default_max_tokens
 
         start = time.monotonic()
+        communities = None
         try:
             # Get community contexts with full reports
             communities = await self._get_community_contexts(
@@ -218,7 +219,29 @@ class GlobalSearchEngine:
             community_weights = []
 
             # Early return when no community passes relevance threshold
+            # Fall back to local search if available (short queries like "AI"
+            # often have low similarity with long community reports)
             if not sorted_communities:
+                if self._local is not None:
+                    log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
+                    try:
+                        local_result = await self._local.search(query=query, use_llm=use_llm)
+                        if isinstance(local_result, dict):
+                            local_result["metadata"] = {
+                                **local_result.get("metadata", {}),
+                                "search_type": SearchMode.HYBRID.value,
+                                "fallback_from_global": True,
+                                "fallback_reason": "low_relevance_skip",
+                            }
+                            return local_result
+                        elif hasattr(local_result, "metadata"):
+                            local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                            local_result.metadata["fallback_from_global"] = True
+                            local_result.metadata["fallback_reason"] = "low_relevance_skip"
+                            return local_result
+                    except Exception as exc:
+                        log.warning("global_search_local_fallback_failed", error=str(exc))
+
                 return SearchResult(
                     query=query,
                     answer="未找到与查询相关的社区信息。",
@@ -367,12 +390,26 @@ class GlobalSearchEngine:
 
         except Exception as exc:
             log.error("global_search_failed", error=str(exc))
+            # Reuse already-queried communities data for graceful degradation
+            community_scores = [c.similarity_score for c in communities] if communities else []
             return SearchResult(
                 query=query,
                 answer=f"Search failed: {exc!s}",
-                context_tokens=0,
-                confidence=0.0,
-                metadata={"error": str(exc)},
+                context_tokens=(
+                    sum(len(c.full_content or c.summary) // 4 for c in communities)
+                    if communities
+                    else 0
+                ),
+                entities=self._collect_entities(communities) if communities else [],
+                confidence=self._estimate_confidence([], community_scores) if communities else 0.0,
+                metadata={
+                    "error": str(exc),
+                    "search_type": SearchMode.GLOBAL.value,
+                    "communities": len(communities) if communities else 0,
+                    "llm_used": False,
+                    "hybrid_used": self._hybrid_engine is not None,
+                    "degraded": True,
+                },
             )
         finally:
             elapsed = time.monotonic() - start

@@ -74,13 +74,24 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         context: Any,
         query: str,
     ) -> Any:
-        """Handle no entities by trying text-based article search."""
+        """Handle no entities by trying text-based article search.
+
+        Tries graph-based Article node search first, then falls back to
+        relational DB (DuckDB/PostgreSQL) text search.
+        """
         context.add_content(
             name="Search Note",
             content=f"No direct entity matches found for '{query}'. Attempting to find related content...",
             priority=0,
         )
+
+        # Try graph-based Article node search first
         articles = await self._get_related_articles_by_text(query)
+
+        # Fallback: search articles in relational DB if graph search found nothing
+        if not articles:
+            articles = await self._search_articles_in_relational_db(query)
+
         if articles:
             article_content = self.format_articles_section(articles)
             context.add_content(
@@ -88,6 +99,12 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
                 content=article_content,
                 priority=50,
                 metadata={"article_count": len(articles)},
+            )
+        else:
+            context.add_content(
+                name="No Entities Found",
+                content="No relevant entities or articles found for the query.",
+                priority=0,
             )
         return context
 

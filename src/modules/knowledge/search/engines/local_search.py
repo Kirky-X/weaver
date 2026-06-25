@@ -156,12 +156,22 @@ class LocalSearchEngine:
 
             except Exception as exc:
                 log.error("local_search_failed", error=str(exc))
+                # Reuse already-queried context data for graceful degradation
+                entities = self._extract_entities_from_context(context) if context else []
                 return SearchResult(
                     query=query,
                     answer=f"Search failed: {exc!s}",
-                    context_tokens=0,
-                    confidence=0.0,
-                    metadata={"error": str(exc)},
+                    context_tokens=context.total_tokens if context else 0,
+                    sources=sources,
+                    entities=entities,
+                    confidence=self._estimate_confidence(context) if context else 0.0,
+                    metadata={
+                        "error": str(exc),
+                        "search_type": SearchMode.LOCAL.value,
+                        "llm_used": False,
+                        "hybrid_used": self._hybrid_engine is not None,
+                        "degraded": True,
+                    },
                 )
         finally:
             elapsed = time.monotonic() - start

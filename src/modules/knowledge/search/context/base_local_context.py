@@ -171,15 +171,72 @@ class BaseLocalContextBuilder(ContextBuilder):
     ) -> SearchContext:
         """Handle the case when no entities are found.
 
-        Default behavior: add a message and return.
-        LadybugDB overrides to try text-based article search.
+        Default behavior: try relational DB text search as fallback.
+        LadybugDB overrides to also try graph-based Article node search first.
         """
         context.add_content(
-            name="No Entities Found",
-            content="No relevant entities found for the query.",
+            name="Search Note",
+            content=f"No direct entity matches found for '{query}'. Attempting to find related content...",
             priority=0,
         )
+
+        # Fallback: search articles in relational DB (DuckDB/PostgreSQL)
+        articles = await self._search_articles_in_relational_db(query)
+        if articles:
+            article_content = self.format_articles_section(articles)
+            context.add_content(
+                name="Related Articles",
+                content=article_content,
+                priority=50,
+                metadata={"article_count": len(articles)},
+            )
+        else:
+            context.add_content(
+                name="No Entities Found",
+                content="No relevant entities or articles found for the query.",
+                priority=0,
+            )
         return context
+
+    async def _search_articles_in_relational_db(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search articles in relational DB (DuckDB/PostgreSQL) by text.
+
+        This is a fallback when graph-based search returns no results.
+        Uses ArticleRepo.search_by_text if available.
+
+        Args:
+            query: Search query string.
+            limit: Maximum number of results.
+
+        Returns:
+            List of article dicts.
+        """
+        repo = getattr(self, "_article_repo", None)
+        if not repo or not query.strip():
+            return []
+
+        try:
+            # Use search_by_text if available (added in ArticleRepo)
+            if hasattr(repo, "search_by_text"):
+                articles = await repo.search_by_text(query, limit=limit)
+                if articles:
+                    log.info(
+                        "relational_text_search_found",
+                        count=len(articles),
+                        query=query,
+                    )
+                return articles
+        except Exception as exc:
+            log.warning(
+                "relational_text_search_failed",
+                error=str(exc),
+                query=query,
+            )
+        return []
 
     # ── Abstract methods (must implement in subclasses) ─────────────────
 
