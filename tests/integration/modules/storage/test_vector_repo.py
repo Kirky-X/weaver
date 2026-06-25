@@ -67,22 +67,28 @@ class TestVectorRepoIntegration:
         vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
-        # Create test article
+        # Create test article (split across base tables — `articles` is a VIEW)
         async with pool.session_context() as session:
             await session.execute(
-                text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
-                """),
+                text("""INSERT INTO articles_core (id, source_url, title, is_merged)
+                        VALUES (:id, :url, :title, :is_merged)"""),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{article_id}",
-                    "is_news": True,
                     "title": "Test Article",
-                    "body": "Test body content",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_bodies (article_id, body) VALUES (:article_id, :body)"""
+                ),
+                {"article_id": article_id, "body": "Test body content"},
+            )
+            await session.execute(
+                text("""INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                        VALUES (:article_id, :is_news, :verified_by)"""),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -96,10 +102,10 @@ class TestVectorRepoIntegration:
                 model_id="text-embedding-3-large",
             )
         finally:
-            # Cleanup
+            # Cleanup (cascades to article_bodies/article_analysis via FK)
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE id = :id"),
+                    text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
 
@@ -111,22 +117,28 @@ class TestVectorRepoIntegration:
         vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
-        # Create test article
+        # Create test article (split across base tables — `articles` is a VIEW)
         async with pool.session_context() as session:
             await session.execute(
-                text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
-                """),
+                text("""INSERT INTO articles_core (id, source_url, title, is_merged)
+                        VALUES (:id, :url, :title, :is_merged)"""),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{article_id}",
-                    "is_news": True,
                     "title": "Test Article",
-                    "body": "Test body content",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_bodies (article_id, body) VALUES (:article_id, :body)"""
+                ),
+                {"article_id": article_id, "body": "Test body content"},
+            )
+            await session.execute(
+                text("""INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                        VALUES (:article_id, :is_news, :verified_by)"""),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -145,9 +157,9 @@ class TestVectorRepoIntegration:
             )
             assert isinstance(results, list)
         finally:
-            # Cleanup
+            # Cleanup (cascades to article_bodies/article_analysis via FK)
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE id = :id"),
+                    text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )

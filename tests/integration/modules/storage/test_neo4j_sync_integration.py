@@ -388,6 +388,6 @@ class TestRetryNeo4jWritesWithPendingSync:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles_core_core WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )

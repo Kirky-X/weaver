@@ -82,10 +82,10 @@ class TestLiveConfigInitialization:
         assert live._current is not None
         # LLMSettings has circuit_breaker_threshold as a top-level field (not global_settings)
         # Note: LLMSettings uses hardcoded path config/llm.toml, so providers
-        # will be from actual project config (aiping, dmx, ollama), not temp file
+        # will be from actual project config (agnes, ollama), not temp file
         assert live._current.circuit_breaker_threshold == 5
         # Verify actual providers are loaded
-        assert "aiping" in live._current.providers or "dmx" in live._current.providers
+        assert "agnes" in live._current.providers or "ollama" in live._current.providers
 
     def test_raises_on_invalid_config(self, invalid_config_file):
         """LiveConfig raises on invalid TOML during init."""

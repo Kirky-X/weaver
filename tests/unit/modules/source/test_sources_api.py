@@ -192,6 +192,17 @@ class TestSourcesEndpoint:
         mock_scheduler._registry = MagicMock()
         mock_scheduler._registry.add_source = MagicMock()
 
+        # Mock fetcher returns valid RSS feed content
+        valid_rss = (
+            '<?xml version="1.0"?>'
+            '<rss version="2.0"><channel>'
+            "<title>Test Feed</title>"
+            "<item><title>Entry 1</title><link>https://new.com/1</link></item>"
+            "</channel></rss>"
+        )
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, valid_rss, {}))
+
         request = SourceCreateRequest(
             id="new-source",
             name="New Source",
@@ -205,10 +216,12 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
             scheduler=mock_scheduler,
+            fetcher=mock_fetcher,
         )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
         mock_scheduler._registry.add_source.assert_called_once_with(new_config)
+        mock_fetcher.fetch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
@@ -225,6 +238,8 @@ class TestSourcesEndpoint:
             )
         )
 
+        mock_fetcher = AsyncMock()
+
         request = SourceCreateRequest(
             id="existing-source",
             name="Existing",
@@ -236,8 +251,11 @@ class TestSourcesEndpoint:
                 request=request,
                 _="test-key",
                 repo=mock_repo,
+                fetcher=mock_fetcher,
             )
         assert exc_info.value.status_code == 409
+        # Fetcher should not be called when source already exists
+        mock_fetcher.fetch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_source_endpoint_success(self):
@@ -334,3 +352,226 @@ class TestSourcesEndpoint:
 
     # NOTE: _source_config_repo module-level variable removed in favor of Endpoints class
     # The get_source_config_repo function now uses api.dependencies.get_source_config_repo()
+
+
+# Valid RSS feed content for tests
+_VALID_RSS = (
+    '<?xml version="1.0"?>'
+    '<rss version="2.0"><channel>'
+    "<title>Test Feed</title>"
+    "<item><title>Entry 1</title><link>https://example.com/1</link></item>"
+    "<item><title>Entry 2</title><link>https://example.com/2</link></item>"
+    "</channel></rss>"
+)
+
+_EMPTY_RSS = (
+    '<?xml version="1.0"?>'
+    '<rss version="2.0"><channel>'
+    "<title>Empty Feed</title>"
+    "</channel></rss>"
+)
+
+_MALFORMED_XML = "<rss><channel><title>Broken"
+
+
+class TestFeedValidation:
+    """Tests for _validate_feed_reachable function."""
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_success(self):
+        """Test feed validation passes for valid RSS with entries."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, _VALID_RSS, {}))
+
+        # Should not raise
+        await _validate_feed_reachable(
+            url="https://example.com/feed.xml",
+            fetcher=mock_fetcher,
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_unreachable_url(self):
+        """Test feed validation fails when URL is not reachable."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(side_effect=ConnectionError("DNS resolution failed"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://nonexistent.example.com/feed.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "not reachable" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_non_200_status(self):
+        """Test feed validation fails for non-200 HTTP status."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(404, "Not Found", {}))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://example.com/missing.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "404" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_empty_content(self):
+        """Test feed validation fails for empty response content."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, "", {}))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://example.com/empty.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "empty" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_no_entries(self):
+        """Test feed validation fails for RSS with no entries."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, _EMPTY_RSS, {}))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://example.com/empty-feed.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "no entries" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_malformed_xml(self):
+        """Test feed validation fails for malformed XML."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, _MALFORMED_XML, {}))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://example.com/broken.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "valid RSS/Atom" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_validate_feed_reachable_timeout(self):
+        """Test feed validation fails on timeout."""
+        from api.endpoints.content.sources import _validate_feed_reachable
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(side_effect=TimeoutError())
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_feed_reachable(
+                url="https://slow.example.com/feed.xml",
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        assert "timed out" in exc_info.value.detail.lower()
+
+
+class TestCreateSourceWithValidation:
+    """Tests for create_source endpoint with feed validation integration."""
+
+    @pytest.mark.asyncio
+    async def test_create_source_rejects_unreachable_feed(self):
+        """Test POST /sources returns 422 for unreachable feed URL."""
+        from api.endpoints.content.sources import SourceCreateRequest, create_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(side_effect=ConnectionError("Connection refused"))
+
+        request = SourceCreateRequest(
+            id="bad-source",
+            name="Bad Source",
+            url="https://unreachable.example.com/feed.xml",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_source(
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+                scheduler=MagicMock(),
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        # Source should not be persisted
+        mock_repo.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_source_rejects_feed_with_no_entries(self):
+        """Test POST /sources returns 422 for feed with no entries."""
+        from api.endpoints.content.sources import SourceCreateRequest, create_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, _EMPTY_RSS, {}))
+
+        request = SourceCreateRequest(
+            id="empty-feed",
+            name="Empty Feed",
+            url="https://example.com/empty.xml",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_source(
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+                scheduler=MagicMock(),
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        mock_repo.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_source_rejects_non_200_feed(self):
+        """Test POST /sources returns 422 for feed returning HTTP 404."""
+        from api.endpoints.content.sources import SourceCreateRequest, create_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(404, "Not Found", {}))
+
+        request = SourceCreateRequest(
+            id="missing-feed",
+            name="Missing Feed",
+            url="https://example.com/missing.xml",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_source(
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+                scheduler=MagicMock(),
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        mock_repo.upsert.assert_not_called()

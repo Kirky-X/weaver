@@ -4,7 +4,6 @@
 Test 5.2: When a TTLCache hit occurs in LLMClient.chat(), _emit_usage_event is NOT called.
 """
 
-import hashlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -56,14 +55,6 @@ def _make_client():
     )
 
 
-def _cache_key(payload: dict, call_point: str = "classifier") -> str:
-    """Compute cache key the same way LLMClient.call does."""
-    return (
-        f"cache:llm:{call_point}:"
-        f"{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
-    )
-
-
 @pytest.mark.asyncio
 class TestTTLCacheHitNoEvent:
     """Verify that TTLCache hits do NOT emit usage events."""
@@ -72,7 +63,7 @@ class TestTTLCacheHitNoEvent:
         """When TTLCache has the key, _emit_usage_event must NOT be called."""
         client = _make_client()
         payload = {"key": "value"}
-        key = _cache_key(payload)
+        key = client._build_cache_key("classifier", payload)
 
         client._response_cache[key] = {
             "content": "cached response",
@@ -94,7 +85,7 @@ class TestTTLCacheHitNoEvent:
         """TTLCache hit should bypass pool.execute entirely."""
         client = _make_client()
         payload = {"key": "value"}
-        key = _cache_key(payload)
+        key = client._build_cache_key("classifier", payload)
 
         client._response_cache[key] = {
             "content": "from cache",
@@ -116,7 +107,7 @@ class TestTTLCacheHitNoEvent:
         """TTLCache hit should increment _cache_hits counter."""
         client = _make_client()
         payload = {"key": "value"}
-        key = _cache_key(payload)
+        key = client._build_cache_key("classifier", payload)
 
         client._response_cache[key] = {
             "content": "cached",

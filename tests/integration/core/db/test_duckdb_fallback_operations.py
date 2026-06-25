@@ -292,14 +292,17 @@ class TestDuckDBArticleRepoStatusOperations:
 
             async with duckdb_pool.session_context() as session:
                 result = await session.execute(
-                    text(
-                        "SELECT persist_status, processing_error FROM articles_core WHERE id = :id"
-                    ),
+                    text("SELECT persist_status FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
-                row = result.fetchone()
-                assert row.persist_status == "failed"
-                assert row.processing_error == "DuckDB test failure"
+                assert result.scalar() == "failed"
+
+            async with duckdb_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT processing_error FROM article_processing WHERE article_id = :id"),
+                    {"id": article_id},
+                )
+                assert result.scalar() == "DuckDB test failure"
         finally:
             await _delete_article_direct(duckdb_pool, article_id)
 
@@ -320,14 +323,17 @@ class TestDuckDBArticleRepoStatusOperations:
 
             async with duckdb_pool.session_context() as session:
                 result = await session.execute(
-                    text(
-                        "SELECT persist_status, processing_stage FROM articles_core WHERE id = :id"
-                    ),
+                    text("SELECT persist_status FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
-                row = result.fetchone()
-                assert row.persist_status == "processing"
-                assert row.processing_stage == "nlp"
+                assert result.scalar() == "processing"
+
+            async with duckdb_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT processing_stage FROM article_processing WHERE article_id = :id"),
+                    {"id": article_id},
+                )
+                assert result.scalar() == "nlp"
         finally:
             await _delete_article_direct(duckdb_pool, article_id)
 
@@ -348,7 +354,7 @@ class TestDuckDBArticleRepoStatusOperations:
 
             async with duckdb_pool.session_context() as session:
                 result = await session.execute(
-                    text("SELECT processing_stage FROM articles_core WHERE id = :id"),
+                    text("SELECT processing_stage FROM article_processing WHERE article_id = :id"),
                     {"id": article_id},
                 )
                 stage = result.scalar()
@@ -441,7 +447,9 @@ class TestDuckDBArticleRepoStatusOperations:
             for aid in ids:
                 async with duckdb_pool.session_context() as session:
                     result = await session.execute(
-                        text("SELECT processing_stage FROM articles_core WHERE id = :id"),
+                        text(
+                            "SELECT processing_stage FROM article_processing WHERE article_id = :id"
+                        ),
                         {"id": aid},
                     )
                     assert result.scalar() == "embedding"

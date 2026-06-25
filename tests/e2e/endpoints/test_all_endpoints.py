@@ -32,7 +32,7 @@ VALIDATOR = DataValidator(data_dir="data")
 
 # Test configuration - load from test_env.env like conftest.py
 # This ensures consistent API key across all E2E tests
-E2E_ENV_FILE = Path(__file__).parent / "test_env.env"
+E2E_ENV_FILE = Path(__file__).parent.parent / "test_env.env"
 
 
 def _load_api_key() -> str:
@@ -490,9 +490,9 @@ class TestPipelineEndpoints:
         assert response.status_code == 200
 
     def test_trigger_pipeline_no_auth(self, client):
-        """Test POST /api/v1/admin/pipeline/trigger without auth."""
+        """Test POST /api/v1/pipeline/trigger without auth."""
         response = make_request(
-            client, "POST", "/api/v1/admin/pipeline/trigger", "pipeline", "trigger_no_auth"
+            client, "POST", "/api/v1/pipeline/trigger", "pipeline", "trigger_no_auth"
         )
         assert response.status_code == 401
 

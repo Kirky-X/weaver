@@ -162,9 +162,10 @@ class TestBuildContext:
         context = await builder.build(query="nonexistent query xyz")
 
         assert isinstance(context, SearchContext)
-        assert len(context.sections) == 1
+        assert len(context.sections) == 2
         assert context.sections[0].name == "Search Note"
         assert "No direct entity matches" in context.sections[0].content
+        assert context.sections[1].name == "No Entities Found"
 
     @pytest.mark.asyncio
     async def test_should_handle_empty_entity_names_list(self, mock_pool) -> None:
@@ -173,8 +174,9 @@ class TestBuildContext:
         context = await builder.build(query="test", entity_names=[])
 
         assert isinstance(context, SearchContext)
-        assert len(context.sections) == 1
+        assert len(context.sections) == 2
         assert context.sections[0].name == "Search Note"
+        assert context.sections[1].name == "No Entities Found"
 
     @pytest.mark.asyncio
     async def test_should_handle_custom_max_tokens(self, mock_pool) -> None:
@@ -260,9 +262,10 @@ class TestBuildContext:
         context = await builder.build(query="test")
 
         assert isinstance(context, SearchContext)
-        # When query fails, should return "Search Note"
-        assert len(context.sections) == 1
+        # When query fails, should return "Search Note" + "No Entities Found"
+        assert len(context.sections) == 2
         assert context.sections[0].name == "Search Note"
+        assert context.sections[1].name == "No Entities Found"
 
     @pytest.mark.asyncio
     async def test_should_skip_sections_when_empty(self, mock_pool) -> None:

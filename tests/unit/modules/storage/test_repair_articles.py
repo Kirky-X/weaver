@@ -15,7 +15,7 @@ def _mock_settings() -> MagicMock:
     settings.pipeline.phase1.concurrency = 5
     settings.pipeline.phase3.concurrency = 5
     settings.spacy.zh_model_path = "zh_core_web_sm"
-    settings.spacy.en_model_path = "en_core_web_sm"
+    settings.spacy.en_model_path = "en_core_web_lg"
     return settings
 
 
@@ -241,7 +241,7 @@ class TestInitMinimalContainer:
                             settings_mock.prompt.dir = "/prompts"
                             settings_mock.llm = MagicMock()
                             settings_mock.spacy.zh_model_path = "zh_core_web_sm"
-                            settings_mock.spacy.en_model_path = "en_core_web_sm"
+                            settings_mock.spacy.en_model_path = "en_core_web_lg"
                             mock_settings.return_value = settings_mock
                             mock_pg.return_value.startup = AsyncMock()
                             mock_redis.return_value.startup = AsyncMock()

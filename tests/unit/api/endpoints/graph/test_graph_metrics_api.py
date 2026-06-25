@@ -117,33 +117,34 @@ class TestGraphMetricsEndpoint:
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph.graph_metrics.get_cache_client", return_value=None):
-            with patch(
-                "api.endpoints.graph.graph_metrics.GraphQualityMetrics"
-            ) as mock_metrics_class:
-                from datetime import UTC, datetime
+        with patch("api.endpoints.graph.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
+            from datetime import UTC, datetime
 
-                mock_metrics = AsyncMock()
-                mock_result = MagicMock()
-                mock_result.total_entities = 1000
-                mock_result.total_articles = 500
-                mock_result.total_relationships = 5000
-                mock_result.total_mentions = 3000
-                mock_result.connected_components = 10
-                mock_result.largest_component_size = 950
-                mock_result.average_degree = 5.0
-                mock_result.modularity_score = 0.75
-                mock_result.orphan_entities = 50
-                mock_result.high_degree_entities = []
-                mock_result.entity_type_distribution = {}
-                mock_result.relationship_type_distribution = {}
-                mock_result.computed_at = datetime.now(UTC)
-                mock_metrics.calculate_all_metrics = AsyncMock(return_value=mock_result)
-                mock_metrics_class.return_value = mock_metrics
+            mock_metrics = AsyncMock()
+            mock_result = MagicMock()
+            mock_result.total_entities = 1000
+            mock_result.total_articles = 500
+            mock_result.total_relationships = 5000
+            mock_result.total_mentions = 3000
+            mock_result.connected_components = 10
+            mock_result.largest_component_size = 950
+            mock_result.average_degree = 5.0
+            mock_result.modularity_score = 0.75
+            mock_result.orphan_entities = 50
+            mock_result.high_degree_entities = []
+            mock_result.entity_type_distribution = {}
+            mock_result.relationship_type_distribution = {}
+            mock_result.computed_at = datetime.now(UTC)
+            mock_metrics.calculate_all_metrics = AsyncMock(return_value=mock_result)
+            mock_metrics_class.return_value = mock_metrics
 
-                result = await get_graph_metrics(
-                    view="full", include=None, _="test-key", graph_pool=mock_graph_pool
-                )
+            result = await get_graph_metrics(
+                view="full",
+                include=None,
+                _="test-key",
+                graph_pool=mock_graph_pool,
+                cache=None,
+            )
 
         assert result.data.total_entities == 1000
         assert result.data.total_articles == 500

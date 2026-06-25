@@ -12,6 +12,8 @@ from api.endpoints.health import (
     check_redis_health,
     health_check,
 )
+from container import Container, set_container
+from core.db.strategy import DatabaseStrategy
 
 
 def create_test_app():
@@ -34,14 +36,16 @@ class TestHealthEndpointIntegration:
 
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
-        """Reset global pool references before and after each test."""
+        """Reset global pool references and container before and after each test."""
         Endpoints._relational_pool = None
         Endpoints._graph_pool = None
         Endpoints._cache = None
+        set_container(None)
         yield
         Endpoints._relational_pool = None
         Endpoints._graph_pool = None
         Endpoints._cache = None
+        set_container(None)
 
     @pytest.fixture
     def app(self):
@@ -57,14 +61,20 @@ class TestHealthEndpointIntegration:
         cache_client,
     ):
         """Test health endpoint returns 200 when all services are healthy."""
-        # Set global pools with real connections (using fallback fixtures)
-        rel_pool, _ = relational_pool
-        g_pool, _ = graph_pool
+        # Set global container with real connections (using fallback fixtures)
+        rel_pool, rel_type = relational_pool
+        g_pool, g_type = graph_pool
         cache, _ = cache_client
 
-        Endpoints._relational_pool = rel_pool
-        Endpoints._graph_pool = g_pool
-        Endpoints._cache = cache
+        container = Container()
+        container._strategy = DatabaseStrategy(
+            relational_pool=rel_pool,
+            graph_pool=g_pool,
+            relational_type=rel_type,
+            graph_type=g_type,
+        )
+        container._cache_client = cache
+        set_container(container)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
@@ -103,14 +113,20 @@ class TestHealthEndpointIntegration:
         cache_client,
     ):
         """Test health endpoint response format is correct."""
-        # Set global pools (using fallback fixtures)
-        rel_pool, _ = relational_pool
-        g_pool, _ = graph_pool
+        # Set global container (using fallback fixtures)
+        rel_pool, rel_type = relational_pool
+        g_pool, g_type = graph_pool
         cache, _ = cache_client
 
-        Endpoints._relational_pool = rel_pool
-        Endpoints._graph_pool = g_pool
-        Endpoints._cache = cache
+        container = Container()
+        container._strategy = DatabaseStrategy(
+            relational_pool=rel_pool,
+            graph_pool=g_pool,
+            relational_type=rel_type,
+            graph_type=g_type,
+        )
+        container._cache_client = cache
+        set_container(container)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
@@ -159,14 +175,20 @@ class TestHealthEndpointIntegration:
         """Test health endpoint responds within reasonable time."""
         import time
 
-        # Set global pools (using fallback fixtures)
-        rel_pool, _ = relational_pool
-        g_pool, _ = graph_pool
+        # Set global container (using fallback fixtures)
+        rel_pool, rel_type = relational_pool
+        g_pool, g_type = graph_pool
         cache, _ = cache_client
 
-        Endpoints._relational_pool = rel_pool
-        Endpoints._graph_pool = g_pool
-        Endpoints._cache = cache
+        container = Container()
+        container._strategy = DatabaseStrategy(
+            relational_pool=rel_pool,
+            graph_pool=g_pool,
+            relational_type=rel_type,
+            graph_type=g_type,
+        )
+        container._cache_client = cache
+        set_container(container)
 
         # Measure response time
         start_time = time.time()

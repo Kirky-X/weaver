@@ -305,9 +305,10 @@ class TestCommunityDetectorCalculateModularity:
     def test_calculate_modularity_no_leaf_clusters(self, detector):
         """Test that _calculate_modularity returns 0 when no leaf clusters."""
         edges = [("A", "B", 1.0)]
-        # Clusters with level > 0 (no leaf level)
+        # Clusters with level < 0 are orphans, not leaf clusters.
+        # Leaf clusters are determined by min_level (>= 0).
         clusters = [
-            HierarchicalCluster(node="A", cluster=0, level=1, parent_cluster=None),
+            HierarchicalCluster(node="A", cluster=0, level=-1, parent_cluster=None),
         ]
 
         modularity = detector._calculate_modularity(edges, clusters)

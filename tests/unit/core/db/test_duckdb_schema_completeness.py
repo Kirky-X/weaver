@@ -89,12 +89,13 @@ def _has_table(tables: dict[str, set[str]], name: str) -> bool:
 
 
 class TestArticlesCoreTable:
-    """articles_core must have exactly 25 columns matching the vertical-split model."""
+    """articles_core must have exactly 22 columns matching the vertical-split model."""
 
     EXPECTED_COLUMNS = {
         "id",
         "source_url",
         "source_host",
+        "source_id",
         "title",
         "category",
         "language",

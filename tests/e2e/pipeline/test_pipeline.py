@@ -87,9 +87,9 @@ class TestPipelineEndpoint:
         client: TestClient,  # type: ignore[name-defined]
         admin_headers: dict[str, str],
     ) -> None:
-        """Test that POST /api/v1/admin/pipeline/trigger returns a task_id."""
+        """Test that POST /api/v1/pipeline/trigger returns a task_id."""
         response = client.post(
-            "/api/v1/admin/pipeline/trigger",
+            "/api/v1/pipeline/trigger",
             json={},
             headers=admin_headers,
         )
@@ -108,7 +108,7 @@ class TestPipelineEndpoint:
         """Test that GET /api/v1/pipeline/tasks/{id} shows correct status."""
         # First trigger a task
         trigger_response = client.post(
-            "/api/v1/admin/pipeline/trigger",
+            "/api/v1/pipeline/trigger",
             json={},
             headers=admin_headers,
         )
@@ -148,7 +148,7 @@ class TestPipelineEndpoint:
 
         # Trigger with specific source
         response = client.post(
-            "/api/v1/admin/pipeline/trigger",
+            "/api/v1/pipeline/trigger",
             json={"source_id": unique_source_id},
             headers=admin_headers,
         )
@@ -748,7 +748,7 @@ class TestDataQualityFixValidation:
 
         # Query ArticleProcessing for task_id
         try:
-            placeholders = ", ".join([f"${i+1}" for i in range(len(article_ids))])
+            placeholders = ", ".join([f"${i + 1}" for i in range(len(article_ids))])
             rows = await rel_pool.execute(
                 f"SELECT article_id, task_id FROM article_processing "  # noqa: S608
                 f"WHERE article_id IN ({placeholders})",
@@ -851,7 +851,7 @@ class TestDataQualityFixValidation:
 
         # Query persist_status from DuckDB
         try:
-            placeholders = ", ".join([f"${i+1}" for i in range(len(article_ids))])
+            placeholders = ", ".join([f"${i + 1}" for i in range(len(article_ids))])
             rows = await rel_pool.execute(
                 f"SELECT article_id, persist_status FROM articles "  # noqa: S608
                 f"WHERE id IN ({placeholders})",

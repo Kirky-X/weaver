@@ -488,16 +488,20 @@ async def ladybug_schema_available(graph_pool):
 
 
 @pytest.fixture
-async def llm_client(ollama_models, event_bus):
+async def llm_client(ollama_models, event_bus, prompt_loader):
     """Create a real LLMClient from config/llm.toml for integration tests.
 
     Uses the ollama_models fixture to ensure required models are available.
+    Injects prompt_loader so that call_at can build system_prompt and user_content
+    from configured prompts (required for structured output via output_model).
     """
     from core.llm.client import LLMClient
     from core.llm.config.config import LLMSettings
 
     llm_settings = LLMSettings()
-    client = await LLMClient.create_from_settings(llm_settings, event_bus)
+    client = await LLMClient.create_from_settings(
+        llm_settings, event_bus, prompt_loader=prompt_loader
+    )
     yield client
 
 

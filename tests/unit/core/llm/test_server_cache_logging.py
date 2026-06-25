@@ -16,7 +16,7 @@ from core.llm.types import (
 )
 
 
-def _make_label(provider: str = "deepseek", model: str = "deepseek-chat") -> Label:
+def _make_label(provider: str = "agnes", model: str = "agnes-2.0-flash") -> Label:
     return Label(llm_type=LLMType.CHAT, provider=provider, model=model)
 
 
@@ -25,9 +25,9 @@ def _make_client():
 
     providers = [
         ProviderConfig(
-            name="deepseek",
+            name="agnes",
             type="openai",
-            base_url="https://api.deepseek.com/v1",
+            base_url="https://apihub.agnes-ai.com/v1",
             api_key="test-key",
             rpm_limit=100,
             concurrency=5,
@@ -56,8 +56,8 @@ def _make_response(
     content: str = "response",
     cache_hit: int = 0,
     cache_miss: int = 0,
-    provider: str = "deepseek",
-    model: str = "deepseek-chat",
+    provider: str = "agnes",
+    model: str = "agnes-2.0-flash",
 ) -> LLMResponse:
     cache_usage = None
     if cache_hit > 0 or cache_miss > 0:
@@ -76,19 +76,19 @@ def _make_response(
 class TestServerCacheInfoLogging:
     """Tests that LLMClient.call() logs server cache info on cache miss."""
 
-    async def test_deepseek_cache_miss_logs_server_cache_info(self) -> None:
-        """DeepSeek 调用后 cache miss 日志包含 server_cache_hit 字段."""
+    async def test_agnes_cache_miss_logs_server_cache_info(self) -> None:
+        """Agnes 调用后 cache miss 日志包含 server_cache_hit 字段."""
         client = _make_client()
         payload = {"key": "value"}
 
         mock_response = _make_response(
-            content="deepseek response",
+            content="agnes response",
             cache_hit=500,
             cache_miss=200,
         )
 
         with patch.object(
-            client._pools["deepseek"],
+            client._pools["agnes"],
             "execute",
             new_callable=AsyncMock,
             return_value=mock_response,
@@ -96,7 +96,7 @@ class TestServerCacheInfoLogging:
             with patch.object(type(client), "_emit_usage_event", AsyncMock()):
                 with patch("core.llm.client.log") as mock_log:
                     await client.call(
-                        "chat.deepseek.deepseek-chat",
+                        "chat.agnes.agnes-2.0-flash",
                         payload,
                         call_point="classifier",
                     )
@@ -127,11 +127,11 @@ class TestServerCacheInfoLogging:
             content="ollama response",
             cache_hit=0,
             cache_miss=0,
-            provider="deepseek",  # 使用已配置的 provider
+            provider="agnes",  # 使用已配置的 provider
         )
 
         with patch.object(
-            client._pools["deepseek"],
+            client._pools["agnes"],
             "execute",
             new_callable=AsyncMock,
             return_value=mock_response,
@@ -139,7 +139,7 @@ class TestServerCacheInfoLogging:
             with patch.object(type(client), "_emit_usage_event", AsyncMock()):
                 with patch("core.llm.client.log") as mock_log:
                     await client.call(
-                        "chat.deepseek.deepseek-chat",
+                        "chat.agnes.agnes-2.0-flash",
                         payload,
                         call_point="classifier",
                     )
@@ -163,14 +163,8 @@ class TestServerCacheInfoLogging:
         client = _make_client()
         payload = {"key": "value"}
 
-        # 预填充缓存
-        import hashlib
-        import json
-
-        cache_key = (
-            f"cache:llm:classifier:"
-            f"{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
-        )
+        # 预填充缓存（使用生产代码的缓存键生成方法，确保灰度开关兼容）
+        cache_key = client._build_cache_key("classifier", payload)
         client._response_cache[cache_key] = {
             "content": "cached",
             "token_usage": TokenUsage(),
@@ -179,7 +173,7 @@ class TestServerCacheInfoLogging:
         with patch.object(type(client), "_emit_usage_event", AsyncMock()):
             with patch("core.llm.client.log") as mock_log:
                 await client.call(
-                    "chat.deepseek.deepseek-chat",
+                    "chat.agnes.agnes-2.0-flash",
                     payload,
                     call_point="classifier",
                 )

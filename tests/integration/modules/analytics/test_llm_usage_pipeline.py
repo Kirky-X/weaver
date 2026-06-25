@@ -395,18 +395,26 @@ class TestLLMUsageAPIEndpoints:
     def app(self, relational_pool):
         """Create FastAPI app with LLM usage endpoints using real repo."""
         from api.endpoints import admin
-        from api.endpoints.deps_registry import Endpoints
         from api.middleware.auth import verify_api_key
+        from container import Container, set_container
 
-        # Set real repo
+        # Register a real container with the LLM usage repo so that
+        # ``get_llm_usage_repo()`` (which goes through ``get_container()``)
+        # resolves to the repo backed by the test relational pool.
         pool, _ = relational_pool
-        Endpoints._llm_usage_repo = LLMUsageRepo(pool)
+        container = Container()
+        container._llm_usage_repo = LLMUsageRepo(pool)
+        set_container(container)
 
-        app = FastAPI()
-        # Override auth dependency
-        app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
-        app.include_router(admin.router)
-        return app
+        try:
+            app = FastAPI()
+            # Override auth dependency
+            app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
+            app.include_router(admin.router)
+            yield app
+        finally:
+            # Clean up global container to avoid leaking state into other tests
+            set_container(None)
 
     @pytest.mark.asyncio
     async def test_get_llm_usage_endpoint(self, app):

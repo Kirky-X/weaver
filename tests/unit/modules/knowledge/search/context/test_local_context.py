@@ -27,8 +27,9 @@ class TestLocalContextBuilderBuild:
         builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("unknown entity")
 
-        assert len(ctx.sections) == 1
-        assert ctx.sections[0].name == "No Entities Found"
+        assert len(ctx.sections) == 2
+        assert ctx.sections[0].name == "Search Note"
+        assert ctx.sections[1].name == "No Entities Found"
 
     @pytest.mark.asyncio
     async def test_build_with_provided_entity_names(self) -> None:

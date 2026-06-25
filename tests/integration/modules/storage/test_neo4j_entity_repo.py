@@ -76,8 +76,8 @@ class TestEntityRepositoryIntegration:
             result = await entity_repo.find_entity(entity_name, "人物")
 
             assert result is not None
-            assert result["canonical_name"] == entity_name
-            assert result["type"] == "人物"
+            assert result.canonical_name == entity_name
+            assert result.type == "人物"
         finally:
             # Cleanup
             await pool.execute_query(
@@ -107,8 +107,8 @@ class TestEntityRepositoryIntegration:
             result = await entity_repo.find_entity_by_id(entity_id)
 
             assert result is not None
-            assert result["neo4j_id"] == entity_id
-            assert result["canonical_name"] == entity_name
+            assert result.id == entity_id
+            assert result.canonical_name == entity_name
         finally:
             # Cleanup
             await pool.execute_query(
@@ -146,7 +146,7 @@ class TestEntityRepositoryIntegration:
             # Verify alias was added - only for Neo4j, LadybugDB doesn't support arrays
             if db_type == "neo4j":
                 entity = await entity_repo.find_entity(entity_name, "人物")
-                assert "TestAlias" in entity["aliases"]
+                assert "TestAlias" in entity.aliases
         finally:
             # Cleanup
             await pool.execute_query(

@@ -360,3 +360,201 @@ class TestCrawlerConcurrency:
             results = await crawler.crawl_batch(items)
 
         assert len(results) == 5
+
+
+class TestExtractTitleFromHtml:
+    """Tests for _extract_title_from_html helper function."""
+
+    def test_extract_from_og_title_meta(self):
+        """Test extracting title from <meta property="og:title"> tag."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = (
+            '<html><head><meta property="og:title" content="Article Title from OG">'
+            "</head><body></body></html>"
+        )
+        assert _extract_title_from_html(html) == "Article Title from OG"
+
+    def test_extract_from_og_title_reversed_attr_order(self):
+        """Test extracting title when content comes before property attribute."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = (
+            '<html><head><meta content="Reversed Attr Title" property="og:title">'
+            "</head><body></body></html>"
+        )
+        assert _extract_title_from_html(html) == "Reversed Attr Title"
+
+    def test_extract_from_title_tag(self):
+        """Test extracting title from <title> tag when og:title absent."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = "<html><head><title>Page Title Tag</title></head><body></body></html>"
+        assert _extract_title_from_html(html) == "Page Title Tag"
+
+    def test_og_title_preferred_over_title_tag(self):
+        """Test that og:title is preferred over <title> tag."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = (
+            '<html><head><meta property="og:title" content="OG Title">'
+            "<title>Title Tag Content</title></head><body></body></html>"
+        )
+        assert _extract_title_from_html(html) == "OG Title"
+
+    def test_extract_from_ithome_html(self):
+        """Test extracting title from IT之家-style HTML."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = (
+            "<html><head>"
+            '<meta property="og:title" content="开源多媒体框架 FFmpeg 被曝高危漏洞" />'
+            "<title>开源多媒体框架 FFmpeg 被曝高危漏洞 - IT之家</title>"
+            "</head><body></body></html>"
+        )
+        result = _extract_title_from_html(html)
+        assert result is not None
+        assert "FFmpeg" in result
+
+    def test_extract_from_solidot_html(self):
+        """Test extracting title from Solidot-style HTML."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = (
+            "<html><head>"
+            "<title>奇客Solidot | 高温干旱高 CO2 下大豆蛋白质含量会下降</title>"
+            "</head><body></body></html>"
+        )
+        result = _extract_title_from_html(html)
+        assert result is not None
+        assert "Solidot" in result
+
+    def test_returns_none_when_no_title(self):
+        """Test returns None when no title tags found."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = "<html><head></head><body>No title here</body></html>"
+        assert _extract_title_from_html(html) is None
+
+    def test_returns_none_for_empty_title(self):
+        """Test returns None when title tag is empty."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = "<html><head><title>   </title></head><body></body></html>"
+        assert _extract_title_from_html(html) is None
+
+    def test_strips_whitespace(self):
+        """Test that extracted title is stripped of whitespace."""
+        from modules.ingestion.crawling.crawler import _extract_title_from_html
+
+        html = "<html><head><title>  Spaced Title  </title></head><body></body></html>"
+        assert _extract_title_from_html(html) == "Spaced Title"
+
+
+class TestCrawlerTitleExtraction:
+    """Tests for title extraction fallback in crawl_batch."""
+
+    @pytest.mark.asyncio
+    async def test_title_extraction_fallback_when_trafilatura_fails(self, mock_fetcher):
+        """Test that HTML <title> tag is used when trafilatura returns None."""
+        from modules.ingestion.crawling.crawler import Crawler
+
+        # HTML with <title> tag but trafilatura will return title=None
+        html_with_title = (
+            "<html><head>"
+            '<meta property="og:title" content="FFmpeg 漏洞报告">'
+            "<title>FFmpeg 漏洞报告 - IT之家</title>"
+            "</head><body>Article content here.</body></html>"
+        )
+        mock_fetcher.fetch = AsyncMock(return_value=(200, html_with_title, {}))
+
+        # Item without title (simulates direct URL processing without RSS)
+        item = NewsItem(
+            url="https://www.ithome.com/0/123/456.htm",
+            title="",  # Empty title - simulates no RSS title
+            source="test",
+            publish_time=datetime.now(UTC),
+        )
+
+        # Mock trafilatura: extract returns body, bare_extraction returns title=None
+        mock_doc = MagicMock()
+        mock_doc.title = None  # trafilatura fails to extract title
+        with (
+            patch(
+                "modules.ingestion.crawling.crawler.trafilatura.extract",
+                return_value=LONG_CONTENT,
+            ),
+            patch(
+                "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+                return_value=mock_doc,
+            ),
+        ):
+            crawler = Crawler(smart_fetcher=mock_fetcher)
+            results = await crawler.crawl_batch([item])
+
+        assert len(results) == 1
+        result = results[0]
+        assert isinstance(result, RawArticle)
+        # Title should be extracted from og:title meta tag
+        assert result.title == "FFmpeg 漏洞报告"
+
+    @pytest.mark.asyncio
+    async def test_title_extraction_uses_rss_title_when_available(self, mock_fetcher):
+        """Test that RSS-provided title is used without HTML extraction."""
+        from modules.ingestion.crawling.crawler import Crawler
+
+        mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
+
+        item = NewsItem(
+            url="https://example.com/article",
+            title="RSS Provided Title",
+            source="test",
+            publish_time=datetime.now(UTC),
+        )
+
+        with patch(
+            "modules.ingestion.crawling.crawler.trafilatura.extract",
+            return_value=LONG_CONTENT,
+        ):
+            crawler = Crawler(smart_fetcher=mock_fetcher)
+            results = await crawler.crawl_batch([item])
+
+        assert len(results) == 1
+        assert results[0].title == "RSS Provided Title"
+
+    @pytest.mark.asyncio
+    async def test_title_extraction_fallback_to_title_tag(self, mock_fetcher):
+        """Test fallback to <title> tag when og:title is absent."""
+        from modules.ingestion.crawling.crawler import Crawler
+
+        html_with_title_tag = (
+            "<html><head>"
+            "<title>Solidot 文章标题</title>"
+            "</head><body>Article content.</body></html>"
+        )
+        mock_fetcher.fetch = AsyncMock(return_value=(200, html_with_title_tag, {}))
+
+        item = NewsItem(
+            url="https://www.solidot.org/story/123",
+            title="",
+            source="test",
+            publish_time=datetime.now(UTC),
+        )
+
+        mock_doc = MagicMock()
+        mock_doc.title = None
+        with (
+            patch(
+                "modules.ingestion.crawling.crawler.trafilatura.extract",
+                return_value=LONG_CONTENT,
+            ),
+            patch(
+                "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+                return_value=mock_doc,
+            ),
+        ):
+            crawler = Crawler(smart_fetcher=mock_fetcher)
+            results = await crawler.crawl_batch([item])
+
+        assert len(results) == 1
+        assert results[0].title == "Solidot 文章标题"
