@@ -16,7 +16,7 @@ MODEL_MAP = {
     # - trf model requires spacy-transformers + PyTorch/TensorFlow
     # - lg model provides better NER accuracy for production use
     "zh": ["zh_core_web_lg", "zh_core_web_trf"],
-    "en": ["en_core_web_sm", "en_core_web_trf"],
+    "en": ["en_core_web_lg", "en_core_web_trf"],
     "default": ["xx_ent_wiki_sm"],
 }
 

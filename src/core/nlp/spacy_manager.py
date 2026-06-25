@@ -28,7 +28,7 @@ class SpacyModelConfig:
 
     force_install: bool = False
     strict_mode: bool = True
-    models: list[str] = field(default_factory=lambda: ["zh_core_web_lg", "en_core_web_sm"])
+    models: list[str] = field(default_factory=lambda: ["zh_core_web_lg", "en_core_web_lg"])
     local_paths: dict[str, str] = field(default_factory=dict)
 
 
