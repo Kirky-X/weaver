@@ -6,6 +6,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -347,8 +349,8 @@ class TemporalSearchRequest(BaseModel):
     query: str
     """The temporal reasoning query (e.g., 'When did X happen?')."""
 
-    time_window_days: int = 7
-    """Time window in days for temporal filtering."""
+    time_range: str = "7d"
+    """Time range for temporal filtering. Format: '<N><unit>' where unit is d/h/m (e.g., '7d', '24h', '30m')."""
 
     limit: int = 10
     """Maximum number of events to return."""
@@ -434,6 +436,15 @@ async def search_causal(
             timeout=60.0,
         )
 
+        # D5 / Task 5.1: pull traversal metadata from engine.last_metadata
+        # (populated by _beam_search → _prefetch_neighbors via Task 3.5).
+        # causal_edges_traversed counts neighbors reached via CAUSES/ENABLES
+        # edges (0 when graph DB has no CAUSAL edges — Q1 finding).
+        # degraded is set when score_range == 0 with >=2 results (D3 fix).
+        engine_metadata = engine.last_metadata
+        causal_edges_traversed = int(engine_metadata.get("causal_edges_traversed", 0))
+        degraded = bool(engine_metadata.get("degraded", False))
+
         # Build causal chain from results
         causal_chain = [
             CausalChainItem(
@@ -444,13 +455,40 @@ async def search_causal(
             for r in results
         ]
 
+        # D5 / Task 5.2-5.4: answer text reflects actual traversal path,
+        # NOT a hardcoded "found N causal chains" lie. Three branches:
+        # - causal_edges_traversed > 0: real causal chain traversal
+        # - == 0 and results non-empty: only semantic anchors, no causal edge
+        # - empty results: no anchors at all
+        if not causal_chain:
+            answer = "未找到与查询相关的事件"
+            confidence = 0.0
+        elif causal_edges_traversed > 0:
+            answer = f"找到 {len(causal_chain)} 个事件的因果链（深度 {body.max_depth}）"
+            confidence = sum(r.get("score", 0) for r in results) / max(len(results), 1)
+        else:
+            answer = f"未找到与查询相关的因果链，返回 {len(causal_chain)} 个语义相关事件"
+            confidence = sum(r.get("score", 0) for r in results) / max(len(results), 1)
+
+        # D3 / Task 5.5: when scoring function degraded (all scores identical),
+        # cap confidence at 0.3 to distinguish "no real differentiation" from
+        # "high-confidence result". This prevents confidence=1.0 lies when
+        # every anchor has the same exp(2.0)=7.389 raw score (the bug).
+        if degraded:
+            confidence = min(confidence, 0.3)
+
         return success_response(
             CausalSearchResponse(
                 query=body.query,
-                answer=f"找到 {len(causal_chain)} 个相关事件的因果链。",
+                answer=answer,
                 causal_chain=causal_chain,
-                confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
-                metadata={"depth": body.max_depth},
+                confidence=confidence,
+                # Task 5.6: expose causal_edges_traversed + degraded for callers
+                metadata={
+                    "depth": body.max_depth,
+                    "causal_edges_traversed": causal_edges_traversed,
+                    "degraded": degraded,
+                },
             )
         )
 
@@ -480,23 +518,85 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+_TIME_RANGE_RE = re.compile(r"^(\d+)([dhm])$")
+
+
+def _parse_time_range(time_range: str) -> tuple[int, int]:
+    """Parse time range string like '7d', '24h', '30m' to (start, end) timestamps.
+
+    Args:
+        time_range: Time range string (e.g., "7d", "24h", "30m").
+
+    Returns:
+        Tuple of (start_time, end_time) as INT64 seconds since epoch.
+        end_time is current time; start_time is end_time minus the parsed window.
+
+    Raises:
+        HTTPException: If format is invalid (status 400).
+
+    """
+    match = _TIME_RANGE_RE.match(time_range.strip().lower())
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid time_range format: '{time_range}'. "
+                "Expected format: '<N><unit>' where unit is d/h/m (e.g., '7d', '24h', '30m')."
+            ),
+        )
+
+    value = int(match.group(1))
+    unit = match.group(2)
+
+    if unit == "d":
+        seconds = value * 86400
+    elif unit == "h":
+        seconds = value * 3600
+    else:  # "m"
+        seconds = value * 60
+
+    end_time = int(time.time())
+    start_time = end_time - seconds
+    return start_time, end_time
+
+
+def _is_valid_event_timestamp(ts: Any) -> bool:
+    """Check if event timestamp is valid (not legacy dirty data).
+
+    LadybugDB event_time is INT64 — dirty data has value 0 (from writer bug).
+    Neo4j timestamp is datetime — always valid if not None.
+
+    Returns:
+        True if timestamp is valid, False if dirty (0) or missing.
+
+    """
+    if isinstance(ts, (int, float)):
+        return ts > 0
+    return ts is not None
+
+
 async def _semantic_temporal_search(
     temporal_repo: Any,
     query: str,
     limit: int,
     embedding_service: Any,
+    start_time: int,
+    end_time: int,
 ) -> list[dict[str, Any]]:
     """Semantic search over temporal events using embedding similarity.
 
-    Fetches events via get_temporal_chain, computes content embeddings,
-    and ranks by cosine similarity to the query embedding.
+    Fetches events via get_events_by_timerange (time-window filtered),
+    computes content embeddings, and ranks by cosine similarity to the query embedding.
     """
     query_embedding = await embedding_service.embed(query)
 
     all_events = await asyncio.wait_for(
-        temporal_repo.get_temporal_chain(limit=500),
+        temporal_repo.get_events_by_timerange(start_time=start_time, end_time=end_time, limit=500),
         timeout=30.0,
     )
+
+    # Filter out legacy dirty data (event_time=0 from writer bug)
+    all_events = [e for e in all_events if _is_valid_event_timestamp(e.get("timestamp"))]
 
     if not all_events:
         return []
@@ -553,6 +653,9 @@ async def search_temporal(
     log = get_logger(__name__)
 
     try:
+        # Parse time range string (e.g., "7d", "24h", "30m") to (start, end) timestamps
+        start_time, end_time = _parse_time_range(body.time_range)
+
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
@@ -564,12 +667,22 @@ async def search_temporal(
                 query=body.query,
                 limit=body.limit,
                 embedding_service=embedding_service,
+                start_time=start_time,
+                end_time=end_time,
             )
         else:
             events = await asyncio.wait_for(
-                temporal_repo.search_temporal_events(query=body.query, limit=body.limit),
+                temporal_repo.search_temporal_events(
+                    query=body.query,
+                    limit=body.limit,
+                    start_time=start_time,
+                    end_time=end_time,
+                ),
                 timeout=30.0,
             )
+
+        # Force filter: exclude legacy dirty data (timestamp=0 from writer bug)
+        events = [e for e in events if _is_valid_event_timestamp(e.get("timestamp"))]
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization
         for event in events:
@@ -577,13 +690,12 @@ async def search_temporal(
             if ts is not None and hasattr(ts, "isoformat"):
                 event["timestamp"] = ts.isoformat()
 
-        # Build time range
-        timestamps = [e.get("timestamp") for e in events if e.get("timestamp")]
-        # Convert timestamps to strings for comparison
+        # Build time range (request window, not event min/max)
+        window_days = (end_time - start_time) / 86400.0
         time_range = {
-            "start": min(timestamps) if timestamps else None,
-            "end": max(timestamps) if timestamps else None,
-            "window_days": body.time_window_days,
+            "start": start_time,
+            "end": end_time,
+            "window_days": window_days,
         }
 
         return success_response(

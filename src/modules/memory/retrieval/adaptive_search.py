@@ -21,6 +21,17 @@ from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
 from modules.memory.core.traversal import calculate_transition_score
 
+# D4: intent → preferred edge_type for anchor scoring.
+# Aligns with INTENT_EDGE_WEIGHTS — WHY gets CAUSAL weight 5.0, WHEN gets
+# TEMPORAL weight 5.0, etc. The legacy code hard-coded EdgeType.TEMPORAL,
+# which mismatched INTENT_EDGE_WEIGHTS[WHY][CAUSAL]=5.0 (the bug).
+_INTENT_TO_ANCHOR_EDGE_TYPE: dict[IntentType, EdgeType] = {
+    IntentType.WHY: EdgeType.CAUSAL,
+    IntentType.WHEN: EdgeType.TEMPORAL,
+    IntentType.ENTITY: EdgeType.ENTITY,
+    IntentType.OPEN: EdgeType.SEMANTIC,
+}
+
 if TYPE_CHECKING:
     from core.protocols import KnowledgeCacheProtocol
     from modules.memory.graphs.causal import CausalGraphRepo
@@ -125,11 +136,34 @@ class AdaptiveSearchEngine:
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
         self._event_cache: dict[str, dict[str, Any]] | None = None
+        # D5 / Task 3.5: metadata exposed to endpoint callers via `last_metadata`.
+        # Reset on every search() invocation. Contains `causal_edges_traversed`
+        # (count of neighbors reached via CAUSES/ENABLES edges) and `degraded`
+        # (set when score_range == 0 with >=2 results — D3 normalization fix).
+        self._last_metadata: dict[str, Any] = {
+            "causal_edges_traversed": 0,
+            "degraded": False,
+        }
         self._reranker = BeamSearchReranker(
             beam_width=beam_width,
             decay_factor=decay_factor,
             expansion_weight=1.0 - decay_factor,
         )
+
+    @property
+    def last_metadata(self) -> dict[str, Any]:
+        """Metadata from the most recent search() invocation.
+
+        Exposed per D5 / spec ``search-engine#causal-search-answer-text``.
+        Contains:
+        - ``causal_edges_traversed``: count of neighbors reached via
+          CAUSES/ENABLES edges during beam search (0 when graph DB has no
+          CAUSAL edges — Q1 finding).
+        - ``degraded``: True when score_range == 0 with >=2 results
+          (D3 normalization fix — scoring function failed to differentiate).
+
+        """
+        return self._last_metadata
 
     async def search(
         self,
@@ -148,6 +182,12 @@ class AdaptiveSearchEngine:
             List of relevant events with scores.
         """
         start_time = time.monotonic()
+
+        # Reset metadata for this invocation (D5 / Task 3.5)
+        self._last_metadata = {
+            "causal_edges_traversed": 0,
+            "degraded": False,
+        }
 
         try:
             # Phase 0: Check knowledge cache for similar queries
@@ -215,15 +255,40 @@ class AdaptiveSearchEngine:
             results = [r for r in results if r.get("score", 0) > 1.0]
 
             # Normalize scores to [0, 1] range (MAGMA Eq.5 exp() output is unbounded)
-            # Per search-score-normalization spec: all identical scores → 1.0 (all equivalent max)
+            # D3 / Task 4.1-4.3: when score_range == 0 with >=2 results, the
+            # scoring function FAILED to differentiate (e.g. embedding=None
+            # across all candidates, or all candidates hit the same edge_type).
+            # Old contract (search-score-normalization spec): 1.0 (pretended
+            # perfect match). New contract: 0.0 (signal failure) + `degraded`
+            # flag in result dict + last_metadata. Single result keeps 1.0
+            # (no statistical meaning to "differentiate" a single point).
             if results:
                 scores = [r.get("score", 0) for r in results]
                 min_score = min(scores)
                 max_score = max(scores)
                 score_range = max_score - min_score
-                for r in results:
-                    raw = r.get("score", 0)
-                    r["score"] = 1.0 if score_range == 0 else (raw - min_score) / score_range
+                degraded = score_range == 0 and len(results) >= 2
+                if degraded:
+                    log.warning(
+                        "normalization_degraded",
+                        results_count=len(results),
+                        min_score=min_score,
+                        max_score=max_score,
+                        hint="scoring function produced identical scores — likely "
+                        "EventNode embeddings missing or edge_type mismatch",
+                    )
+                    self._last_metadata["degraded"] = True
+                    for r in results:
+                        r["score"] = 0.0
+                        r["degraded"] = True
+                elif score_range == 0:
+                    # Task 4.2: single result keeps 1.0
+                    for r in results:
+                        r["score"] = 1.0
+                else:
+                    for r in results:
+                        raw = r.get("score", 0)
+                        r["score"] = (raw - min_score) / score_range
 
             # Phase 5: Store results in cache for future queries
             if self._knowledge_cache is not None and results:
@@ -295,7 +360,15 @@ class AdaptiveSearchEngine:
 
         # Semantic search only — no fallback to get_temporal_chain
         # (fallback returns all events ignoring the query, producing irrelevant anchors)
-        events = await self._temporal_repo.search_temporal_events(query=query, limit=anchor_limit)
+        # Task 3.1: pass query_embedding + embedding_service so search_temporal_events
+        # can re-rank by cosine similarity (D1) instead of returning pure CONTAINS
+        # substring matches (the bug — "IT之家" matched every IT之家 media report).
+        events = await self._temporal_repo.search_temporal_events(
+            query=query,
+            limit=anchor_limit,
+            query_embedding=query_embedding,
+            embedding_service=self._embedding_service,
+        )
 
         return [e["id"] for e in events if e.get("id")]
 
@@ -319,22 +392,36 @@ class AdaptiveSearchEngine:
         all_events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
         self._event_cache = {e["id"]: e for e in all_events if e.get("id")}
 
+        # D4 / Task 3.3: pick anchor edge_type by intent (NOT hard-coded TEMPORAL).
+        # Aligns with INTENT_EDGE_WEIGHTS — WHY intent gets CAUSAL weight 5.0,
+        # WHEN gets TEMPORAL weight 5.0, etc.
+        anchor_edge_type = _INTENT_TO_ANCHOR_EDGE_TYPE.get(intent, EdgeType.TEMPORAL)
+
         # Score anchors based on content relevance
         candidates: list[dict[str, Any]] = []
         for anchor_id in anchors:
             event_data = await self._get_event_data(anchor_id)
             if event_data:
+                # D2 / Task 3.2: fill embedding from query result (None for legacy
+                # data per Q2 finding). EventNode no longer hard-codes None.
+                anchor_emb = event_data.get("embedding")
+                if anchor_emb is None:
+                    log.warning(
+                        "anchor_embedding_missing",
+                        anchor_id=anchor_id,
+                        intent=intent.value,
+                    )
                 anchor_event = EventNode(
                     id=anchor_id,
                     content=event_data.get("content", ""),
                     timestamp=event_data.get("timestamp"),
-                    embedding=None,
+                    embedding=anchor_emb,
                 )
                 anchor_score = calculate_transition_score(
                     neighbor=anchor_event,
                     query_embedding=query_embedding,
                     query_intent=intent,
-                    edge_type=EdgeType.TEMPORAL,
+                    edge_type=anchor_edge_type,
                 )
                 candidates.append(
                     {
@@ -353,8 +440,13 @@ class AdaptiveSearchEngine:
                     }
                 )
 
-        # Pre-fetch neighbors for all events and build graph adapter
-        neighbor_cache = await self._prefetch_neighbors(candidates, intent, query_embedding)
+        # Pre-fetch neighbors for all events and build graph adapter.
+        # Task 3.5: _prefetch_neighbors returns (cache, causal_edges_traversed).
+        neighbor_cache, causal_edges_traversed = await self._prefetch_neighbors(
+            candidates, intent, query_embedding
+        )
+        # Expose via last_metadata for endpoint callers (D5 / spec requirement)
+        self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
         graph_adapter = _IntentGraphAdapter(
             temporal_repo=self._temporal_repo,
             causal_repo=self._causal_repo,
@@ -407,7 +499,7 @@ class AdaptiveSearchEngine:
         candidates: list[dict[str, Any]],
         intent: IntentType,
         query_embedding: list[float],
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> tuple[dict[str, list[dict[str, Any]]], int]:
         """Pre-fetch and score neighbors for all candidate entities.
 
         Args:
@@ -416,9 +508,16 @@ class AdaptiveSearchEngine:
             query_embedding: Query embedding vector for scoring.
 
         Returns:
-            Dict mapping entity_id to list of scored neighbor dicts.
+            Tuple of (neighbor_cache, causal_edges_traversed):
+            - neighbor_cache: Dict mapping entity_id to list of scored
+              neighbor dicts.
+            - causal_edges_traversed: Count of neighbors reached via CAUSAL
+              edges (D5 / Task 3.5). When 0, the endpoint answer text SHALL
+              reflect "no causal chain found" rather than claiming a chain.
+
         """
         neighbor_cache: dict[str, list[dict[str, Any]]] = {}
+        causal_edges_traversed = 0
 
         for candidate in candidates:
             entity_id = candidate.get("id", "")
@@ -434,11 +533,17 @@ class AdaptiveSearchEngine:
 
             scored_neighbors = []
             for neighbor_id, edge_type in neighbors:
+                # Task 3.4: pull embedding from event_cache (populated by
+                # _beam_search via get_temporal_chain). Legacy data may have
+                # embedding=None per Q2; that is fine — semantic_score will
+                # be 0.0 and the D3 normalization fix will mark `degraded`.
+                neighbor_data = await self._get_event_data(neighbor_id)
+                neighbor_emb = neighbor_data.get("embedding") if neighbor_data else None
                 neighbor_event = EventNode(
                     id=neighbor_id,
-                    content="",
-                    timestamp=None,
-                    embedding=None,
+                    content=neighbor_data.get("content", "") if neighbor_data else "",
+                    timestamp=neighbor_data.get("timestamp") if neighbor_data else None,
+                    embedding=neighbor_emb,
                 )
                 score = calculate_transition_score(
                     neighbor=neighbor_event,
@@ -452,10 +557,14 @@ class AdaptiveSearchEngine:
                         "fusion_score": score,
                     }
                 )
+                # Task 3.5: count edges reached via CAUSAL relations
+                # (matches CAUSES / ENABLES / PREVENTS, see EdgeType.CAUSAL).
+                if edge_type == EdgeType.CAUSAL:
+                    causal_edges_traversed += 1
 
             neighbor_cache[entity_id] = scored_neighbors
 
-        return neighbor_cache
+        return neighbor_cache, causal_edges_traversed
 
     async def _get_event_data(self, event_id: str) -> dict[str, Any] | None:
         """Get event data by ID.

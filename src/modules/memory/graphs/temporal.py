@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.memory.core.event_node import EventNode
+from modules.memory.core.traversal import _cosine_similarity
 from modules.memory.graphs.base import BaseGraphRepo
 
 log = get_logger(__name__)
@@ -90,9 +92,11 @@ class TemporalGraphRepo(BaseGraphRepo):
             e.content = $content,
             e.timestamp = datetime($timestamp),
             e.created_at = datetime(),
-            e.attributes = $attributes
+            e.attributes = $attributes,
+            e.embedding = $embedding
         ON MATCH SET
-            e.updated_at = datetime()
+            e.updated_at = datetime(),
+            e.embedding = CASE WHEN $embedding IS NOT NULL THEN $embedding ELSE e.embedding END
 
         // Pass created node to next clause
         WITH e
@@ -118,6 +122,11 @@ class TemporalGraphRepo(BaseGraphRepo):
             "content": event.content,
             "timestamp": event.timestamp.isoformat() if event.timestamp else None,
             "attributes": json.dumps(event.attributes) if event.attributes else None,
+            # D2 / Task 6.2-6.3: persist embedding when available (from
+            # state.vectors.content via EventNode.from_pipeline_state).
+            # None for legacy pipeline states without vectors — write does
+            # not fail (Neo4j accepts null property).
+            "embedding": event.embedding,
         }
 
         try:
@@ -173,7 +182,8 @@ class TemporalGraphRepo(BaseGraphRepo):
             content: $content,
             event_time: $event_time,
             created_at: $created_at,
-            attributes: $attributes
+            attributes: $attributes,
+            embedding: $embedding
         })
         RETURN e.id
         """
@@ -184,6 +194,11 @@ class TemporalGraphRepo(BaseGraphRepo):
             "event_time": event_time,
             "created_at": now,
             "attributes": json.dumps(event.attributes) if event.attributes else None,
+            # D2 / Task 6.2-6.3: persist embedding when available.
+            # LadybugDB stores as DOUBLE[] (see ladybug_schema.py).
+            # None for legacy pipeline states without vectors — write does
+            # not fail (LadybugDB accepts null property).
+            "embedding": event.embedding,
         }
 
         try:
@@ -238,7 +253,8 @@ class TemporalGraphRepo(BaseGraphRepo):
         RETURN e.id AS id,
                e.content AS content,
                e.{time_field} AS timestamp,
-               e.attributes AS attributes
+               e.attributes AS attributes,
+               e.embedding AS embedding
         ORDER BY e.{time_field} ASC
         SKIP $offset
         LIMIT $limit
@@ -262,36 +278,71 @@ class TemporalGraphRepo(BaseGraphRepo):
         query: str,
         limit: int = 10,
         query_embedding: list[float] | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        embedding_service: Any | None = None,
     ) -> list[dict[str, Any]]:
-        """Search events by content similarity and return in temporal order.
+        """Search events by content similarity and return ranked by relevance.
+
+        Implements D1 hybrid strategy: when ``query_embedding`` is provided,
+        CONTAINS is used to fetch candidates (avoiding full-table scan), then
+        in-memory cosine similarity re-ranks them against ``query_embedding``.
 
         Args:
             query: Search query string.
             limit: Maximum number of events to return.
             query_embedding: Optional query embedding for semantic ranking.
-                When provided, callers can use it to re-rank results by
-                computing cosine similarity against event content embeddings.
+                When provided, results are re-ranked by cosine similarity
+                against each candidate's content embedding (D1).
+            start_time: Optional start timestamp (INT64). When both start_time
+                and end_time are provided, filters events to [start_time, end_time].
+            end_time: Optional end timestamp (INT64). See start_time.
+            embedding_service: Optional embedding service used to compute
+                candidate content embeddings when EventNode ``embedding``
+                property is missing (Q2 fallback, mirrors the
+                ``_semantic_temporal_search`` strategy).
 
         Returns:
-            List of event dictionaries matching query, ordered by timestamp.
+            List of event dictionaries. When ``query_embedding`` is provided,
+            results are sorted by descending similarity and include a
+            ``similarity_score`` field. Otherwise results keep legacy
+            behavior: ordered by timestamp ascending (D1 / spec
+            ``search-engine#temporal-search-semantic-ranking``).
+
         """
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
 
+        # Build optional time-window predicate (backward compat: omit when None)
+        time_predicate = ""
+        if start_time is not None and end_time is not None:
+            time_predicate = f" AND e.{time_field} >= $start_time AND e.{time_field} <= $end_time"
+
         # Simple content-based search (CONTAINS is case-sensitive in Neo4j)
-        # Use toLower for case-insensitive matching
+        # Use toLower for case-insensitive matching.
+        # D2: RETURN e.embedding AS embedding so callers can construct
+        # EventNode without an extra query (None for legacy data, Q2).
         query_cypher = f"""
         MATCH (e:EventNode)
-        WHERE toLower(e.content) CONTAINS toLower($query)
+        WHERE toLower(e.content) CONTAINS toLower($query){time_predicate}
         RETURN e.id AS id,
                e.content AS content,
                e.{time_field} AS timestamp,
-               e.attributes AS attributes
+               e.attributes AS attributes,
+               e.embedding AS embedding
         ORDER BY e.{time_field} ASC
         LIMIT $limit
         """
 
-        params = {"query": query, "limit": limit}
+        params: dict[str, Any] = {"query": query, "limit": limit}
+        if start_time is not None and end_time is not None:
+            # Neo4j timestamp is datetime type — convert int params to datetime
+            if self._is_ladybug:
+                params["start_time"] = start_time
+                params["end_time"] = end_time
+            else:
+                params["start_time"] = datetime.fromtimestamp(start_time, tz=UTC)
+                params["end_time"] = datetime.fromtimestamp(end_time, tz=UTC)
         results = await self._pool.execute_query(query_cypher, params)
 
         # Parse JSON string attributes back to dict
@@ -302,7 +353,54 @@ class TemporalGraphRepo(BaseGraphRepo):
                     record["attributes"] = json.loads(attr)
                 except (json.JSONDecodeError, TypeError):
                     pass
-        return results
+
+        # D1 / Task 2.3-2.5: semantic re-ranking when query_embedding provided.
+        # When query_embedding is None (Task 2.4), keep legacy behavior:
+        # CONTAINS + timestamp ordering.
+        if query_embedding is None or not results:
+            return results
+
+        # Resolve candidate embeddings (Q2 fallback):
+        # ① Prefer EventNode embedding persisted via D2 (task 6.x writes it).
+        # ② If None and embedding_service provided, compute on-the-fly
+        #    via embed_batch (mirrors _semantic_temporal_search).
+        candidate_embeddings: list[list[float] | None] = []
+        missing_idx: list[int] = []
+        for idx, record in enumerate(results):
+            emb = record.get("embedding")
+            if isinstance(emb, list) and emb:
+                candidate_embeddings.append(emb)
+            else:
+                candidate_embeddings.append(None)
+                missing_idx.append(idx)
+
+        if missing_idx and embedding_service is not None:
+            missing_contents = [results[i].get("content", "") for i in missing_idx]
+            try:
+                computed = await embedding_service.embed_batch(missing_contents)
+            except Exception:
+                log.warning(
+                    "temporal_search_embed_batch_failed",
+                    query=query,
+                    missing_count=len(missing_idx),
+                    exc_info=True,
+                )
+                computed = []
+            for offset, idx in enumerate(missing_idx):
+                if offset < len(computed):
+                    candidate_embeddings[idx] = computed[offset]
+                    results[idx]["embedding"] = computed[offset]
+
+        # Compute cosine similarity and attach similarity_score (Task 2.5)
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for record, emb in zip(results, candidate_embeddings, strict=True):
+            sim = _cosine_similarity(emb, query_embedding)
+            record["similarity_score"] = round(sim, 4)
+            scored.append((sim, record))
+
+        # Re-rank by similarity descending (D1)
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [r for _, r in scored[:limit]]
 
     async def get_neighbors(
         self,
@@ -332,6 +430,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             id: prev.id,
             content: prev.content,
             timestamp: prev.{time_field},
+            embedding: prev.embedding,
             direction: 'previous'
         }}) AS prev_neighbors
 
@@ -341,6 +440,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             id: next.id,
             content: next.content,
             timestamp: next.{time_field},
+            embedding: next.embedding,
             direction: 'next'
         }}) AS next_neighbors
 
@@ -352,6 +452,66 @@ class TemporalGraphRepo(BaseGraphRepo):
         params = {"event_id": event_id}
         result = await self._pool.execute_query(query, params)
         return [r.get("neighbor", r) for r in result]
+
+    async def get_events_by_timerange(
+        self,
+        start_time: int,
+        end_time: int,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Get events within a time range.
+
+        Filters EventNode by [start_time, end_time] inclusive.
+        Used by /api/v1/search/temporal endpoint for time-window filtering.
+
+        Args:
+            start_time: Start timestamp (INT64 seconds since epoch).
+            end_time: End timestamp (INT64 seconds since epoch).
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of events within the time range, ordered by timestamp ASC.
+        """
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
+        # Neo4j timestamp is datetime type — convert int params to datetime
+        if self._is_ladybug:
+            params: dict[str, Any] = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "limit": limit,
+            }
+        else:
+            params = {
+                "start_time": datetime.fromtimestamp(start_time, tz=UTC),
+                "end_time": datetime.fromtimestamp(end_time, tz=UTC),
+                "limit": limit,
+            }
+
+        query = f"""
+        MATCH (e:EventNode)
+        WHERE e.{time_field} >= $start_time AND e.{time_field} <= $end_time
+        RETURN e.id AS id,
+               e.content AS content,
+               e.{time_field} AS timestamp,
+               e.attributes AS attributes,
+               e.embedding AS embedding
+        ORDER BY e.{time_field} ASC
+        LIMIT $limit
+        """
+
+        results = await self._pool.execute_query(query, params)
+
+        # Parse JSON string attributes back to dict
+        for record in results:
+            attr = record.get("attributes")
+            if isinstance(attr, str):
+                try:
+                    record["attributes"] = json.loads(attr)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return results
 
     async def count_events(self) -> int:
         """Count total EventNodes in the temporal graph.

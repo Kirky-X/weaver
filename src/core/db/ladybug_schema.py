@@ -79,9 +79,16 @@ SCHEMA_QUERIES = [
         name STRING,
         description STRING,
         event_time INT64,
-        created_at INT64
+        created_at INT64,
+        embedding DOUBLE[]
     )
     """,
+    # D2 / Task 6.4: backfill embedding column on pre-existing EventNode tables.
+    # New databases pick up the column from CREATE NODE TABLE above; existing
+    # databases need ALTER TABLE. Wrapped in try/except by initialize_ladybug_schema
+    # so already-migrated databases skip silently. LadybugDB supports DOUBLE[]
+    # list properties natively (see Entity.aliases STRING[] above).
+    "ALTER TABLE EventNode ADD COLUMN embedding DOUBLE[]",
     # MENTIONS relationship - Article mentions Entity
     """
     CREATE REL TABLE IF NOT EXISTS MENTIONS (
