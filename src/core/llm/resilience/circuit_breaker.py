@@ -64,6 +64,12 @@ class ProviderCircuitBreaker:
         # Self-maintained counters to avoid pybreaker private _state_storage API
         self._failure_counter: int = 0
         self._success_counter: int = 0
+        # Monotonic timestamp when the circuit last entered OPEN state.
+        # pybreaker's OPEN→HALF_OPEN transition fires only inside
+        # ``CircuitOpenState.before_call`` (i.e., via ``self._breaker.call()``),
+        # but this wrapper calls ``func`` directly, so we replicate the timeout
+        # check here using a self-maintained timestamp.
+        self._opened_at: float | None = None
 
     @property
     def slow_count(self) -> int:
@@ -85,10 +91,30 @@ class ProviderCircuitBreaker:
     def is_slow(self) -> bool:
         return self._consecutive_slow >= 5
 
+    def _can_attempt_reset(self) -> bool:
+        """Return True if ``reset_timeout`` has elapsed since the circuit opened.
+
+        pybreaker would normally perform this check inside
+        ``CircuitOpenState.before_call`` when ``self._breaker.call()`` is
+        invoked. Because this wrapper calls ``func`` directly, the check is
+        replicated here so the OPEN→HALF_OPEN transition still fires.
+        """
+        if self._opened_at is None:
+            return False
+        return (time.monotonic() - self._opened_at) >= self._breaker.reset_timeout
+
     async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         if self._breaker.current_state == "open":
-            log.warning("circuit_open", provider=self.name)
-            raise CircuitOpenError(self.name)
+            if self._can_attempt_reset():
+                self._breaker.half_open()
+                log.info(
+                    "circuit_half_open_after_timeout",
+                    provider=self.name,
+                    reset_timeout=self._breaker.reset_timeout,
+                )
+            else:
+                log.warning("circuit_open", provider=self.name)
+                raise CircuitOpenError(self.name)
 
         try:
             start = time.monotonic()
@@ -124,6 +150,7 @@ class ProviderCircuitBreaker:
             if self._success_counter >= self._breaker.success_threshold:
                 self._success_counter = 0
                 self._failure_counter = 0
+                self._opened_at = None
                 self._breaker.close()
                 log.info("circuit_closed_after_success", provider=self.name)
         else:
@@ -133,11 +160,25 @@ class ProviderCircuitBreaker:
             self._breaker.close()
 
     def _handle_failure(self) -> None:
+        # In half-open state, any failure re-opens the circuit immediately,
+        # mirroring pybreaker's CircuitHalfOpenState.on_failure.
+        if self._breaker.current_state == "half-open":
+            self._failure_counter = 0
+            self._success_counter = 0
+            self._opened_at = time.monotonic()
+            self._breaker.open()
+            log.error(
+                "circuit_reopened_after_half_open_failure",
+                provider=self.name,
+            )
+            return
+
         # Self-maintained counter avoids pybreaker's private _state_storage API
         self._failure_counter += 1
         if self._failure_counter >= self._breaker.fail_max:
             self._failure_counter = 0
             self._success_counter = 0
+            self._opened_at = time.monotonic()
             self._breaker.open()
             log.error(
                 "circuit_opened_after_failures",
@@ -160,7 +201,14 @@ class ProviderCircuitBreaker:
 
     @property
     def is_open(self) -> bool:
-        return self._breaker.current_state == "open"
+        # ``current_state`` is the raw storage state and does not trigger the
+        # OPEN→HALF_OPEN transition. We surface a False ``is_open`` once
+        # ``reset_timeout`` has elapsed so callers (e.g. ProviderPool.execute)
+        # route the next call into ``call()``, which performs the actual
+        # half_open() transition.
+        if self._breaker.current_state != "open":
+            return False
+        return not self._can_attempt_reset()
 
     @property
     def state(self) -> CircuitState:
@@ -175,6 +223,7 @@ class ProviderCircuitBreaker:
         with contextlib.suppress(Exception):
             self._breaker.close()
         self._consecutive_slow = 0
+        self._opened_at = None
 
     def __repr__(self) -> str:
         return f"ProviderCircuitBreaker(name={self.name!r}, state={self.state.value}, slow={self._consecutive_slow})"
