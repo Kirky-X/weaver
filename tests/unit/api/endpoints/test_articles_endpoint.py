@@ -28,6 +28,7 @@ def _make_mock_article(
     article.id = article_id
     article.source_url = f"https://{source_host}/article"
     article.source_host = source_host
+    article.source_id = None
     article.is_news = True
     article.title = title
     article.body = "Test body content"

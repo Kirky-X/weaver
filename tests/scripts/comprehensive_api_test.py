@@ -548,7 +548,11 @@ class ComprehensiveAPITester:
             # 响应体内容校验：检测隐性失败（HTTP 200 但响应体含错误）
             if validation.get("status") == "pass" and isinstance(response_body, dict):
                 body_str = str(response_body)
-                if "Search failed" in body_str or "Circuit breaker" in body_str:
+                if (
+                    "Search failed" in body_str
+                    or "Circuit breaker" in body_str
+                    or "All providers failed" in body_str
+                ):
                     validation["warning"] = "response body contains error indicator"
                 elif (
                     isinstance(response_body.get("data"), dict)
@@ -694,6 +698,151 @@ class ComprehensiveAPITester:
                 "warning": warning or "",
             }
         )
+
+    async def _test_sse_stream(
+        self,
+        test_case: str,
+        url: str,
+        *,
+        expected_events: set[str] | None = None,
+        forbidden_events: set[str] | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> dict[str, Any]:
+        """Test SSE streaming endpoint by reading events in real-time.
+
+        Opens a streaming POST to /api/v1/pipeline/url/stream, parses SSE
+        events (``event: <type>\\ndata: <json>\\n\\n``), and validates the
+        received event types. Stops after a terminal event (``result`` or
+        ``error``) or when ``timeout_seconds`` elapses.
+
+        Args:
+            test_case: Test case name for recording.
+            url: URL to process via pipeline.
+            expected_events: Event types that must be present.
+            forbidden_events: Event types that must NOT appear.
+            timeout_seconds: Max time to wait for the stream.
+        """
+        path = "/api/v1/pipeline/url/stream"
+        full_url = f"{self.base_url}{path}"
+        headers = self._headers("normal")
+        headers["Accept"] = "text/event-stream"
+
+        events_received: list[tuple[str, dict]] = []
+        event_counts: dict[str, int] = {}
+        error_message: str | None = None
+        status_code: int | None = None
+        response_headers: dict[str, str] = {}
+        timed_out = False
+
+        start = time.monotonic()
+
+        async def _read_stream() -> None:
+            nonlocal status_code, response_headers, error_message
+            async with self._llm_heavy_client.stream(
+                "POST", full_url, headers=headers, json={"url": url}
+            ) as resp:
+                status_code = resp.status_code
+                response_headers = dict(resp.headers)
+                if status_code != 200:
+                    await resp.aread()
+                    return
+
+                event_type: str | None = None
+                data_lines: list[str] = []
+
+                async for line in resp.aiter_lines():
+                    if line.startswith("event: "):
+                        event_type = line[7:].strip()
+                    elif line.startswith("data: "):
+                        data_lines.append(line[6:])
+                    elif line == "" and event_type is not None:
+                        data_str = "\n".join(data_lines)
+                        try:
+                            data = json.loads(data_str) if data_str else {}
+                        except json.JSONDecodeError:
+                            data = {"_raw": data_str}
+                        events_received.append((event_type, data))
+                        event_counts[event_type] = event_counts.get(event_type, 0) + 1
+                        if event_type == "error":
+                            error_message = str(data.get("error", "unknown error"))
+                        is_terminal = event_type in ("result", "error")
+                        event_type = None
+                        data_lines = []
+                        if is_terminal:
+                            return
+
+        try:
+            await asyncio.wait_for(_read_stream(), timeout=timeout_seconds)
+        except TimeoutError:
+            timed_out = True
+
+        duration_ms = (time.monotonic() - start) * 1000
+
+        if status_code is None:
+            validation: dict[str, Any] = {"status": "fail", "reason": "no response"}
+        elif status_code != 200:
+            validation = {
+                "status": "pass",
+                "reason": f"non-streaming response {status_code}",
+            }
+        elif not events_received:
+            validation = {"status": "fail", "reason": "no events received"}
+        else:
+            validation = {
+                "status": "pass",
+                "reason": (
+                    f"received {len(events_received)} events: " f"{sorted(event_counts.keys())}"
+                ),
+            }
+            if expected_events:
+                missing = expected_events - set(event_counts.keys())
+                if missing:
+                    validation = {
+                        "status": "fail",
+                        "reason": f"missing expected events: {sorted(missing)}",
+                    }
+            if forbidden_events and validation.get("status") == "pass":
+                found = forbidden_events & set(event_counts.keys())
+                if found:
+                    validation = {
+                        "status": "fail",
+                        "reason": f"received forbidden events: {sorted(found)}",
+                    }
+            if timed_out and validation.get("status") == "pass":
+                validation["warning"] = (
+                    f"stream timed out after {timeout_seconds}s "
+                    f"({len(events_received)} events collected)"
+                )
+
+        response_body = {
+            "events_received": event_counts,
+            "total_events": len(events_received),
+            "error_message": error_message,
+            "timed_out": timed_out,
+        }
+
+        self.recorder.record(
+            endpoint_group="pipeline",
+            method="POST",
+            url=full_url,
+            test_case=test_case,
+            request_headers=headers,
+            request_params=None,
+            request_body={"url": url},
+            response_status=status_code or 0,
+            response_headers=response_headers,
+            response_body=response_body,
+            duration_ms=duration_ms,
+            validation=validation,
+        )
+        self._track_result("pipeline", "POST", path, test_case, status_code, validation)
+        return {
+            "status_code": status_code,
+            "events_received": event_counts,
+            "error_message": error_message,
+            "validation": validation,
+            "timed_out": timed_out,
+        }
 
     async def test_system(self) -> None:
         log_group("System Endpoints")
@@ -986,22 +1135,34 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
-        try:
-            await asyncio.wait_for(
-                self.request(
-                    "pipeline",
-                    "url_stream_init",
-                    "POST",
-                    "/api/v1/pipeline/url/stream",
-                    body={"url": "https://example.com/stream-test"},
-                    auth_mode="normal",
-                    expected_status=[200, 422, 500],
-                    allow_server_error=True,
-                ),
-                timeout=10.0,
+        sse_result = await self._test_sse_stream(
+            "url_stream_valid",
+            "https://example.com/stream-test",
+            expected_events={"log"},
+            timeout_seconds=30.0,
+        )
+        events_recv = sse_result.get("events_received", {})
+        if "result" in events_recv and "error" not in events_recv:
+            log_info("SSE valid URL: log+result received, no error (ideal)")
+        elif "error" in events_recv:
+            log_warn(
+                "SSE valid URL: pipeline returned error event "
+                f"(likely LLM circuit breaker open): {sse_result.get('error_message','')[:120]}"
             )
-        except TimeoutError:
-            log_warn("Stream endpoint timed out (expected for SSE), recording as pass")
+        if "heartbeat" not in events_recv:
+            log_warn(
+                "SSE heartbeat event not emitted (known endpoint race condition "
+                "in _heartbeat generator vs asyncio.wait_for cancellation)"
+            )
+        invalid_result = await self._test_sse_stream(
+            "url_stream_invalid",
+            "https://nonexistent.invalid/test",
+            expected_events={"log", "error"},
+            timeout_seconds=30.0,
+        )
+        invalid_err = invalid_result.get("error_message")
+        if not invalid_err:
+            log_warn("SSE invalid URL: error event received but message is empty")
 
     async def test_search(self) -> None:
         log_group("Search Endpoints")
