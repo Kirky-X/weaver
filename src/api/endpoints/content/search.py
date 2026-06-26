@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -405,48 +407,24 @@ async def search_causal(
             confidence_threshold=body.min_confidence,
         )
 
-        # Build embedding service: use injected or create zero-vector fallback
-        degraded = embedding_service is None or intent_classifier is None
+        # Semantic search requires embedding service — zero-vector fallback is NOT acceptable
+        # (zero vectors make all texts "equivalent", breaking semantic similarity entirely)
         if embedding_service is None:
-
-            class _FallbackEmbeddingService:
-                async def embed(self, text: str) -> list[float]:
-                    return [0.0] * 384
-
-                async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-                    return [[0.0] * 384 for _ in texts]
-
-                def is_ready(self) -> bool:
-                    return False
-
-                def start_loading(self) -> None:
-                    pass
-
-            embedding_svc: Any = _FallbackEmbeddingService()
-        else:
-            embedding_svc = embedding_service
-
-        # Build intent classifier: use injected or default to WHY for causal search
+            log.warning("causal_search_embedding_unavailable", query=body.query[:50])
+            raise HTTPException(
+                status_code=503, detail="Embedding service unavailable for causal search"
+            )
         if intent_classifier is None:
-
-            class _FallbackIntentClassifier:
-                async def classify(self, query: str):
-                    from modules.memory.core.graph_types import IntentType
-
-                    class _Result:
-                        intent = IntentType.WHY
-
-                    return _Result()
-
-            intent_cls: Any = _FallbackIntentClassifier()
-        else:
-            intent_cls = intent_classifier
+            log.warning("causal_search_intent_classifier_unavailable", query=body.query[:50])
+            raise HTTPException(
+                status_code=503, detail="Intent classifier unavailable for causal search"
+            )
 
         engine = AdaptiveSearchEngine(
             temporal_repo=temporal_repo,
             causal_repo=causal_repo,
-            embedding_service=embedding_svc,
-            intent_classifier=intent_cls,
+            embedding_service=embedding_service,
+            intent_classifier=intent_classifier,
             max_depth=body.max_depth,
         )
 
@@ -472,13 +450,15 @@ async def search_causal(
                 answer=f"找到 {len(causal_chain)} 个相关事件的因果链。",
                 causal_chain=causal_chain,
                 confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
-                metadata={"depth": body.max_depth, "degraded": degraded},
+                metadata={"depth": body.max_depth},
             )
         )
 
     except TimeoutError:
         log.error("causal_search_timeout", query=body.query)
         raise HTTPException(status_code=504, detail="Causal search timed out")
+    except HTTPException:
+        raise
     except Exception as exc:
         log.error("causal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
@@ -488,16 +468,70 @@ async def search_causal(
         )
 
 
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+async def _semantic_temporal_search(
+    temporal_repo: Any,
+    query: str,
+    limit: int,
+    embedding_service: Any,
+) -> list[dict[str, Any]]:
+    """Semantic search over temporal events using embedding similarity.
+
+    Fetches events via get_temporal_chain, computes content embeddings,
+    and ranks by cosine similarity to the query embedding.
+    """
+    query_embedding = await embedding_service.embed(query)
+
+    all_events = await asyncio.wait_for(
+        temporal_repo.get_temporal_chain(limit=500),
+        timeout=30.0,
+    )
+
+    if not all_events:
+        return []
+
+    contents = [e.get("content", "") for e in all_events]
+    event_embeddings = await embedding_service.embed_batch(contents)
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for event, emb in zip(all_events, event_embeddings, strict=True):
+        sim = _cosine_similarity(query_embedding, emb)
+        attr = event.get("attributes")
+        if isinstance(attr, str):
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                event["attributes"] = json.loads(attr)
+        event["similarity_score"] = round(sim, 4)
+        scored.append((sim, event))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [e for _, e in scored[:limit]]
+
+
 @router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
 async def search_temporal(
     request: Request,
     body: TemporalSearchRequest,
     _: str = Depends(verify_api_key),
     graph_pool: GraphPool = Depends(get_graph_pool),
+    embedding_service: Any | None = Depends(get_embedding_service_optional),
 ) -> APIResponse[TemporalSearchResponse]:
     """Temporal reasoning search using MAGMA multi-graph architecture.
 
     Retrieves events in chronological order to answer "When?" questions.
+
+    When embedding service is available, uses semantic similarity ranking.
+    Otherwise, falls back to CONTAINS substring matching.
 
     Best for:
     - Timeline reconstruction
@@ -508,6 +542,7 @@ async def search_temporal(
         body: Temporal search request with query and parameters.
         _: Verified API key.
         graph_pool: Graph database pool.
+        embedding_service: Optional embedding service for semantic ranking.
 
     Returns:
         Ordered list of events with temporal metadata.
@@ -521,15 +556,18 @@ async def search_temporal(
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
-        # Search temporal events by query (with timeout protection)
-        # Fall back to get_temporal_chain if no matches found
-        events = await asyncio.wait_for(
-            temporal_repo.search_temporal_events(query=body.query, limit=body.limit),
-            timeout=30.0,
-        )
-        if not events:
+        # Semantic search when embedding service is available;
+        # otherwise CONTAINS substring matching only (may return empty)
+        if embedding_service is not None and embedding_service.is_ready():
+            events = await _semantic_temporal_search(
+                temporal_repo=temporal_repo,
+                query=body.query,
+                limit=body.limit,
+                embedding_service=embedding_service,
+            )
+        else:
             events = await asyncio.wait_for(
-                temporal_repo.get_temporal_chain(limit=body.limit),
+                temporal_repo.search_temporal_events(query=body.query, limit=body.limit),
                 timeout=30.0,
             )
 
@@ -560,6 +598,8 @@ async def search_temporal(
     except TimeoutError:
         log.error("temporal_search_timeout", limit=body.limit)
         raise HTTPException(status_code=504, detail="Temporal search timed out")
+    except HTTPException:
+        raise
     except Exception as exc:
         log.error("temporal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():

@@ -261,12 +261,16 @@ class TemporalGraphRepo(BaseGraphRepo):
         self,
         query: str,
         limit: int = 10,
+        query_embedding: list[float] | None = None,
     ) -> list[dict[str, Any]]:
         """Search events by content similarity and return in temporal order.
 
         Args:
             query: Search query string.
             limit: Maximum number of events to return.
+            query_embedding: Optional query embedding for semantic ranking.
+                When provided, callers can use it to re-rank results by
+                computing cosine similarity against event content embeddings.
 
         Returns:
             List of event dictionaries matching query, ordered by timestamp.

@@ -361,8 +361,8 @@ class TestCausalSearchEndpoint:
                 body=body,
                 _=api_key,
                 graph_pool=mock_graph_pool,
-                embedding_service=None,
-                intent_classifier=None,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
             )
 
             assert result.data.query == "Why did the market crash?"
@@ -400,8 +400,8 @@ class TestCausalSearchEndpoint:
                 body=body,
                 _=api_key,
                 graph_pool=mock_graph_pool,
-                embedding_service=None,
-                intent_classifier=None,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
             )
 
             assert len(result.data.causal_chain) == 0
@@ -459,8 +459,8 @@ class TestCausalSearchEndpoint:
                     body=body,
                     _=api_key,
                     graph_pool=mock_graph_pool,
-                    embedding_service=None,
-                    intent_classifier=None,
+                    embedding_service=MagicMock(),
+                    intent_classifier=MagicMock(),
                 )
 
             assert exc_info.value.status_code == 500
@@ -490,7 +490,7 @@ class TestTemporalSearchEndpoint:
         ]
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=mock_events)
+        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=mock_events)
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",
@@ -507,6 +507,7 @@ class TestTemporalSearchEndpoint:
                 body=body,
                 _=api_key,
                 graph_pool=mock_graph_pool,
+                embedding_service=None,
             )
 
             assert result.data.query == "What happened in January 2024?"
@@ -527,7 +528,7 @@ class TestTemporalSearchEndpoint:
         from api.endpoints.content.search import TemporalSearchRequest, search_temporal
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=[])
+        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=[])
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",
@@ -544,6 +545,7 @@ class TestTemporalSearchEndpoint:
                 body=body,
                 _=api_key,
                 graph_pool=mock_graph_pool,
+                embedding_service=None,
             )
 
             assert len(result.data.events) == 0
@@ -568,7 +570,7 @@ class TestTemporalSearchEndpoint:
         ]
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=mock_events)
+        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=mock_events)
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",
@@ -585,6 +587,7 @@ class TestTemporalSearchEndpoint:
                 body=body,
                 _=api_key,
                 graph_pool=mock_graph_pool,
+                embedding_service=None,
             )
 
             assert len(result.data.events) == 3
@@ -613,6 +616,7 @@ class TestTemporalSearchEndpoint:
                     body=body,
                     _=api_key,
                     graph_pool=mock_graph_pool,
+                    embedding_service=None,
                 )
 
             assert exc_info.value.status_code == 503
@@ -640,6 +644,7 @@ class TestTemporalSearchEndpoint:
                     body=body,
                     _=api_key,
                     graph_pool=mock_graph_pool,
+                    embedding_service=None,
                 )
 
             assert exc_info.value.status_code == 500
@@ -746,6 +751,8 @@ class TestErrorHandling:
                     )
         elif endpoint_class == "causal":
             request_body = CausalSearchRequest(query="test")
+            mock_embedding = MagicMock()
+            mock_intent = MagicMock()
             with patch(
                 "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
                 side_effect=Exception(error_message),
@@ -756,8 +763,8 @@ class TestErrorHandling:
                         body=request_body,
                         _=api_key,
                         graph_pool=mock_graph_pool,
-                        embedding_service=None,
-                        intent_classifier=None,
+                        embedding_service=mock_embedding,
+                        intent_classifier=mock_intent,
                     )
         else:  # temporal
             request_body = TemporalSearchRequest(query="test")
@@ -771,6 +778,7 @@ class TestErrorHandling:
                         body=request_body,
                         _=api_key,
                         graph_pool=mock_graph_pool,
+                        embedding_service=None,
                     )
 
         assert exc_info.value.status_code == expected_status
