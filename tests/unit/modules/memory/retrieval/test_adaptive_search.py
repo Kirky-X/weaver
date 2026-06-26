@@ -265,14 +265,19 @@ class TestAdaptiveSearchFindAnchors:
         )
 
     @pytest.mark.asyncio
-    async def test_find_anchors_fallback_to_temporal_chain(self, engine):
+    async def test_find_anchors_no_fallback_to_temporal_chain(self, engine):
+        """When search_temporal_events returns empty, _find_anchors SHALL return empty.
+
+        Previously this fell back to get_temporal_chain (returning all events
+        ignoring the query). This was removed — search must respect the query.
+        """
         engine._temporal_repo.search_temporal_events = AsyncMock(return_value=[])
         engine._temporal_repo.get_temporal_chain = AsyncMock(return_value=[{"id": "fallback-1"}])
 
         anchors = await engine._find_anchors("query", [0.1] * 384, IntentType.OPEN)
 
-        assert len(anchors) == 1
-        engine._temporal_repo.get_temporal_chain.assert_called_once()
+        assert anchors == []
+        engine._temporal_repo.get_temporal_chain.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_find_anchors_filters_empty_ids(self, engine):

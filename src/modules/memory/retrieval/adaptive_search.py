@@ -215,6 +215,7 @@ class AdaptiveSearchEngine:
             results = [r for r in results if r.get("score", 0) > 1.0]
 
             # Normalize scores to [0, 1] range (MAGMA Eq.5 exp() output is unbounded)
+            # Per search-score-normalization spec: all identical scores → 1.0 (all equivalent max)
             if results:
                 scores = [r.get("score", 0) for r in results]
                 min_score = min(scores)
@@ -222,7 +223,7 @@ class AdaptiveSearchEngine:
                 score_range = max_score - min_score
                 for r in results:
                     raw = r.get("score", 0)
-                    r["score"] = 0.5 if score_range == 0 else (raw - min_score) / score_range
+                    r["score"] = 1.0 if score_range == 0 else (raw - min_score) / score_range
 
             # Phase 5: Store results in cache for future queries
             if self._knowledge_cache is not None and results:
@@ -284,21 +285,17 @@ class AdaptiveSearchEngine:
             intent: Query intent.
 
         Returns:
-            List of anchor event IDs.
+            List of anchor event IDs. Empty if no matches found.
         """
-        # Use semantic search to find relevant anchors (not just recent events)
         anchor_limit = self._default_anchor_limit
         if intent == IntentType.WHY:
             anchor_limit = self._why_anchor_limit
         elif intent == IntentType.WHEN:
             anchor_limit = self._when_anchor_limit
 
-        # Try semantic search first
+        # Semantic search only — no fallback to get_temporal_chain
+        # (fallback returns all events ignoring the query, producing irrelevant anchors)
         events = await self._temporal_repo.search_temporal_events(query=query, limit=anchor_limit)
-
-        # Fallback to temporal chain if no semantic matches found
-        if not events:
-            events = await self._temporal_repo.get_temporal_chain(limit=anchor_limit)
 
         return [e["id"] for e in events if e.get("id")]
 
