@@ -7,7 +7,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.constants import DatabaseType
 from core.db.graph_query_builders import GraphDatabaseType
@@ -34,6 +34,34 @@ class CommunityReportOutput(BaseModel):
     key_entities: list[str] = Field(default_factory=list, description="关键实体列表")
     key_relationships: list[str] = Field(default_factory=list, description="关键关系列表")
     rank: float = Field(ge=1.0, le=10.0, description="重要性评分")
+
+    @field_validator("key_entities", "key_relationships", mode="before")
+    @classmethod
+    def _normalize_string_list(cls, v: object) -> list[str]:
+        """Coerce LLM-returned dicts into plain strings.
+
+        LLMs sometimes return ``[{"name": "Clang", "type": "..."}]`` instead of
+        ``["Clang"]``. Extract the ``name`` (or ``entity``/``subject``) field so
+        Pydantic validation does not fail on dict inputs.
+        """
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return [str(v)]
+        result: list[str] = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                # Try common key names the LLM might use
+                name = item.get("name") or item.get("entity") or item.get("subject")
+                if name:
+                    result.append(str(name))
+                else:
+                    result.append(str(item))
+            else:
+                result.append(str(item))
+        return result
 
 
 @dataclass

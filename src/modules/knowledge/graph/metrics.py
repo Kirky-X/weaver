@@ -472,7 +472,7 @@ class GraphQualityMetrics:
 
             for row in results:
                 entity = row.get("entity")
-                neighbors = row.get("neighbors", [])
+                neighbors = row.get("neighbors") or []  # LadybugDB may return explicit None
                 if entity:
                     all_entities.add(entity)
                     # Handle both Neo4j (string list) and LadybugDB (Entity object list)
@@ -528,7 +528,7 @@ class GraphQualityMetrics:
         for row in results:
             entity = row.get("entity")
             etype = row.get("type")
-            neighbors = row.get("neighbors", [])
+            neighbors = row.get("neighbors") or []  # LadybugDB may return explicit None
             if entity:
                 all_entities.add(entity)
                 if etype:

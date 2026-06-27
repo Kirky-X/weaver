@@ -14,6 +14,34 @@ from typing import TYPE_CHECKING
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.models import CommunityHealthStatus
 
+
+def _to_datetime(value: object) -> datetime | None:
+    """Coerce a stored timestamp value to an aware datetime.
+
+    LadybugDB stores DateTime columns as INT64 epoch microseconds (per project
+    migration rules), so metadata queries return ints instead of datetimes.
+    Neo4j returns datetime objects directly. Normalize both forms here so that
+    downstream arithmetic (``datetime - datetime``) does not raise
+    ``TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'int'``.
+
+    Args:
+        value: Raw value from the graph database (datetime, int, or None).
+
+    Returns:
+        Timezone-aware datetime, or None when value is falsy/invalid.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+    return None
+
+
 if TYPE_CHECKING:
     from core.protocols import GraphPool
     from modules.knowledge.graph.community.updater import (
@@ -272,8 +300,8 @@ class UpdateTriggerPolicy:
             result = await self._pool.execute_query(metadata_query)
             if result and result[0]:
                 row = result[0]
-                stats.last_full_rebuild_at = row.get("last_full_rebuild")
-                stats.last_incremental_update_at = row.get("last_incremental")
+                stats.last_full_rebuild_at = _to_datetime(row.get("last_full_rebuild"))
+                stats.last_incremental_update_at = _to_datetime(row.get("last_incremental"))
                 stats.pending_entity_count = row.get("pending_count", 0)
         except Exception as exc:
             log.debug("get_community_stats_failed", error=str(exc))
