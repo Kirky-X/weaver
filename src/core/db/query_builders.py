@@ -356,8 +356,11 @@ class DuckDBVectorQueryBuilder:
     def build_upsert_article_vector_query(self) -> str:
         """Build DuckDB upsert with ON CONFLICT.
 
-        Note: DuckDB requires explicit conflict target when table has multiple
-        UNIQUE/PRIMARY KEY constraints. article_vectors uses composite PK (article_id, vector_type).
+        Note: article_vectors uses id BIGINT PK + UNIQUE(article_id, vector_type).
+        DuckDB requires explicit conflict target when table has multiple
+        UNIQUE/PRIMARY KEY constraints; we target (article_id, vector_type)
+        for upsert semantics. REM-003: now updates updated_at (previously
+        incorrectly updated created_at).
         """
         return """
                INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
@@ -366,7 +369,7 @@ class DuckDBVectorQueryBuilder:
                UPDATE SET
                    embedding = EXCLUDED.embedding,
                    model_id = EXCLUDED.model_id,
-                   created_at = NOW() \
+                   updated_at = NOW() \
                """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:

@@ -604,6 +604,125 @@ class TestLLMCompareHourlyTable:
         )
 
 
+class TestArticleVectorsTable:
+    """article_vectors must match PostgreSQL ORM (ArticleVector).
+
+    REM-003: DuckDB schema was missing `id` (BIGINT PK) and `updated_at` columns,
+    using composite PK (article_id, vector_type) instead. After fix, DuckDB schema
+    must match ORM: `id` as PK + UNIQUE(article_id, vector_type).
+    """
+
+    EXPECTED_COLUMNS = {
+        "id",
+        "article_id",
+        "vector_type",
+        "embedding",
+        "model_id",
+        "created_at",
+        "updated_at",
+    }
+
+    def test_table_exists(self):
+        tables = parse_tables_from_schema()
+        assert _has_table(
+            tables, "article_vectors"
+        ), "article_vectors table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
+            sorted(tables)
+        )
+
+    @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
+    def test_has_column(self, col):
+        tables = parse_tables_from_schema()
+        assert _has_table(tables, "article_vectors"), "article_vectors table missing"
+        assert col in tables["article_vectors"], (
+            f"Column '{col}' missing from article_vectors. "
+            f"Got: {sorted(tables['article_vectors'])}"
+        )
+
+    def test_uses_id_primary_key(self):
+        """DDL must declare id as PRIMARY KEY (not composite PK)."""
+        ddl = _find_table_ddl("article_vectors")
+        assert ddl, "article_vectors DDL not found"
+        assert "id BIGINT" in ddl, "id BIGINT column missing"
+        assert "PRIMARY KEY" in ddl, "PRIMARY KEY constraint missing"
+        # Composite PK on (article_id, vector_type) is no longer the primary key
+        assert "PRIMARY KEY (article_id, vector_type)" not in ddl.replace(
+            "\n", " "
+        ), "article_vectors still uses composite PK; should use id PK + UNIQUE constraint"
+
+    def test_has_unique_constraint_on_article_vector_type(self):
+        """DDL must declare UNIQUE(article_id, vector_type) for upsert ON CONFLICT."""
+        ddl = _find_table_ddl("article_vectors")
+        assert ddl, "article_vectors DDL not found"
+        # UNIQUE constraint may be inline or table-level
+        assert "UNIQUE" in ddl, (
+            "UNIQUE constraint missing on article_vectors; "
+            "required for DuckDB ON CONFLICT (article_id, vector_type) upsert"
+        )
+
+
+class TestPromptTemplatesTable:
+    """prompt_templates must exist matching PostgreSQL ORM (PromptTemplate).
+
+    REM-006: DuckDB schema was missing the prompt_templates table entirely.
+    Schema matches the simplified version (migration 10_simplify_prompt_templates):
+    id, name (UNIQUE), template, created_at, updated_at.
+    """
+
+    EXPECTED_COLUMNS = {
+        "id",
+        "name",
+        "template",
+        "created_at",
+        "updated_at",
+    }
+
+    FORBIDDEN_COLUMNS = {
+        "version",
+        "prompt_type",
+        "is_active",
+        "change_reason",
+        "prompt_metadata",
+        "created_by",
+        "content",
+    }
+
+    def test_table_exists(self):
+        tables = parse_tables_from_schema()
+        assert _has_table(
+            tables, "prompt_templates"
+        ), "prompt_templates table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
+            sorted(tables)
+        )
+
+    @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
+    def test_has_column(self, col):
+        tables = parse_tables_from_schema()
+        assert _has_table(tables, "prompt_templates"), "prompt_templates table missing"
+        assert col in tables["prompt_templates"], (
+            f"Column '{col}' missing from prompt_templates. "
+            f"Got: {sorted(tables['prompt_templates'])}"
+        )
+
+    @pytest.mark.parametrize("col", sorted(FORBIDDEN_COLUMNS))
+    def test_does_not_have_legacy_column(self, col):
+        """Legacy columns from migration 01 must NOT exist (dropped in migration 10)."""
+        tables = parse_tables_from_schema()
+        if not _has_table(tables, "prompt_templates"):
+            pytest.skip("prompt_templates table not in schema")
+        assert col not in tables["prompt_templates"], (
+            f"Legacy column '{col}' found in prompt_templates; "
+            f"migration 10_simplify_prompt_templates should have dropped it. "
+            f"Got: {sorted(tables['prompt_templates'])}"
+        )
+
+    def test_name_is_unique(self):
+        """DDL must declare UNIQUE constraint on name."""
+        ddl = _find_table_ddl("prompt_templates")
+        assert ddl, "prompt_templates DDL not found"
+        assert "UNIQUE" in ddl, "UNIQUE constraint on name missing"
+
+
 class TestArticlesView:
     """The articles VIEW must be defined for backward compatibility after vertical split."""
 
@@ -718,6 +837,10 @@ class TestSequenceCompleteness:
         "article_versions",
         "audit_log",
         "llm_compare_hourly",
+        # article_vectors upgraded from composite PK to id PK (REM-003)
+        "article_vectors",
+        # prompt_templates table added to DuckDB (REM-006)
+        "prompt_templates",
     }
 
     def _parse_sequence_names(self) -> set[str]:

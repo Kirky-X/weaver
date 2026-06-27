@@ -241,14 +241,20 @@ SCHEMA_QUERIES = [
         last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",
     # ── Article Vectors ─────────────────────────────────────────
+    # REM-003: Schema upgraded to match PostgreSQL ORM (ArticleVector).
+    # Previously used composite PK (article_id, vector_type); now uses
+    # id BIGINT PK + UNIQUE(article_id, vector_type) to match ORM and
+    # support proper updated_at tracking.
     """CREATE TABLE IF NOT EXISTS article_vectors
     (
+        id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
         article_id VARCHAR,
         vector_type VARCHAR,
         embedding FLOAT[1024],
         model_id VARCHAR NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        PRIMARY KEY (article_id, vector_type)
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (article_id, vector_type)
     )""",
     # ── Entity Vectors ──────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS entity_vectors
@@ -396,6 +402,19 @@ SCHEMA_QUERIES = [
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         UNIQUE (time_bucket, call_point, primary_model, candidate_model)
     )""",
+    # ── Prompt Templates ────────────────────────────────────────
+    # REM-006: Added to match PostgreSQL ORM (PromptTemplate) and
+    # migration 10_simplify_prompt_templates. Legacy columns (version,
+    # prompt_type, is_active, change_reason, prompt_metadata, created_by,
+    # content) are intentionally omitted — migration 10 dropped them.
+    """CREATE TABLE IF NOT EXISTS prompt_templates
+    (
+        id BIGINT DEFAULT nextval('prompt_templates_seq') PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        template TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""",
 ]
 
 # Sequences for BIGINT PK tables (must be created before tables)
@@ -418,6 +437,10 @@ SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS article_versions_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS audit_log_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_compare_hourly_seq START 1",
+    # REM-003: article_vectors upgraded from composite PK to id PK
+    "CREATE SEQUENCE IF NOT EXISTS article_vectors_seq START 1",
+    # REM-006: prompt_templates table added to DuckDB schema
+    "CREATE SEQUENCE IF NOT EXISTS prompt_templates_seq START 1",
 ]
 
 # Views for backward compatibility (must be created after tables)
@@ -515,6 +538,93 @@ async def _upgrade_schema(session) -> None:
             log.info("duckdb_schema_upgrade_added_source_id")
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_source_id_failed", error=str(exc))
+
+    # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
+    # This migration is idempotent: it checks column existence before applying changes.
+    await _upgrade_article_vectors_schema(session)
+
+
+async def _upgrade_article_vectors_schema(session) -> None:
+    """Upgrade article_vectors table to match ORM (id PK + updated_at column).
+
+    Pre-REM-003 schema:
+        PRIMARY KEY (article_id, vector_type), no id, no updated_at
+    Post-REM-003 schema:
+        id BIGINT PK + UNIQUE(article_id, vector_type) + updated_at
+
+    DuckDB ALTER TABLE limitations:
+    - Cannot DROP/ALTER PRIMARY KEY directly in older versions
+    - Cannot change column types in-place
+    Strategy: detect missing columns; if id or updated_at is missing,
+    recreate the table with the new schema and copy data.
+    """
+    # Check if migration is needed
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'article_vectors' AND column_name IN ('id', 'updated_at')"
+        )
+    )
+    existing_cols = {row[0] for row in result.fetchall()}
+    if "id" in existing_cols and "updated_at" in existing_cols:
+        # Already migrated
+        return
+
+    log.info(
+        "duckdb_schema_upgrade_article_vectors_start",
+        missing_columns=sorted({"id", "updated_at"} - existing_cols),
+    )
+    try:
+        # DuckDB supports CREATE OR REPLACE TABLE for schema migration
+        # when columns need to be added/removed and PK needs to change.
+        # Use temp table + copy approach for safety.
+        await session.execute(text("DROP TABLE IF EXISTS _article_vectors_backup"))
+        await session.execute(
+            text("CREATE TABLE _article_vectors_backup AS SELECT * FROM article_vectors")
+        )
+        await session.execute(text("DROP TABLE article_vectors"))
+        # Recreate with new schema (matches SCHEMA_QUERIES definition)
+        await session.execute(text("""
+                CREATE TABLE article_vectors
+                (
+                    id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
+                    article_id VARCHAR,
+                    vector_type VARCHAR,
+                    embedding FLOAT[1024],
+                    model_id VARCHAR NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    UNIQUE (article_id, vector_type)
+                )
+                """))
+        # Copy existing data back (id auto-generated, updated_at defaults to NOW())
+        # REM-003: Check if backup table has created_at column — old schema may lack it.
+        backup_cols_result = await session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = '_article_vectors_backup'"
+            )
+        )
+        backup_cols = {row[0] for row in backup_cols_result.fetchall()}
+
+        if "created_at" in backup_cols:
+            await session.execute(text("""
+                    INSERT INTO article_vectors (article_id, vector_type, embedding, model_id, created_at)
+                    SELECT article_id, vector_type, embedding, model_id, created_at
+                    FROM _article_vectors_backup
+                    """))
+        else:
+            # Old schema without created_at — let new table default created_at to NOW()
+            await session.execute(text("""
+                    INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+                    SELECT article_id, vector_type, embedding, model_id
+                    FROM _article_vectors_backup
+                    """))
+        await session.execute(text("DROP TABLE _article_vectors_backup"))
+        log.info("duckdb_schema_upgrade_article_vectors_done")
+    except Exception as exc:
+        log.error("duckdb_schema_upgrade_article_vectors_failed", error=str(exc))
+        raise
 
 
 # ── Seed Data ────────────────────────────────────────────────────────
