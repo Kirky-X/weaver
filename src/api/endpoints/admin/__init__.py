@@ -21,6 +21,7 @@ def __getattr__(name: str) -> APIRouter:
         from api.endpoints.admin.authorities import router as authorities_router
         from api.endpoints.admin.llm_monitoring import router as llm_monitoring_router
         from api.endpoints.admin.memory import router as memory_router
+        from api.endpoints.admin.monitoring import router as monitoring_router
 
         composite = APIRouter(tags=["admin"])
         composite.include_router(authorities_router)
@@ -28,6 +29,7 @@ def __getattr__(name: str) -> APIRouter:
         composite.include_router(articles_router)
         composite.include_router(memory_router)
         composite.include_router(api_keys_router)
+        composite.include_router(monitoring_router)
         globals()["router"] = composite
         return composite
     if name == "authorities_router":

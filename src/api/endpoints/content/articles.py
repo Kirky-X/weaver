@@ -193,7 +193,11 @@ async def list_articles(
                 cat = CategoryType(category)
                 filters.append(Article.category == cat)
             except ValueError:
-                pass
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid category '{category}'. Valid categories: "
+                    f"{[c.value for c in CategoryType]}",
+                )
         if source_host:
             filters.append(Article.source_host == source_host)
         if source_id:

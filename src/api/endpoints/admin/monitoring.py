@@ -25,7 +25,7 @@ from core.db.postgres import PostgresPool
 if TYPE_CHECKING:
     from container import Container
 
-router = APIRouter(prefix="/monitoring", tags=["monitoring"])
+router = APIRouter(prefix="/admin/monitoring", tags=["admin", "monitoring"])
 
 
 class IndexStats(BaseModel):

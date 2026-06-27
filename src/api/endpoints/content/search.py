@@ -207,7 +207,7 @@ async def search_unified(
 class DriftSearchRequest(BaseModel):
     """Request model for DRIFT search."""
 
-    query: str
+    query: str = Field(..., min_length=1, description="Search query (non-empty)")
     primer_k: int = 3
     max_follow_ups: int = 2
     confidence_threshold: float = 0.7
@@ -315,8 +315,9 @@ async def search_drift(
 class CausalSearchRequest(BaseModel):
     """Request model for causal search."""
 
-    query: str
-    """The causal reasoning query (e.g., 'Why did X happen?')."""
+    query: str = Field(
+        ..., min_length=1, description="The causal reasoning query (e.g., 'Why did X happen?')"
+    )
 
     max_depth: int = Field(default=3, ge=1, le=10)
     """Maximum depth for causal chain traversal."""
@@ -346,8 +347,9 @@ class CausalSearchResponse(BaseModel):
 class TemporalSearchRequest(BaseModel):
     """Request model for temporal search."""
 
-    query: str
-    """The temporal reasoning query (e.g., 'When did X happen?')."""
+    query: str = Field(
+        ..., min_length=1, description="The temporal reasoning query (e.g., 'When did X happen?')"
+    )
 
     time_range: str = "7d"
     """Time range for temporal filtering. Format: '<N><unit>' where unit is d/h/m (e.g., '7d', '24h', '30m')."""
@@ -662,14 +664,32 @@ async def search_temporal(
         # Semantic search when embedding service is available;
         # otherwise CONTAINS substring matching only (may return empty)
         if embedding_service is not None and embedding_service.is_ready():
-            events = await _semantic_temporal_search(
-                temporal_repo=temporal_repo,
-                query=body.query,
-                limit=body.limit,
-                embedding_service=embedding_service,
-                start_time=start_time,
-                end_time=end_time,
-            )
+            try:
+                events = await _semantic_temporal_search(
+                    temporal_repo=temporal_repo,
+                    query=body.query,
+                    limit=body.limit,
+                    embedding_service=embedding_service,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+            except Exception as emb_exc:
+                # Embedding batch timeout/failure → fall back to substring search
+                # (P0-2: previously returned 500; now degrades gracefully)
+                log.warning(
+                    "temporal_search_embedding_fallback",
+                    error=str(emb_exc),
+                    query=body.query[:50],
+                )
+                events = await asyncio.wait_for(
+                    temporal_repo.search_temporal_events(
+                        query=body.query,
+                        limit=body.limit,
+                        start_time=start_time,
+                        end_time=end_time,
+                    ),
+                    timeout=30.0,
+                )
         else:
             events = await asyncio.wait_for(
                 temporal_repo.search_temporal_events(

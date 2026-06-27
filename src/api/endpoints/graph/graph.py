@@ -281,7 +281,19 @@ async def get_entity_relations(
     Returns:
         List of relation type summaries wrapped in APIResponse.
 
+    Raises:
+        HTTPException: 404 if entity does not exist in the graph.
+
     """
+    # Verify entity exists before listing relation types (P0-1: return 404
+    # for non-existent entities instead of empty 200 array).
+    existing = await graph_repo.get_entity(entity)
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entity '{entity}' not found",
+        )
+
     rows = await graph_repo.get_relation_types(entity, entity_type)
     return success_response(
         [
