@@ -16,7 +16,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -27,11 +27,11 @@ import httpx
 # ── 配置 ──────────────────────────────────────────────────────────
 
 BASE_URL = "http://localhost:8000/api/v1"
-API_KEY = "test-api-key-32chars-long!!!!!!!"
-ADMIN_API_KEY = "test-admin-key-for-pipeline-2026"
+API_KEY = "weaver_test_api_key_for_comprehensive_testing_2026"
+ADMIN_API_KEY = "weaver_test_admin_api_key_for_comprehensive_testing_2026"
 HEADERS = {"X-API-Key": API_KEY}
 ADMIN_HEADERS = {"X-API-Key": ADMIN_API_KEY}
-TIMEOUT = httpx.Timeout(60.0)
+TIMEOUT = httpx.Timeout(180.0)  # LLM-heavy operations (rebuild/search) need >60s
 OUTPUT_DIR = Path("/home/dev/projects/weaver/temp/api_responses")
 MAX_WORKERS = 10  # 并发数
 
@@ -200,7 +200,7 @@ def generate_test_cases() -> list[TestCase]:
                 "articles",
                 "GET",
                 "/articles",
-                params={"category": "财经"},
+                params={"category": "经济"},
                 description="filter_category_finance",
             ),
             TestCase(
@@ -315,7 +315,7 @@ def generate_test_cases() -> list[TestCase]:
                 json_body={
                     "id": random_id,
                     "name": f"test_source_{random_id}",
-                    "url": "https://example.com/rss",
+                    "url": "https://www.solidot.org/index.rss",  # Real working RSS feed
                     "source_type": "rss",
                     "interval_minutes": 60,
                     "credibility": 0.8,
@@ -332,7 +332,7 @@ def generate_test_cases() -> list[TestCase]:
                 json_body={
                     "id": random_id,  # Same ID as sources_003 - expect 409 duplicate
                     "name": f"test_source_{random_id}",
-                    "url": "https://example.com/rss",
+                    "url": "https://www.solidot.org/index.rss",
                     "source_type": "rss",
                 },
                 expected_status=409,
@@ -552,7 +552,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_test",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市 (真实存在的实体)
+                "/graph/entities/%E7%BE%8E%E5%9B%BD",  # 美国 (真实存在的实体, mention_count=17)
                 description="get_entity_test",
             ),
             TestCase(
@@ -567,7 +567,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_with_limit",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市
+                "/graph/entities/%E7%BE%8E%E5%9B%BD",  # 美国
                 params={"limit": 5},
                 description="get_entity_with_limit",
             ),
@@ -575,7 +575,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_with_limit_50",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市
+                "/graph/entities/%E7%BE%8E%E5%9B%BD",  # 美国
                 params={"limit": 50},
                 description="get_entity_with_limit_50",
             ),
@@ -715,6 +715,10 @@ def generate_test_cases() -> list[TestCase]:
     )
 
     # GET /admin/llm-usage
+    # Use dynamic date range: last 90 days to tomorrow (covers all recent data)
+    _today = datetime.now(UTC)
+    _llm_from = (_today - timedelta(days=90)).strftime("%Y-%m-%d")
+    _llm_to = (_today + timedelta(days=1)).strftime("%Y-%m-%d")
     cases.extend(
         [
             TestCase(
@@ -722,7 +726,7 @@ def generate_test_cases() -> list[TestCase]:
                 "admin",
                 "GET",
                 "/admin/llm-usage",
-                params={"group_by": "summary", "from": "2026-03-21", "to": "2026-04-20"},
+                params={"group_by": "summary", "from": _llm_from, "to": _llm_to},
                 description="llm_usage_summary",
             ),
             TestCase(
@@ -730,7 +734,7 @@ def generate_test_cases() -> list[TestCase]:
                 "admin",
                 "GET",
                 "/admin/llm-usage",
-                params={"group_by": "model", "from": "2026-03-21", "to": "2026-04-20"},
+                params={"group_by": "model", "from": _llm_from, "to": _llm_to},
                 description="llm_usage_by_model",
             ),
             TestCase(
@@ -738,7 +742,7 @@ def generate_test_cases() -> list[TestCase]:
                 "admin",
                 "GET",
                 "/admin/llm-usage",
-                params={"group_by": "call_point", "from": "2026-03-21", "to": "2026-04-20"},
+                params={"group_by": "call_point", "from": _llm_from, "to": _llm_to},
                 description="llm_usage_by_callpoint",
             ),
             TestCase(
@@ -748,8 +752,8 @@ def generate_test_cases() -> list[TestCase]:
                 "/admin/llm-usage",
                 params={
                     "group_by": "time",
-                    "from": "2026-03-21",
-                    "to": "2026-04-20",
+                    "from": _llm_from,
+                    "to": _llm_to,
                     "granularity": "daily",
                 },
                 description="llm_usage_by_time_daily",
@@ -903,13 +907,35 @@ def add_dynamic_test_cases(cases: list[TestCase]) -> list[TestCase]:
                 description=f"get_article_by_id_{article_id[:8]}",
             )
         )
+
+        # For graph_dynamic_001, find an article that exists in the graph DB
+        # by querying entity's mentioned_in_articles (ensures article is in LadybugDB)
+        graph_article_id = article_id  # fallback
+        if extracted_ids["entity_names"]:
+            try:
+                with httpx.Client(base_url=BASE_URL, headers=HEADERS, timeout=TIMEOUT) as client:
+                    for entity_name in extracted_ids["entity_names"][:5]:
+                        encoded = quote(entity_name)
+                        resp = client.get(f"/graph/entities/{encoded}", params={"limit": 20})
+                        if resp.status_code == 200:
+                            data = resp.json().get("data", {})
+                            mentioned = data.get("mentioned_in_articles", [])
+                            if mentioned:
+                                # mentioned_in_articles items have "id" field (article UUID)
+                                aid = mentioned[0].get("id") or mentioned[0].get("article_id")
+                                if aid:
+                                    graph_article_id = aid
+                                    break
+            except Exception:
+                pass  # fallback to article_ids[0]
+
         dynamic_cases.append(
             TestCase(
                 "graph_dynamic_001",
                 "graph",
                 "GET",
-                f"/graph/articles/{article_id}/graph",
-                description=f"get_article_graph_{article_id[:8]}",
+                f"/graph/articles/{graph_article_id}/graph",
+                description=f"get_article_graph_{graph_article_id[:8]}",
             )
         )
 

@@ -348,6 +348,8 @@ def build_newsnow_source_config(source_id: str) -> dict[str, Any]:
         "source_type": "newsnow",
         "enabled": True,
         "interval_minutes": 30,
+        "credibility": 0.70,
+        "tier": 2,
     }
 
 
@@ -1152,6 +1154,7 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
                 title=article.title or "",
                 body=article.body,
                 source=article.source_host or "reprocess",
+                source_id=article.source_id,
                 source_host=article.source_host or "",
                 publish_time=article.publish_time,
             )
