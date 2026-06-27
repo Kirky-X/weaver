@@ -405,8 +405,20 @@ class CashewsClient:
             return 0
         count = 0
         for key in keys:
+            removed = False
             if key in self._store:
                 del self._store[key]
+                removed = True
+            if key in self._hashes:
+                del self._hashes[key]
+                removed = True
+            if key in self._lists:
+                del self._lists[key]
+                removed = True
+            if key in self._sorted_sets:
+                del self._sorted_sets[key]
+                removed = True
+            if removed:
                 self._expiry.pop(key, None)
                 count += 1
         return count
@@ -448,8 +460,22 @@ class CashewsClient:
         return dict(self._hashes.get(name, {}))
 
     async def hdel(self, name: str, *keys: str) -> int:
-        h = self._hashes.get(name, {})
+        # Lazy expiry cleanup (consistent with hget/hexists/hgetall)
+        self._check_expiry(name)
+        # If name is not a hash key, return 0 — mirrors real Redis HDEL on
+        # a non-existent or wrong-type key. Using `get(name)` (not
+        # `get(name, {})`) avoids treating a missing key as an empty dict,
+        # which would otherwise cause us to wrongly pop `_expiry[name]`
+        # and strip the TTL of an unrelated KV/list/zset key.
+        h = self._hashes.get(name)
+        if h is None:
+            return 0
         count = sum(1 for k in keys if h.pop(k, None) is not None)
+        # Mirror real Redis: deleting the last field removes the hash key
+        # entirely (so scan_iter won't yield an empty hash key).
+        if not h:
+            self._hashes.pop(name, None)
+            self._expiry.pop(name, None)
         return count
 
     async def hincrby(self, name: str, key: str, amount: int = 1) -> int:
@@ -526,10 +552,29 @@ class CashewsClient:
     # ── Scan ───────────────────────────────────────────────────
 
     async def scan_iter(self, pattern: str, count: int = 100):
-        """Iterate over keys matching pattern."""
-        all_keys = list(self._store.keys())
+        """Iterate over keys matching pattern across all data structures.
+
+        In real Redis, SCAN iterates over ALL keys regardless of type
+        (strings, hashes, lists, sorted sets). Mirror that behavior by
+        collecting keys from _store, _hashes, _lists, and _sorted_sets.
+
+        Expired keys are lazily cleaned up here so callers never receive
+        a key whose TTL has already elapsed (matching real Redis, where
+        expired keys are skipped by SCAN).
+        """
+        all_keys = set(self._store.keys())
+        all_keys.update(self._hashes.keys())
+        all_keys.update(self._lists.keys())
+        all_keys.update(self._sorted_sets.keys())
         if pattern:
             all_keys = [k for k in all_keys if self._match_pattern(k, pattern)]
+        # Trigger lazy expiry cleanup; keep only keys that still exist.
+        live_keys: list[str] = []
+        for k in all_keys:
+            self._check_expiry(k)
+            if k in self._store or k in self._hashes or k in self._lists or k in self._sorted_sets:
+                live_keys.append(k)
+        all_keys = live_keys
         cursor = 0
         while True:
             end = cursor + count

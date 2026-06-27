@@ -1,11 +1,11 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for core.cache.redis module."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.cache.redis import RedisClient
+from core.cache.redis import CashewsClient, RedisClient
 
 
 class TestRedisClientInit:
@@ -226,3 +226,205 @@ class TestRedisClientHealthTracking:
                 with patch("core.cache.redis.log") as mock_log:
                     await client.startup()
                     mock_log.info.assert_called()
+
+
+class TestCashewsClientScanDelete:
+    """Test CashewsClient scan_iter and delete across all data structures.
+
+    Regression tests for bug where scan_iter only scanned _store (KV),
+    missing keys written via hincrby (to _hashes). This caused the LLM
+    usage aggregator to find no keys, leaving llm_usage_hourly empty.
+    """
+
+    @pytest.mark.asyncio
+    async def test_scan_iter_finds_hash_key_after_hincrby(self):
+        """scan_iter must find keys written via hincrby (stored in _hashes)."""
+        client = CashewsClient()
+        await client.hincrby("llm:usage:2026062800", "label::cp::count", 1)
+
+        keys = [k async for k in client.scan_iter("llm:usage:*")]
+        assert "llm:usage:2026062800" in keys
+
+    @pytest.mark.asyncio
+    async def test_scan_iter_finds_keys_across_all_structures(self):
+        """scan_iter must find keys from _store, _hashes, _lists, _sorted_sets."""
+        client = CashewsClient()
+        await client.set("kv:key", "value")
+        await client.hincrby("hash:key", "field", 1)
+        await client.lpush("list:key", "item")
+        await client.zadd("zset:key", {"member": 1.0})
+
+        keys = {k async for k in client.scan_iter("*")}
+        assert "kv:key" in keys
+        assert "hash:key" in keys
+        assert "list:key" in keys
+        assert "zset:key" in keys
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_hash_key(self):
+        """delete must remove keys from _hashes, not just _store."""
+        client = CashewsClient()
+        await client.hincrby("llm:usage:2026062800", "field", 1)
+
+        # Verify key exists
+        keys_before = [k async for k in client.scan_iter("llm:usage:*")]
+        assert len(keys_before) == 1
+
+        # Delete and verify return count (1 key deleted, not 1 field)
+        count = await client.delete("llm:usage:2026062800")
+        assert count == 1
+
+        # Verify key is gone
+        keys_after = [k async for k in client.scan_iter("llm:usage:*")]
+        assert len(keys_after) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_missing_key_returns_zero(self):
+        """delete of a non-existent key returns 0."""
+        client = CashewsClient()
+        count = await client.delete("nonexistent")
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_from_all_structures(self):
+        """delete must clean up a key regardless of which structure holds it."""
+        client = CashewsClient()
+        await client.set("key", "value")
+        await client.hincrby("key", "field", 1)  # Also in _hashes
+
+        count = await client.delete("key")
+        assert count == 1  # Redis returns 1 even if key had multiple types
+
+        # Both structures should be clean
+        assert "key" not in client._store
+        assert "key" not in client._hashes
+
+
+class TestCashewsClientHdelAndExpiry:
+    """Test CashewsClient hdel auto-cleanup and scan_iter expiry filtering.
+
+    Regression tests for pre-existing issues flagged by code reviewer:
+    - hdel left an empty dict in _hashes after deleting the last field,
+      causing scan_iter to yield a phantom key.
+    - scan_iter did not call _check_expiry, so expired-but-not-yet-cleaned
+      keys were still yielded to callers.
+    """
+
+    @pytest.mark.asyncio
+    async def test_hdel_removes_empty_hash_key(self):
+        """Deleting the last field of a hash must remove the key entirely."""
+        client = CashewsClient()
+        await client.hincrby("llm:usage:2026062800", "field1", 1)
+        await client.hincrby("llm:usage:2026062800", "field2", 1)
+
+        # Delete both fields
+        count = await client.hdel("llm:usage:2026062800", "field1", "field2")
+        assert count == 2
+
+        # Hash key must be gone entirely (mirrors real Redis)
+        assert "llm:usage:2026062800" not in client._hashes
+        # And scan_iter must not yield it
+        keys = [k async for k in client.scan_iter("llm:usage:*")]
+        assert keys == []
+
+    @pytest.mark.asyncio
+    async def test_hdel_partial_keep_hash_key(self):
+        """Deleting some fields but not all must keep the hash key."""
+        client = CashewsClient()
+        await client.hincrby("hash:key", "f1", 1)
+        await client.hincrby("hash:key", "f2", 1)
+
+        count = await client.hdel("hash:key", "f1")
+        assert count == 1
+        assert "hash:key" in client._hashes
+        assert client._hashes["hash:key"] == {"f2": "1"}
+
+    @pytest.mark.asyncio
+    async def test_hdel_nonexistent_field_keeps_hash(self):
+        """hdel on a missing field must not remove the hash key."""
+        client = CashewsClient()
+        await client.hincrby("hash:key", "f1", 1)
+
+        count = await client.hdel("hash:key", "missing")
+        assert count == 0
+        assert "hash:key" in client._hashes
+
+    @pytest.mark.asyncio
+    async def test_scan_iter_skips_expired_kv_key(self):
+        """scan_iter must not yield a KV key whose TTL has elapsed."""
+        client = CashewsClient()
+        await client.set("live:key", "value")
+        await client.set("dead:key", "value", ex=1)
+        # Force expiry by backdating the TTL
+        client._expiry["dead:key"] = 0.0
+
+        keys = {k async for k in client.scan_iter("*")}
+        assert "live:key" in keys
+        assert "dead:key" not in keys
+        # Expired key must be cleaned up
+        assert "dead:key" not in client._store
+        assert "dead:key" not in client._expiry
+
+    @pytest.mark.asyncio
+    async def test_scan_iter_skips_expired_hash_key(self):
+        """scan_iter must not yield an expired hash key."""
+        client = CashewsClient()
+        await client.hincrby("live:hash", "field", 1)
+        await client.hincrby("dead:hash", "field", 1)
+        client._expiry["dead:hash"] = 0.0  # backdate TTL
+
+        keys = {k async for k in client.scan_iter("*")}
+        assert "live:hash" in keys
+        assert "dead:hash" not in keys
+        assert "dead:hash" not in client._hashes
+        # Symmetric with the KV test: _expiry must also be cleaned up
+        assert "dead:hash" not in client._expiry
+
+    @pytest.mark.asyncio
+    async def test_hdel_on_non_hash_key_preserves_ttl(self):
+        """hdel on a key that exists as KV (not hash) must not strip its TTL.
+
+        Regression test for a bug where `h = self._hashes.get(name, {})`
+        returned a temporary empty dict, `if not h:` was True, and
+        `self._expiry.pop(name, None)` removed the TTL of the unrelated
+        KV key, making it live forever.
+        """
+        client = CashewsClient()
+        await client.set("kv:key", "value", ex=60)
+
+        # hdel on a non-hash key must return 0 and NOT touch _expiry
+        count = await client.hdel("kv:key", "field")
+        assert count == 0
+        assert "kv:key" in client._store  # KV value untouched
+        assert "kv:key" in client._expiry  # TTL preserved
+
+    @pytest.mark.asyncio
+    async def test_hdel_on_missing_key_returns_zero(self):
+        """hdel on a completely non-existent key must return 0."""
+        client = CashewsClient()
+        count = await client.hdel("nonexistent", "field")
+        assert count == 0
+        assert "nonexistent" not in client._hashes
+        assert "nonexistent" not in client._expiry
+
+    @pytest.mark.asyncio
+    async def test_hdel_on_expired_hash_returns_zero(self):
+        """hdel on an expired hash must return 0 (key treated as gone)."""
+        client = CashewsClient()
+        await client.hincrby("dead:hash", "field", 1)
+        client._expiry["dead:hash"] = 0.0  # backdate TTL
+
+        count = await client.hdel("dead:hash", "field")
+        assert count == 0
+        assert "dead:hash" not in client._hashes
+
+    @pytest.mark.asyncio
+    async def test_scan_iter_skips_expired_key_with_pattern(self):
+        """scan_iter with pattern must also skip expired keys."""
+        client = CashewsClient()
+        await client.set("llm:usage:live", "1")
+        await client.set("llm:usage:dead", "1", ex=1)
+        client._expiry["llm:usage:dead"] = 0.0
+
+        keys = [k async for k in client.scan_iter("llm:usage:*")]
+        assert keys == ["llm:usage:live"]
