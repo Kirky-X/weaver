@@ -53,6 +53,17 @@ class ArticleStateMapper:
         body = state.get("cleaned", {}).get("body", getattr(raw, "body", ""))
         content_hash = ChangeDetector.compute_hash({"title": title, "body": body})
 
+        # REM-002: publish_time fallback chain — raw → cleaned (backfilled by cleaner)
+        publish_time = getattr(raw, "publish_time", None)
+        if publish_time is None:
+            cleaned_pt = state.get("cleaned", {}).get("publish_time")
+            if cleaned_pt:
+                with contextlib.suppress(ValueError, TypeError):
+                    if isinstance(cleaned_pt, datetime):
+                        publish_time = cleaned_pt
+                    else:
+                        publish_time = datetime.fromisoformat(str(cleaned_pt))
+
         return {
             "source_url": normalized_url,
             "source_host": (
@@ -67,7 +78,7 @@ class ArticleStateMapper:
             "sentiment_score": state.get("sentiment", {}).get("sentiment_score"),
             "credibility_score": state.get("credibility", {}).get("score"),
             "persist_status": PersistStatus.PG_DONE.value,
-            "publish_time": getattr(raw, "publish_time", None),
+            "publish_time": publish_time,
             "content_hash": content_hash,
             "updated_at": datetime.now(UTC),
         }

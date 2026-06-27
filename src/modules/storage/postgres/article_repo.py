@@ -552,6 +552,11 @@ class ArticleRepo:
         neutral fallback values so the API returns meaningful data instead
         of all-null rows.
 
+        REM-004: Previously only filled 4 fields (persist_status, score,
+        sentiment_score, is_news, sentiment), leaving 6 fields NULL
+        (category, language, region, credibility_score, publish_time, summary).
+        Now fills all required fields for API responses.
+
         Args:
             source_url: The article's source URL.
 
@@ -560,6 +565,7 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             # Update ArticleCore: persist_status + score/sentiment_score fallback
+            # + REM-004: category/language/region/credibility_score/publish_time fallbacks
             # Note: score and sentiment_score are in ArticleCore, NOT ArticleAnalysis
             result = await session.execute(
                 update(ArticleCore)
@@ -569,6 +575,13 @@ class ArticleRepo:
                     persist_status=PersistStatus.PG_DONE,
                     score=0.0,
                     sentiment_score=0.0,
+                    # REM-004: Fill fields that would otherwise be NULL for terminal articles
+                    category="other",
+                    language="zh",
+                    region="unknown",
+                    credibility_score=0.0,
+                    # Use created_at as publish_time fallback (ingestion time)
+                    publish_time=ArticleCore.created_at,
                     updated_at=datetime.now(UTC),
                 )
             )
@@ -585,6 +598,20 @@ class ArticleRepo:
                 .values(
                     is_news=False,
                     sentiment="neutral",
+                )
+            )
+
+            # REM-004: Update ArticleBody summary for terminal articles
+            # Terminal articles skip cleaner, so summary would be NULL without this
+            await session.execute(
+                update(ArticleBody)
+                .where(
+                    ArticleBody.article_id.in_(
+                        select(ArticleCore.id).where(ArticleCore.source_url == source_url)
+                    )
+                )
+                .values(
+                    summary="Non-news article (terminal)",
                 )
             )
 

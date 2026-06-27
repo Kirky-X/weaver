@@ -96,18 +96,33 @@ class TestCleanerNodeBasic:
         assert result["cleaner_entities"][0]["name"] == "Company X"
 
     @pytest.mark.asyncio
-    async def test_includes_llm_publish_time(
-        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw, sample_cleaner_output
+    async def test_llm_publish_time_backfills_when_raw_missing(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_cleaner_output
     ):
-        """Should include LLM-parsed publish_time if available."""
+        """REM-002: LLM-parsed publish_time backfills publish_time when raw.publish_time is None.
+
+        Previously the LLM publish_time was written to a dead field
+        'llm_publish_time' that was never read. Now it backfills the canonical
+        'publish_time' field only when raw.publish_time is missing.
+        """
+        from modules.ingestion.domain.models import RawArticle
+
+        raw_no_publish = RawArticle(
+            url="https://example.com/test-article",
+            title="Test Article Title",
+            body="Test article body content.",
+            source="test_source",
+            publish_time=None,
+            source_host="example.com",
+        )
         mock_llm.call_at = AsyncMock(return_value=sample_cleaner_output)
         node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
-        state = PipelineState(raw=sample_raw)
+        state = PipelineState(raw=raw_no_publish)
 
         result = await node.execute(state)
 
-        assert "llm_publish_time" in result["cleaned"]
-        assert result["cleaned"]["llm_publish_time"] == "2026-01-15"
+        assert result["cleaned"]["publish_time"] == "2026-01-15"
+        assert "llm_publish_time" not in result["cleaned"]
 
     @pytest.mark.asyncio
     async def test_includes_author(
@@ -166,7 +181,11 @@ class TestCleanerNodeEdgeCases:
     async def test_handles_no_publish_time(
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
-        """Should not set llm_publish_time if not in output."""
+        """REM-002: Should not overwrite publish_time when LLM output has no publish_time.
+
+        When LLM output has publish_time=None and raw.publish_time exists,
+        the cleaned publish_time must retain raw.publish_time (not be set to None).
+        """
         output = CleanerOutput(
             content=CleanerContent(
                 title="Title",
@@ -184,6 +203,7 @@ class TestCleanerNodeEdgeCases:
 
         result = await node.execute(state)
 
+        assert result["cleaned"]["publish_time"] == sample_raw.publish_time
         assert "llm_publish_time" not in result["cleaned"]
 
     @pytest.mark.asyncio

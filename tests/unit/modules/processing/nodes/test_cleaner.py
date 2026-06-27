@@ -135,7 +135,38 @@ class TestCleanerNodeBasic:
         assert result["cleaner_entities"][0]["name"] == "OpenAI"
 
     @pytest.mark.asyncio
-    async def test_llm_publish_time(self, mock_llm, mock_budget, mock_prompt_loader, sample_raw):
+    async def test_llm_publish_time_backfill_when_raw_missing(
+        self, mock_llm, mock_budget, mock_prompt_loader
+    ):
+        """REM-002: When raw.publish_time is None, LLM-extracted publish_time backfills cleaned.publish_time."""
+        # RawArticle is imported at module top from modules.ingestion.domain.models
+        raw_no_pt = RawArticle(
+            url="https://example.com/article",
+            title="Test",
+            body="Body content",
+            source="test",
+            publish_time=None,  # Missing publish_time
+            source_host="example.com",
+        )
+        mock_llm.call_at = AsyncMock(
+            return_value=_make_cleaner_output(publish_time="2025-01-15T10:00:00Z")
+        )
+
+        node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
+        state = PipelineState(raw=raw_no_pt)
+
+        result = await node.execute(state)
+
+        # publish_time should be backfilled from LLM extraction
+        assert result["cleaned"]["publish_time"] == "2025-01-15T10:00:00Z"
+        # Dead field llm_publish_time should NOT exist
+        assert "llm_publish_time" not in result["cleaned"]
+
+    @pytest.mark.asyncio
+    async def test_llm_publish_time_no_backfill_when_raw_present(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """When raw.publish_time exists, LLM publish_time does NOT override it."""
         mock_llm.call_at = AsyncMock(
             return_value=_make_cleaner_output(publish_time="2025-01-15T10:00:00Z")
         )
@@ -145,8 +176,10 @@ class TestCleanerNodeBasic:
 
         result = await node.execute(state)
 
-        assert "llm_publish_time" in result["cleaned"]
-        assert result["cleaned"]["llm_publish_time"] == "2025-01-15T10:00:00Z"
+        # publish_time should remain as raw.publish_time (not overridden)
+        assert result["cleaned"]["publish_time"] == sample_raw.publish_time
+        # Dead field llm_publish_time should NOT exist
+        assert "llm_publish_time" not in result["cleaned"]
 
     @pytest.mark.asyncio
     async def test_author_from_llm(self, mock_llm, mock_budget, mock_prompt_loader, sample_raw):
@@ -174,6 +207,7 @@ class TestCleanerNodeEdgeCases:
 
     @pytest.mark.asyncio
     async def test_no_publish_time(self, mock_llm, mock_budget, mock_prompt_loader, sample_raw):
+        """When LLM returns no publish_time, cleaned.publish_time stays as raw.publish_time."""
         mock_llm.call_at = AsyncMock(return_value=_make_cleaner_output(publish_time=None))
 
         node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
@@ -181,6 +215,8 @@ class TestCleanerNodeEdgeCases:
 
         result = await node.execute(state)
 
+        # No backfill; publish_time stays as raw value
+        assert result["cleaned"]["publish_time"] == sample_raw.publish_time
         assert "llm_publish_time" not in result["cleaned"]
 
     @pytest.mark.asyncio

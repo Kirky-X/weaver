@@ -139,7 +139,10 @@ class CleanerNode:
                 state["cleaned"]["author"] = author
             date = bare.get("date")
             if date:
-                state["cleaned"]["llm_publish_time"] = str(date)
+                # REM-002: Backfill publish_time when raw.publish_time is None.
+                # Previously wrote to dead field 'llm_publish_time' which was never read.
+                if not raw.publish_time:
+                    state["cleaned"]["publish_time"] = str(date)
 
         state["tags"] = []
         state["cleaner_entities"] = []
@@ -184,7 +187,10 @@ class CleanerNode:
                     "source_host": raw.source_host,
                 }
                 if result.publish_time:
-                    state["cleaned"]["llm_publish_time"] = result.publish_time
+                    # REM-002: Backfill publish_time when raw.publish_time is None.
+                    # Previously wrote to dead field 'llm_publish_time' which was never read.
+                    if not raw.publish_time:
+                        state["cleaned"]["publish_time"] = result.publish_time
                 if result.author:
                     state["cleaned"]["author"] = result.author
                 state["tags"] = result.tags
