@@ -208,6 +208,7 @@ class Crawler:
                 body=body,
                 html=html_content,
                 source=item.source,
+                source_id=item.source_id,
                 publish_time=item.publish_time,
                 source_host=host,
                 description=item.description or "",

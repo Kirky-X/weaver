@@ -239,17 +239,37 @@ class ArticleRepo:
 
         article_ids: list[uuid.UUID] = []
 
+        # DuckDB single-writer conflicts (TransactionContext Error: Conflict on
+        # update/deletion) happen when the scheduler's retry_pipeline_processing
+        # runs concurrently with other writers. Retry each article a few times
+        # with exponential backoff before giving up (per project memory).
+        max_retries = 3
+        base_delay = 0.2
+
         for state in valid_states:
-            async with self._pool.session() as session:
-                try:
-                    article_id = await self._upsert_single(session, state)
-                    await session.commit()
-                    article_ids.append(article_id)
-                except Exception as exc:
-                    raw = state.get("raw")
-                    url = getattr(raw, "url", "unknown") if raw else "unknown"
-                    log.error("bulk_upsert_single_failed", url=url, error=str(exc))
-                    await session.rollback()
+            for attempt in range(max_retries):
+                async with self._pool.session() as session:
+                    try:
+                        article_id = await self._upsert_single(session, state)
+                        await session.commit()
+                        article_ids.append(article_id)
+                        break
+                    except Exception as exc:
+                        await session.rollback()
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2**attempt)
+                            log.debug(
+                                "bulk_upsert_retry",
+                                attempt=attempt + 1,
+                                max_retries=max_retries,
+                                delay=delay,
+                                error=str(exc)[:100],
+                            )
+                            await asyncio.sleep(delay)
+                        else:
+                            raw = state.get("raw")
+                            url = getattr(raw, "url", "unknown") if raw else "unknown"
+                            log.error("bulk_upsert_single_failed", url=url, error=str(exc))
 
         log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
         return article_ids
