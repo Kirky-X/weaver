@@ -2732,18 +2732,18 @@ Content-Type: application/json
 
 {
   "query": "2024年AI领域有哪些重大事件？",
-  "time_window_days": 7,
+  "time_range": "7d",
   "limit": 10
 }
 ```
 
 **请求字段：**
 
-| 字段                 | 类型      | 必填 | 默认值 | 说明      |
-|--------------------|---------|----|-----|---------|
-| `query`            | string  | 是  | -   | 时间推理查询  |
-| `time_window_days` | integer | 否  | 7   | 时间窗口（天） |
-| `limit`            | integer | 否  | 10  | 最大返回事件数 |
+| 字段             | 类型      | 必填 | 默认值  | 说明                                  |
+|----------------|---------|----|------|---------------------------------------|
+| `query`        | string  | 是  | -    | 时间推理查询                                |
+| `time_range`   | string  | 否  | "7d" | 时间窗口（格式：`<N><unit>`，unit 为 d/h/m）    |
+| `limit`        | integer | 否  | 10   | 最大返回事件数                               |
 
 #### 响应
 
@@ -2760,9 +2760,9 @@ Content-Type: application/json
     }
   ],
   "time_range": {
-    "start": "2024-03-14T00:00:00Z",
-    "end": "2024-03-21T00:00:00Z",
-    "window_days": 7
+    "start": 1710374400,
+    "end": 1710979200,
+    "window_days": 7.0
   },
   "metadata": {
     "limit": 10

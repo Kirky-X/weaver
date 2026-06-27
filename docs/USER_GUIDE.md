@@ -530,7 +530,7 @@ curl -X POST "http://localhost:8000/api/v1/search/temporal" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "某事件何时发生",
-    "time_window_days": 7,
+    "time_range": "7d",
     "limit": 10
   }'
 ```

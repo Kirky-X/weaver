@@ -137,7 +137,9 @@ class LadybugWriter:
                 "attributes": json.dumps(event_attributes, ensure_ascii=False),
                 "event_type": "news",
                 "name": title,
-                "event_time": publish_time or 0,
+                # publish_time 为 None 时用当前时间, 避免 epoch 0 脏数据
+                # (历史 bug: publish_time or 0 写入 0, 破坏 temporal 时间窗口过滤)
+                "event_time": publish_time or int(time.time()),
                 "created_at": int(time.time()),
             },
         )

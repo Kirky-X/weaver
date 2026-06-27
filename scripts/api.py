@@ -521,7 +521,7 @@ def generate_test_cases() -> list[TestCase]:
                 "search",
                 "POST",
                 "/search/temporal",
-                json_body={"query": "融资", "time_window_days": 30},  # Query matching actual data,
+                json_body={"query": "融资", "time_range": "30d"},  # Query matching actual data,
                 description="temporal_search_default",
             ),
             TestCase(
@@ -529,7 +529,7 @@ def generate_test_cases() -> list[TestCase]:
                 "search",
                 "POST",
                 "/search/temporal",
-                json_body={"query": "投资", "time_window_days": 7, "limit": 20},
+                json_body={"query": "投资", "time_range": "7d", "limit": 20},
                 description="temporal_search_custom_window",
             ),
             TestCase(

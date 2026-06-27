@@ -40,7 +40,7 @@ class TestStorageInitExports:
     def test_all_exports_count(self):
         from modules.storage import __all__
 
-        assert len(__all__) == 12
+        assert len(__all__) == 11
 
     def test_all_exports_match(self):
         from modules.storage import __all__
@@ -52,7 +52,6 @@ class TestStorageInitExports:
             "GraphRepository",
             "LadybugArticleRepo",
             "LadybugEntityRepo",
-            "LadybugTemporalRepo",
             "Neo4jArticleRepo",
             "Neo4jEntityRepo",
             "PendingSyncRepo",

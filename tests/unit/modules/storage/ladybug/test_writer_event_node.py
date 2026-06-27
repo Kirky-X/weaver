@@ -249,3 +249,49 @@ class TestLadybugWriterEventNodeCreation:
         for call in calls:
             query = call[0][0] if call[0] else ""
             assert "EventNode" not in query
+
+    @pytest.mark.asyncio
+    async def test_write_article_with_none_publish_time_writes_current_time(
+        self, writer, mock_pool
+    ):
+        """Scenario: publish_time 为 None 时写入当前时间，不写入 0 (epoch 脏数据)。
+
+        参考 OpenSpec change: temporal-search-time-filter-fix
+        历史 bug: writer.py:140 写入 `publish_time or 0`，导致 event_time=0
+        破坏 temporal 搜索的时间窗口过滤。
+        """
+        before = int(time.time())
+        article_id = str(uuid.uuid4())
+        state = _make_state(
+            article_id=article_id,
+            title="No Publish Time",
+            body="Content",
+            publish_time=None,
+        )
+
+        writer._article_repo = MagicMock()
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
+        writer._article_repo.create_article = AsyncMock(return_value="article-uuid")
+
+        writer._entity_repo = MagicMock()
+        writer._entity_repo.merge_entity = AsyncMock(return_value="entity-uuid")
+        writer._entity_repo.merge_mentions_relation = AsyncMock()
+
+        await writer.write(state)
+        after = int(time.time())
+
+        # Find EventNode creation call and verify event_time > 0
+        calls = mock_pool.execute_query.call_args_list
+        event_node_params = None
+        for call in calls:
+            query = call[0][0] if call[0] else ""
+            if "EventNode" in query and "event_time" in query:
+                event_node_params = call[0][1] if len(call[0]) > 1 else call[1]
+                break
+
+        assert event_node_params is not None, "EventNode creation query not found"
+        event_time = event_node_params.get("event_time", 0)
+        # event_time MUST NOT be 0 (the legacy bug we are fixing)
+        assert event_time > 0, f"event_time must be > 0, got {event_time} (legacy bug)"
+        # event_time MUST be within [before, after] (current time fallback)
+        assert before <= event_time <= after, f"event_time {event_time} not in [{before}, {after}]"

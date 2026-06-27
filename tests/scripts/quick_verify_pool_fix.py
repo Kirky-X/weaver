@@ -178,7 +178,7 @@ async def main() -> int:
                     "search_temporal_normal",
                     "POST",
                     "/api/v1/search/temporal",
-                    body={"query": "test", "time_window_days": 7, "limit": 5},
+                    body={"query": "test", "time_range": "7d", "limit": 5},
                     timeout=45.0,
                 )
             )
