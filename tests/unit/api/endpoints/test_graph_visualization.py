@@ -387,10 +387,14 @@ class TestSubgraphExtraction:
         assert response.status_code in [400, 422]
 
     @pytest.mark.asyncio
-    async def test_should_return_404_when_no_nodes_found(
+    async def test_should_return_200_empty_graph_when_no_nodes_found(
         self, client, auth_headers, mock_graph_repo
     ):
-        """Test that empty subgraph returns 404."""
+        """REM-007: Empty subgraph returns 200 OK with empty graph (not 404).
+
+        Entity exists in graph but has no neighbors within max_hops.
+        Consistent with GET /graph/visualization and exception path behavior.
+        """
         mock_graph_repo.get_subgraph_nodes = AsyncMock(return_value=[])
 
         request_data = {
@@ -399,15 +403,23 @@ class TestSubgraphExtraction:
         }
         response = client.post("/graph/visualization", json=request_data, headers=auth_headers)
 
-        assert response.status_code == 404
+        assert response.status_code == 200
         data = response.json()
-        assert "detail" in data
+        payload = data.get("data", data)
+        assert payload["nodes"] == []
+        assert payload["edges"] == []
+        assert payload["metadata"]["total_nodes"] == 0
 
     @pytest.mark.asyncio
-    async def test_should_return_404_when_subgraph_query_fails(
+    async def test_should_return_200_empty_graph_when_subgraph_query_fails(
         self, client, auth_headers, mock_graph_repo
     ):
-        """Test that subgraph query failure returns 404."""
+        """REM-007: Subgraph query failure returns 200 OK with empty graph (not 404).
+
+        Distinguishes "entity not found" (which would be 404) from "query error"
+        (database connectivity, etc.). Returns empty graph with error metadata,
+        consistent with GET /graph/visualization behavior.
+        """
         mock_graph_repo.get_subgraph_nodes = AsyncMock(side_effect=Exception("Query failed"))
 
         request_data = {
@@ -416,9 +428,12 @@ class TestSubgraphExtraction:
         }
         response = client.post("/graph/visualization", json=request_data, headers=auth_headers)
 
-        assert response.status_code == 404
+        assert response.status_code == 200
         data = response.json()
-        assert "detail" in data
+        payload = data.get("data", data)
+        assert payload["nodes"] == []
+        assert payload["edges"] == []
+        assert "error" in payload["metadata"]
 
     @pytest.mark.asyncio
     async def test_should_use_default_max_hops(self, client, auth_headers, mock_graph_repo):

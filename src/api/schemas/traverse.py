@@ -23,7 +23,9 @@ class TraverseRequest(BaseModel):
 
     """
 
-    start_entity: str = Field(..., description="Canonical name of the starting entity")
+    start_entity: str = Field(
+        ..., min_length=1, description="Canonical name of the starting entity"
+    )
     max_depth: int = Field(3, ge=1, le=6, description="Maximum traversal depth (1-6)")
     relation_types: list[str] | None = Field(
         None, description="Optional list of relation types to filter"

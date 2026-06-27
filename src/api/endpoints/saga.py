@@ -10,9 +10,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import get_saga_orchestrator
+from api.middleware.auth import verify_admin_api_key, verify_api_key
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -23,12 +24,14 @@ router = APIRouter(prefix="/saga", tags=["saga"])
 @router.get("/{saga_id}", summary="Get saga status")
 async def get_saga_status(
     saga_id: uuid.UUID,
+    _: str = Depends(verify_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
 ) -> dict[str, Any]:
     """Get the status of a saga by its ID.
 
     Args:
         saga_id: UUID of the saga.
+        _: Verified API key.
         orchestrator: Saga orchestrator instance.
 
     Returns:
@@ -49,6 +52,7 @@ async def get_saga_status(
 @router.post("/{saga_id}/compensate", summary="Trigger manual compensation")
 async def compensate_saga(
     saga_id: uuid.UUID,
+    _: str = Depends(verify_admin_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
 ) -> dict[str, Any]:
     """Manually trigger compensation for a saga.
@@ -58,6 +62,7 @@ async def compensate_saga(
 
     Args:
         saga_id: UUID of the saga to compensate.
+        _: Verified admin API key.
         orchestrator: Saga orchestrator instance.
 
     Returns:
@@ -100,6 +105,7 @@ async def compensate_saga(
 @router.post("/{saga_id}/retry", summary="Retry a failed saga")
 async def retry_saga(
     saga_id: uuid.UUID,
+    _: str = Depends(verify_admin_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
 ) -> dict[str, Any]:
     """Retry a failed saga by re-processing the associated article.
@@ -110,6 +116,7 @@ async def retry_saga(
 
     Args:
         saga_id: UUID of the failed saga to retry.
+        _: Verified admin API key.
         orchestrator: Saga orchestrator instance.
 
     Returns:
@@ -153,12 +160,14 @@ async def retry_saga(
 @router.get("/article/{article_id}", summary="Get sagas for article")
 async def get_article_sagas(
     article_id: uuid.UUID,
+    _: str = Depends(verify_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
 ) -> dict[str, Any]:
     """Get all saga log entries for an article.
 
     Args:
         article_id: UUID of the article.
+        _: Verified API key.
         orchestrator: Saga orchestrator instance.
 
     Returns:
@@ -187,21 +196,21 @@ async def get_article_sagas(
 
 @router.get("/failed/list", summary="List failed sagas")
 async def list_failed_sagas(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of entries to return"),
+    _: str = Depends(verify_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
 ) -> dict[str, Any]:
     """List saga log entries with failed status.
 
     Args:
-        limit: Maximum number of entries to return (default 50, max 200).
+        limit: Maximum number of entries to return (1-200, default 50).
+        _: Verified API key.
         orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with list of failed saga log entries.
 
     """
-    limit = min(limit, 200)
-
     failed_logs = await orchestrator.get_failed_saga_logs(limit=limit)
 
     entries = []

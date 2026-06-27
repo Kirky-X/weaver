@@ -184,12 +184,14 @@ class TestListFailedSagas:
         assert len(result["entries"]) == 1
 
     @pytest.mark.asyncio
-    async def test_list_failed_sagas_limit_capped(self, mock_orchestrator):
+    async def test_list_failed_sagas_limit_passthrough(self, mock_orchestrator):
+        """Limit is validated by FastAPI Query(ge=1, le=200); function passes it through."""
         mock_orchestrator.get_failed_saga_logs = AsyncMock(return_value=[])
 
         from api.endpoints.saga import list_failed_sagas
 
-        result = await list_failed_sagas(limit=500, orchestrator=mock_orchestrator)
+        # Function trusts framework validation; passes limit as-is
+        result = await list_failed_sagas(limit=100, orchestrator=mock_orchestrator)
 
-        # Limit should be capped to 200
-        mock_orchestrator.get_failed_saga_logs.assert_called_once_with(limit=200)
+        mock_orchestrator.get_failed_saga_logs.assert_called_once_with(limit=100)
+        assert result["failed_count"] == 0

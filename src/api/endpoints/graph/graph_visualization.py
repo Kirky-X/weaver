@@ -198,8 +198,24 @@ async def get_subgraph(
             include_types=request.include_types,
             exclude_types=request.exclude_types,
         )
-    except Exception:
-        raise HTTPException(status_code=404, detail="No nodes found in subgraph")
+    except Exception as exc:
+        # REM-007: Distinguish "entity not found" (404) from "query error".
+        # Previously all exceptions were converted to 404, masking real errors
+        # like database connectivity issues. Now return empty graph with error
+        # metadata (consistent with GET /graph/visualization behavior).
+        return success_response(
+            GraphSnapshotResponse(
+                nodes=[],
+                edges=[],
+                metadata={
+                    "center": request.center_entity,
+                    "max_hops": request.max_hops,
+                    "total_nodes": 0,
+                    "total_edges": 0,
+                    "error": str(exc)[:200] if str(exc) else "Graph query failed",
+                },
+            )
+        )
 
     nodes = []
     node_ids = set()
@@ -216,7 +232,22 @@ async def get_subgraph(
         node_ids.add(node["id"])
 
     if not node_ids:
-        raise HTTPException(status_code=404, detail="No nodes found in subgraph")
+        # REM-007: Entity exists in graph but has no neighbors within max_hops.
+        # Return 200 OK with empty graph (consistent with exception path above
+        # and GET /graph/visualization behavior), rather than 404.
+        return success_response(
+            GraphSnapshotResponse(
+                nodes=[],
+                edges=[],
+                metadata={
+                    "center": request.center_entity,
+                    "max_hops": request.max_hops,
+                    "total_nodes": 0,
+                    "total_edges": 0,
+                    "message": "No nodes found in subgraph",
+                },
+            )
+        )
 
     edges_data = await graph_repo.get_subgraph_edges(list(node_ids))
 

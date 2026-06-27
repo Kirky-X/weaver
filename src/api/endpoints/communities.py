@@ -598,8 +598,20 @@ async def repair_health(
 
     # Filter by requested repair types if specified
     if request.repair_types:
-        type_set = {IssueType(t) for t in request.repair_types}
-        repairable_issues = [i for i in repairable_issues if i.issue_type in type_set]
+        valid_types: set[IssueType] = set()
+        invalid_types: list[str] = []
+        for t in request.repair_types:
+            try:
+                valid_types.add(IssueType(t))
+            except ValueError:
+                invalid_types.append(t)
+        if invalid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid repair types: {invalid_types}. Valid types: "
+                f"{[it.value for it in IssueType]}",
+            )
+        repairable_issues = [i for i in repairable_issues if i.issue_type in valid_types]
 
     if not repairable_issues:
         return success_response(
