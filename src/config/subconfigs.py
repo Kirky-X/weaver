@@ -435,7 +435,7 @@ class PipelineProcessSettings(BaseModel):
     merge_cross_query_limit: int = 20  # Cross-query similar articles limit
     drain_timeout: float = 30.0  # Pipeline drain timeout
     worker_poll_interval: float = 1.0  # seconds between queue polls
-    worker_batch_size: int = 20  # items per batch
+    worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
 
 

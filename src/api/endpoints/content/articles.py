@@ -14,7 +14,7 @@ from sqlalchemy import asc, desc, select
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.db import Article, CategoryType
+from core.db import Article, CategoryType, PersistStatus
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
@@ -64,9 +64,41 @@ class ArticleDetailResponse(BaseModel):
     publish_time: datetime | None
     created_at: datetime
     updated_at: datetime
+    processing_status: str
 
 
 # ── Helpers ─────────────────────────────────────────────────────
+
+
+def _map_processing_status(persist_status: PersistStatus | str | None) -> str:
+    """Map PersistStatus enum to simplified processing_status string.
+
+    Aggregation rules (per design.md Decision 2):
+    - "pending"    ← PersistStatus.PENDING
+    - "processing" ← PersistStatus.PROCESSING and non-terminal SAGA_* states
+    - "completed"  ← PersistStatus.completed_statuses()
+    - "failed"     ← PersistStatus.FAILED, NEO4J_FAILED, SAGA_COMPENSATED
+    """
+    if persist_status is None:
+        return "pending"
+    # Normalize to PersistStatus enum if a string was passed
+    if isinstance(persist_status, str):
+        try:
+            persist_status = PersistStatus(persist_status)
+        except ValueError:
+            # Unknown status string — safely degrade to "processing"
+            return "processing"
+    if persist_status == PersistStatus.PENDING:
+        return "pending"
+    if persist_status in {
+        PersistStatus.FAILED,
+        PersistStatus.NEO4J_FAILED,
+        PersistStatus.SAGA_COMPENSATED,
+    }:
+        return "failed"
+    if persist_status in PersistStatus.completed_statuses():
+        return "completed"
+    return "processing"
 
 
 def _article_to_dict(article: Article) -> dict[str, Any]:
@@ -105,6 +137,7 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "publish_time": article.publish_time.isoformat() if article.publish_time else None,
         "created_at": article.created_at.isoformat(),
         "updated_at": article.updated_at.isoformat(),
+        "processing_status": _map_processing_status(getattr(article, "persist_status", None)),
     }
 
 
