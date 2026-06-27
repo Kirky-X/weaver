@@ -90,6 +90,7 @@ class SchedulerJobs:
             relational_pool=relational_pool,
             graph_writer=graph_writer,
             pending_sync_repo=pending_sync_repo,
+            vector_repo=vector_repo,
             llm_failure_repo=llm_failure_repo,
             settings=self._settings_impl,
         )

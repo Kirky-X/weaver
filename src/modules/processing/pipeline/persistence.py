@@ -100,10 +100,16 @@ class PipelinePersistence:
                 valid_states, batch_total, batch_completed, batch_failed
             )
 
-        # No graph writer: PG success counts as complete
+        # REM-005: graph_writer is None — graph persistence silently skipped.
+        # Articles remain in PG_DONE status (set by bulk_upsert) for
+        # retry_neo4j_writes to pick up when graph store becomes available.
+        # Do NOT increment batch_completed: graph write did not happen.
         for state in valid_states:
-            batch_completed += 1
-            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+            log.error(
+                "graph_writer_unavailable_skip_graph_persist",
+                article_id=state.get("article_id"),
+                url=state["raw"].url[:100] if state.get("raw") else "unknown",
+            )
         return batch_completed, batch_failed
 
     async def _handle_terminal_states(self, states: list[PipelineState]) -> None:
@@ -255,7 +261,7 @@ class PipelinePersistence:
                         await self._article_repo.update_persist_status(
                             uuid.UUID(article_id), self._graph_writer.done_status
                         )
-                # Log errors
+                # Log errors and mark failed articles
                 for article_id_str, error_msg in result.get("errors", []):
                     log.error(
                         "persist_neo4j_batch_failed",
@@ -263,6 +269,28 @@ class PipelinePersistence:
                         error=error_msg,
                     )
                     batch_failed += 1
+                    # REM-005: Mark article as failed so it doesn't stay stuck
+                    # in PG_DONE. Previously only logged, leaving articles in
+                    # a "waiting for graph" state that never resolves.
+                    if article_id_str and article_id_str != "unknown" and self._article_repo:
+                        try:
+                            await self._article_repo.mark_failed(
+                                uuid.UUID(article_id_str),
+                                f"Graph batch write failed: {error_msg}",
+                            )
+                        except (ValueError, TypeError) as parse_exc:
+                            log.warning(
+                                "mark_failed_invalid_article_id",
+                                article_id_str=article_id_str,
+                                error=str(parse_exc),
+                            )
+                        except Exception as mark_exc:
+                            log.error(
+                                "mark_failed_after_batch_error_failed",
+                                article_id=article_id_str,
+                                original_error=error_msg,
+                                mark_error=str(mark_exc),
+                            )
                 # Success count
                 batch_completed += len(result.get("article_ids", []))
                 # Log progress for each successful article

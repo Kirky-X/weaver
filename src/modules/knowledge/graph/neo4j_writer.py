@@ -185,10 +185,15 @@ class Neo4jWriter:
 
         for ids, article_id, error in write_results:
             result["neo4j_ids"].append(ids)
-            if article_id:
-                result["article_ids"].append(article_id)
+            # REM-005: Only add to article_ids when there is no error.
+            # Previously failed articles were added to both article_ids and
+            # errors, causing double counting (batch_completed + batch_failed
+            # both incremented for the same article). Aligns with
+            # LadybugWriter.write_batch behavior.
             if error:
                 result["errors"].append((article_id or "unknown", error))
+            elif article_id:
+                result["article_ids"].append(article_id)
 
         log.info(
             "neo4j_batch_write_complete",

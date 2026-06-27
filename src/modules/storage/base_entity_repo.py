@@ -198,6 +198,20 @@ class BaseEntityRepo(ABC):
         """
         ...
 
+    @abstractmethod
+    async def list_all_entity_names(self) -> set[str]:
+        """List all entity canonical names.
+
+        REM-001: Used by cleanup_orphan_entity_vectors to compare against
+        entity_vectors.neo4j_id (which stores entity names, not graph IDs).
+        Comparing by name avoids the ID namespace mismatch between
+        entity_vectors (names) and list_all_entity_ids (graph internal IDs).
+
+        Returns:
+            Set of all entity canonical names.
+        """
+        ...
+
     async def delete_orphan_entities(self) -> int:
         """Delete entities that have no relationships.
 

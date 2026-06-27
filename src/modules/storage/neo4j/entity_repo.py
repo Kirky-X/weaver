@@ -457,6 +457,22 @@ class Neo4jEntityRepo(BaseEntityRepo):
         result = await self._pool.execute_query(query)
         return {record["neo4j_id"] for record in result}
 
+    async def list_all_entity_names(self) -> set[str]:
+        """List all entity canonical names.
+
+        REM-001: entity_vectors.neo4j_id stores entity names (not graph IDs),
+        so cleanup_orphan_entity_vectors must compare by name, not by ID.
+
+        Returns:
+            Set of all entity canonical names.
+        """
+        query = """
+        MATCH (e:Entity)
+        RETURN e.canonical_name AS canonical_name
+        """
+        result = await self._pool.execute_query(query)
+        return {record["canonical_name"] for record in result}
+
     async def delete_orphan_entities(self) -> int:
         """Delete entities that have no MENTIONS or RELATED_TO relationships.
 

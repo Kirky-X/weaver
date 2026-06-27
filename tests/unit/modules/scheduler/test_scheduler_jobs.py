@@ -324,11 +324,19 @@ class TestArchiveOldNeo4jNodes:
 
 
 class TestCleanupOrphanEntityVectors:
-    """Test cleanup_orphan_entity_vectors job."""
+    """Test cleanup_orphan_entity_vectors job.
 
-    @pytest.mark.asyncio
-    async def test_cleanup_orphan_vectors(self, scheduler_jobs_service):
-        """Test cleanup of orphan vectors."""
+    REM-001 root cause fixes:
+    - entity_vectors.neo4j_id stores a MIX of entity names (from extractor)
+      and graph internal IDs (from resolver). Use UNION of
+      list_all_entity_ids() and list_all_entity_names() to avoid false-positive
+      orphan detection on either ID type.
+    - Use injected vector_repo instead of constructing VectorRepo(pool)
+      (which fails with TypeError due to missing query_builder arg).
+    """
+
+    def _setup_pool_mock(self, scheduler_jobs_service, pg_keys):
+        """Helper to mock relational_pool.session and return pg_keys."""
         mock_session = AsyncMock()
 
         scheduler_jobs_service._relational_pool.session = MagicMock()
@@ -339,12 +347,92 @@ class TestCleanupOrphanEntityVectors:
             return_value=None
         )
 
+        # Implementation iterates over result directly: {row[0] for row in result}
+        mock_result = MagicMock()
+        mock_result.__iter__ = MagicMock(return_value=iter([(k,) for k in pg_keys]))
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphan_vectors_no_orphans(self, scheduler_jobs_service):
+        """Test cleanup when all entity vectors have matching entities in graph."""
+        # entity_vectors contains: Apple (name), 4:abc:0 (graph ID)
+        self._setup_pool_mock(scheduler_jobs_service, ["Apple", "4:abc:0"])
+
+        # Graph has both names and IDs
         scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
-            return_value=[]
+            return_value={"4:abc:0", "4:def:1"}
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value={"Apple", "Beijing", "OpenAI"}
         )
 
         result = await scheduler_jobs_service.cleanup_orphan_entity_vectors()
         assert result == 0
+        # Verify both methods were called (union comparison)
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids.assert_awaited_once()
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphan_vectors_deletes_orphans(self, scheduler_jobs_service):
+        """Test cleanup deletes vectors whose keys are not in graph (neither as name nor ID)."""
+        # entity_vectors contains: Apple (name), 4:abc:0 (graph ID), OrphanEntity (orphan)
+        self._setup_pool_mock(scheduler_jobs_service, ["Apple", "4:abc:0", "OrphanEntity"])
+
+        # Graph has IDs: 4:abc:0, 4:def:1 and names: Apple, Beijing
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value={"4:abc:0", "4:def:1"}
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value={"Apple", "Beijing"}
+        )
+
+        # vector_repo.delete_entity_vectors_by_neo4j_ids should be called with orphan keys
+        scheduler_jobs_service._vector_repo.delete_entity_vectors_by_neo4j_ids = AsyncMock(
+            return_value=1
+        )
+
+        result = await scheduler_jobs_service.cleanup_orphan_entity_vectors()
+        assert result == 1
+        # Verify deletion called with orphan keys (OrphanEntity not in either set)
+        scheduler_jobs_service._vector_repo.delete_entity_vectors_by_neo4j_ids.assert_awaited_once()
+        call_args = scheduler_jobs_service._vector_repo.delete_entity_vectors_by_neo4j_ids.call_args
+        assert "OrphanEntity" in call_args.args[0]
+        # Apple and 4:abc:0 should NOT be in the deletion list (they're active)
+        assert "Apple" not in call_args.args[0]
+        assert "4:abc:0" not in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_with_empty_graph_uses_injected_vector_repo_no_typeerror(
+        self, scheduler_jobs_service
+    ):
+        """REM-001: cleanup with empty graph must use injected vector_repo (no TypeError).
+
+        Suggestion 6: Test name now reflects what it actually verifies —
+        that cleanup completes without raising TypeError about missing
+        query_builder (which would happen if VectorRepo(pool) were constructed
+        inline instead of using the injected vector_repo).
+        """
+        self._setup_pool_mock(scheduler_jobs_service, [])
+
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=set()
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value=set()
+        )
+        # Mock the injected vector_repo's delete method
+        scheduler_jobs_service._vector_repo.delete_entity_vectors_by_neo4j_ids = AsyncMock(
+            return_value=0
+        )
+
+        # Should NOT raise TypeError about missing query_builder
+        result = await scheduler_jobs_service.cleanup_orphan_entity_vectors()
+        assert result == 0
+        # Suggestion 6: With empty graph and empty pg_keys, there are no orphans,
+        # so delete should NOT be called. Verify injected vector_repo is the
+        # one that would be used (not constructed inline) by checking it exists
+        # and the method is accessible (no TypeError raised = injection works).
+        scheduler_jobs_service._vector_repo.delete_entity_vectors_by_neo4j_ids.assert_not_awaited()
 
 
 class TestRetryPipelineProcessing:
@@ -725,7 +813,10 @@ class TestConsistencyCheck:
     async def test_consistency_check_no_mismatch(self, scheduler_jobs_service):
         """Test when entity counts match."""
         scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
-            return_value=["id1", "id2", "id3"]
+            return_value={"id1", "id2", "id3"}
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value=set()
         )
         scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
             return_value=3
@@ -745,7 +836,10 @@ class TestConsistencyCheck:
     async def test_consistency_check_entity_mismatch(self, scheduler_jobs_service):
         """Test when entity counts don't match."""
         scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
-            return_value=["id1", "id2"]
+            return_value={"id1", "id2"}
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value=set()
         )
         scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
             return_value=5
@@ -765,7 +859,10 @@ class TestConsistencyCheck:
     async def test_consistency_check_orphan_temp_keys(self, scheduler_jobs_service):
         """Test detection of orphan temp keys."""
         scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
-            return_value=[]
+            return_value=set()
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value=set()
         )
         scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
             return_value=0
@@ -793,7 +890,10 @@ class TestConsistencyCheck:
         mock_record.created_at = datetime.now(UTC)
 
         scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
-            return_value=[]
+            return_value=set()
+        )
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_names = AsyncMock(
+            return_value=set()
         )
         scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
             return_value=0

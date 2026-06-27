@@ -36,12 +36,16 @@ class MaintenanceJobs:
         relational_pool: RelationalPool,
         graph_writer: Neo4jWriter,
         pending_sync_repo: PendingSyncRepo,
+        vector_repo: VectorRepo | None = None,
         llm_failure_repo: Any = None,
         settings: SchedulerSettings | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._graph_writer = graph_writer
         self._pending_sync_repo = pending_sync_repo
+        # REM-001: vector_repo must be injected (constructing VectorRepo(pool)
+        # fails with TypeError because query_builder is a required arg).
+        self._vector_repo = vector_repo
         self._llm_failure_repo = llm_failure_repo
         self._settings = settings or SchedulerSettings()
 
@@ -70,30 +74,50 @@ class MaintenanceJobs:
     async def cleanup_orphan_entity_vectors(self) -> int:
         """Clean up orphan entity vectors.
 
-        Removes entity vectors in Postgres that no longer have
-        corresponding entities in Neo4j.
+        Removes entity vectors in Postgres/DuckDB that no longer have
+        corresponding entities in the graph store (Neo4j/LadybugDB).
+
+        REM-001 root cause fixes:
+        - entity_vectors.neo4j_id stores a MIX of entity names (from
+          entity_extractor path) and graph internal IDs (from entity_resolver
+          path). Use UNION of list_all_entity_ids() and list_all_entity_names()
+          to avoid false-positive orphan detection on either ID type.
+        - Use injected self._vector_repo instead of constructing VectorRepo(pool)
+          (which failed with TypeError due to missing query_builder arg).
 
         Returns:
             Number of vectors cleaned up.
         """
         log.info("cleanup_orphan_entity_vectors_start")
 
-        try:
-            active_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
+        if not self._vector_repo:
+            log.error("cleanup_orphan_entity_vectors_failed", error="vector_repo not configured")
+            return 0
 
-            vector_repo = VectorRepo(self._relational_pool)
+        try:
+            # REM-001: entity_vectors.neo4j_id stores mixed IDs (names + graph IDs).
+            # Use union of both ID types to avoid false-positive orphan detection.
+            active_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
+            active_names = await self._graph_writer.entity_repo.list_all_entity_names()
+            active_keys = active_ids | active_names
 
             from sqlalchemy import text
 
             async with self._relational_pool.session() as session:
                 result = await session.execute(text("SELECT neo4j_id FROM entity_vectors"))
-                pg_ids = {row[0] for row in result}
+                pg_keys = {row[0] for row in result}
 
-            orphan_ids = pg_ids - active_ids
+            orphan_keys = pg_keys - active_keys
 
-            if orphan_ids:
-                count = await vector_repo.delete_entity_vectors_by_neo4j_ids(list(orphan_ids))
-                log.info("cleanup_orphan_entity_vectors_complete", count=count)
+            if orphan_keys:
+                count = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
+                    list(orphan_keys)
+                )
+                log.info(
+                    "cleanup_orphan_entity_vectors_complete",
+                    count=count,
+                    orphan_keys=list(orphan_keys)[:10],  # log first 10 for debugging
+                )
                 return count
 
             log.info("cleanup_orphan_entity_vectors_complete", count=0)

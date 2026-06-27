@@ -277,13 +277,16 @@ class ConsistencyJobs:
         """Check entity count consistency between Neo4j and PostgreSQL entity_vectors.
 
         Logs warning if mismatch detected between:
-        - Neo4j entity count
+        - Neo4j entity count (union of graph IDs + canonical names, see REM-001)
         - PostgreSQL entity_vectors with valid (non-temp) neo4j_id
         """
         try:
-            # Count entities in Neo4j
+            # REM-001: entity_vectors.neo4j_id stores a MIX of entity names and
+            # graph internal IDs. Use union of list_all_entity_ids() and
+            # list_all_entity_names() to get accurate count for comparison.
             neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
-            neo4j_count = len(neo4j_entity_ids)
+            neo4j_entity_names = await self._graph_writer.entity_repo.list_all_entity_names()
+            neo4j_count = len(neo4j_entity_ids | neo4j_entity_names)
 
             # Count entities in PostgreSQL with valid neo4j_id
             pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
@@ -591,8 +594,10 @@ class ConsistencyJobs:
 
         try:
             # 1. Entity count comparison
+            # REM-001: Use union of IDs + names (entity_vectors stores mixed keys).
             neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
-            neo4j_count = len(neo4j_entity_ids)
+            neo4j_entity_names = await self._graph_writer.entity_repo.list_all_entity_names()
+            neo4j_count = len(neo4j_entity_ids | neo4j_entity_names)
             pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
 
             if neo4j_count != pg_count:

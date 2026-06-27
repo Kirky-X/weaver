@@ -905,6 +905,112 @@ class TestPipelinePersistBatch:
 
         mock_article_repo.mark_failed.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_persist_batch_graph_writer_none_logs_error_not_silent(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """REM-005: When graph_writer is None, persist_batch must log ERROR (not silent).
+
+        Root cause: graph_writer None was treated as "PG success counts as complete",
+        silently incrementing batch_completed without writing to graph. This causes
+        articles to be stuck in PG_DONE forever (graph sync never happens).
+        Fix: Log ERROR and do NOT increment batch_completed so articles remain
+        in PG_DONE for retry_neo4j_writes to pick up.
+        """
+        import uuid
+        from unittest.mock import patch
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+
+        # graph_writer is None (LadybugDB unavailable)
+        pipeline = make_pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            graph_writer=None,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        # Suggestion 5: Verify log.error is actually called (not just silent).
+        with patch("modules.processing.pipeline.persistence.log") as mock_log:
+            completed, failed = await pipeline._persist_batch([state], 1, 0, 0)
+
+            # REM-005: batch_completed must NOT be incremented when graph_writer is None
+            assert completed == 0
+            assert failed == 0
+            # Suggestion 5: log.error must be called for each article
+            assert mock_log.error.called
+            error_call_args = mock_log.error.call_args
+            assert "graph_writer_unavailable" in str(error_call_args) or any(
+                "graph_writer" in str(arg) for arg in error_call_args.args
+            )
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_graph_batch_error_marks_failed(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """REM-005: Batch write errors must trigger mark_failed (not just log).
+
+        Root cause: _persist_to_graph_batch only logged errors and incremented
+        batch_failed, but did NOT call mark_failed. Articles stayed in PG_DONE
+        status, appearing "stuck" rather than "failed".
+        Fix: Call mark_failed for each article in the errors list.
+        """
+        import uuid
+
+        article_id = uuid.uuid4()
+        article_id_str = str(article_id)
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+        mock_article_repo.update_persist_status = AsyncMock()
+        mock_article_repo.mark_failed = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.done_status = PersistStatus.NEO4J_DONE
+        # write_batch returns errors but no article_ids
+        mock_neo4j_writer.write_batch = AsyncMock(
+            return_value={
+                "article_ids": [],
+                "neo4j_ids": [],
+                "errors": [(article_id_str, "LadybugDB write failed")],
+            }
+        )
+
+        pipeline = make_pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            graph_writer=mock_neo4j_writer,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["article_id"] = article_id_str
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        completed, failed = await pipeline._persist_batch([state], 1, 0, 0)
+
+        # batch_failed should be incremented
+        assert failed == 1
+        # REM-005: mark_failed must be called for the failed article
+        mock_article_repo.mark_failed.assert_awaited_once()
+        mark_failed_args = mock_article_repo.mark_failed.call_args
+        # First positional arg should be the article UUID
+        assert mark_failed_args.args[0] == article_id
+
 
 class TestPipelineCommunityUpdate:
     """Test _maybe_trigger_community_update method."""
