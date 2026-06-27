@@ -14,6 +14,7 @@ Operations performed:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -87,9 +88,33 @@ class SynapticIngestionService:
         event = EventNode.from_pipeline_state(state)
         log.debug("fast_path_event_created", event_id=event.id)
 
+        # DuckDB single-writer conflicts (TransactionContext Error: Conflict on
+        # tuple deletion) happen when the memory event handler runs concurrently
+        # with the scheduler's retry_pipeline_processing. Retry the temporal
+        # append a few times with exponential backoff before giving up.
+        max_retries = 3
+        base_delay = 0.2
+
         try:
-            # 2. Append to Temporal Graph (deterministic, O(1))
-            await self._temporal_repo.append_to_chain(event)
+            # 2. Append to Temporal Graph (deterministic, O(1)) — with retry
+            for attempt in range(max_retries):
+                try:
+                    await self._temporal_repo.append_to_chain(event)
+                    break
+                except Exception as exc:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2**attempt)
+                        log.debug(
+                            "fast_path_append_retry",
+                            event_id=event.id,
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            delay=delay,
+                            error=str(exc)[:100],
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        raise
 
             # 3. Index embedding in Vector Database
             if event.embedding and self._vector_repo:
