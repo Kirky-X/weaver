@@ -31,9 +31,12 @@ log = get_logger(__name__)
 # Prometheus histogram for API key validation duration
 _api_key_validation_duration = metrics.api_key_validation_duration_seconds
 
-# Pattern: weaver_key_{hex_chars}_{secret}
-# key_id format is "key_{token_hex(8)}" = "key_" + 16 hex chars
-_KEY_ID_PREFIX_PATTERN = re.compile(r"^weaver_(key_[0-9a-f]{8,16})_.+$")
+# New format: weaver_{8hex}_{16hex} (32 chars total, key_id = 8 hex chars)
+# Shorter format requested for usability while keeping O(1) direct lookup.
+_NEW_KEY_PATTERN = re.compile(r"^weaver_([0-9a-f]{8})_[0-9a-f]{16}$")
+# Old format: weaver_key_{8-16hex}_{secret} (76+ chars, key_id = key_{8-16hex})
+# Kept for backward compatibility with existing keys.
+_OLD_KEY_PATTERN = re.compile(r"^weaver_(key_[0-9a-f]{8,16})_.+$")
 
 
 def _prehash_key(key_value: str) -> bytes:
@@ -65,20 +68,26 @@ class ApiKeyManager:
 
     @staticmethod
     def _extract_key_id(key_value: str) -> str | None:
-        """Extract key_id from key_value if it uses the new format.
+        """Extract key_id from key_value if it uses a recognized format.
 
-        New format: weaver_{key_id}_{secret}
-        Old format: weaver_{uuid_hex} (no key_id embedded)
+        New format (32 chars): weaver_{8hex}_{16hex} — key_id = 8 hex
+        Old format (76+ chars): weaver_key_{8-16hex}_{secret} — key_id = key_{8-16hex}
+        Legacy format: weaver_{uuid_hex} (no key_id embedded)
 
         Args:
             key_value: Raw API key string.
 
         Returns:
-            Extracted key_id if new format, None if old format.
+            Extracted key_id if recognized format, None if legacy/unknown.
         """
         if not key_value or not key_value.startswith("weaver_"):
             return None
-        match = _KEY_ID_PREFIX_PATTERN.match(key_value)
+        # Try new format first (32 chars)
+        match = _NEW_KEY_PATTERN.match(key_value)
+        if match:
+            return match.group(1)
+        # Fall back to old format (76+ chars)
+        match = _OLD_KEY_PATTERN.match(key_value)
         return match.group(1) if match else None
 
     @staticmethod
@@ -132,9 +141,11 @@ class ApiKeyManager:
             Dict with key_id, key_value (show once), scopes, expires_at.
         """
         scopes = scopes or ["search:read"]
-        key_id = f"key_{secrets.token_hex(8)}"
-        # New format: weaver_{key_id}_{secret} — enables O(1) direct lookup
-        key_value = f"weaver_{key_id}_{secrets.token_hex(24)}"
+        # New 32-char format: weaver_{8hex}_{16hex}
+        # key_id = 8 hex chars (4 bytes → 16^8 = 4G possibilities)
+        # secret = 16 hex chars (8 bytes → 64 bits entropy)
+        key_id = secrets.token_hex(4)
+        key_value = f"weaver_{key_id}_{secrets.token_hex(8)}"
         expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
 
         # Store bcrypt hash — never store raw key

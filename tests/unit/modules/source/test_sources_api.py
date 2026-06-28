@@ -575,3 +575,115 @@ class TestCreateSourceWithValidation:
             )
         assert exc_info.value.status_code == 422
         mock_repo.upsert.assert_not_called()
+
+
+class TestSourceUrlValidation:
+    """SourceCreateRequest/SourceUpdateRequest SHALL reject abnormal hostnames.
+
+    Regression for admin_001 listing SQL-injection / overlong / nonexistent hosts.
+    """
+
+    def test_rejects_overlong_hostname(self) -> None:
+        """Hostname > 253 chars SHALL raise ValidationError (RFC 1035)."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        # 254-char hostname (single label of 254 chars)
+        overlong = "a" * 254 + ".example.com"
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="bad-host",
+                name="Bad Host",
+                url=f"https://{overlong}/feed.xml",
+            )
+        assert "too long" in str(exc_info.value).lower()
+
+    def test_rejects_overlong_label(self) -> None:
+        """Single label > 63 chars SHALL raise ValidationError (RFC 1035)."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        overlong_label = "a" * 64 + ".example.com"
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="bad-label",
+                name="Bad Label",
+                url=f"https://{overlong_label}/feed.xml",
+            )
+        assert "label too long" in str(exc_info.value).lower()
+
+    def test_rejects_sql_injection_hostname(self) -> None:
+        """SQL injection payload as host SHALL raise ValidationError."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="sqli",
+                name="SQLi",
+                url="https://'OR'1'='1/feed.xml",
+            )
+        assert "invalid characters" in str(exc_info.value).lower()
+
+    def test_rejects_hostname_with_invalid_chars(self) -> None:
+        """Hostname with underscore SHALL raise ValidationError (RFC 1035)."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        with pytest.raises(ValidationError):
+            SourceCreateRequest(
+                id="bad-chars",
+                name="Bad Chars",
+                url="https://bad_host/feed.xml",
+            )
+
+    def test_rejects_missing_scheme(self) -> None:
+        """URL without scheme SHALL raise ValidationError."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="no-scheme",
+                name="No Scheme",
+                url="example.com/feed.xml",
+            )
+        assert "scheme" in str(exc_info.value).lower()
+
+    def test_rejects_non_http_scheme(self) -> None:
+        """Non-http/https scheme SHALL raise ValidationError."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="ftp",
+                name="FTP",
+                url="ftp://example.com/feed.xml",
+            )
+        assert "scheme" in str(exc_info.value).lower()
+
+    def test_rejects_dangerous_host(self) -> None:
+        """SSRF dangerous hosts (169.254.169.254) SHALL raise ValidationError."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceCreateRequest(
+                id="ssrf",
+                name="SSRF",
+                url="https://169.254.169.254/feed.xml",
+            )
+        assert "blocked" in str(exc_info.value).lower()
+
+    def test_accepts_normal_hostname(self) -> None:
+        """Normal hostnames SHALL pass validation."""
+        from api.endpoints.content.sources import SourceCreateRequest
+
+        body = SourceCreateRequest(
+            id="ok",
+            name="OK",
+            url="https://reuters.com/feed.xml",
+        )
+        assert body.url == "https://reuters.com/feed.xml"
+
+    def test_update_request_rejects_overlong_hostname(self) -> None:
+        """SourceUpdateRequest SHALL also validate URL hostname."""
+        from api.endpoints.content.sources import SourceUpdateRequest
+
+        overlong = "a" * 254 + ".example.com"
+        with pytest.raises(ValidationError):
+            SourceUpdateRequest(url=f"https://{overlong}/feed.xml")

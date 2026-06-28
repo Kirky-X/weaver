@@ -185,14 +185,23 @@ class TestKeyExtraction:
     """Test _extract_key_id static method."""
 
     def test_new_format_extracts_key_id(self) -> None:
-        """weaver_key_{16hex}_{secret} → extracts 'key_{16hex}'."""
+        """New 32-char format: weaver_{8hex}_{16hex} → extracts 8 hex."""
+        key_id = secrets.token_hex(4)  # 8 hex chars
+        secret = secrets.token_hex(8)  # 16 hex chars
+        key_value = f"weaver_{key_id}_{secret}"
+        assert len(key_value) == 32  # 7 + 8 + 1 + 16 = 32
+        extracted = ApiKeyManager._extract_key_id(key_value)
+        assert extracted == key_id
+
+    def test_old_format_extracts_key_id(self) -> None:
+        """Old 76-char format: weaver_key_{16hex}_{secret} → extracts 'key_{16hex}'."""
         key_id = f"key_{secrets.token_hex(8)}"
         key_value = f"weaver_{key_id}_somesecretpart"
         extracted = ApiKeyManager._extract_key_id(key_value)
         assert extracted == key_id
 
-    def test_old_format_returns_none(self) -> None:
-        """weaver_{uuid_hex} (no key_ prefix) → returns None."""
+    def test_legacy_format_returns_none(self) -> None:
+        """Legacy weaver_{uuid_hex} (no key_ prefix, not 32-char) → returns None."""
         key_id = ApiKeyManager._extract_key_id(f"weaver_{uuid.uuid4().hex}")
         assert key_id is None
 
@@ -214,6 +223,13 @@ class TestKeyExtraction:
     def test_key_id_too_short_returns_none(self) -> None:
         """key_ prefix but hex part too short → returns None."""
         key_id = ApiKeyManager._extract_key_id("weaver_key_abc_secret")
+        assert key_id is None
+
+    def test_new_format_wrong_length_returns_none(self) -> None:
+        """32-char format but wrong secret length → returns None."""
+        # secret too short (15 hex instead of 16)
+        key_value = f"weaver_{secrets.token_hex(4)}_{secrets.token_hex(7)[:15]}"
+        key_id = ApiKeyManager._extract_key_id(key_value)
         assert key_id is None
 
 

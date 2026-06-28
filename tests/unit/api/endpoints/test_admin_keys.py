@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from core.security import ApiKeyManager
 
@@ -176,3 +177,52 @@ class TestGracePeriod:
 
         # rotate_key should NOT set is_revoked=True on old key
         assert old_key.is_revoked is False
+
+
+class TestCreatedByValidation:
+    """created_by field SHALL reject stored-XSS payloads (regression for admin_021/022)."""
+
+    def test_rejects_script_tag(self) -> None:
+        """created_by containing <script> SHALL raise ValidationError."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        with pytest.raises(ValidationError) as exc_info:
+            CreateApiKeyRequest(created_by='"<script>alert(1)</script>"')
+        assert "forbidden characters" in str(exc_info.value).lower()
+
+    def test_rejects_each_dangerous_char(self) -> None:
+        """Each dangerous char SHALL be rejected individually."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        dangerous = ["<", ">", '"', "'", "&", ";", "(", ")"]
+        for ch in dangerous:
+            with pytest.raises(ValidationError):
+                CreateApiKeyRequest(created_by=f"evil{ch}name")
+
+    def test_accepts_normal_name(self) -> None:
+        """Normal identifiers SHALL pass validation."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        body = CreateApiKeyRequest(created_by="admin-alice_2026")
+        assert body.created_by == "admin-alice_2026"
+
+    def test_accepts_none(self) -> None:
+        """None SHALL pass (optional field)."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        body = CreateApiKeyRequest()
+        assert body.created_by is None
+
+    def test_rejects_sql_injection_payload(self) -> None:
+        """SQL injection payload with parentheses SHALL be rejected."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        with pytest.raises(ValidationError):
+            CreateApiKeyRequest(created_by="admin; DROP TABLE api_keys; --")
+
+    def test_rejects_long_value(self) -> None:
+        """Value longer than max_length=100 SHALL be rejected."""
+        from api.endpoints.admin.api_keys import CreateApiKeyRequest
+
+        with pytest.raises(ValidationError):
+            CreateApiKeyRequest(created_by="a" * 101)

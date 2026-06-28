@@ -11,7 +11,7 @@ Endpoints:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
@@ -21,6 +21,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # ── API Key Management ───────────────────────────────────────────
 
+# Characters blocked in created_by to prevent stored XSS
+_CREATED_BY_DANGEROUS_CHARS = frozenset({"<", ">", '"', "'", "&", ";", "(", ")"})
+
 
 class CreateApiKeyRequest(BaseModel):
     """Request model for creating a new API key."""
@@ -28,7 +31,21 @@ class CreateApiKeyRequest(BaseModel):
     scopes: list[str] = Field(default=["search:read"], description="Key scopes")
     rate_limit_per_min: int = Field(default=100, ge=10, le=10000, description="Rate limit")
     expires_in_days: int = Field(default=90, ge=1, le=365, description="Key validity in days")
-    created_by: str | None = Field(default=None, description="Identifier for key owner")
+    created_by: str | None = Field(
+        default=None, max_length=100, description="Identifier for key owner"
+    )
+
+    @field_validator("created_by")
+    @classmethod
+    def validate_created_by(cls, v: str | None) -> str | None:
+        """Validate created_by to prevent stored XSS attacks."""
+        if v is None:
+            return v
+        # Block dangerous characters that enable XSS/SQL injection
+        found = _CREATED_BY_DANGEROUS_CHARS.intersection(v)
+        if found:
+            raise ValueError(f"created_by contains forbidden characters: {sorted(found)}")
+        return v
 
 
 class CreateApiKeyResponse(BaseModel):

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -27,6 +28,12 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 # Dangerous hosts that should be blocked for security
 _DANGEROUS_HOSTS = {"169.254.169.254", "metadata.google.internal", "localhost", "127.0.0.1"}
 
+# RFC 1035 limits for hostname validation
+_MAX_HOSTNAME_LEN = 253
+_MAX_LABEL_LEN = 63
+# Each label: letter/digit followed by letters/digits/hyphens, ending with letter/digit
+_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
 # Minimum number of feed entries for a valid feed
 _MIN_FEED_ENTRIES = 1
 
@@ -37,6 +44,14 @@ _FEED_VALIDATION_TIMEOUT = 15.0
 def _validate_source_url(v: str) -> str:
     """Validate URL format for security (synchronous check only).
 
+    Performs:
+    1. Scheme check (http/https only)
+    2. Hostname presence
+    3. Dangerous host blocklist
+    4. Hostname length (RFC 1035: max 253 chars)
+    5. Per-label length (RFC 1035: max 63 chars)
+    6. Per-label character set (letters, digits, hyphens only)
+
     Args:
         v: URL string to validate.
 
@@ -44,7 +59,7 @@ def _validate_source_url(v: str) -> str:
         The validated URL string.
 
     Raises:
-        ValueError: If URL is invalid or points to a blocked host.
+        ValueError: If URL is invalid or points to a blocked/abnormal host.
 
     """
     parsed = urlparse(v)
@@ -54,8 +69,20 @@ def _validate_source_url(v: str) -> str:
         raise ValueError("URL scheme must be http or https")
     if not parsed.hostname:
         raise ValueError("URL must include a hostname")
-    if parsed.hostname.lower() in _DANGEROUS_HOSTS:
+    hostname = parsed.hostname.lower()
+    if hostname in _DANGEROUS_HOSTS:
         raise ValueError("Access to this host is blocked for security reasons")
+    # RFC 1035: total hostname length ≤ 253 characters
+    if len(hostname) > _MAX_HOSTNAME_LEN:
+        raise ValueError(f"Hostname too long ({len(hostname)} chars, max {_MAX_HOSTNAME_LEN})")
+    # RFC 1035: each label ≤ 63 chars, only letters/digits/hyphens
+    for label in hostname.split("."):
+        if len(label) > _MAX_LABEL_LEN:
+            raise ValueError(
+                f"Hostname label too long ({len(label)} chars, max {_MAX_LABEL_LEN}): {label[:20]}..."
+            )
+        if not _LABEL_PATTERN.match(label):
+            raise ValueError(f"Hostname label contains invalid characters: {label[:20]}")
     return v
 
 
