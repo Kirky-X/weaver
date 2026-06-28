@@ -9,6 +9,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +26,46 @@ from modules.storage import SourceAuthorityRepo
 log = get_logger("admin_api")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# RFC 1035 limits for hostname validation (mirrors sources.py)
+_MAX_HOSTNAME_LEN = 253
+_MAX_LABEL_LEN = 63
+_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
+
+def _validate_hostname(host: str) -> str:
+    """Validate hostname per RFC 1035 to prevent SQLi/overlong/invalid hosts.
+
+    Args:
+        host: Hostname string from path parameter.
+
+    Returns:
+        Lowercased hostname if valid.
+
+    Raises:
+        HTTPException: 422 if hostname violates RFC 1035.
+
+    """
+    if not host:
+        raise HTTPException(status_code=422, detail="Hostname cannot be empty")
+    hostname = host.lower()
+    if len(hostname) > _MAX_HOSTNAME_LEN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Hostname too long ({len(hostname)} chars, max {_MAX_HOSTNAME_LEN})",
+        )
+    for label in hostname.split("."):
+        if len(label) > _MAX_LABEL_LEN:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Hostname label too long ({len(label)} chars, max {_MAX_LABEL_LEN})",
+            )
+        if not _LABEL_PATTERN.match(label):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Hostname label contains invalid characters: {label[:20]}",
+            )
+    return hostname
 
 
 # ── Request/Response Models ─────────────────────────────────────
@@ -135,6 +176,9 @@ async def update_authority(
             status_code=400,
             detail="At least one field must be updated",
         )
+
+    # Validate hostname per RFC 1035 before any DB operation
+    host = _validate_hostname(host)
 
     # Get current authority to preserve values
     authority = await repo.get_or_create(host)

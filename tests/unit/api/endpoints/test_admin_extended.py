@@ -336,6 +336,85 @@ class TestUpdateAuthority:
         assert exc_info.value.status_code == 400
         assert "At least one field must be updated" in exc_info.value.detail
 
+    @pytest.mark.asyncio
+    async def test_update_authority_rejects_sqli_host(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
+        """SQL-injection host SHALL be rejected with 422 (regression for admin_039)."""
+        request = UpdateAuthorityRequest(authority=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_authority(
+                mock_request,
+                host="'OR'1'='1",
+                body=request,
+                _=mock_api_key,
+                repo=mock_authority_repo,
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "invalid characters" in exc_info.value.detail
+        # DB SHALL NOT be touched when host is invalid
+        mock_authority_repo.get_or_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_authority_rejects_overlong_host(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
+        """Overlong host (>253 chars) SHALL be rejected with 422 (regression for admin_040)."""
+        request = UpdateAuthorityRequest(authority=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_authority(
+                mock_request,
+                host="a" * 254 + ".example.com",
+                body=request,
+                _=mock_api_key,
+                repo=mock_authority_repo,
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "too long" in exc_info.value.detail
+        mock_authority_repo.get_or_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_authority_rejects_overlong_label(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
+        """Overlong label (>63 chars) SHALL be rejected with 422."""
+        request = UpdateAuthorityRequest(authority=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_authority(
+                mock_request,
+                host="a" * 64 + ".example.com",
+                body=request,
+                _=mock_api_key,
+                repo=mock_authority_repo,
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "label too long" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_update_authority_rejects_underscore_host(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
+        """Host with underscore SHALL be rejected with 422 (RFC 1035)."""
+        request = UpdateAuthorityRequest(authority=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_authority(
+                mock_request,
+                host="bad_host.example.com",
+                body=request,
+                _=mock_api_key,
+                repo=mock_authority_repo,
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "invalid characters" in exc_info.value.detail
+
 
 # ── LLM Failure Monitoring Tests ─────────────────────────────────
 
