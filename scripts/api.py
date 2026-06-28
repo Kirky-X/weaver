@@ -1561,8 +1561,8 @@ def generate_test_cases() -> list[TestCase]:
                 "PUT",
                 "/sources/test-source-id",
                 json_body={},
-                expected_status=200,
-                description="update_source_empty_body",
+                expected_status=404,
+                description="update_source_empty_body (test-source-id does not exist; expected 404 not 200)",
             ),
             # DELETE /sources/{source_id} - 5 cases
             TestCase(

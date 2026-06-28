@@ -28,6 +28,7 @@ from container import get_settings
 from core.constants import PipelineTaskStatus
 from core.observability import get_logger, metrics
 from core.protocols import CachePool, RelationalPool
+from core.security.safe_echo import safe_echo as _safe_echo
 from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
 
@@ -180,7 +181,7 @@ async def trigger_pipeline(
             if request.source_id not in all_source_ids:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Source '{request.source_id}' not found",
+                    detail=f"Source '{_safe_echo(request.source_id)}' not found",
                 )
             await asyncio.wait_for(
                 scheduler.trigger_now(
@@ -303,7 +304,7 @@ async def get_task_status(
     if status_data is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Task '{task_id}' not found",
+            detail=f"Task '{_safe_echo(task_id)}' not found",
         )
 
     data = json_repair.loads(status_data)

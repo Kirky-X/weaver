@@ -687,3 +687,97 @@ class TestSourceUrlValidation:
         overlong = "a" * 254 + ".example.com"
         with pytest.raises(ValidationError):
             SourceUpdateRequest(url=f"https://{overlong}/feed.xml")
+
+
+class TestSourceIdReflectedXSS:
+    """Regression tests for ReflectedXSS in sources endpoints.
+
+    source_id is a path parameter fully controlled by the client. Error
+    details that echo source_id MUST be HTML-escaped via ``safe_echo`` so
+    that ``<script>`` payloads cannot leak into responses.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_source_not_found_escapes_xss_payload(self) -> None:
+        """GET /sources/{source_id} 404 detail SHALL escape XSS payload."""
+        from api.endpoints.content.sources import get_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_source(
+                source_id="'\"<script>alert(1)</script>",
+                _="test-key",
+                repo=mock_repo,
+            )
+
+        detail = exc_info.value.detail
+        assert "<script>" not in detail, "Raw XSS payload leaked into detail"
+        assert "&lt;script&gt;" in detail, "Payload should be HTML-escaped"
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_source_not_found_escapes_xss_payload(self) -> None:
+        """PUT /sources/{source_id} 404 detail SHALL escape XSS payload."""
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        request = SourceUpdateRequest(name="new-name")
+        with pytest.raises(HTTPException) as exc_info:
+            await update_source(
+                source_id="<img src=x onerror=alert(1)>",
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+            )
+
+        detail = exc_info.value.detail
+        assert "<img" not in detail, "Raw XSS payload leaked into detail"
+        assert "&lt;img" in detail, "Payload should be HTML-escaped"
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_source_not_found_escapes_xss_payload(self) -> None:
+        """DELETE /sources/{source_id} 404 detail SHALL escape XSS payload."""
+        from api.endpoints.content.sources import delete_source
+
+        mock_repo = AsyncMock()
+        mock_repo.delete = AsyncMock(return_value=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_source(
+                source_id="javascript:alert(1)//<script>",
+                _="test-key",
+                repo=mock_repo,
+            )
+
+        detail = exc_info.value.detail
+        assert "<script>" not in detail, "Raw XSS payload leaked into detail"
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_source_not_found_truncates_long_id(self) -> None:
+        """GET /sources/{source_id} 404 detail SHALL truncate overly long IDs."""
+        from api.endpoints.content.sources import get_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=None)
+
+        long_id = "a" * 500
+        with pytest.raises(HTTPException) as exc_info:
+            await get_source(
+                source_id=long_id,
+                _="test-key",
+                repo=mock_repo,
+            )
+
+        # Echoed portion should be truncated to 64 chars (between single quotes)
+        detail = exc_info.value.detail
+        # Detail format: "Source '<truncated>' not found"
+        # Extract the echoed portion between the single quotes
+        echoed = detail.split("'")[1] if "'" in detail else ""
+        assert len(echoed) <= 64, f"Echoed ID too long: {len(echoed)} chars"
+        assert exc_info.value.status_code == 404

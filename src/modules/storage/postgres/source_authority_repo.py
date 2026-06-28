@@ -66,6 +66,21 @@ class SourceAuthorityRepo:
 
             return authority
 
+    async def get(self, host: str) -> SourceAuthority | None:
+        """Get existing authority record without creating a new one.
+
+        Args:
+            host: Source hostname.
+
+        Returns:
+            SourceAuthority record if exists, None otherwise.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(SourceAuthority).where(SourceAuthority.host == host)
+            )
+            return result.scalar_one_or_none()
+
     async def update_authority(
         self,
         host: str,

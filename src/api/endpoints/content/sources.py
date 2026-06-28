@@ -17,6 +17,7 @@ from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import SourceType
 from core.observability import get_logger
+from core.security.safe_echo import safe_echo
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
 
 log = get_logger(__name__)
@@ -307,7 +308,7 @@ async def get_source(
     """
     source = await repo.get(source_id)
     if source is None:
-        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+        raise HTTPException(status_code=404, detail=f"Source '{safe_echo(source_id)}' not found")
     return success_response(SourceResponse.from_config(source))
 
 
@@ -396,7 +397,7 @@ async def update_source(
     if existing is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Source '{source_id}' not found",
+            detail=f"Source '{safe_echo(source_id)}' not found",
         )
 
     # Apply updates
@@ -442,5 +443,5 @@ async def delete_source(
     if not deleted:
         raise HTTPException(
             status_code=404,
-            detail=f"Source '{source_id}' not found",
+            detail=f"Source '{safe_echo(source_id)}' not found",
         )

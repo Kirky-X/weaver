@@ -78,6 +78,7 @@ def mock_authority_repo():
     repo = AsyncMock()
     repo.list_all = AsyncMock(return_value=[])
     repo.get_needs_review = AsyncMock(return_value=[])
+    repo.get = AsyncMock()
     repo.get_or_create = AsyncMock()
     repo.update_authority = AsyncMock()
     repo.update_auto_score = AsyncMock()
@@ -235,7 +236,7 @@ class TestUpdateAuthority:
         existing = MagicMock()
         existing.authority = 0.7
         existing.tier = 2
-        mock_authority_repo.get_or_create.return_value = existing
+        mock_authority_repo.get.return_value = existing
 
         request = UpdateAuthorityRequest(authority=0.9)
 
@@ -257,7 +258,7 @@ class TestUpdateAuthority:
         existing = MagicMock()
         existing.authority = 0.8
         existing.tier = 2
-        mock_authority_repo.get_or_create.return_value = existing
+        mock_authority_repo.get.return_value = existing
 
         request = UpdateAuthorityRequest(tier=3)
 
@@ -279,7 +280,7 @@ class TestUpdateAuthority:
         existing = MagicMock()
         existing.authority = 0.8
         existing.tier = 2
-        mock_authority_repo.get_or_create.return_value = existing
+        mock_authority_repo.get.return_value = existing
 
         request = UpdateAuthorityRequest(description="Updated description")
 
@@ -301,7 +302,7 @@ class TestUpdateAuthority:
         existing = MagicMock()
         existing.authority = 0.7
         existing.tier = 1
-        mock_authority_repo.get_or_create.return_value = existing
+        mock_authority_repo.get.return_value = existing
 
         request = UpdateAuthorityRequest(authority=0.95, tier=3, description="Top tier")
 
@@ -337,6 +338,35 @@ class TestUpdateAuthority:
         assert "At least one field must be updated" in exc_info.value.detail
 
     @pytest.mark.asyncio
+    async def test_update_authority_notfound_returns_404(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
+        """Updating a non-existent host SHALL return 404 (regression for admin_036).
+
+        Previously `update_authority` used `get_or_create`, which silently created
+        a row for unknown hosts and returned 200. Now `get` is used and a missing
+        host is rejected with 404 instead of being auto-created.
+        """
+        mock_authority_repo.get.return_value = None
+        request = UpdateAuthorityRequest(authority=0.8)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_authority(
+                mock_request,
+                host="nonexistent.example.com",
+                body=request,
+                _=mock_api_key,
+                repo=mock_authority_repo,
+            )
+
+        assert exc_info.value.status_code == 404
+        assert "not found" in exc_info.value.detail
+        # SHALL NOT auto-create the missing host
+        mock_authority_repo.get_or_create.assert_not_called()
+        # SHALL NOT call update on a missing host
+        mock_authority_repo.update_authority.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_update_authority_rejects_sqli_host(
         self, mock_api_key, mock_request, mock_authority_repo
     ):
@@ -355,7 +385,7 @@ class TestUpdateAuthority:
         assert exc_info.value.status_code == 422
         assert "invalid characters" in exc_info.value.detail
         # DB SHALL NOT be touched when host is invalid
-        mock_authority_repo.get_or_create.assert_not_called()
+        mock_authority_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_authority_rejects_overlong_host(
@@ -375,7 +405,7 @@ class TestUpdateAuthority:
 
         assert exc_info.value.status_code == 422
         assert "too long" in exc_info.value.detail
-        mock_authority_repo.get_or_create.assert_not_called()
+        mock_authority_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_authority_rejects_overlong_label(

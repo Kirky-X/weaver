@@ -501,3 +501,103 @@ class TestUpdateTaskStatus:
         assert data["completed_at"] == "2024-01-01T00:00:00"
         assert data["article_id"] == "123"
         assert data["custom_field"] == "value"
+
+
+class TestSafeEchoAndReflectedXSS:
+    """Regression tests for pipeline_020: error details SHALL NOT reflect
+    raw user input that could carry XSS payloads.
+
+    The fix introduces ``_safe_echo`` which HTML-escapes and truncates
+    user-supplied identifiers before they are interpolated into
+    ``HTTPException(detail=...)`` strings.
+    """
+
+    def test_safe_echo_escapes_script_tag(self) -> None:
+        """``<script>`` SHALL be escaped to ``&lt;script&gt;``."""
+        from core.security.safe_echo import safe_echo
+
+        raw = "'\"<script>alert(1)</script>"
+        sanitized = safe_echo(raw)
+        assert "<script>" not in sanitized
+        assert "&lt;script&gt;" in sanitized
+        assert "'" not in sanitized  # quote=True escapes single quotes too
+        assert '"' not in sanitized
+
+    def test_safe_echo_truncates_long_input(self) -> None:
+        """Inputs longer than 64 chars SHALL be truncated."""
+        from core.security.safe_echo import _MAX_DETAIL_ECHO_LEN, safe_echo
+
+        long_value = "a" * 200
+        sanitized = safe_echo(long_value)
+        assert len(sanitized) == _MAX_DETAIL_ECHO_LEN
+
+    def test_safe_echo_preserves_safe_input(self) -> None:
+        """Plain ASCII identifiers SHALL pass through unchanged."""
+        from core.security.safe_echo import safe_echo
+
+        assert safe_echo("reuters") == "reuters"
+        assert safe_echo("source-123") == "source-123"
+
+    def test_safe_echo_handles_empty_string(self) -> None:
+        """Empty input SHALL return empty string (no crash)."""
+        from core.security.safe_echo import safe_echo
+
+        assert safe_echo("") == ""
+
+    def test_safe_echo_never_contains_raw_dangerous_chars(self) -> None:
+        """No combination of dangerous chars SHALL appear raw in output."""
+        from core.security.safe_echo import safe_echo
+
+        payloads = [
+            "<script>",
+            "<img src=x onerror=alert(1)>",
+            "javascript:alert(1)",
+            "'><script>alert(1)</script>",
+            '"><svg/onload=alert(1)>',
+        ]
+        for payload in payloads:
+            sanitized = safe_echo(payload)
+            assert "<" not in sanitized, f"Raw '<' leaked for payload: {payload!r}"
+            assert ">" not in sanitized, f"Raw '>' leaked for payload: {payload!r}"
+            assert '"' not in sanitized, f"Raw '\"' leaked for payload: {payload!r}"
+            assert "'" not in sanitized, f"Raw '\\'' leaked for payload: {payload!r}"
+
+    @pytest.mark.asyncio
+    async def test_trigger_pipeline_xss_source_id_is_escaped(self) -> None:
+        """trigger_pipeline SHALL not reflect raw XSS payload from source_id.
+
+        Regression for pipeline_020: previously the error message was
+        ``Source ''\"<script>' not found`` (raw reflection). Now the
+        detail MUST contain escaped HTML entities instead of raw ``<script>``.
+        """
+        from api.endpoints.content.pipeline import trigger_pipeline
+        from api.schemas.response import APIResponse
+
+        # Build mocks: scheduler returns empty source list so any source_id
+        # is "not found".
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[])
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.hget = AsyncMock()
+
+        # TriggerRequest with XSS payload
+        request = MagicMock()
+        request.source_id = "'\"<script>alert(1)</script>"
+        request.force = False
+        request.max_items = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        detail = exc_info.value.detail
+        assert "<script>" not in detail, "Raw XSS payload leaked into detail"
+        assert "&lt;script&gt;" in detail, "Payload should be HTML-escaped"
+        assert exc_info.value.status_code == 404

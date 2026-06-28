@@ -180,8 +180,13 @@ async def update_authority(
     # Validate hostname per RFC 1035 before any DB operation
     host = _validate_hostname(host)
 
-    # Get current authority to preserve values
-    authority = await repo.get_or_create(host)
+    # Get current authority to preserve values; reject unknown hosts (404)
+    authority = await repo.get(host)
+    if authority is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source authority for host '{host}' not found",
+        )
     new_authority = body.authority if body.authority is not None else float(authority.authority)
     new_tier = body.tier if body.tier is not None else authority.tier
 
