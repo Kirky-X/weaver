@@ -180,10 +180,10 @@ class CleanerNode:
                 )
 
                 state["cleaned"] = {
-                    "title": result.content.title,
+                    "title": result.content.title or "",
                     "subtitle": result.content.subtitle,
                     "summary": result.content.summary,
-                    "body": result.content.body,
+                    "body": result.content.body or "",
                     "publish_time": raw.publish_time,
                     "source_host": raw.source_host,
                 }
