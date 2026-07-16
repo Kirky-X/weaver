@@ -202,6 +202,21 @@ class CommunityDetector:
         # Persist to Neo4j
         await self._persist_communities(result.communities)
 
+        # R3 fix: backfill article_count on all communities. Community
+        # detection builds entity-entity co-occurrence graph but never
+        # populates article_count. This Cypher traverses
+        # Article-[:MENTIONS]->Entity<-[:HAS_ENTITY]-Community to count
+        # distinct articles per community. Best-effort: failures logged.
+        try:
+            await self._pool.execute_query("""
+                MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)<-[:MENTIONS]-(a:Article)
+                WITH c, count(DISTINCT a) AS article_count
+                SET c.article_count = article_count
+                """)
+            log.info("community_article_counts_backfilled")
+        except Exception as exc:
+            log.warning("community_article_count_backfill_failed", error=str(exc))
+
         return result
 
     async def _build_edge_list(self) -> list[tuple[str, str, float]]:
