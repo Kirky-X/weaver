@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Context builders for search operations."""
 
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder

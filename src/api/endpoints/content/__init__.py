@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Content API endpoints."""
 
 from api.endpoints.content.articles import router as articles_router

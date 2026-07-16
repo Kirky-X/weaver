@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Search engines for knowledge graph querying."""
 
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine, MapReduceResult

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Core utils module - Utility functions."""
 
 from core.utils.paths import CACHE_DIR, CONFIG_DIR, DATA_DIR, PROJECT_ROOT, data_path

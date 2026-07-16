@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LLM module - Unified LLM client with LiteLLM backend.
 
 This module provides a unified interface for LLM interactions with:

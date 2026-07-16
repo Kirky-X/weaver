@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LLM resilience module - Circuit breaker, provider pool, and request delay."""
 
 from core.llm.resilience.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker

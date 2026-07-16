@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Community health sub-package - diagnostics and repair monitoring."""
 
 from modules.knowledge.graph.community.health.checker import CommunityHealthChecker

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Storage module - Database repositories organized by database type.
 
 PostgreSQL repositories: article_repo, vector_repo, pending_sync_repo, source_authority_repo

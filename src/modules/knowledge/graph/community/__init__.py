@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Community sub-package - community detection, management, and reporting."""
 
 from modules.knowledge.graph.community.detector import CommunityDetector
