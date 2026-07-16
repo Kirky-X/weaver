@@ -202,6 +202,91 @@ async def search_unified(
     )
 
 
+# ── Explicit Local/Global Search Endpoints ────────────────────
+
+
+async def _execute_explicit_search(
+    q: str,
+    mode: str,
+    community_level: int,
+    local_engine: LocalSearchEngine,
+    global_engine: GlobalSearchEngine,
+) -> SearchResponse:
+    """Build SearchResponse for explicit local/global mode.
+
+    Extracted from search_unified to avoid duplication between /search?mode=X
+    and /search/local, /search/global endpoints.
+    """
+    if mode == "local":
+        engine_result = await local_engine.search(q)
+    else:
+        engine_result = await global_engine.search(q, community_level=community_level)
+
+    if isinstance(engine_result, dict):
+        result_answer = engine_result.get("answer", "")
+        result_tokens = engine_result.get("context_tokens", 0)
+        result_confidence = engine_result.get("confidence", 0.0)
+        result_entities = engine_result.get("entities", [])
+        result_sources = engine_result.get("sources", [])
+        result_metadata = engine_result.get("metadata", {})
+    else:
+        result_answer = engine_result.answer
+        result_tokens = engine_result.context_tokens
+        result_confidence = engine_result.confidence
+        result_entities = engine_result.entities
+        result_sources = engine_result.sources if isinstance(engine_result.sources, list) else []
+        result_metadata = engine_result.metadata
+
+    result_metadata["output_mode"] = "CONTEXT"
+    result_metadata["enrich_entities"] = False
+    result_metadata["intent"] = "OPEN"
+    result_metadata["intent_confidence"] = 1.0
+
+    return SearchResponse(
+        query=q,
+        answer=result_answer,
+        context_tokens=result_tokens,
+        confidence=result_confidence,
+        search_type=mode,
+        entities=result_entities,
+        sources=result_sources,
+        metadata=result_metadata,
+    )
+
+
+@router.get("/local", response_model=APIResponse[SearchResponse])
+async def search_local(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Search query"),
+    _: str = Depends(verify_api_key),
+    local_engine: LocalSearchEngine = Depends(get_local_search_engine),
+) -> APIResponse[SearchResponse]:
+    """Local search — direct vector search for entity neighborhoods.
+
+    Shortcut for ``GET /search?mode=local``. Returns entity-focused results
+    with article context from the local subgraph.
+    """
+    result = await _execute_explicit_search(q, "local", 0, local_engine, None)  # type: ignore[arg-type]
+    return success_response(result)
+
+
+@router.get("/global", response_model=APIResponse[SearchResponse])
+async def search_global(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Search query"),
+    community_level: int = Query(0, ge=0, le=10, description="Community level"),
+    _: str = Depends(verify_api_key),
+    global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
+) -> APIResponse[SearchResponse]:
+    """Global search — community-level search for broader context.
+
+    Shortcut for ``GET /search?mode=global``. Returns community-report-based
+    answers spanning multiple entities.
+    """
+    result = await _execute_explicit_search(q, "global", community_level, None, global_engine)  # type: ignore[arg-type]
+    return success_response(result)
+
+
 # ── DRIFT Search Endpoint ─────────────────────────────────────
 
 
@@ -705,11 +790,15 @@ async def search_temporal(
         # Force filter: exclude legacy dirty data (timestamp=0 from writer bug)
         events = [e for e in events if _is_valid_event_timestamp(e.get("timestamp"))]
 
-        # Convert neo4j.time.DateTime to ISO string for JSON serialization
+        # Convert neo4j.time.DateTime to ISO string for JSON serialization;
+        # strip embedding vector (1024 floats) from response to avoid ~8KB
+        # payload bloat per event — embeddings are internal to similarity ranking
+        # and should never be exposed to API consumers.
         for event in events:
             ts = event.get("timestamp")
             if ts is not None and hasattr(ts, "isoformat"):
                 event["timestamp"] = ts.isoformat()
+            event.pop("embedding", None)
 
         # Build time range (request window, not event min/max)
         window_days = (end_time - start_time) / 86400.0

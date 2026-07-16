@@ -24,6 +24,39 @@ log = get_logger(__name__)
 # Cleaner 节点最大重试次数 (包含首次调用)
 _MAX_CLEANER_ATTEMPTS = 2
 
+# 错误页/登录页特征词 — 命中 2 个以上且 body < 500 字符视为垃圾内容 (R1 fix)
+_ERROR_PAGE_MARKERS: tuple[str, ...] = (
+    "404",
+    "not found",
+    "页面不存在",
+    "页面未找到",
+    "页面自动跳转",
+    "秒后跳转",
+    "自动跳转至",
+    "扫码登录",
+    "账号密码登录",
+    "短信验证登录",
+    "验证码登录",
+    "请先登录",
+    "登录/注册",
+)
+_ERROR_PAGE_MAX_BODY_LEN = 500
+_ERROR_PAGE_MIN_HITS = 2
+
+
+def _is_error_page(body: str) -> bool:
+    """Detect 404/login/redirect pages that slipped past crawler status check.
+
+    Returns True when body is short AND contains multiple error-page markers.
+    Short body alone (navigation links) + multiple markers = high confidence
+    that this is not real article content.
+    """
+    if not body or len(body) >= _ERROR_PAGE_MAX_BODY_LEN:
+        return False
+    body_lower = body.lower()
+    hits = sum(1 for marker in _ERROR_PAGE_MARKERS if marker.lower() in body_lower)
+    return hits >= _ERROR_PAGE_MIN_HITS
+
 
 def _title_similarity(title_a: str, title_b: str) -> float:
     """Compute similarity ratio between two titles."""
@@ -266,6 +299,32 @@ class CleanerNode:
     async def execute(self, state: PipelineState) -> PipelineState:
         """Clean article content — trafilatura primary, LLM fallback."""
         if state.get("terminal"):
+            return state
+
+        # R1 fix: reject error pages (404/login/redirect) that slipped past
+        # crawler status check. Mark terminal to stop pipeline — garbage in
+        # garbage out, no point in extracting entities from a login page.
+        raw = state["raw"]
+        if _is_error_page(raw.body):
+            log.warning(
+                "cleaner_error_page_rejected",
+                url=raw.url,
+                body_len=len(raw.body),
+                title=raw.title[:80],
+            )
+            state["terminal"] = True
+            state["terminal_reason"] = "error_page_content"
+            state.setdefault("degraded_fields", []).extend(
+                ["cleaned.title", "cleaned.body", "tags", "cleaner_entities"]
+            )
+            state.setdefault("degradation_reasons", {}).update(
+                {
+                    "cleaned.title": "Error page content rejected",
+                    "cleaned.body": "Error page content rejected",
+                    "tags": "Error page content rejected",
+                    "cleaner_entities": "Error page content rejected",
+                }
+            )
             return state
 
         # Try trafilatura first

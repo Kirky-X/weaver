@@ -43,6 +43,7 @@ SCHEMA_QUERIES = [
         parent_id STRING,
         children_ids STRING,
         entity_count INT64,
+        article_count INT64,
         rank DOUBLE,
         period STRING,
         modularity DOUBLE,
@@ -50,6 +51,10 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
+    # R3 fix: backfill article_count on pre-existing Community tables.
+    # New databases pick up the column from CREATE NODE TABLE above; existing
+    # databases need ALTER TABLE. Wrapped in try/except by initialize_ladybug_schema.
+    "ALTER TABLE Community ADD COLUMN article_count INT64",
     """
     CREATE NODE TABLE IF NOT EXISTS CommunityReport (
         id STRING PRIMARY KEY,

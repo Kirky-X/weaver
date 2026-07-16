@@ -86,6 +86,30 @@ class Crawler:
         self._fetcher = smart_fetcher
         self._default_per_host = default_per_host
 
+    async def _fetch_html(self, url: str, force_browser: bool = False) -> tuple[str | None, int]:
+        """Fetch HTML with HTTP status validation.
+
+        Returns (html, status_code). html is None when status >= 400 (error
+        pages like 404/403 are not valid article content). This prevents
+        error pages and login redirects from being persisted as articles
+        (R1 fix — previously status_code was discarded with ``_``).
+        """
+        try:
+            status, html, _ = await self._fetcher.fetch(url, force_browser=force_browser)
+        except Exception as exc:
+            log.warning("crawler_fetch_error", url=url, error=str(exc))
+            return None, 0
+
+        if status >= 400:
+            log.warning(
+                "crawler_http_error_page_skipped",
+                url=url,
+                status=status,
+            )
+            return None, status
+
+        return html, status
+
     async def crawl_batch(
         self,
         items: list[NewsItem],
@@ -152,15 +176,17 @@ class Crawler:
                         )
                         # Re-fetch with browser rendering
                         async with global_sem, host_sems[host]:
-                            _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                            html, _ = await self._fetch_html(item.url, force_browser=True)
                             html_content = html
-                            body = trafilatura.extract(html, include_comments=False) or ""
+                            if html:
+                                body = trafilatura.extract(html, include_comments=False) or ""
             else:
                 # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:
-                    _, html, _ = await self._fetcher.fetch(item.url)
+                    html, _ = await self._fetch_html(item.url)
                     html_content = html
-                    body = trafilatura.extract(html, include_comments=False) or ""
+                    if html:
+                        body = trafilatura.extract(html, include_comments=False) or ""
 
                 if len(body) < MIN_ARTICLE_LENGTH:
                     log.debug(
@@ -170,9 +196,10 @@ class Crawler:
                     )
                     # Re-fetch with browser rendering
                     async with global_sem, host_sems[host]:
-                        _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                        html, _ = await self._fetch_html(item.url, force_browser=True)
                         html_content = html
-                        body = trafilatura.extract(html, include_comments=False) or ""
+                        if html:
+                            body = trafilatura.extract(html, include_comments=False) or ""
 
             # Extract title from HTML if not provided by RSS/source
             title = item.title

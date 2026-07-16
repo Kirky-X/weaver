@@ -187,11 +187,23 @@ class SubgraphClusteringService:
             affected_communities, diff_result["entity_count_changes"]
         )
 
+        # Step 6.5: Populate titles for newly created communities using
+        # entity canonical_name concatenation (fallback to "Community {short_id}").
+        # This runs synchronously to keep guarantees simple; cost is a single
+        # Cypher UPDATE on the (small) set of just-touched communities.
+        await self._populate_community_titles(
+            list(diff_result.get("entity_count_changes", {}).keys())
+        )
+
         # Get modularity after
         result.modularity_after = await self._modularity_calculator._calculate_modularity()
 
         # Update metadata
         await self._updater._update_metadata(result)
+
+        # R3 fix: backfill article_count on all communities after incremental
+        # update so that article_count reflects newly assigned entities.
+        await self._update_article_counts()
 
         result.duration_seconds = time.monotonic() - start
 
@@ -206,6 +218,78 @@ class SubgraphClusteringService:
         )
 
         return result
+
+    async def _populate_community_titles(self, community_ids: list[str]) -> None:
+        """Populate ``title`` for communities that have null/empty titles.
+
+        Uses entity canonical_name concatenation (top 3 + "+N more") for
+        communities with entities; falls back to ``"Community {short_id}"``
+        for empty communities. Skips communities that already have a title
+        (preserves LLM-generated or detector-set titles).
+
+        Args:
+            community_ids: Communities that may need title population.
+                Only those with null/empty title are updated.
+        """
+        if not community_ids:
+            return
+
+        # community_ids are UUID strings (c.id), not elementId — use c.id
+        # directly for both Neo4j and LadybugDB.
+        query = """
+        MATCH (c:Community)
+        WHERE c.id IN $community_ids
+          AND (c.title IS NULL OR c.title = "")
+        OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
+        WITH c, collect(e.canonical_name) AS names
+        SET c.title = CASE
+            WHEN size(names) = 0 THEN "Community " + substring(c.id, 0, 8)
+            WHEN size(names) = 1 THEN names[0]
+            WHEN size(names) = 2 THEN names[0] + ", " + names[1]
+            WHEN size(names) = 3 THEN names[0] + ", " + names[1] + ", " + names[2]
+            ELSE names[0] + ", " + names[1] + ", " + names[2] + " +" + (size(names) - 3)
+        END
+        """
+        try:
+            await self._pool.execute_query(query, {"community_ids": community_ids})
+            log.debug(
+                "community_titles_populated",
+                community_count=len(community_ids),
+            )
+        except Exception as exc:
+            # Title population is a best-effort enhancement; failure should
+            # not break the incremental update flow.
+            log.warning(
+                "community_title_population_failed",
+                community_count=len(community_ids),
+                error=str(exc),
+            )
+
+    async def _update_article_counts(self) -> None:
+        """Backfill ``article_count`` on all Community nodes.
+
+        R3 fix: communities are detected from entity-entity co-occurrence, but
+        article_count was never populated. This method traverses
+        ``Article-[:MENTIONS]->Entity<-[:HAS_ENTITY]-Community`` to count
+        distinct articles per community and persists the value on each
+        Community node so that report generation and PG vector sync can
+        surface the correct article_count.
+
+        Best-effort: failures are logged but do not break the update flow.
+        """
+        query = """
+        MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)<-[:MENTIONS]-(a:Article)
+        WITH c, count(DISTINCT a) AS article_count
+        SET c.article_count = article_count
+        """
+        try:
+            await self._pool.execute_query(query)
+            log.debug("community_article_counts_backfilled")
+        except Exception as exc:
+            log.warning(
+                "community_article_count_backfill_failed",
+                error=str(exc),
+            )
 
     async def run_full_rebuild(self) -> IncrementalUpdateResult:
         """Run full community rebuild on the entire graph.
@@ -246,6 +330,10 @@ class SubgraphClusteringService:
 
         # Update metadata including entity count
         await self._updater._update_full_rebuild_metadata()
+
+        # R3 fix: backfill article_count on all communities so that report
+        # generation and PG vector sync surface the correct value.
+        await self._update_article_counts()
 
         result.duration_seconds = time.monotonic() - start
 

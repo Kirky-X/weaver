@@ -17,6 +17,7 @@ from api.endpoints import (
     graph_metrics_router,
     graph_monitoring_router,
     graph_router,
+    health_router,
     llm_router,
     memory_router,
     pipeline_router,
@@ -41,6 +42,9 @@ api_router.include_router(communities_router)
 
 # System endpoints (status, config)
 api_router.include_router(system_router)
+
+# Health endpoints (dependency checks)
+api_router.include_router(health_router)
 
 # Saga management endpoints
 api_router.include_router(saga_router)

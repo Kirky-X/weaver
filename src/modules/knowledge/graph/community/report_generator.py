@@ -98,6 +98,8 @@ class CommunityReportGenerator:
         llm_client: LLMClient,
         max_concurrent: int = 5,
         embedding_model: str | None = None,
+        relational_pool: Any = None,
+        community_vector_repo: Any = None,
     ) -> None:
         self._pool = pool
         # Detect database type for LadybugDB compatibility
@@ -107,6 +109,10 @@ class CommunityReportGenerator:
         self._llm = llm_client
         self._max_concurrent = max_concurrent
         self._embedding_model = embedding_model  # None 时使用 embed_default()
+        # Optional: relational pool for community_vectors sync (PG only).
+        # When None, community embeddings are stored only in Neo4j.
+        self._relational_pool = relational_pool
+        self._community_vector_repo = community_vector_repo
 
     async def generate_report(self, community_id: str) -> ReportGenerationResult:
         """Generate a report for a single community.
@@ -170,7 +176,16 @@ class CommunityReportGenerator:
             )
 
             # Step 5: Generate and store embedding
-            await self._store_report_embedding(report_id, report_output.full_content)
+            await self._store_report_embedding(
+                report_id,
+                report_output.full_content,
+                community_id=community_id,
+                title=report_output.title,
+                summary=report_output.summary,
+                entity_count=len(entities),
+                article_count=community_data.get("article_count", 0),
+                rank=report_output.rank,
+            )
 
             log.info(
                 "report_generation_complete",
@@ -309,7 +324,9 @@ class CommunityReportGenerator:
         """
         query = """
         MATCH (c:Community {id: $community_id})
-        RETURN c.id AS id, c.level AS level, c.entity_count AS entity_count
+        RETURN c.id AS id, c.level AS level,
+               c.entity_count AS entity_count,
+               coalesce(c.article_count, 0) AS article_count
         """
         result = await self._pool.execute_query(query, {"community_id": community_id})
         if result:
@@ -463,12 +480,27 @@ class CommunityReportGenerator:
         self,
         report_id: str,
         content: str,
+        community_id: str | None = None,
+        title: str | None = None,
+        summary: str | None = None,
+        entity_count: int = 0,
+        article_count: int = 0,
+        rank: float | None = None,
     ) -> bool:
         """Generate and store embedding for report content.
+
+        Stores embedding in both Neo4j (CommunityReport.embedding) and
+        PostgreSQL community_vectors table (for vector similarity search).
 
         Args:
             report_id: Report UUID.
             content: Report full content.
+            community_id: Community UUID for PG community_vectors sync.
+            title: Community title for PG sync.
+            summary: Community summary for PG sync.
+            entity_count: Entity count for PG sync.
+            article_count: Article count for PG sync.
+            rank: Community rank for PG sync.
 
         Returns:
             True if successful.
@@ -481,6 +513,31 @@ class CommunityReportGenerator:
             if embeddings:
                 await self._repo.update_report_embedding(report_id, embeddings[0])
                 log.debug("report_embedding_stored", report_id=report_id)
+
+                # Sync to PostgreSQL community_vectors for similarity search.
+                # Only sync when relational_pool + community_vector_repo are
+                # injected AND community_id is provided.
+                if self._community_vector_repo is not None and community_id is not None:
+                    try:
+                        await self._community_vector_repo.upsert_community_vector(
+                            community_id=community_id,
+                            embedding=embeddings[0],
+                            title=title,
+                            summary=summary,
+                            entity_count=entity_count,
+                            article_count=article_count,
+                            rank=rank,
+                        )
+                        log.debug(
+                            "community_vector_synced",
+                            community_id=community_id,
+                        )
+                    except Exception as exc:
+                        log.warning(
+                            "community_vector_sync_failed",
+                            community_id=community_id,
+                            error=str(exc),
+                        )
                 return True
         except Exception as exc:
             log.warning(

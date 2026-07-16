@@ -193,6 +193,7 @@ class Neo4jCommunityRepo:
                     parent_id: $parent_id,
                     children_ids: $children_ids,
                     entity_count: $entity_count,
+                    article_count: 0,
                     rank: $rank,
                     period: $period,
                     modularity: $modularity,

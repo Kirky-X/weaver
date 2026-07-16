@@ -8,9 +8,12 @@ import asyncio
 import time
 from typing import Any
 
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.constants import HealthCheckStatus, HealthStatus
 from core.observability import metrics
 
@@ -249,4 +252,31 @@ async def health_check() -> HealthCheckResponse:
     return HealthCheckResponse(
         status=HealthStatus.HEALTHY.value if all_healthy else HealthStatus.UNHEALTHY.value,
         checks=checks,
+    )
+
+
+# ── Health API Router (under /api/v1/health) ─────────────────
+
+
+health_router = APIRouter(prefix="/health", tags=["health"])
+
+
+@health_router.get("/dependencies", response_model=APIResponse[dict])
+async def health_dependencies(
+    _: str = Depends(verify_api_key),
+) -> APIResponse[dict]:
+    """Return aggregated dependency health check.
+
+    Returns per-dependency status (relational DB, graph DB, cache) with
+    latency measurements. This is the public-facing endpoint under
+    ``/api/v1/health/dependencies``; the admin-only
+    ``/api/v1/system/health/dependencies`` provides additional details
+    (LLM providers, spaCy, BM25).
+    """
+    result = await health_check()
+    return success_response(
+        {
+            "status": result.status,
+            "checks": {name: check.model_dump() for name, check in result.checks.items()},
+        }
     )

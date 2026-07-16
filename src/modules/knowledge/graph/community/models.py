@@ -40,6 +40,7 @@ class Community:
     children_ids: list[str] = field(default_factory=list)
     entity_ids: list[str] = field(default_factory=list)
     entity_count: int = 0
+    article_count: int = 0
     relationship_ids: list[str] = field(default_factory=list)
     rank: float = 1.0
     period: str | None = None
@@ -65,6 +66,7 @@ class Community:
             children_ids=data.get("children_ids", []),
             entity_ids=data.get("entity_ids", []),
             entity_count=data.get("entity_count", 0),
+            article_count=data.get("article_count", 0),
             relationship_ids=data.get("relationship_ids", []),
             rank=data.get("rank", 1.0),
             period=data.get("period"),
