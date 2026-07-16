@@ -29,18 +29,18 @@ from api.endpoints.admin.authorities import (
     refresh_auto_scores,
     update_authority,
 )
-from api.endpoints.admin.llm_monitoring import (
-    LLMFailureResponse,
-    LLMFailureStatsResponse,
-    get_llm_failure_stats,
-    get_llm_usage_unified,
-    list_llm_failures,
-)
 from api.endpoints.admin.memory import (
     ConsolidationResult,
     MemoryDiagnosticResponse,
     memory_diagnostics,
     trigger_consolidation,
+)
+from api.endpoints.monitoring.llm import (
+    LLMFailureResponse,
+    LLMFailureStatsResponse,
+    get_llm_failure_stats,
+    get_llm_usage_unified,
+    list_llm_failures,
 )
 
 
@@ -451,7 +451,7 @@ class TestUpdateAuthority:
 
 
 class TestLLMFailures:
-    """Tests for LLM failure endpoints."""
+    """Tests for LLM failure endpoints (monitoring.llm module)."""
 
     @pytest.mark.asyncio
     async def test_list_failures_no_filter(self, mock_api_key, mock_request, mock_llm_failure_repo):
@@ -471,7 +471,6 @@ class TestLLMFailures:
         mock_llm_failure_repo.query.return_value = [mock_failure]
 
         response = await list_llm_failures(
-            request=mock_request,
             call_point=None,
             status=None,
             since=None,
@@ -492,7 +491,6 @@ class TestLLMFailures:
         mock_llm_failure_repo.query.return_value = []
 
         response = await list_llm_failures(
-            request=mock_request,
             call_point="classifier",
             status="timeout",
             since=datetime(2024, 1, 1, tzinfo=UTC),
@@ -519,7 +517,6 @@ class TestLLMFailures:
         }
 
         response = await get_llm_failure_stats(
-            request=mock_request,
             since=datetime(2024, 1, 1, tzinfo=UTC),
             _=mock_api_key,
             repo=mock_llm_failure_repo,
@@ -534,7 +531,7 @@ class TestLLMFailures:
 
 
 class TestLLMUsageUnified:
-    """Tests for GET /admin/llm-usage unified endpoint."""
+    """Tests for GET /monitoring/llm/usage unified endpoint."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -546,7 +543,6 @@ class TestLLMUsageUnified:
     ):
         """Test all group_by options for usage endpoint."""
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by=group_by,
@@ -568,7 +564,6 @@ class TestLLMUsageUnified:
     ):
         """Test summary group returns correct metrics."""
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="summary",
@@ -606,7 +601,6 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.query_hourly.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="time",
@@ -637,7 +631,6 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_provider.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="provider",
@@ -666,7 +659,6 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_model.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="model",
@@ -692,7 +684,6 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_call_point.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="call_point",
@@ -708,7 +699,6 @@ class TestLLMUsageUnified:
     ):
         """Test usage endpoint with various filters."""
         await get_llm_usage_unified(
-            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="summary",
@@ -733,7 +723,6 @@ class TestLLMUsageUnified:
         """Test that invalid group_by raises HTTPException."""
         with pytest.raises(HTTPException) as exc_info:
             await get_llm_usage_unified(
-                request=mock_request,
                 from_=sample_time_range["from_"],
                 to=sample_time_range["to"],
                 group_by="invalid",

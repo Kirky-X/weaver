@@ -20,10 +20,6 @@ def __getattr__(name: str) -> APIRouter:
         from api.endpoints.admin.authorities import router as authorities_router
 
         return authorities_router
-    if name == "llm_monitoring_router":
-        from api.endpoints.admin.llm_monitoring import router as llm_monitoring_router
-
-        return llm_monitoring_router
     if name == "articles_router":
         from api.endpoints.admin.articles import router as articles_router
 
@@ -47,7 +43,6 @@ __all__ = [
     "api_keys_router",
     "articles_router",
     "authorities_router",
-    "llm_monitoring_router",
     "memory_router",
     "monitoring_router",
     "router",

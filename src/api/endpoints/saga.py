@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import get_saga_orchestrator
 from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -195,12 +196,12 @@ async def get_article_sagas(
     return {"article_id": str(article_id), "saga_logs": entries}
 
 
-@router.get("/failed/list", summary="List failed sagas")
+@router.get("/failed/list", response_model=APIResponse[dict[str, Any]], summary="List failed sagas")
 async def list_failed_sagas(
     limit: int = Query(50, ge=1, le=200, description="Maximum number of entries to return"),
     _: str = Depends(verify_api_key),
     orchestrator: Any = Depends(get_saga_orchestrator),
-) -> dict[str, Any]:
+) -> APIResponse[dict[str, Any]]:
     """List saga log entries with failed status.
 
     Args:
@@ -209,7 +210,7 @@ async def list_failed_sagas(
         orchestrator: Saga orchestrator instance.
 
     Returns:
-        Dict with list of failed saga log entries.
+        APIResponse with failed saga log entries.
 
     """
     failed_logs = await orchestrator.get_failed_saga_logs(limit=limit)
@@ -228,4 +229,4 @@ async def list_failed_sagas(
             }
         )
 
-    return {"failed_count": len(entries), "entries": entries}
+    return success_response({"failed_count": len(entries), "entries": entries})
