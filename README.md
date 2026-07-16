@@ -122,8 +122,8 @@
 git clone <repository-url>
 cd weaver
 
-# 安装依赖 (使用 uv)
-uv sync
+# 安装依赖 (使用 uv; --all-extras 启用故障转移依赖, --all-groups 启用 dev/test 组)
+uv sync --all-extras --all-groups
 
 # 安装 spaCy 中文模型及依赖
 # 注意：zh_core_web_lg 需要 spacy-pkuseg 分词器依赖

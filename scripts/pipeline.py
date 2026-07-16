@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unified pipeline management script.
 
 Combines pipeline testing, pending article processing, and incomplete article reprocessing.
@@ -55,7 +56,6 @@ from typing import Any
 
 import httpx
 
-# Add src to path
 _project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, f"{_project_root}/src")
 sys.path.insert(0, _project_root)
@@ -448,7 +448,7 @@ async def setup_strategy_mode(debug: bool = False) -> ServerContext:
     settings = Settings()
     container = Container().configure(settings, debug=debug)
     await container.startup()
-    container_module._container = container
+    container_module.set_container(container)
 
     strategy = container._strategy
     relational_type = strategy.relational_type
@@ -481,7 +481,7 @@ async def setup_normal_mode(debug: bool = False) -> ServerContext:
     settings = Settings()
     container = Container().configure(settings, debug=debug)
     await container.startup()
-    container_module._container = container
+    container_module.set_container(container)
 
     strategy = container._strategy
     return ServerContext(

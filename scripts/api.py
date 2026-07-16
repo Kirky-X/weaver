@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Comprehensive API testing script with httpx
 
 Features:
@@ -866,27 +869,7 @@ def generate_test_cases() -> list[TestCase]:
     )
 
     # ===== 8. Pipeline =====
-    cases.extend(
-        [
-            # GET /pipeline/queue/stats - 已删除的旧端点
-            # TestCase(
-            #     "get_queue_stats",
-            #     "pipeline",
-            #     "GET",
-            #     "/pipeline/queue/stats",
-            #     description="get_queue_stats",
-            # ),
-            # POST /admin/pipeline/trigger - 跳过(需要实际爬取,非常慢)
-            # TestCase(
-            #     "trigger_pipeline_empty",
-            #     "pipeline",
-            #     "POST",
-            #     "/admin/pipeline/trigger",
-            #     json_body={},
-            #     description="trigger_pipeline_empty",
-            # ),
-        ]
-    )
+    cases.extend([])
 
     # ===== 9. System 端点扩展 (system) =====
     cases.extend(

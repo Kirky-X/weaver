@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unified tools script for evaluation, management, and code quality checks.
 
 Combines HNSW/BM25 evaluation, environment validation, database seeding, and logging checks.
@@ -34,7 +35,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# Add src to Python path
 _project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, f"{_project_root}/src")
 sys.path.insert(0, _project_root)

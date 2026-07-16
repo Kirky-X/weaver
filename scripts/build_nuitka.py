@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Nuitka Build Script - 极致性能优化的生产构建"""
 
 from __future__ import annotations

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Database query and inspection tool for Weaver.
 
 Subcommands:
@@ -31,7 +34,6 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 # Valid database choices
