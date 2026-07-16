@@ -1,16 +1,15 @@
 # ============================================================
 # .pre-commit-config.yaml
 # Weaver 项目 - 工业级代码质量检查配置
-# Python 3.12 | FastAPI | SQLAlchemy | Neo4j | Redis | LangGraph | spaCy
+# Python 3.12 | FastAPI | SQLAlchemy | Neo4j | Redis | spaCy
 # ============================================================
 #
 # 安装步骤:
-#   1. 安装开发依赖:              uv sync --group dev
+#   1. 安装开发依赖:              uv sync --all-groups
 #   2. 安装 git hook 脚本:        pre-commit install
 #   3. 首次运行所有 hook:         pre-commit run --all-files
 #
-# 跳过特定文件的检查:
-#   git commit --no-verify -m "..."
+# 跳过特定 hook（不跳过整个验证，遵守规则 18）:
 #   SKIP=ruff,black git commit -m "..."
 #
 # ============================================================

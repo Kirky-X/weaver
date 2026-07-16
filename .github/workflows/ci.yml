@@ -1,0 +1,53 @@
+# Weaver CI 质量门禁：ruff(format/lint) / black / mypy / pytest+cov(≥80%) / bandit
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-weaver-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff format + ruff check + black --check + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras --all-groups
+      - run: uv run ruff format --check src/ tests/ scripts/
+      - run: uv run ruff check src/ tests/ scripts/
+      - run: uv run black --check src/ tests/
+      - run: uv run mypy --ignore-missing-imports src/
+
+  test:
+    name: pytest + coverage (≥80%)
+    runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras --all-groups
+      - run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+      - name: Upload coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  security:
+    name: bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras --all-groups
+      - run: uv run bandit -c pyproject.toml -r src

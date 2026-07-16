@@ -4,10 +4,12 @@ version = "0.1.0"
 description = "Weaver - 智能资讯发掘与知识图谱构建平台"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
-    "asyncpg==0.30.0",
+    "asyncpg>=0.30.0",
     "bcrypt>=4.2.0",
     "fastapi>=0.135.1",
     "feedparser>=6.0.12",
@@ -15,12 +17,12 @@ dependencies = [
     "json_repair>=0.58.7",
     # Removed: langchain/langgraph unused (replaced by litellm)
     "neo4j>=6.1.0",
-    "numpy>=1.26.4,<2.0.0",
+    "numpy>=2.0.0,<3.0.0",
     "openai>=1.0.0",
     "opentelemetry-instrumentation-fastapi>=0.61b0",
     "opentelemetry-sdk>=1.40.0",
     "pgvector>=0.4.2",
-    "crawl4ai>=0.8.6,<0.9.0",
+    "crawl4ai>=0.8.6,<0.10.0",
     "prometheus-client>=0.24.1",
     "pydantic-settings>=2.13.1,<3.0.0", # Pinned to v2.x for settings_customise_sources compatibility
     "python-dotenv>=1.2.2",
@@ -622,28 +624,42 @@ message = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = [
-    "-n auto",
+    "-n", "2",
+    "--dist=loadscope",
     "--ignore=tests/e2e",
     "--strict-markers",
+    "--strict-config",
     "--tb=short",
     "-ra",
+    "--color=yes",
     "--timeout=60",
     "--timeout-method=thread",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+    "-m", "not integration and not e2e",
 ]
 markers = [
-    "performance: mark test as performance test",
-    "slow: mark test as slow running (>60s)",
-    "e2e: mark test as end-to-end (requires Docker)",
+    "integration: Integration tests requiring external services",
+    "e2e: End-to-end tests",
+    "slow: Slow-running tests",
+    "performance: Performance benchmark tests",
     "unit: mark test as unit test",
-    "integration: mark test as integration test",
 ]
 filterwarnings = [
     "ignore:The pynvml package is deprecated:FutureWarning:torch.cuda",
     "ignore:Can't initialize NVML:UserWarning:torch.cuda",
+    "ignore:`torch.jit.script` is deprecated:DeprecationWarning:torch.jit",
     "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
-    # pytest/mock compatibility issue (known side effect)
     "ignore:coroutine.*was never awaited:RuntimeWarning",
+    "ignore:Please import.*from.*scipy.sparse:DeprecationWarning:scipy.sparse.construct",
+    "ignore:The keyword argument.*nopython.*:DeprecationWarning:numba",
+    "ignore:builtin type.*has no __module__:DeprecationWarning",
+    "ignore:There is no current event loop:DeprecationWarning",
+    "ignore:enable_cleanup_closed ignored:DeprecationWarning:aiohttp.connector",
 ]
 
 # ────────────────────────────────────────────────────────────
@@ -703,6 +719,7 @@ branch = true
 precision = 2
 show_missing = true
 skip_covered = false
+fail_under = 80
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
