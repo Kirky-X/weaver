@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """SQLAlchemy event listeners for performance monitoring.
 
 IMPORTANT: These listeners should NOT be registered at module import time

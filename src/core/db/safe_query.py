@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Safe query utilities for preventing SQL and Cypher injection.
 
 This module provides validation functions and safe query building utilities

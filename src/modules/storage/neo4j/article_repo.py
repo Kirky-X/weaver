@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Neo4j article repository for article graph operations."""
 
 from __future__ import annotations

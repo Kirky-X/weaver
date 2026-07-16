@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Add source_id column to articles_core for source traceability.
 
 Revision ID: 25_add_source_id_to_articles

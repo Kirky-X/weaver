@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Add rotated_to field to api_keys table for key rotation tracking.
 
 Revision ID: 15_add_rotated_to_field

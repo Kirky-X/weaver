@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Unified storage adapters - Re-exports all storage interfaces and implementations."""
 
 # Base protocols

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 from datetime import datetime
 from typing import Any
 from uuid import UUID

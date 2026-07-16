@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Rename tables: sources → source_configs, llm_failures → llm_failure_records.
 
 Revision ID: 17_rename_tables

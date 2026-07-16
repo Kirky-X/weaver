@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Foundation classes for SQLAlchemy 2.0 ORM models.
 
 Provides the declarative base, JSON-compatible type decorator, and shared

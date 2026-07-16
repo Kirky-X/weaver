@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Scheduled jobs for weaver backend.
 
 The SchedulerJobs class is a backward-compatible facade that delegates to

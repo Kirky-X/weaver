@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Data models for deduplication operations."""
 
 from __future__ import annotations

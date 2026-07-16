@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Fake news detector using five-dimensional feature fusion.
 
 Implements a zero-cost fake news detection system that reuses existing

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """EventNode: MAGMA's unified memory item representation.
 
 n_i = <c_i, τ_i, v_i, A_i>

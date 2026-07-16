@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Hybrid search engine combining vector, BM25, and graph retrieval.
 
 This engine implements a multi-stage retrieval pipeline:

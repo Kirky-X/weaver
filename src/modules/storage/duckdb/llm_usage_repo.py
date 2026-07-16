@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """DuckDB LLM usage repository for usage tracking.
 
 DuckDB-compatible version of LLMUsageRepo. Uses DELETE + INSERT pattern

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """URL normalization utilities.
 
 Extracted from Deduplicator.normalize_url to break circular dependency
@@ -40,7 +41,6 @@ def normalize_url(url: str) -> str:
     if url.startswith("//"):
         url = "https:" + url
 
-    # Parse the URL
     parsed = urlparse(url)
 
     # 1. Normalize scheme: HTTP → HTTPS
@@ -52,7 +52,6 @@ def normalize_url(url: str) -> str:
     # 2. Normalize netloc: lowercase, remove www., remove default ports
     netloc = parsed.netloc.lower()
 
-    # Remove www. prefix
     if netloc.startswith("www."):
         netloc = netloc[4:]
 
@@ -73,7 +72,6 @@ def normalize_url(url: str) -> str:
     # Normalize path (resolve . and ..)
     path = posixpath.normpath(path)
 
-    # Ensure path starts with /
     if not path.startswith("/"):
         path = "/" + path
 
@@ -84,7 +82,6 @@ def normalize_url(url: str) -> str:
     # Re-encode path (preserve non-ASCII characters for readability)
     path = quote(path, safe="/", encoding="utf-8")
 
-    # Handle empty path
     if not path:
         path = ""
 

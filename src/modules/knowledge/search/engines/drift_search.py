@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """DRIFT Search Engine - Dynamic Reasoning and Inference Framework.
 
 DRIFT combines global community insights with local entity details through

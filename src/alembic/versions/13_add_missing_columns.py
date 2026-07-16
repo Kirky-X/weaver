@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Add missing columns per design doc §4.1, §8.6, §12.1, §12.2.
 
 Revision ID: 13_add_missing_columns

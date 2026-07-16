@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Synaptic Ingestion Service (Fast Path).
 
 Latency-sensitive event ingestion that runs synchronously on the

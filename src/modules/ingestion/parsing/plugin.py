@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Plugin system for source parsers.
 
 This module provides a plugin-based architecture for source parsers,
@@ -236,3 +237,16 @@ def scan_and_load_external_plugins(config_paths: list[str] | None = None) -> Non
         discovered = discover_plugins_from_directory(path)
         if discovered:
             log.info("external_plugins_loaded", path=path, count=len(discovered))
+
+
+def load_plugins(plugin_paths: list[str] | None = None) -> list[str]:
+    """Load external parser plugins.
+
+    Args:
+        plugin_paths: Optional list of directory paths to scan.
+
+    Returns:
+        List of loaded plugin names.
+    """
+    scan_and_load_external_plugins(plugin_paths)
+    return list(get_registered_plugins().keys())

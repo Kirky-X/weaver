@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LadybugDB schema initialization.
 
 LadybugDB requires explicit schema definition before data insertion.
@@ -11,7 +12,6 @@ log = get_logger(__name__)
 
 # Schema queries for LadybugDB
 SCHEMA_QUERIES = [
-    # Entity node table
     """
     CREATE NODE TABLE IF NOT EXISTS Entity (
         id STRING PRIMARY KEY,
@@ -24,7 +24,6 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # Article node table
     """
     CREATE NODE TABLE IF NOT EXISTS Article (
         id STRING PRIMARY KEY,
@@ -35,7 +34,6 @@ SCHEMA_QUERIES = [
         score DOUBLE
     )
     """,
-    # Community node table
     """
     CREATE NODE TABLE IF NOT EXISTS Community (
         id STRING PRIMARY KEY,
@@ -52,7 +50,6 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # CommunityReport node table
     """
     CREATE NODE TABLE IF NOT EXISTS CommunityReport (
         id STRING PRIMARY KEY,
@@ -69,7 +66,6 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # EventNode node table
     """
     CREATE NODE TABLE IF NOT EXISTS EventNode (
         id STRING PRIMARY KEY,
@@ -89,48 +85,41 @@ SCHEMA_QUERIES = [
     # so already-migrated databases skip silently. LadybugDB supports DOUBLE[]
     # list properties natively (see Entity.aliases STRING[] above).
     "ALTER TABLE EventNode ADD COLUMN embedding DOUBLE[]",
-    # MENTIONS relationship - Article mentions Entity
     """
     CREATE REL TABLE IF NOT EXISTS MENTIONS (
         FROM Article TO Entity,
         role STRING
     )
     """,
-    # FOLLOWED_BY relationship - Article followed by Article
     """
     CREATE REL TABLE IF NOT EXISTS FOLLOWED_BY (
         FROM Article TO Article,
         time_gap_hours DOUBLE
     )
     """,
-    # EVENT_FOLLOWED_BY relationship - EventNode followed by EventNode
     """
     CREATE REL TABLE IF NOT EXISTS EVENT_FOLLOWED_BY (
         FROM EventNode TO EventNode,
         time_gap_hours DOUBLE
     )
     """,
-    # CAUSES relationship - EventNode causes EventNode
     """
     CREATE REL TABLE IF NOT EXISTS CAUSES (
         FROM EventNode TO EventNode,
         confidence DOUBLE
     )
     """,
-    # ENABLES relationship - EventNode enables EventNode
     """
     CREATE REL TABLE IF NOT EXISTS ENABLES (
         FROM EventNode TO EventNode,
         strength DOUBLE
     )
     """,
-    # PREVENTS relationship - EventNode prevents EventNode
     """
     CREATE REL TABLE IF NOT EXISTS PREVENTS (
         FROM EventNode TO EventNode
     )
     """,
-    # RELATED_TO relationship - Entity related to Entity (for dynamic edge types)
     """
     CREATE REL TABLE IF NOT EXISTS RELATED_TO (
         FROM Entity TO Entity,
@@ -141,19 +130,16 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # HAS_ENTITY relationship - Community has Entity member
     """
     CREATE REL TABLE IF NOT EXISTS HAS_ENTITY (
         FROM Community TO Entity
     )
     """,
-    # REPORTS_ON relationship - CommunityReport reports on Community
     """
     CREATE REL TABLE IF NOT EXISTS REPORTS_ON (
         FROM CommunityReport TO Community
     )
     """,
-    # NarrativeNode node table
     """
     CREATE NODE TABLE IF NOT EXISTS NarrativeNode (
         id STRING PRIMARY KEY,
@@ -165,7 +151,6 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # SchemaNode node table
     """
     CREATE NODE TABLE IF NOT EXISTS SchemaNode (
         id STRING PRIMARY KEY,
@@ -187,7 +172,6 @@ SCHEMA_QUERIES = [
         modularity DOUBLE
     )
     """,
-    # HAS_PARTICIPANT relationship - EventNode has Entity participant
     """
     CREATE REL TABLE IF NOT EXISTS HAS_PARTICIPANT (
         FROM EventNode TO Entity,
@@ -195,21 +179,18 @@ SCHEMA_QUERIES = [
         created_at INT64
     )
     """,
-    # HAS_SUB_EVENT relationship - EventNode has sub EventNode
     """
     CREATE REL TABLE IF NOT EXISTS HAS_SUB_EVENT (
         FROM EventNode TO EventNode,
         created_at INT64
     )
     """,
-    # HAS_NARRATIVE relationship - EventNode has NarrativeNode
     """
     CREATE REL TABLE IF NOT EXISTS HAS_NARRATIVE (
         FROM EventNode TO NarrativeNode,
         created_at INT64
     )
     """,
-    # HAS_EVENT relationship - Article has EventNode
     """
     CREATE REL TABLE IF NOT EXISTS HAS_EVENT (
         FROM Article TO EventNode

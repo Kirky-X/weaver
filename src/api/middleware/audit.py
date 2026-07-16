@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Audit logging middleware for admin and write endpoints.
 
 Implements: Weaver-数据库设计文档 §12.3

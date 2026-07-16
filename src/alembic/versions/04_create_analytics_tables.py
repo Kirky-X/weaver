@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Create analytics tables: sentiment_shifts, daily_briefings, daily_briefing_items.
 
 Revision ID: 04_create_analytics_tables

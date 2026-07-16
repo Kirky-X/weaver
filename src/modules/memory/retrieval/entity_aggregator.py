@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Entity Aggregator for MAGMA multi-graph memory.
 
 Aggregates entity neighborhood information to support entity-centric queries.

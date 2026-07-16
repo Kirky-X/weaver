@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Mapper protocol definitions for unified data mapping.
 
 This module defines the MapperProtocol that all Mapper classes must implement.

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Extend articles table with 6 new fields + PersistStatus data migration.
 
 Revision ID: 03_extend_articles_fields

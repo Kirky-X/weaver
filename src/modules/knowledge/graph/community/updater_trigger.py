@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Update trigger policy collaborator for the incremental community updater.
 
 Extracted from ``IncrementalCommunityUpdater``. Decides when an incremental

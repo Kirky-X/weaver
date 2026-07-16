@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """DuckDB source authority repository - reuses PostgreSQL implementation.
 
 DuckDB supports SQLAlchemy ORM syntax, so we can directly reuse

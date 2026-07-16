@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Centralized path constants for Weaver project.
 
 All project-internal paths MUST be derived from PROJECT_ROOT.

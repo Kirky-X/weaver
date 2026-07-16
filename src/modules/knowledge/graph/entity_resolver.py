@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Entity resolver for entity deduplication and canonical name resolution.
 
 Enhanced version with rule-based resolution and name normalization.

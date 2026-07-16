@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Update CHECK constraint values and add 兴奋 to emotion_type ENUM.
 
 Revision ID: 16_update_check_constraints_and_enum

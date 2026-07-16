@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LadybugDB connection pool implementing GraphPool protocol.
 
 LadybugDB provides native async support via AsyncConnection.
@@ -69,10 +70,8 @@ class LadybugPool:
 
     async def startup(self) -> None:
         """Initialize the LadybugDB connection."""
-        # Create data directory
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Create Database and AsyncConnection with size limits
         self._db = ladybug.Database(
             self._db_path,
             max_db_size=self._max_db_size,
@@ -129,7 +128,6 @@ class LadybugPool:
         if self._conn is None:
             raise RuntimeError("LadybugPool not started")
 
-        # Detect if this is a write query
         is_write = any(
             kw in query.upper() for kw in ["CREATE", "MERGE", "SET", "DELETE", "INSERT", "UPDATE"]
         )
@@ -200,7 +198,6 @@ class LadybugPool:
         to avoid the connection pool counter issues. The Connection is acquired
         from the AsyncConnection's pool and released after use.
         """
-        # Acquire a connection from the AsyncConnection's pool
         conn = self._conn.acquire_connection()
         try:
             result = conn.execute(query, parameters)

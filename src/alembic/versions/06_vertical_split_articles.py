@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Vertical split: articles → articles_core + article_bodies + article_analysis.
 
 Revision ID: 06_vertical_split_articles

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Crawler with per-host and global concurrency control."""
 
 from __future__ import annotations
@@ -161,7 +162,6 @@ class Crawler:
                     html_content = html
                     body = trafilatura.extract(html, include_comments=False) or ""
 
-                # Validate extracted content
                 if len(body) < MIN_ARTICLE_LENGTH:
                     log.debug(
                         "first_fetch_insufficient",
@@ -250,7 +250,6 @@ class Crawler:
                 wrapped_results.append(result)
             # else: BaseException (like KeyboardInterrupt) - skip
 
-        # Log results
         successes = sum(1 for r in wrapped_results if isinstance(r, RawArticle))
         failures = sum(1 for r in wrapped_results if isinstance(r, FetchError))
         log.info(

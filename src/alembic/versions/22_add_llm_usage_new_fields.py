@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Add cached_tokens, reasoning_tokens, cost_usd to llm_usage tables.
 
 Revision ID: 22_add_llm_usage_new_fields

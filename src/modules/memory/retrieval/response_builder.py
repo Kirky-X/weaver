@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Search Response Builder for MAGMA multi-graph memory.
 
 Coordinates the synthesis pipeline to build comprehensive search responses.

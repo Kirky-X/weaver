@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Entity extractor pipeline node — spaCy + batch embed + LLM refinement."""
 
 from __future__ import annotations
@@ -42,9 +43,8 @@ ALLOWED_ENTITY_TYPES = {
     "人物",
     "组织机构",
     "地点",
-    "产品",
+    "产品与技术",
     "事件",
-    "概念",
     "数据指标",
     "法规与政策",
     "未知",

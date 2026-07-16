@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """JSON parsing utilities using json_repair."""
 
@@ -60,14 +63,12 @@ def parse_llm_json(content: str, model: type[T] | None = None) -> T | dict[str, 
             )
 
     try:
-        # json_repair 返回修复后的对象
         repaired = repair_json(stripped)
 
         # 如果返回字符串,需要再次解析
         if isinstance(repaired, str):
             repaired = json.loads(repaired)
 
-        # 使用Pydantic模型验证
         if model:
             return model.model_validate(repaired)
 

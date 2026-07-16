@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LLM-related SQLAlchemy ORM models.
 
 Tracks LLM request failures, raw usage records, hourly aggregations,

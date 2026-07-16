@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Centralized dependency registry for API endpoints (transitional thin wrapper).
 
 This module retains the ``Endpoints`` class as a backward-compatibility wrapper
@@ -336,7 +337,6 @@ class Endpoints:
         lookups will raise HTTPException(503) until a new container
         is set via :func:`container.set_container`.
         """
-        import container as container_module
+        import container
 
-        with container_module._container_lock:
-            container_module._container = None
+        container.reset_container()

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """LLM-based intent classifier following MAGMA intent taxonomy."""
 
 from core.llm.client import LLMClient

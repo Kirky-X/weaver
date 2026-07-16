@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Redis 缓冲层：LLM 用量事件累加器。
 
 将 LLM 调用用量事件实时累加到 Redis HASH 中,

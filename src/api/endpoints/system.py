@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """System endpoints — health, status, config, and metrics.
 
 These endpoints were previously inlined in ``src/main.py`` and are extracted

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Neo4j source adapter for migration.
 
 Implements GraphMigrationSource protocol for reading data from Neo4j.

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Conflict detector node — cross-source numerical conflict detection.
 
 Uses PELT + CUSUM dual-layer detection for sentiment shifts.
