@@ -224,7 +224,10 @@ class CascadeCategorizerNode:
                     url=state["raw"].url,
                 )
                 state["category"] = "社会"
-                state["language"] = "en"
+                # Fallback language: detect from title instead of hard-coding
+                # "en". chinanews and most RSS sources are Chinese; only fall
+                # back to "en" when title has no CJK characters.
+                state["language"] = "zh" if _has_chinese(title) else "en"
                 source_host = getattr(state["raw"], "source_host", "") or ""
                 state["region"] = infer_region_from_source_host(source_host)
                 state.setdefault("degraded_fields", []).extend(["category", "language", "region"])
@@ -243,7 +246,9 @@ class CascadeCategorizerNode:
             )
         else:
             state["category"] = "社会"
-            state["language"] = "en"
+            # No LLM available: detect language from title instead of
+            # hard-coding "en" (which mislabels Chinese articles).
+            state["language"] = "zh" if _has_chinese(title) else "en"
             source_host = getattr(state["raw"], "source_host", "") or ""
             state["region"] = infer_region_from_source_host(source_host)
 

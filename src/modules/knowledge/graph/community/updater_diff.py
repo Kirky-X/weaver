@@ -150,11 +150,15 @@ class DiffWriter:
         MERGE (c:Community {id: $community_id})
         ON CREATE SET
             c.created_at = datetime(),
-            c.level = 0
+            c.level = 0,
+            c.title = "Community " + substring($community_id, 0, 8),
+            c.entity_count = 0
         WITH c
         MATCH (e)
         WHERE elementId(e) = $node_id
         MERGE (c)-[r:HAS_ENTITY]->(e)
+        WITH c, count(r) AS added
+        SET c.entity_count = c.entity_count + added
         """
 
         try:
@@ -430,6 +434,7 @@ class DiffWriter:
                 ON CREATE SET
                     c.created_at = {now_expr},
                     c.level = 0,
+                    c.title = "Community " + substring($community_id, 0, 8),
                     c.entity_count = 0
                 WITH c
                 MATCH (e)

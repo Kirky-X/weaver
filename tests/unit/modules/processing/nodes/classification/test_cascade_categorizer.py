@@ -158,6 +158,20 @@ class TestLLMFallback:
         assert result["region"] == "国际"
 
     @pytest.mark.asyncio
+    async def test_defaults_when_no_llm_chinese_title(self, sample_raw):
+        """Chinese title with no LLM must fall back to 'zh', not 'en'."""
+        node = CascadeCategorizerNode()
+        sample_raw.title = "某不明主题事件"
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["category"] == "社会"
+        assert result["language"] == "zh"
+        assert result["region"] == "国际"
+
+    @pytest.mark.asyncio
     async def test_defaults_on_llm_error(self, sample_raw):
         mock_llm = AsyncMock()
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
@@ -173,6 +187,29 @@ class TestLLMFallback:
         assert result["category"] == "社会"
         assert result["language"] == "en"
         assert result["region"] == "国际"
+
+    @pytest.mark.asyncio
+    async def test_defaults_on_llm_error_chinese_title(self, sample_raw):
+        """Chinese title on LLM error must fall back to 'zh', not 'en'.
+
+        Regression: previously hard-coded 'en' mislabeled 20 Chinese
+        articles from chinanews as English.
+        """
+        mock_llm = AsyncMock()
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
+        mock_prompt_loader = MagicMock()
+
+        node = CascadeCategorizerNode(llm=mock_llm, prompt_loader=mock_prompt_loader)
+        sample_raw.title = "广州某地发生重大事件"
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["category"] == "社会"
+        assert result["language"] == "zh"
+        assert result["region"] == "国际"
+        assert "language" in result.get("degraded_fields", [])
 
     @pytest.mark.asyncio
     async def test_records_prompt_version_on_llm_call(self, sample_raw):

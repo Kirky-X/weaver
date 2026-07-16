@@ -81,7 +81,20 @@ class PipelinePersistence:
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
-        await self._handle_terminal_states(terminal_states)
+        # Handle terminal articles: insert + mark PG_DONE with fallback values.
+        # Failures are propagated (Rule 12) — caller accounts for batch_failed.
+        if terminal_states:
+            try:
+                await self._handle_terminal_states(terminal_states)
+                # Terminal articles are now persisted to PG; count them.
+                batch_completed += len(terminal_states)
+            except Exception as exc:
+                log.error(
+                    "terminal_batch_failed",
+                    count=len(terminal_states),
+                    error=str(exc),
+                )
+                batch_failed += len(terminal_states)
 
         if not valid_states:
             return batch_completed, batch_failed
@@ -114,24 +127,64 @@ class PipelinePersistence:
         return batch_completed, batch_failed
 
     async def _handle_terminal_states(self, states: list[PipelineState]) -> None:
-        """Update persist_status for terminal articles.
+        """Insert and mark terminal articles as PG_DONE.
 
-        Ensures terminal articles don't stay stuck in PENDING status.
+        Terminal articles (is_news=False) are inserted into the database with
+        fallback values so API queries can return them (REM-004). If the
+        article already exists (PENDING), it is updated to PG_DONE.
+
+        Raises:
+            Exception: If bulk_upsert or mark_terminal_by_url fails. The
+                caller (persist_batch) is responsible for failure accounting.
+                Failure is NOT swallowed — Rule 12 (失败必须显性化).
         """
         if not states or not self._article_repo:
             return
         for state in states:
+            source_url = state["raw"].url if state.get("raw") else "unknown"
             try:
-                source_url = state["raw"].url
+                # First, try to mark existing PENDING article as PG_DONE
                 updated = await self._article_repo.mark_terminal_by_url(source_url)
                 if updated:
                     log.info("terminal_article_status_updated", url=source_url[:50])
+                    continue
+                # Article doesn't exist — insert it via bulk_upsert.
+                # NOTE: bulk_upsert/_upsert_chunk filters out terminal states,
+                # so we must strip the terminal flag before passing it in.
+                # We also set fallback values for terminal articles (REM-004)
+                # because mark_terminal_by_url only updates PENDING articles
+                # (bulk_upsert sets PG_DONE, so mark_terminal_by_url won't match).
+                insert_state = dict(state)
+                insert_state.pop("terminal", None)
+                # REM-004: fallback values for terminal (non-news) articles
+                insert_state.setdefault("category", "其他")
+                insert_state.setdefault("language", "zh")
+                insert_state.setdefault("region", "unknown")
+                insert_state.setdefault("score", 0.0)
+                if "sentiment" not in insert_state:
+                    insert_state["sentiment"] = {"sentiment_score": 0.0}
+                if "credibility" not in insert_state:
+                    insert_state["credibility"] = {"score": 0.0}
+                article_ids = await self._article_repo.bulk_upsert([insert_state])
+                if article_ids:
+                    log.info(
+                        "terminal_article_inserted",
+                        url=source_url[:50],
+                        article_id=str(article_ids[0]),
+                    )
+                else:
+                    log.error(
+                        "terminal_article_insert_failed",
+                        url=source_url[:50],
+                        reason="bulk_upsert returned empty article_ids",
+                    )
             except Exception as exc:
-                log.warning(
-                    "terminal_article_status_update_failed",
-                    url=state["raw"].url[:50] if state.get("raw") else "unknown",
+                log.error(
+                    "terminal_article_persist_failed",
+                    url=source_url[:50],
                     error=str(exc),
                 )
+                raise
 
     async def _persist_articles_to_pg(self, valid_states: list[PipelineState]) -> None:
         """Persist articles to PostgreSQL via bulk_upsert.
