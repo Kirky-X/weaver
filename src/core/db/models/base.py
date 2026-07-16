@@ -58,6 +58,7 @@ class CategoryType(str, enum.Enum):
     CULTURE = "文化"
     SPORTS = "体育"
     INTERNATIONAL = "国际"
+    OTHER = "其他"
 
 
 class PersistStatus(str, enum.Enum):

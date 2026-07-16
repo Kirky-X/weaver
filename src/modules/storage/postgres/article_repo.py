@@ -577,7 +577,8 @@ class ArticleRepo:
                     score=0.0,
                     sentiment_score=0.0,
                     # REM-004: Fill fields that would otherwise be NULL for terminal articles
-                    category="other",
+                    # category='其他' (CategoryType.OTHER) — valid ENUM value, see migration 26
+                    category="其他",
                     language="zh",
                     region="unknown",
                     credibility_score=0.0,

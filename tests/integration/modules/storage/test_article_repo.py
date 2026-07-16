@@ -396,3 +396,128 @@ class TestArticleRepoIntegration:
                     text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
+
+    @pytest.mark.asyncio
+    async def test_mark_terminal_by_url_inserts_new_article(self, relational_pool, unique_id):
+        """Test mark_terminal_by_url handles new article (not exists in DB).
+
+        Regression test for bug: terminal articles (is_news=False) were never
+        inserted because mark_terminal_by_url only did UPDATE. New articles
+        must be upserted so API queries can return them.
+
+        Also verifies category value is valid for PostgreSQL ENUM constraint
+        (category_type only allows: 政治/军事/经济/科技/社会/文化/体育/国际/其他).
+        """
+        from types import SimpleNamespace
+
+        from modules.processing.pipeline.state import PipelineState
+
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
+
+        url = f"https://terminal-new.example.com/{unique_id}"
+
+        # Simulate a terminal article state (is_news=False, no category)
+        state = PipelineState()
+        state["raw"] = SimpleNamespace(
+            url=url,
+            source_host="terminal-new.example.com",
+            title=f"Non-news Page {unique_id}",
+            body="Non-news content",
+            publish_time=None,
+        )
+        state["is_news"] = False
+        state["terminal"] = True
+
+        try:
+            # bulk_upsert should insert the terminal article
+            article_ids = await repo.bulk_upsert([state])
+            assert len(article_ids) == 1
+            article_id = article_ids[0]
+
+            # Verify article exists with PG_DONE status
+            async with pool.session_context() as session:
+                result = await session.execute(
+                    text(
+                        "SELECT id, title, persist_status, category FROM articles_core "
+                        "WHERE source_url = :url"
+                    ),
+                    {"url": url},
+                )
+                row = result.fetchone()
+                assert row is not None, "Terminal article must be inserted"
+                assert row.title == f"Non-news Page {unique_id}"
+                assert row.persist_status == "pg_done"
+                # category can be NULL or valid enum value, never "other" (invalid)
+                assert row.category != "other", "category='other' is invalid for PostgreSQL ENUM"
+        finally:
+            async with pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles_core WHERE source_url = :url"),
+                    {"url": url},
+                )
+
+    @pytest.mark.asyncio
+    async def test_mark_terminal_by_url_updates_existing_article(self, relational_pool, unique_id):
+        """Test mark_terminal_by_url updates an existing PENDING article to PG_DONE.
+
+        Regression test for bug: category='other' violated PostgreSQL ENUM.
+        Verifies the update succeeds with a valid category value.
+        """
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
+
+        article_id = uuid.uuid4()
+        url = f"https://terminal-existing.example.com/{unique_id}"
+
+        # Insert a PENDING article first
+        async with pool.session_context() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO articles_core (id, source_url, title, is_merged, persist_status)
+                    VALUES (:id, :url, :title, false, 'pending')
+                """),
+                {
+                    "id": article_id,
+                    "url": url,
+                    "title": f"Existing Terminal {unique_id}",
+                },
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_bodies (article_id, body)
+                    VALUES (:article_id, :body)
+                """),
+                {"article_id": article_id, "body": "Body"},
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                    VALUES (:article_id, false, 0)
+                """),
+                {"article_id": article_id},
+            )
+
+        try:
+            # mark_terminal_by_url should NOT raise (was raising enum error)
+            updated = await repo.mark_terminal_by_url(url)
+            assert updated is True
+
+            # Verify category is valid (not 'other')
+            async with pool.session_context() as session:
+                result = await session.execute(
+                    text(
+                        "SELECT persist_status, category FROM articles_core "
+                        "WHERE source_url = :url"
+                    ),
+                    {"url": url},
+                )
+                row = result.fetchone()
+                assert row.persist_status == "pg_done"
+                assert row.category != "other"
+        finally:
+            async with pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles_core WHERE id = :id"),
+                    {"id": article_id},
+                )

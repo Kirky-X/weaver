@@ -508,10 +508,12 @@ class VectorRepo:
 
                     if existing:
                         existing.embedding = embedding
+                        existing.model_id = model_id
                     else:
                         ev = EntityVector(
                             neo4j_id=key,
                             embedding=embedding,
+                            model_id=model_id,
                         )
                         session.add(ev)
 

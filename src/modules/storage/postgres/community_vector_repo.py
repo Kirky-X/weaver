@@ -55,12 +55,12 @@ class CommunityVectorRepo:
         query_sql = """
             SELECT
                 community_id,
-                1 - (embedding <=> :embedding::vector) AS score,
+                1 - (embedding <=> CAST(:embedding AS vector)) AS score,
                 title,
                 summary
             FROM community_vectors
-            WHERE 1 - (embedding <=> :embedding::vector) > :threshold
-            ORDER BY embedding <=> :embedding::vector
+            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) > :threshold
+            ORDER BY embedding <=> CAST(:embedding AS vector)
             LIMIT :limit
         """
 
@@ -93,3 +93,68 @@ class CommunityVectorRepo:
                 )
                 for row in rows
             ]
+
+    async def upsert_community_vector(
+        self,
+        community_id: str,
+        embedding: list[float],
+        title: str | None = None,
+        summary: str | None = None,
+        entity_count: int = 0,
+        article_count: int = 0,
+        rank: float | None = None,
+        model_id: str = "text-embedding-3-large",
+    ) -> None:
+        """Insert or update a community vector in community_vectors table.
+
+        Synchronizes community embeddings from Neo4j CommunityReport to
+        PostgreSQL community_vectors for similarity search.
+
+        Args:
+            community_id: Community UUID string.
+            embedding: Embedding vector (dimension must match column type).
+            title: Community title (optional).
+            summary: Community summary (optional).
+            entity_count: Number of entities in community.
+            article_count: Number of articles in community.
+            rank: Community importance rank (0.0-10.0).
+            model_id: Embedding model identifier.
+        """
+        formatted_emb = self._query_builder.format_embedding_param(embedding)
+
+        # UPSERT via ON CONFLICT (community_id) — works for PostgreSQL.
+        # DuckDB uses INSERT OR REPLACE but community_vectors is PG-only
+        # (pgvector HNSW index). DuckDB fallback doesn't support this table.
+        upsert_sql = """
+            INSERT INTO community_vectors
+                (community_id, embedding, model_id, title, summary,
+                 entity_count, article_count, rank, updated_at)
+            VALUES
+                (:community_id, CAST(:embedding AS vector), :model_id, :title, :summary,
+                 :entity_count, :article_count, :rank, NOW())
+            ON CONFLICT (community_id) DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                model_id = EXCLUDED.model_id,
+                title = EXCLUDED.title,
+                summary = EXCLUDED.summary,
+                entity_count = EXCLUDED.entity_count,
+                article_count = EXCLUDED.article_count,
+                rank = EXCLUDED.rank,
+                updated_at = NOW()
+        """
+
+        async with self._pool.session() as session:
+            await session.execute(
+                text(upsert_sql),
+                {
+                    "community_id": community_id,
+                    "embedding": formatted_emb,
+                    "model_id": model_id,
+                    "title": title,
+                    "summary": summary,
+                    "entity_count": entity_count,
+                    "article_count": article_count,
+                    "rank": rank,
+                },
+            )
+            await session.commit()

@@ -171,12 +171,18 @@ class PostgresPool:
             }
 
         pool = self._engine.pool
+        # SQLAlchemy AsyncAdaptedQueuePool may return negative overflow
+        # when connections have been invalidated (e.g., after DB restart).
+        # Clamp to 0 for monitoring API; raw value exposed via overflow_invalid.
+        raw_overflow = pool.overflow()  # type: ignore[attr-defined]
+        overflow_clamped = max(0, raw_overflow)
         stats = {
             "pool_size": pool.size(),  # type: ignore[attr-defined]
-            "overflow": pool.overflow(),  # type: ignore[attr-defined]
+            "overflow": overflow_clamped,
             "checked_in": pool.checkedin(),  # type: ignore[attr-defined]
             "checked_out": pool.checkedout(),  # type: ignore[attr-defined]
             "overflow_invalid": getattr(pool, "overflow_invalid", lambda: 0)(),  # type: ignore[attr-defined]
+            "overflow_raw": raw_overflow,
         }
 
         total_capacity = self._pool_size + self._max_overflow
