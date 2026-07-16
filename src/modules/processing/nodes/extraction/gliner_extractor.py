@@ -14,6 +14,9 @@ Three-level confidence pipeline:
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,28 +76,64 @@ class GLiNERExtractor:
         self._config = config or GLiNERConfig()
         self._llm_client = llm_client
         self._model = None
+        self._initialized = False
+        # threading.Lock (not asyncio.Lock) because _ensure_initialized runs
+        # inside asyncio.to_thread → on a worker thread, not the event loop.
+        self._init_lock = threading.Lock()
+        # Dedicated single-worker pool: serializes model access (thread-safety),
+        # limits memory (one inference at a time), avoids starving the default
+        # asyncio pool shared by spaCy/DuckDB/SSL.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gliner")
 
-        # Initialize GLiNER if enabled
-        if self._config.enabled:
-            self._init_gliner()
+    def _ensure_initialized(self) -> None:
+        """Lazy initialize GLiNER model on first use (thread-safe).
+
+        Defers heavy `import gliner` (which triggers `import transformers`)
+        from startup to first extraction call, preventing startup blockage.
+
+        Uses double-checked locking so concurrent first calls (via
+        asyncio.to_thread) only load the model once. On failure, leaves
+        _initialized=False to allow retry on subsequent calls (Bug-D HIGH-002).
+        """
+        if self._initialized:
+            return
+        with self._init_lock:
+            if self._initialized:
+                return
+            if self._config.enabled:
+                try:
+                    self._init_gliner()
+                    # Only mark initialized on success — allows retry on failure
+                    self._initialized = True
+                except Exception as exc:
+                    log.warning(
+                        "gliner_model_init_failed_will_retry",
+                        error=str(exc),
+                        exc_type=type(exc).__name__,
+                    )
+                    self._model = None
+                    return
+            else:
+                self._initialized = True
 
     def _init_gliner(self) -> None:
-        """Initialize GLiNER model."""
-        try:
-            from gliner import GLiNER
+        """Initialize GLiNER model (raises on failure for retry semantics)."""
+        from gliner import GLiNER
 
-            self._model = GLiNER.from_pretrained(self._config.model_name)
-            log.info(
-                "gliner_model_initialized",
-                model=self._config.model_name,
-            )
-        except Exception as exc:
-            log.warning(
-                "gliner_model_init_failed",
-                error=str(exc),
-                exc_type=type(exc).__name__,
-            )
-            self._model = None
+        self._model = GLiNER.from_pretrained(self._config.model_name)
+        log.info(
+            "gliner_model_initialized",
+            model=self._config.model_name,
+        )
+
+    async def warmup(self) -> None:
+        """Pre-initialize the model to avoid first-request latency.
+
+        Call from lifecycle.py at startup (fire-and-forget or awaited) to
+        shift the 7-20s model load from first user request to startup.
+        Safe to call multiple times; no-op after successful init.
+        """
+        await asyncio.to_thread(self._ensure_initialized)
 
     async def extract_entities(self, text: str) -> list[dict[str, Any]]:
         """Extract entities using GLiNER.
@@ -105,6 +144,17 @@ class GLiNERExtractor:
         Returns:
             List of extracted entities with text, type, and confidence.
         """
+        # Run lazy init + prediction in dedicated thread to avoid blocking the
+        # event loop. GLiNER.from_pretrained() and predict_entities() are
+        # synchronous and CPU/IO-intensive — calling them directly in an async
+        # context blocks the entire server (observed: API unresponsive for
+        # minutes). Dedicated executor (max_workers=1) serializes model access.
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._extract_entities_sync, text)
+
+    def _extract_entities_sync(self, text: str) -> list[dict[str, Any]]:
+        """Synchronous entity extraction (runs in thread executor)."""
+        self._ensure_initialized()
         if not text or not self._config.enabled or self._model is None:
             return []
 

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,25 +29,41 @@ def config() -> GLiNERConfig:
 
 @pytest.fixture
 def extractor(config: GLiNERConfig) -> GLiNERExtractor:
-    """GLiNERExtractor instance with mocked GLiNER."""
-    with patch("gliner.GLiNER") as mock_gliner_class:
-        mock_model = MagicMock()
-        mock_gliner_class.from_pretrained.return_value = mock_model
-        return GLiNERExtractor(config=config)
+    """GLiNERExtractor instance with mocked GLiNER.
+
+    Bug-D fix: GLiNERExtractor uses lazy init (_ensure_initialized called on
+    first extract_entities). The old fixture returned from inside a `with
+    patch("gliner.GLiNER")` block, so the patch was gone by the time the test
+    invoked extract_entities → _init_gliner → from gliner import GLiNER got
+    the module-level MagicMock (no from_pretrained configured) → _model=None
+    → AttributeError on predict_entities.
+
+    Fix: construct the extractor with a pre-populated _model and mark
+    _initialized=True so lazy init is skipped entirely. This isolates the
+    extractor's behavior from gliner's import-time side effects.
+    """
+    mock_model = MagicMock()
+    ext = GLiNERExtractor(config=config)
+    ext._model = mock_model
+    ext._initialized = True
+    return ext
 
 
 @pytest.fixture
 def extractor_with_llm(config: GLiNERConfig) -> GLiNERExtractor:
-    """GLiNERExtractor instance with mocked GLiNER and LLM."""
-    with patch("gliner.GLiNER") as mock_gliner_class:
-        mock_model = MagicMock()
-        mock_gliner_class.from_pretrained.return_value = mock_model
+    """GLiNERExtractor instance with mocked GLiNER and LLM.
 
-        llm = AsyncMock()
-        llm.call_at = AsyncMock(
-            return_value={"entities": [{"text": "精炼实体", "type": "EVENT", "confidence": 0.8}]}
-        )
-        return GLiNERExtractor(config=config, llm_client=llm)
+    Bug-D fix: same lazy-init isolation as `extractor` fixture.
+    """
+    mock_model = MagicMock()
+    llm = AsyncMock()
+    llm.call_at = AsyncMock(
+        return_value={"entities": [{"text": "精炼实体", "type": "EVENT", "confidence": 0.8}]}
+    )
+    ext = GLiNERExtractor(config=config, llm_client=llm)
+    ext._model = mock_model
+    ext._initialized = True
+    return ext
 
 
 class TestGLiNERConfig:
@@ -223,3 +240,169 @@ class TestEdgeCases:
 
             entities = await extractor.extract_entities("测试文本")
             assert entities == []
+
+
+class TestLazyInitConcurrency:
+    """Test lazy initialization thread safety (Bug-D HIGH-001/HIGH-1 fix).
+
+    GLiNERExtractor is a singleton shared across pipeline requests. With
+    asyncio.to_thread, concurrent first calls can race in _ensure_initialized.
+    Fix: threading.Lock + double-checked locking + dedicated ThreadPoolExecutor.
+    """
+
+    def test_init_lock_exists(self, config: GLiNERConfig) -> None:
+        """GLiNERExtractor has a threading.Lock for init protection."""
+        import threading
+
+        ext = GLiNERExtractor(config=config)
+        assert hasattr(ext, "_init_lock")
+        assert isinstance(ext._init_lock, type(threading.Lock()))
+
+    def test_dedicated_executor_exists(self, config: GLiNERConfig) -> None:
+        """GLiNERExtractor uses a dedicated ThreadPoolExecutor (not default pool)."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        ext = GLiNERExtractor(config=config)
+        assert hasattr(ext, "_executor")
+        assert isinstance(ext._executor, ThreadPoolExecutor)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_init_loads_model_once(self, config: GLiNERConfig) -> None:
+        """Concurrent first calls must trigger model load exactly once."""
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_model = MagicMock()
+            mock_model.predict_entities = MagicMock(return_value=[])
+            mock_gliner_class.from_pretrained.return_value = mock_model
+
+            ext = GLiNERExtractor(config=config)
+
+            # Fire 5 concurrent extract_entities calls
+            results = await asyncio.gather(*[ext.extract_entities("测试文本") for _ in range(5)])
+
+            # Model should be loaded exactly once despite 5 concurrent calls
+            assert mock_gliner_class.from_pretrained.call_count == 1
+            # All calls should complete without error
+            for r in results:
+                assert isinstance(r, list)
+
+    @pytest.mark.asyncio
+    async def test_warmup_and_extract_race_loads_once(self, config: GLiNERConfig) -> None:
+        """warmup (default pool) + extract (dedicated pool) concurrent → load once.
+
+        This is the real production race scenario: lifecycle.py fires warmup
+        on the default asyncio pool, while a user request triggers
+        extract_entities on the dedicated gliner pool. Both call
+        _ensure_initialized concurrently — the threading.Lock must serialize
+        them and ensure from_pretrained is called exactly once.
+        """
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_model = MagicMock()
+            mock_model.predict_entities = MagicMock(return_value=[])
+            mock_gliner_class.from_pretrained.return_value = mock_model
+
+            ext = GLiNERExtractor(config=config)
+
+            # Fire warmup + extract_entities concurrently (different pools)
+            await asyncio.gather(
+                ext.warmup(),
+                ext.extract_entities("测试文本"),
+            )
+
+            # Model loaded exactly once despite cross-pool concurrency
+            assert mock_gliner_class.from_pretrained.call_count == 1
+            assert ext._initialized is True
+
+
+class TestInitRetryOnFailure:
+    """Test that failed init allows retry (Bug-D HIGH-002 fix).
+
+    Old code set _initialized=True BEFORE _init_gliner(), so a failed load
+    permanently disabled GLiNER for the process lifetime. Fix: only set
+    _initialized=True on success; failure leaves it False to allow retry.
+    """
+
+    @pytest.mark.asyncio
+    async def test_failed_init_allows_retry(self, config: GLiNERConfig) -> None:
+        """Failed initialization should not permanently disable GLiNER."""
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_model = MagicMock()
+            mock_model.predict_entities = MagicMock(return_value=[])
+            # First call fails, second call succeeds
+            mock_gliner_class.from_pretrained.side_effect = [
+                Exception("First load failed"),
+                mock_model,
+            ]
+
+            ext = GLiNERExtractor(config=config)
+
+            # First call — init fails, returns []
+            entities1 = await ext.extract_entities("测试")
+            assert entities1 == []
+            # _initialized must NOT be True (allows retry)
+            assert ext._initialized is False
+
+            # Second call — init retries and succeeds
+            entities2 = await ext.extract_entities("测试")
+            assert ext._initialized is True
+            assert ext._model is mock_model
+
+    @pytest.mark.asyncio
+    async def test_permanent_failure_retries_every_call(self, config: GLiNERConfig) -> None:
+        """When model load always fails, each call retries (no permanent disable)."""
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_gliner_class.from_pretrained.side_effect = Exception("Always fails")
+
+            ext = GLiNERExtractor(config=config)
+
+            # Three calls — each should retry loading
+            for _ in range(3):
+                entities = await ext.extract_entities("测试")
+                assert entities == []
+
+            # Model load attempted 3 times (not permanently disabled after first)
+            assert mock_gliner_class.from_pretrained.call_count == 3
+            assert ext._initialized is False
+
+
+class TestWarmup:
+    """Test warmup() method for pre-initialization (Bug-D HIGH-2 mitigation).
+
+    warmup() allows lifecycle.py to pre-load the model at startup, avoiding
+    first-request latency (7-20s). Non-blocking when called via asyncio.
+    """
+
+    @pytest.mark.asyncio
+    async def test_warmup_initializes_model(self, config: GLiNERConfig) -> None:
+        """warmup() should trigger model initialization."""
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_model = MagicMock()
+            mock_gliner_class.from_pretrained.return_value = mock_model
+
+            ext = GLiNERExtractor(config=config)
+            assert ext._initialized is False
+
+            await ext.warmup()
+
+            assert ext._initialized is True
+            assert ext._model is mock_model
+
+    @pytest.mark.asyncio
+    async def test_warmup_after_init_is_noop(self, extractor: GLiNERExtractor) -> None:
+        """warmup() on an already-initialized extractor is a no-op."""
+        # extractor fixture already has _initialized=True
+        original_model = extractor._model
+        await extractor.warmup()
+        # Model unchanged, no re-init
+        assert extractor._model is original_model
+
+    @pytest.mark.asyncio
+    async def test_warmup_failure_does_not_mark_initialized(self, config: GLiNERConfig) -> None:
+        """warmup() failure should leave _initialized=False for retry."""
+        with patch("gliner.GLiNER") as mock_gliner_class:
+            mock_gliner_class.from_pretrained.side_effect = Exception("Warmup failed")
+
+            ext = GLiNERExtractor(config=config)
+            await ext.warmup()
+
+            assert ext._initialized is False
+            assert ext._model is None

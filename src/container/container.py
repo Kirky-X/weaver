@@ -95,6 +95,7 @@ class Container(
         self._briefing_engine: Any = None
         self._cascade_classifier: Any = None
         self._gliner_extractor: Any = None
+        self._gliner_warmup_task: Any = None
 
     def configure(self, settings: Settings, debug: bool = False) -> Container:
         """Configure the container with settings."""

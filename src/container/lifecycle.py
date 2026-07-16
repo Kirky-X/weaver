@@ -346,6 +346,17 @@ class ContainerLifecycleMixin:
             result["gliner_extractor"] = False
             log.warning("gliner_extractor_init_failed", error=str(exc))
 
+        # Fire-and-forget background warmup: shifts 7-20s model load
+        # from first user request to startup (Bug-D HIGH-2 mitigation).
+        # Isolated from init try/except so mock/scheduling failures don't
+        # null out the extractor (lazy init still works as fallback).
+        # Store task ref to prevent GC (ruff RUF006).
+        if self._gliner_extractor is not None:
+            try:
+                self._gliner_warmup_task = asyncio.create_task(self._gliner_extractor.warmup())
+            except Exception as exc:
+                log.debug("gliner_warmup_scheduling_failed", error=str(exc))
+
         # MCSampler — already initialized in init_mc_sampler()
         if self._mc_sampler is None:
             import contextlib
