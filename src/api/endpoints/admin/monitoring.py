@@ -154,12 +154,10 @@ async def get_table_stats(
             text("""
                  SELECT schemaname || '.' || relname AS table,
                     n_live_tup AS rows,
-                    pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
-                    pg_size_pretty(pg_indexes_size(c.oid)) AS index_size
+                    pg_size_pretty(pg_total_relation_size(t.relid)) AS size,
+                    pg_size_pretty(pg_indexes_size(t.relid)) AS index_size
                  FROM pg_stat_user_tables t
-                     JOIN pg_class c
-                 ON c.relname = t.relname
-                 ORDER BY pg_total_relation_size(c.oid) DESC
+                 ORDER BY pg_total_relation_size(t.relid) DESC
                      LIMIT :limit
                  """),
             {"limit": limit},
@@ -198,21 +196,33 @@ async def get_pool_stats(
     # Get pool statistics from SQLAlchemy
     if container.relational_pool_type == DatabaseType.POSTGRES.value:
         assert isinstance(pool, PostgresPool)
-        engine = pool._engine
-        if engine is None:
-            return success_response(PoolStats(pool_size=0, checked_in=0, checked_out=0, overflow=0))
-
-        pool_obj = engine.sync_engine.pool
-        status = pool_obj.status()
-
-        return success_response(
-            PoolStats(
-                pool_size=status.size,
-                checked_in=status.checkedin,
-                checked_out=status.checkedout,
-                overflow=status.overflow,
+        # Use PostgresPool.get_pool_stats() which correctly accesses
+        # AsyncAdaptedQueuePool via _engine.pool (not sync_engine.pool.status()
+        # which raises AttributeError on async engines).
+        try:
+            stats = pool.get_pool_stats()
+            return success_response(
+                PoolStats(
+                    pool_size=stats["pool_size"],
+                    checked_in=stats["checked_in"],
+                    checked_out=stats["checked_out"],
+                    overflow=stats["overflow"],
+                )
             )
-        )
+        except (AttributeError, NotImplementedError, TypeError) as exc:
+            # Defensive: surface pool/engine internals type info so operators
+            # can diagnose mismatches (e.g., when SQLAlchemy upgrades change
+            # the async-pool adapter surface).
+            engine = getattr(pool, "_engine", None)
+            engine_pool = getattr(engine, "pool", None) if engine is not None else None
+            return success_response(
+                PoolStats(pool_size=0, checked_in=0, checked_out=0, overflow=0),
+                warning=(
+                    f"Pool status unavailable for async driver: {exc} "
+                    f"(engine_type={type(engine).__name__}, "
+                    f"pool_type={type(engine_pool).__name__})"
+                ),
+            )
 
     # DuckDB doesn't have connection pool
     return success_response(

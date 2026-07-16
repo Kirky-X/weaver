@@ -9,7 +9,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
+from api.dependencies import (
+    get_community_vector_repo,
+    get_graph_pool,
+    get_graph_pool_type,
+    get_llm_client,
+)
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import DatabaseType, GraphHealthStatus, ProcessingStatus
@@ -245,6 +250,7 @@ async def generate_all_reports(
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
+    community_vector_repo: Any = Depends(get_community_vector_repo),
 ) -> APIResponse[ReportGenerateResponse]:
     """Generate reports for all communities.
 
@@ -254,6 +260,7 @@ async def generate_all_reports(
         _: Verified API key.
         pool: GraphPool connection pool.
         llm: LLM client.
+        community_vector_repo: Optional PG repo for community_vectors sync.
 
     Returns:
         Generation statistics.
@@ -261,7 +268,11 @@ async def generate_all_reports(
     """
     log.info("report_generation_requested", level=level)
 
-    generator = CommunityReportGenerator(pool=pool, llm_client=llm)
+    generator = CommunityReportGenerator(
+        pool=pool,
+        llm_client=llm,
+        community_vector_repo=community_vector_repo,
+    )
 
     try:
         result = await generator.generate_all_reports(
@@ -299,6 +310,7 @@ async def regenerate_report(
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
+    community_vector_repo: Any = Depends(get_community_vector_repo),
 ) -> APIResponse[dict[str, Any]]:
     """Regenerate report for a specific community.
 
@@ -307,12 +319,17 @@ async def regenerate_report(
         _: Verified API key.
         pool: GraphPool connection pool.
         llm: LLM client.
+        community_vector_repo: Optional PG repo for community_vectors sync.
 
     Returns:
         Generation result.
 
     """
-    generator = CommunityReportGenerator(pool=pool, llm_client=llm)
+    generator = CommunityReportGenerator(
+        pool=pool,
+        llm_client=llm,
+        community_vector_repo=community_vector_repo,
+    )
 
     try:
         result: ReportGenerationResult = await generator.regenerate_report(community_id)

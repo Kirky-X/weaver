@@ -9,12 +9,15 @@ here to reduce ``create_app()`` responsibility.
 from __future__ import annotations
 
 import tomllib
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from sqlalchemy import text
 
 from api.dependencies import (
+    get_cache_client_optional,
     get_cache_type as get_cache_type_dep,
     get_graph_type as get_graph_type_dep,
     get_relational_type as get_relational_type_dep,
@@ -118,3 +121,174 @@ async def metrics_endpoint(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+# ── Enhanced Operations Endpoints ─────────────────────────────
+
+
+@system_router.get(
+    "/health/dependencies",
+    response_model=APIResponse[dict],
+)
+async def health_dependencies(
+    _: str = Depends(verify_admin_api_key),
+) -> APIResponse[dict]:
+    """Detailed dependency health check (requires admin API key).
+
+    Returns per-dependency status with latency, version, and connection details.
+    Covers: relational DB, graph DB, cache, LLM provider, spaCy, BM25 index.
+    """
+    from container import get_container
+
+    details: dict[str, Any] = {}
+
+    try:
+        container = get_container()
+    except RuntimeError:
+        container = None
+
+    # Relational DB
+    if container is not None:
+        try:
+            pool = container.relational_pool()
+            pool_type = container.relational_pool_type
+            import time
+
+            start = time.monotonic()
+            async with pool.session_context() as session:
+                await session.execute(text("SELECT 1"))
+            latency_ms = (time.monotonic() - start) * 1000
+            details["relational"] = {
+                "type": pool_type,
+                "status": "ok",
+                "latency_ms": round(latency_ms, 2),
+            }
+        except Exception as e:
+            details["relational"] = {"status": "error", "error": str(e)}
+
+        # Graph DB
+        try:
+            gpool = container.graph_pool()
+            gtype = container.graph_pool_type
+            import time
+
+            start = time.monotonic()
+            await gpool.execute_query("RETURN 1")
+            latency_ms = (time.monotonic() - start) * 1000
+            details["graph"] = {
+                "type": gtype,
+                "status": "ok",
+                "latency_ms": round(latency_ms, 2),
+            }
+        except Exception as e:
+            details["graph"] = {"status": "error", "error": str(e)}
+
+        # Cache
+        try:
+            cache = container.cache_client()
+            cache_type = getattr(cache, "cache_type", "unknown")
+            import time
+
+            start = time.monotonic()
+            await cache.ping()
+            latency_ms = (time.monotonic() - start) * 1000
+            details["cache"] = {
+                "type": cache_type,
+                "status": "ok",
+                "latency_ms": round(latency_ms, 2),
+            }
+        except Exception as e:
+            details["cache"] = {"status": "error", "error": str(e)}
+
+        # LLM
+        try:
+            llm = container.llm_client()
+            providers = getattr(llm, "_providers", {})
+            details["llm"] = {
+                "status": "ok",
+                "providers": list(providers.keys()),
+                "provider_count": len(providers),
+            }
+        except Exception as e:
+            details["llm"] = {"status": "error", "error": str(e)}
+
+    overall_healthy = all(v.get("status") == "ok" for v in details.values() if isinstance(v, dict))
+    return success_response(
+        {
+            "status": "healthy" if overall_healthy else "degraded",
+            "dependencies": details,
+        }
+    )
+
+
+@system_router.post(
+    "/admin/cache/clear",
+    response_model=APIResponse[dict],
+)
+async def clear_cache(
+    pattern: str = "*",
+    _: str = Depends(verify_admin_api_key),
+    cache_client: Any = Depends(get_cache_client_optional),
+) -> APIResponse[dict]:
+    """Clear cache entries matching pattern (requires admin API key).
+
+    Args:
+        pattern: Key pattern to match (default "*" = all keys).
+        cache_client: Cache pool instance.
+
+    """
+    if cache_client is None:
+        raise HTTPException(status_code=503, detail="Cache pool not initialized")
+
+    deleted = 0
+    async for key in cache_client.scan_iter(pattern=pattern, count=500):
+        await cache_client.delete(key)
+        deleted += 1
+
+    log.info("cache_cleared", pattern=pattern, deleted=deleted)
+    return success_response(
+        {
+            "pattern": pattern,
+            "deleted": deleted,
+            "status": "completed",
+        }
+    )
+
+
+@system_router.post(
+    "/admin/config/reload",
+    response_model=APIResponse[dict],
+)
+async def reload_config(
+    _: str = Depends(verify_admin_api_key),
+) -> APIResponse[dict]:
+    """Reload LLM live configuration from config/llm.toml (requires admin API key).
+
+    Triggers LiveConfig.reload() which re-reads the TOML file and updates
+    the LLM settings in-place. No server restart required.
+    """
+    from container import get_container
+
+    try:
+        container = get_container()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Container not initialized") from exc
+
+    live_config = getattr(container, "_live_config", None)
+    if live_config is None:
+        raise HTTPException(status_code=503, detail="Live config not initialized")
+
+    try:
+        settings = live_config.reload()
+        provider_count = len(getattr(settings, "providers", {}))
+        log.info("config_reloaded", providers=provider_count)
+        return success_response(
+            {
+                "status": "reloaded",
+                "providers": provider_count,
+                "config_path": str(getattr(live_config, "_config_path", "unknown")),
+            }
+        )
+    except Exception as exc:
+        log.error("config_reload_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Reload failed: {exc!s}") from exc

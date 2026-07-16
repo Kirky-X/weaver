@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import time
 import urllib.parse
 from collections import deque
 from typing import Any
@@ -113,7 +114,14 @@ class RelatedEntityResult(BaseModel):
 
 @router.get("/entities", response_model=APIResponse[list[dict[str, Any]]])
 async def list_entities(
-    entity_type: str | None = Query(None, description="Filter by entity type"),
+    entity_type: str | None = Query(
+        None,
+        description=(
+            "Filter by entity type. Supported values (Chinese): "
+            "'人物', '组织机构', '地点', '产品与技术', '事件', "
+            "'数据指标', '法规与政策', '未知'."
+        ),
+    ),
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
     offset: int = Query(0, ge=0, description="Result offset"),
     _: str = Depends(verify_api_key),
@@ -266,7 +274,12 @@ async def get_article_graph(
 async def get_entity_relations(
     entity: str = Query(..., description="Entity canonical name"),
     entity_type: str | None = Query(
-        None, description="Entity type (optional, e.g. '组织机构', '人物')"
+        None,
+        description=(
+            "Entity type filter (optional). Supported values (Chinese): "
+            "'人物', '组织机构', '地点', '产品与技术', '事件', "
+            "'数据指标', '法规与政策', '未知'."
+        ),
     ),
     _: str = Depends(verify_api_key),
     graph_repo: GraphRepository = Depends(get_graph_repo),
@@ -311,7 +324,14 @@ async def get_entity_relations(
 @router.get("/relations/search", response_model=APIResponse[list[RelatedEntityResult]])
 async def search_relations(
     entity: str = Query(..., description="Entity canonical name"),
-    entity_type: str | None = Query(None, description="Entity type (optional)"),
+    entity_type: str | None = Query(
+        None,
+        description=(
+            "Entity type filter (optional). Supported values (Chinese): "
+            "'人物', '组织机构', '地点', '产品与技术', '事件', "
+            "'数据指标', '法规与政策', '未知'."
+        ),
+    ),
     relation_types: str | None = Query(None, description="Comma-separated relation types"),
     limit: int = Query(50, ge=1, le=200),
     _: str = Depends(verify_api_key),
@@ -373,6 +393,8 @@ async def traverse_graph(
         Traversal results wrapped in APIResponse.
 
     """
+    # Capture start time just before traversal to compute execution_time_ms.
+    _traversal_start_ms = int(time.perf_counter() * 1000)
     results = await graph_repo.traverse(
         start_entity=request.start_entity,
         max_depth=request.max_depth,
@@ -383,6 +405,10 @@ async def traverse_graph(
         mode=request.mode,
         min_confidence=request.min_confidence,
     )
+    # Measure actual traversal wall-clock time (ms) for observability.
+    # Computed here rather than in the repo so the value reflects end-to-end
+    # traversal including any retry/fallback overhead in the graph layer.
+    _traversal_end_ms = int(time.perf_counter() * 1000) - _traversal_start_ms
 
     result_items = []
     total_nodes = 0
@@ -457,6 +483,7 @@ async def traverse_graph(
         nodes_visited=total_nodes,
         edges_traversed=total_edges,
         depth_reached=max_depth_found,
+        execution_time_ms=_traversal_end_ms,
     )
 
     return success_response(TraverseResponse(results=result_items, statistics=statistics))

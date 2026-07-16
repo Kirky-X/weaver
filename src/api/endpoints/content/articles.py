@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, select
+from sqlalchemy import asc, desc, nullslast, select
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
@@ -153,6 +153,8 @@ async def list_articles(
     category: str | None = Query(None, description="Filter by category"),
     source_host: str | None = Query(None, description="Filter by source host"),
     source_id: str | None = Query(None, description="Filter by source config ID"),
+    is_news: bool | None = Query(None, description="Filter by is_news flag"),
+    language: str | None = Query(None, description="Filter by language code (e.g. 'zh', 'en')"),
     min_score: float | None = Query(None, ge=0, le=1, description="Minimum score filter"),
     min_credibility: float | None = Query(
         None, ge=0, le=1, description="Minimum credibility filter"
@@ -172,6 +174,7 @@ async def list_articles(
         category: Filter by category.
         source_host: Filter by source hostname.
         source_id: Filter by source config ID (e.g. "rss-cnbeta").
+        is_news: Filter by is_news flag (true=news articles, false=non-news).
         min_score: Minimum score filter (0-1).
         min_credibility: Minimum credibility score filter (0-1).
         sort_by: Field to sort by.
@@ -203,6 +206,10 @@ async def list_articles(
             filters.append(Article.source_host == source_host)
         if source_id:
             filters.append(Article.source_id == source_id)
+        if is_news is not None:
+            filters.append(Article.is_news == is_news)
+        if language:
+            filters.append(Article.language == language)
         if min_score is not None:
             filters.append(Article.score >= min_score)
         if min_credibility is not None:
@@ -229,10 +236,12 @@ async def list_articles(
             sort_by = "publish_time"
 
         sort_column = getattr(Article, sort_by, Article.publish_time)
+        # Apply NULLS LAST so articles with null publish_time/score/etc.
+        # sink to the end of results regardless of sort direction.
         if sort_order == "desc":
-            query = query.order_by(desc(sort_column))
+            query = query.order_by(nullslast(desc(sort_column)))
         else:
-            query = query.order_by(asc(sort_column))
+            query = query.order_by(nullslast(asc(sort_column)))
 
         query = query.offset(offset).limit(page_size)
 

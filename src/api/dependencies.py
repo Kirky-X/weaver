@@ -527,6 +527,27 @@ def get_cache_client_optional(
         return None
 
 
+def get_community_vector_repo(
+    container: Container = Depends(get_container),
+) -> Any:
+    """Get CommunityVectorRepo for community_vectors table sync.
+
+    Returns None when relational pool is DuckDB (community_vectors is PG-only).
+    """
+    try:
+        relational_type = container.relational_pool_type
+        if relational_type != "postgres":
+            return None
+        from core.db.query_builders import create_vector_query_builder
+        from modules.storage.postgres.community_vector_repo import CommunityVectorRepo
+
+        pool = container.relational_pool()
+        query_builder = create_vector_query_builder(relational_type)
+        return CommunityVectorRepo(pool=pool, query_builder=query_builder)
+    except RuntimeError:
+        return None
+
+
 def get_llm_client_optional(
     container: Container = Depends(get_container),
 ) -> LLMClient | None:
