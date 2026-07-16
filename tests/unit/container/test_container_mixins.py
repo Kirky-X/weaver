@@ -295,8 +295,7 @@ class TestContainerPoolsInitCacheClient:
 
         with patch("core.cache.RedisClient", return_value=mock_redis):
             with patch("core.cache.CashewsClient", return_value=mock_cashews):
-                with patch("core.utils.time_utils.set_redis_client"):
-                    result = await c.init_cache_client()
+                result = await c.init_cache_client()
 
         assert isinstance(result, FallbackCachePool)
         assert result.primary_healthy is True
@@ -321,8 +320,7 @@ class TestContainerPoolsInitCacheClient:
 
         with patch("core.cache.RedisClient", redis_fail):
             with patch("core.cache.CashewsClient", return_value=mock_cashews):
-                with patch("core.utils.time_utils.set_redis_client", side_effect=Exception):
-                    result = await c.init_cache_client()
+                result = await c.init_cache_client()
 
         assert isinstance(result, FallbackCachePool)
         assert result.primary_healthy is False

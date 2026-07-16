@@ -173,25 +173,57 @@ class RuleBasedCredibilityCheckerNode:
         return 0.50
 
     @staticmethod
+    def _to_datetime(value: str | datetime | None) -> datetime | None:
+        """Defensively convert value to timezone-aware datetime.
+
+        Handles:
+        - None → None
+        - datetime → ensure tzinfo (default UTC)
+        - str (ISO format) → parse via fromisoformat
+        - Invalid str/other types → None (graceful fallback)
+
+        Args:
+            value: Input value (str, datetime, or None).
+
+        Returns:
+            Timezone-aware datetime or None.
+
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=UTC)
+            return value
+        if isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value)
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=UTC)
+                return dt
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
     def _calc_timeliness(
-        publish_time: datetime | None,
-        event_time_str: str | None,
+        publish_time: str | datetime | None,
+        event_time: str | datetime | None,
     ) -> float:
         """Calculate timeliness score.
 
         Shorter gap between publish and event time = higher credibility.
+
+        Defensively handles str/datetime/None inputs (Bug-A regression):
+        - cleaner.py backfills publish_time as str(date) when raw is None
+        - LLM-extracted event_time may be str or datetime
         """
-        if not publish_time or not event_time_str:
+        pub_dt = RuleBasedCredibilityCheckerNode._to_datetime(publish_time)
+        evt_dt = RuleBasedCredibilityCheckerNode._to_datetime(event_time)
+        if pub_dt is None or evt_dt is None:
             return 0.7
 
-        try:
-            event_time = datetime.fromisoformat(event_time_str)
-            if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=UTC)
-        except ValueError:
-            return 0.7
-
-        delta_hours = abs((publish_time - event_time).total_seconds()) / 3600
+        delta_hours = abs((pub_dt - evt_dt).total_seconds()) / 3600
         if delta_hours <= 6:
             return 1.00
         if delta_hours <= 24:

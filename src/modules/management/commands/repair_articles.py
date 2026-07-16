@@ -68,11 +68,6 @@ async def _init_minimal_container():
     await cache_client.startup()
     log.info("redis_initialized")
 
-    # 注入 Redis 客户端到 NTP 时间工具
-    from core.utils.time_utils import set_redis_client
-
-    set_redis_client(cache_client)
-
     # 创建 EventBus 并复用于 LLMClient 和 Pipeline
     event_bus = EventBus()
     prompt_loader = PromptLoader(settings.prompt.dir)

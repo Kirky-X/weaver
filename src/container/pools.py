@@ -128,12 +128,6 @@ class ContainerPoolsMixin:
 
             self._cache_client = pool
 
-            # Inject Redis client to NTP time utility (cross-process cache)
-            if primary_ok:
-                from core.utils.time_utils import set_redis_client
-
-                set_redis_client(primary)
-
         return self._cache_client
 
     def cache_client(self) -> CachePool:

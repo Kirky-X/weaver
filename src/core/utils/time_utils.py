@@ -7,14 +7,11 @@
 from datetime import UTC, datetime
 from threading import Event, Thread
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import ntplib  # type: ignore[import-untyped]
 
 from core.observability import get_logger
-
-if TYPE_CHECKING:
-    from core.cache import RedisClient
 
 log = get_logger(__name__)
 
@@ -33,27 +30,11 @@ NTP_TIMEOUT = 1
 # NTP 缓存 TTL(秒)
 CACHE_TTL = 3600
 
-# Redis key for NTP cache
-NTP_REDIS_KEY = "weaver:ntp:time"
-
-# 模块级 NTP 缓存 (进程内降级)
-_ntp_cache: dict[str, datetime | None | str | float] = {"time": None, "expires": 0.0}
+# 模块级 NTP 缓存 (进程内)
+_ntp_cache: dict[str, datetime | None | float] = {"time": None, "expires": 0.0}
 
 # 单例 NTP 客户端
 _ntp_client: ntplib.NTPClient | None = None
-
-# Redis 客户端引用 (由外部注入)
-_redis_client: "RedisClient | None" = None
-
-
-def set_redis_client(redis_client: "RedisClient") -> None:
-    """设置 Redis 客户端用于分布式 NTP 缓存.
-
-    Args:
-        redis_client: Redis 客户端实例
-    """
-    global _redis_client
-    _redis_client = redis_client
 
 
 def _get_ntp_client() -> ntplib.NTPClient:
@@ -115,21 +96,17 @@ def _get_ntp_time() -> datetime | None:
     """从 NTP 服务器获取时间
 
     使用并发线程同时向所有 NTP 服务器发送请求，第一个成功响应者获胜。
-    结果优先从 Redis 缓存读取(跨进程共享),降级到进程内缓存。
+    结果缓存到进程内缓存（TTL=3600s）。
+
+    Note: Previously attempted Redis cross-process cache, but RedisClient is async
+    and cannot be awaited in this sync function (Bug-B: coroutine never awaited
+    caused fromisoformat TypeError). Removed — NTP is low-frequency (1hr TTL),
+    process-local cache is sufficient for single-process uvicorn deployment.
 
     Returns:
         UTC 时间或 None(获取失败时)
     """
-    # 优先检查 Redis 缓存 (跨进程共享)
-    if _redis_client:
-        try:
-            cached = _redis_client.get(NTP_REDIS_KEY)
-            if cached:
-                return datetime.fromisoformat(cached)
-        except Exception as exc:
-            log.debug("ntp_redis_cache_read_failed", error=str(exc))
-
-    # 降级到进程内缓存
+    # 进程内缓存
     if monotonic() < _ntp_cache["expires"]:
         return _ntp_cache["time"]  # type: ignore[return-value]
 
@@ -156,15 +133,6 @@ def _get_ntp_time() -> datetime | None:
     ready.wait(timeout=NTP_TIMEOUT)
 
     if result["time"] is not None:
-        # 写入 Redis 缓存 (跨进程共享)
-        if _redis_client:
-            try:
-                iso_time = result["time"].isoformat()
-                _redis_client.set(NTP_REDIS_KEY, iso_time, ex=CACHE_TTL)
-            except Exception as exc:
-                log.debug("ntp_redis_cache_write_failed", error=str(exc))
-
-        # 同时更新进程内缓存 (降级保护)
         _ntp_cache["time"] = result["time"]
         _ntp_cache["expires"] = monotonic() + CACHE_TTL
         return result["time"]
