@@ -181,8 +181,8 @@ class TestListFailedSagas:
 
         result = await list_failed_sagas(limit=10, orchestrator=mock_orchestrator)
 
-        assert result["failed_count"] == 1
-        assert len(result["entries"]) == 1
+        assert result.data["failed_count"] == 1
+        assert len(result.data["entries"]) == 1
 
     @pytest.mark.asyncio
     async def test_list_failed_sagas_limit_passthrough(self, mock_orchestrator):
@@ -195,4 +195,4 @@ class TestListFailedSagas:
         result = await list_failed_sagas(limit=100, orchestrator=mock_orchestrator)
 
         mock_orchestrator.get_failed_saga_logs.assert_called_once_with(limit=100)
-        assert result["failed_count"] == 0
+        assert result.data["failed_count"] == 0
