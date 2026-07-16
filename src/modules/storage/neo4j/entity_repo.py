@@ -557,7 +557,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
     async def get_relation_types(
         self,
         canonical_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Layer 1: Discover all relation types for an entity.
 
@@ -567,16 +567,18 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         Args:
             canonical_name: The canonical name of the entity.
-            entity_type: The type of the entity.
+            entity_type: Optional entity type filter. When None, matches
+                by canonical_name only (cross-type lookup).
 
         Returns:
             List of dicts with ``relation_type``, ``target_count``, and
             ``primary_direction`` keys, ordered by ``target_count`` desc.
         """
         query = """
-        MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+        MATCH (e:Entity {canonical_name: $name})-[r]-(other:Entity)
         WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-          AND NOT other.pruned = true
+          AND (other.pruned IS NULL OR NOT other.pruned)
+          AND ($type IS NULL OR e.type = $type)
         RETURN type(r) AS relation_type,
                count(DISTINCT other) AS target_count,
                head(collect(DISTINCT

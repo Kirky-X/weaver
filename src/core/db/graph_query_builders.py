@@ -179,8 +179,13 @@ class GraphQueryBuilder(Protocol):
         """Build query to get related articles."""
         ...
 
-    def build_get_relation_types_query(self) -> str:
-        """Build query to get relation types for an entity."""
+    def build_get_relation_types_query(self, entity_type: str | None = None) -> str:
+        """Build query to get relation types for an entity.
+
+        Args:
+            entity_type: Optional entity type filter. When None, matches
+                by canonical_name only (cross-type lookup).
+        """
         ...
 
     def build_find_by_relation_types_query(
@@ -575,12 +580,16 @@ class Neo4jQueryBuilder:
         """
 
     def build_get_entity_articles_query(self) -> str:
-        """Build Neo4j query to get articles mentioning an entity."""
+        """Build Neo4j query to get articles mentioning an entity.
+
+        MENTIONS edge direction is (Article)-[:MENTIONS]->(Entity), so we
+        traverse from Entity back to Article via incoming MENTIONS edges.
+        """
         # Support lookup by canonical_name OR alias
         return """
             MATCH (e:Entity)
             WHERE e.canonical_name = $name OR $name IN e.aliases
-            MATCH (e)-[:MENTIONS]->(a:Article)
+            MATCH (a:Article)-[:MENTIONS]->(e)
             RETURN a.pg_id as id, a.title as title, a.category as category,
                    a.publish_time as publish_time, a.score as score
             ORDER BY a.publish_time DESC
@@ -633,10 +642,23 @@ class Neo4jQueryBuilder:
             LIMIT 10
         """
 
-    def build_get_relation_types_query(self) -> str:
-        """Build Neo4j query to get relation types for an entity."""
-        return """
-            MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+    def build_get_relation_types_query(self, entity_type: str | None = None) -> str:
+        """Build Neo4j query to get relation types for an entity.
+
+        When entity_type is None, matches by canonical_name only (cross-type
+        lookup) — Neo4j's `{type: null}` pattern would never match, so we
+        must omit the type key entirely.
+
+        Args:
+            entity_type: Optional entity type filter.
+        """
+        entity_pattern = (
+            "{canonical_name: $name, type: $type}"
+            if entity_type is not None
+            else "{canonical_name: $name}"
+        )
+        return f"""
+            MATCH (e:Entity {entity_pattern})-[r]-(other:Entity)
             WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
               AND (other.pruned IS NULL OR NOT other.pruned)
             RETURN type(r) AS relation_type,
@@ -727,26 +749,38 @@ class Neo4jQueryBuilder:
     # === Visualization Queries ===
 
     def build_visualization_nodes_query(self) -> str:
-        """Build Neo4j query to get nodes for graph visualization."""
+        """Build Neo4j query to get nodes for graph visualization.
+
+        Degree counts Entity-Entity business relations only (参与/位于/任职于/etc.),
+        excluding structural MENTIONS/HAS_ENTITY (Entity↔Article) and
+        EVENT_FOLLOWED_BY (Event↔Event) which are not entity semantics.
+        """
         return """
         MATCH (e:Entity)
         RETURN e.canonical_name AS id,
                e.canonical_name AS label,
                e.type AS type,
                e.description AS description,
-               size([(e)-[:RELATED_TO]-()|1]) AS degree
+               size([(e)-[r]-(other:Entity)
+                     WHERE NOT type(r) IN ['MENTIONS','HAS_ENTITY','EVENT_FOLLOWED_BY']
+                     | 1]) AS degree
         ORDER BY degree DESC
         LIMIT $limit
         """
 
     def build_visualization_edges_query(self) -> str:
-        """Build Neo4j query to get edges for graph visualization."""
+        """Build Neo4j query to get edges for graph visualization.
+
+        Returns Entity-Entity business relations (参与/位于/任职于/etc.) only,
+        excluding structural MENTIONS/HAS_ENTITY/EVENT_FOLLOWED_BY.
+        """
         return """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+          AND NOT type(r) IN ['MENTIONS','HAS_ENTITY','EVENT_FOLLOWED_BY']
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
-               r.relation_type AS relation_type,
+               type(r) AS relation_type,
                r.weight AS weight
         LIMIT $edge_limit
         """
@@ -1404,14 +1438,23 @@ class LadybugQueryBuilder:
             LIMIT 10
         """
 
-    def build_get_relation_types_query(self) -> str:
-        """Build LadybugDB query to get relation types for an entity."""
+    def build_get_relation_types_query(self, entity_type: str | None = None) -> str:
+        """Build LadybugDB query to get relation types for an entity.
+
+        When entity_type is None, matches by canonical_name only — same
+        rationale as Neo4j builder.
+        """
         # LadybugDB: Use RELATED_TO with edge_type field instead of type(r)
         # Entity has no pruned field in LadybugDB schema
         # Note: LadybugDB doesn't support rebinding relationship in CASE WHEN,
         # so we return 'outgoing' as default primary_direction
-        return """
-            MATCH (e:Entity {canonical_name: $name, type: $type})-[r:RELATED_TO]-(other:Entity)
+        entity_pattern = (
+            "{canonical_name: $name, type: $type}"
+            if entity_type is not None
+            else "{canonical_name: $name}"
+        )
+        return f"""
+            MATCH (e:Entity {entity_pattern})-[r:RELATED_TO]-(other:Entity)
             RETURN r.edge_type AS relation_type,
                    count(DISTINCT other) AS target_count,
                    'outgoing' AS primary_direction
@@ -1466,11 +1509,13 @@ class LadybugQueryBuilder:
         """Build LadybugDB query to get nodes for graph visualization.
 
         Note: LadybugDB doesn't support list comprehension, so degree is computed
-        differently using count on relationship patterns.
+        differently using count on relationship patterns. Degree counts only
+        Entity-Entity business relations (excludes MENTIONS/HAS_ENTITY/EVENT_FOLLOWED_BY).
         """
         return """
         MATCH (e:Entity)
         OPTIONAL MATCH (e)-[r]-(other:Entity)
+        WHERE NOT r.edge_type IN ['MENTIONS','HAS_ENTITY','EVENT_FOLLOWED_BY']
         WITH e, count(DISTINCT r) AS degree
         RETURN e.canonical_name AS id,
                e.canonical_name AS label,
@@ -1484,11 +1529,14 @@ class LadybugQueryBuilder:
     def build_visualization_edges_query(self) -> str:
         """Build LadybugDB query to get edges for graph visualization.
 
-        Note: LadybugDB RELATED_TO uses edge_type field, not relation_type.
+        Returns Entity-Entity business relations only. LadybugDB uses
+        r.edge_type field for relation type and stores all Entity-Entity
+        relations under the RELATED_TO edge table with edge_type discriminator.
         """
         return """
         MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+          AND NOT r.edge_type IN ['MENTIONS','HAS_ENTITY','EVENT_FOLLOWED_BY']
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
                r.edge_type AS relation_type,

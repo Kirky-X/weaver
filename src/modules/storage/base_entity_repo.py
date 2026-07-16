@@ -262,13 +262,14 @@ class BaseEntityRepo(ABC):
     async def get_relation_types(
         self,
         canonical_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get all relation types for an entity.
 
         Args:
             canonical_name: The canonical name of the entity.
-            entity_type: The type of the entity.
+            entity_type: Optional entity type filter. When None, matches
+                by canonical_name only (cross-type lookup).
 
         Returns:
             List of dicts with relation type information.

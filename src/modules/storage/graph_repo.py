@@ -218,12 +218,15 @@ class GraphRepository:
 
     # ── Relation Type Operations (delegated to GraphEntityReader) ────
 
-    async def get_relation_types(self, entity_name: str, entity_type: str) -> list[dict[str, Any]]:
+    async def get_relation_types(
+        self, entity_name: str, entity_type: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get all relation types for an entity.
 
         Args:
             entity_name: Entity canonical name.
-            entity_type: Entity type.
+            entity_type: Optional entity type filter. When None, matches
+                by canonical_name only (cross-type lookup).
 
         Returns:
             List of relation type summaries.

@@ -678,6 +678,35 @@ class TestGetRelationTypes:
         assert params["name"] == "张三"
         assert params["type"] == "人物"
 
+    @pytest.mark.asyncio
+    async def test_get_relation_types_none_type_cross_type_lookup(self, repo):
+        """Test get_relation_types with entity_type=None matches by name only.
+
+        Regression: previously the Cypher pattern `{canonical_name: $name,
+        type: $type}` with $type=null never matched, returning empty even
+        for entities that had relations. Now uses ``$type IS NULL OR
+        e.type = $type`` so None means "any type".
+        """
+        repo._pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "relation_type": "PARTNERS_WITH",
+                    "target_count": 2,
+                    "primary_direction": "outgoing",
+                }
+            ]
+        )
+
+        result = await repo.get_relation_types("张三", None)
+
+        assert len(result) == 1
+        assert result[0]["relation_type"] == "PARTNERS_WITH"
+        # Verify params: type is None (not omitted)
+        call_args = repo._pool.execute_query.call_args
+        params = call_args[0][1]
+        assert params["name"] == "张三"
+        assert params["type"] is None
+
 
 class TestFindByRelationTypes:
     """Tests for find_by_relation_types (Layer 2)."""

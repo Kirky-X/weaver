@@ -384,16 +384,22 @@ class LadybugEntityRepo(BaseEntityRepo):
     async def get_relation_types(
         self,
         canonical_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Get all relation types for an entity."""
-        query = """
-        MATCH (e:Entity {canonical_name: $canonical_name, type: $type})-[r:RELATED_TO]->()
+        """Get all relation types for an entity.
+
+        When entity_type is None, matches by canonical_name only.
+        """
+        type_filter = " AND e.type = $type" if entity_type is not None else ""
+        query = f"""
+        MATCH (e:Entity {{canonical_name: $canonical_name}})-[r:RELATED_TO]->()
+        WHERE 1=1{type_filter}
         RETURN DISTINCT r.edge_type AS relation_type
         """
-        result = await self._pool.execute_query(
-            query, {"canonical_name": canonical_name, "type": entity_type}
-        )
+        params = {"canonical_name": canonical_name}
+        if entity_type is not None:
+            params["type"] = entity_type
+        result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
 
     async def find_by_relation_types(
