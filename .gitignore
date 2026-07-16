@@ -27,6 +27,7 @@ temp/
 data/
 llm.md
 .env.weaver
+audit_traces/
 
 # Docker development files
 docker/docker-compose.dev.yml
