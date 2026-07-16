@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for src/main.py application entry point."""
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ def mock_settings():
     settings.validate_security = MagicMock(return_value=[])
     settings.traffic_anomaly = MagicMock(enabled=False)
     settings.api.hmac_signing_enabled = False
+    settings.api.require_auth_for_metrics = False
     return settings
 
 
@@ -1111,17 +1113,18 @@ class TestMetricsEndpoint:
                 with patch(
                     "api.endpoints.system.generate_latest", return_value=b"prometheus_metrics"
                 ):
-                    from main import create_app
+                    with patch("container.get_settings", return_value=mock_settings):
+                        from main import create_app
 
-                    app = create_app()
-                    client = TestClient(app)
+                        app = create_app()
+                        client = TestClient(app)
 
-                    response = client.get("/metrics")
+                        response = client.get("/metrics")
 
-                    assert response.status_code == 200
-                    # CONTENT_TYPE_LATEST from prometheus_client is 'text/plain; version=1.0.0; charset=utf-8'
-                    assert "text/plain" in response.headers["content-type"]
-                    assert "charset=utf-8" in response.headers["content-type"]
+                        assert response.status_code == 200
+                        # CONTENT_TYPE_LATEST from prometheus_client is 'text/plain; version=1.0.0; charset=utf-8'
+                        assert "text/plain" in response.headers["content-type"]
+                        assert "charset=utf-8" in response.headers["content-type"]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1267,18 +1270,19 @@ class TestAppIntegration:
         """Test that basic routes are accessible."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                from main import create_app
+                with patch("container.get_settings", return_value=mock_settings):
+                    from main import create_app
 
-                app = create_app()
-                client = TestClient(app)
+                    app = create_app()
+                    client = TestClient(app)
 
-                # Health endpoint
-                response = client.get("/health")
-                assert response.status_code in (200, 503)  # Depends on mock status
+                    # Health endpoint
+                    response = client.get("/health")
+                    assert response.status_code in (200, 503)  # Depends on mock status
 
-                # Metrics endpoint
-                response = client.get("/metrics")
-                assert response.status_code == 200
+                    # Metrics endpoint
+                    response = client.get("/metrics")
+                    assert response.status_code == 200
 
     def test_security_headers_present(self, mock_settings):
         """Test that security headers are present in responses."""

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """E2E tests for pipeline trigger and status endpoints.
 
 Also includes end-to-end pipeline execution tests that verify:

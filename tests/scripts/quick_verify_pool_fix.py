@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Quick verification that LadybugDB connection pool fix works.
 
 Tests the previously-hanging endpoints (search/causal, search/temporal)

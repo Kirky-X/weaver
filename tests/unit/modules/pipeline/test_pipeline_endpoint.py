@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for pipeline endpoints — beyond the model/basic tests in test_api.py."""
 
 from __future__ import annotations
@@ -161,8 +162,12 @@ class TestTriggerPipelineEdgeCases:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
 
         request = TriggerRequest(source_id="test-source", max_items=50)
 
@@ -193,8 +198,12 @@ class TestTriggerPipelineEdgeCases:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
 
         request = TriggerRequest(source_id="test-source", force=True)
 
@@ -218,8 +227,12 @@ class TestTriggerPipelineEdgeCases:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
 
         request = TriggerRequest(source_id="test-source")
 

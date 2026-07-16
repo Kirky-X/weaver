@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """SSE client test script for validating streaming endpoints.
 
 Usage:

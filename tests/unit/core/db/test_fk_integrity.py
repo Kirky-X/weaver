@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Test FK references point to articles_core table, not articles VIEW.
 
 Validates GAP-H05 fix: LLMFailureRecord, PendingSync, and

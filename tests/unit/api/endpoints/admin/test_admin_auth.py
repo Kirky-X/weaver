@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Integration tests for admin API key authentication.
 
 This module tests the admin permission upgrade for 4 write operation endpoints:

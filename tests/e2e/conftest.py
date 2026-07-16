@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Pytest configuration and fixtures for E2E tests.
 
 This module provides fixtures for end-to-end testing of the Weaver application.
@@ -365,7 +366,7 @@ def _create_e2e_app(e2e_env: dict[str, str]) -> FastAPI:
     # the E2E-configured settings (auth uses from container import get_settings)
     import container
 
-    container._settings_instance = settings
+    container.set_settings(settings)
 
     container_obj = Container().configure(settings)
     return create_app(container_obj)

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for API dependency injection module (task 3.1.12)."""
 
 from __future__ import annotations
@@ -14,32 +15,27 @@ class TestGetContainer:
 
     def test_get_container_returns_container_when_initialized(self):
         """Test get_container returns container when initialized."""
-        import container as container_module
         from api.dependencies import get_container
+        from container import reset_container, set_container
 
         mock_container = MagicMock()
-        original = container_module._container
-        container_module._container = mock_container
+        set_container(mock_container)
         try:
             result = get_container()
             assert result == mock_container
         finally:
-            container_module._container = original
+            reset_container()
 
     def test_get_container_raises_503_when_not_initialized(self):
         """Test get_container raises HTTPException when not initialized."""
-        import container as container_module
         from api.dependencies import get_container
+        from container import reset_container
 
-        original = container_module._container
-        container_module._container = None
-        try:
-            with pytest.raises(HTTPException) as exc_info:
-                get_container()
-            assert exc_info.value.status_code == 503
-            assert "not initialized" in exc_info.value.detail.lower()
-        finally:
-            container_module._container = original
+        reset_container()
+        with pytest.raises(HTTPException) as exc_info:
+            get_container()
+        assert exc_info.value.status_code == 503
+        assert "not initialized" in exc_info.value.detail.lower()
 
 
 @pytest.mark.xdist_group(name="endpoints_deps")
@@ -66,12 +62,12 @@ class TestEndpointsDependencyRegistry:
         mock. For example, _set_mock_container(relational_pool=mock_pool)
         makes container.relational_pool() return mock_pool.
         """
-        import container as container_module
+        from container import set_container
 
         mock_container = MagicMock()
         for method_name, return_value in service_mocks.items():
             getattr(mock_container, method_name).return_value = return_value
-        container_module._container = mock_container
+        set_container(mock_container)
         return mock_container
 
     def test_get_relational_pool_returns_from_container(self):
@@ -438,13 +434,13 @@ class TestPipelineServiceDependency:
 
     def test_get_pipeline_service_returns_from_container(self):
         """Test get_pipeline_service returns service from container."""
-        import container as container_module
         from api.endpoints.deps_registry import Endpoints
+        from container import set_container
 
         mock_service = MagicMock()
         mock_container = MagicMock()
         mock_container.pipeline_service.return_value = mock_service
-        container_module._container = mock_container
+        set_container(mock_container)
 
         result = Endpoints.get_pipeline_service()
         assert result == mock_service

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Tests for CascadeCategorizerNode — rule-first, LLM fallback."""
 
 from __future__ import annotations

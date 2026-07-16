@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Comprehensive API test script covering all endpoints and parameter combinations.
 
 Starts the Weaver app automatically, polls health endpoint until ready, then runs

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Test Settings singleton is unified between config.settings and container.
 
 Validates GAP-M05 fix: config.settings.get_settings() delegates to
@@ -20,7 +21,7 @@ class TestSettingsSingleton:
         from config.settings import get_settings as config_get_settings
         from container import get_settings as container_get_settings
 
-        container._settings_instance = None
+        container.reset_settings()
 
         # Both should return the same instance
         settings = config_get_settings()
@@ -30,13 +31,13 @@ class TestSettingsSingleton:
         ), "config.settings.get_settings() and container.get_settings() should return the same instance"
 
         # Cleanup
-        container._settings_instance = None
+        container.reset_settings()
 
     def test_config_get_settings_creates_instance_when_container_uninitialized(self) -> None:
         """config.settings.get_settings() should create a new Settings when container is uninitialized."""
         import container
 
-        container._settings_instance = None
+        container.reset_settings()
 
         from config.settings import get_settings
 
@@ -44,7 +45,7 @@ class TestSettingsSingleton:
         assert settings is not None
 
         # Cleanup
-        container._settings_instance = None
+        container.reset_settings()
 
     def test_no_separate_settings_instance_in_config(self) -> None:
         """config.settings should NOT have its own _settings_instance separate from container."""

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for health check endpoints."""
 
 from unittest.mock import AsyncMock, MagicMock
@@ -217,12 +218,18 @@ class TestHealthCheck:
 
         Mirrors the DI pattern used by ``health_check()`` which calls
         ``container.relational_pool()``, ``container.graph_pool()`` and
-        ``container.cache_client()``.
+        ``container.cache_client()``, and reads ``relational_pool_type`` /
+        ``graph_pool_type`` to determine the check keys.
         """
         container = MagicMock()
         container.relational_pool.return_value = relational_pool
         container.graph_pool.return_value = graph_pool
         container.cache_client.return_value = cache_client
+        # health_check() uses these properties as the checks dict keys;
+        # they must be real strings (mirroring Container's behavior) so
+        # HealthCheckResponse validates and tests can assert by name.
+        container.relational_pool_type = "postgres"
+        container.graph_pool_type = "neo4j"
         set_container(container)
 
     @pytest.fixture

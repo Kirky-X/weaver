@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for EventBus sharing between LLM and pipeline."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -140,7 +141,8 @@ class TestEventBusSharing:
         import inspect
 
         from config.settings import Settings
-        from container import Container, _handle_llm_failure_async
+        from container import Container
+        from container.lifecycle import _handle_llm_failure_async
 
         settings = Settings()
         container = Container().configure(settings)

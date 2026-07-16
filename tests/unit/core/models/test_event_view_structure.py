@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 """Tests for EventView.participants and narratives structure (GAP-W03).
 
 Verifies that participants and narratives are list[dict[str, Any]] type,

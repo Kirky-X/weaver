@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Performance tests for pipeline processing modes.
 
 Tests the timing difference between fast mode (Phase 1 only) and deep mode

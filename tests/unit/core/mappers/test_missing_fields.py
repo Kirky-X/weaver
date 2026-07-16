@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
 import pytest
 
 from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper

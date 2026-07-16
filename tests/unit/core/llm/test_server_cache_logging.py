@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for LLMClient server cache info logging on cache miss."""
 
 from unittest.mock import AsyncMock, MagicMock, patch

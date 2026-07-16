@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for TTLCache hit event suppression.
 
 Test 5.2: When a TTLCache hit occurs in LLMClient.chat(), _emit_usage_event is NOT called.

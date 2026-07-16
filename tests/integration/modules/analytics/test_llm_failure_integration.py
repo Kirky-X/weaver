@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Integration tests for LLM failure logging — full chain from event to DB.
 
 Uses relational_pool fixture which automatically falls back to DuckDB
@@ -235,7 +236,8 @@ class TestLLMFailureEventChain:
         """Test Container.startup() wires event bus to LLM failure handler."""
         import inspect
 
-        from container import Container, _handle_llm_failure_async
+        from container import Container
+        from container.lifecycle import _handle_llm_failure_async
 
         # Verify the async handler function exists and is callable
         assert callable(_handle_llm_failure_async)

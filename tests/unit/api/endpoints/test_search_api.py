@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for search API endpoints."""
 
 from unittest.mock import MagicMock, patch
@@ -56,8 +57,8 @@ class TestSearchEngineDependency:
         Mocks the container (populated at startup) and verifies the dependency
         function returns the correct engine instance type.
         """
-        import container as container_module
         from api.dependencies import get_local_search_engine
+        from container import reset_container, set_container
         from modules.knowledge.search import LocalSearchEngine
 
         # Create a real LocalSearchEngine with mocked ContextBuilder
@@ -67,29 +68,27 @@ class TestSearchEngineDependency:
         # Simulate container registration
         mock_container = MagicMock()
         mock_container.local_search_engine.return_value = engine
-        original = container_module._container
-        container_module._container = mock_container
+        set_container(mock_container)
         try:
             result = get_local_search_engine(container=mock_container)
 
             assert isinstance(result, LocalSearchEngine)
             assert result is engine
         finally:
-            container_module._container = original
+            reset_container()
 
     def test_get_local_search_engine_raises_when_not_initialized(self) -> None:
         """Test get_local_search_engine raises HTTPException when not initialized."""
-        import container as container_module
         from api.dependencies import get_local_search_engine
+        from container import reset_container, set_container
 
         mock_container = MagicMock()
         mock_container.local_search_engine.return_value = None
-        original = container_module._container
-        container_module._container = mock_container
+        set_container(mock_container)
         try:
             with pytest.raises(HTTPException) as exc_info:
                 get_local_search_engine(container=mock_container)
 
             assert exc_info.value.status_code == 503
         finally:
-            container_module._container = original
+            reset_container()

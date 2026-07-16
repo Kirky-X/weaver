@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for Pipeline ML component pass-through (3.1) and Container ML init (3.2).
 
 Task 3.1 — Verify that Pipeline.__init__ passes cascade_classifier, gliner_extractor,

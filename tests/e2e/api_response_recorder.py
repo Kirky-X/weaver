@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """API response recorder for comprehensive endpoint testing.
 
 Records all HTTP requests and responses to JSON files for later analysis

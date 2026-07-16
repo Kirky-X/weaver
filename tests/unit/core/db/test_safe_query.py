@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for SQL identifier validation in safe_query.
 
 This module tests the validate_sql_identifier() function from core.db.safe_query,

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Integration tests for database monitoring endpoints.
 
 Tests the following endpoints:
@@ -69,7 +70,7 @@ def mock_pool():
 def app(mock_container, mock_pool):
     """Create FastAPI app with monitoring endpoints."""
     app = FastAPI()
-    app.include_router(monitoring_router, prefix="/admin")
+    app.include_router(monitoring_router)
 
     # Override dependencies
     from api.dependencies import get_container

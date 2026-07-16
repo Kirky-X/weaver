@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Comprehensive API endpoint test script with E2E pipeline support.
 
 Tests all HTTP endpoints using the embedded database strategy

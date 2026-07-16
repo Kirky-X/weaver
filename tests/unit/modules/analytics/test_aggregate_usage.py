@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for aggregate_usage_data edge cases.
 
 Test 5.3: aggregate_usage_data handles empty data, malformed fields, valid aggregation,

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for container mixin modules.
 
 Covers:
@@ -1122,8 +1123,8 @@ class TestContainerSearchInitSearchEngines:
                 "modules.knowledge.search.context.global_context.GlobalContextBuilder",
                 return_value=MagicMock(),
             ),
-            patch("src.container.search.LocalSearchEngine", return_value=mock_local),
-            patch("src.container.search.GlobalSearchEngine", return_value=mock_global),
+            patch("container.search.LocalSearchEngine", return_value=mock_local),
+            patch("container.search.GlobalSearchEngine", return_value=mock_global),
         ):
             result = c.init_search_engines()
         assert result == (mock_local, mock_global)
@@ -1149,8 +1150,8 @@ class TestContainerSearchInitSearchEngines:
                 "modules.knowledge.search.context.ladybug_global_context.LadybugGlobalContextBuilder",
                 return_value=MagicMock(),
             ),
-            patch("src.container.search.LocalSearchEngine", return_value=mock_local),
-            patch("src.container.search.GlobalSearchEngine", return_value=mock_global),
+            patch("container.search.LocalSearchEngine", return_value=mock_local),
+            patch("container.search.GlobalSearchEngine", return_value=mock_global),
         ):
             result = c.init_search_engines()
         assert result == (mock_local, mock_global)
@@ -1273,7 +1274,7 @@ class TestContainerSearchHybridSearchEngine:
                 return_value=MagicMock(),
             ),
             patch("modules.knowledge.search.HybridSearchConfig", return_value=MagicMock()),
-            patch("src.container.search.HybridSearchEngine", return_value=mock_hybrid),
+            patch("container.search.HybridSearchEngine", return_value=mock_hybrid),
         ):
             result = c.hybrid_search_engine()
         assert result is mock_hybrid
@@ -1304,7 +1305,7 @@ class TestContainerSearchHybridSearchEngine:
                 return_value=MagicMock(),
             ),
             patch("modules.knowledge.search.HybridSearchConfig", return_value=MagicMock()),
-            patch("src.container.search.HybridSearchEngine", return_value=mock_hybrid),
+            patch("container.search.HybridSearchEngine", return_value=mock_hybrid),
             patch(
                 "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker",
                 return_value=MagicMock(),
@@ -1332,7 +1333,7 @@ class TestContainerSearchHybridSearchEngine:
                 return_value=MagicMock(),
             ),
             patch("modules.knowledge.search.HybridSearchConfig", return_value=MagicMock()),
-            patch("src.container.search.HybridSearchEngine", return_value=mock_hybrid),
+            patch("container.search.HybridSearchEngine", return_value=mock_hybrid),
             patch(
                 "modules.knowledge.search.rerankers.mmr_reranker.MMRReranker",
                 return_value=MagicMock(),
@@ -2332,16 +2333,19 @@ class TestContainerGlobalAccess:
         assert get_container() is c
 
     def test_get_container_raises_without_init(self) -> None:
-        import src.container as mod
-        from src.container import get_container
+        from src.container import get_container, reset_container, set_container
 
-        original = mod._container
-        mod._container = None
+        try:
+            original = get_container()
+        except RuntimeError:
+            original = None
+        reset_container()
         try:
             with pytest.raises(RuntimeError, match="Container not initialized"):
                 get_container()
         finally:
-            mod._container = original
+            if original is not None:
+                set_container(original)
 
     def test_set_and_get_settings(self) -> None:
         from src.container import get_settings, set_settings

@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for API endpoints."""
 
 import asyncio
@@ -164,6 +165,21 @@ class TestSourcesEndpoint:
         mock_scheduler._registry = MagicMock()
         mock_scheduler._registry.add_source = MagicMock()
 
+        # Mock fetcher for feed validation
+        valid_rss = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <item>
+      <title>Test Entry</title>
+      <link>https://example.com/1</link>
+      <description>Test description</description>
+    </item>
+  </channel>
+</rss>"""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, valid_rss, {}))
+
         request = SourceCreateRequest(
             id="new-source",
             name="New Source",
@@ -175,6 +191,7 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
             scheduler=mock_scheduler,
+            fetcher=mock_fetcher,
         )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
@@ -348,8 +365,12 @@ class TestPipelineEndpoint:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
+        mock_source = MagicMock()
+        mock_source.id = "source-1"
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
 
         request = TriggerRequest(source_id="source-1")
 
@@ -420,8 +441,12 @@ class TestPipelineEndpoint:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
+        mock_source = MagicMock()
+        mock_source.id = "source-1"
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
 
         request = TriggerRequest(source_id="source-1")
 
@@ -565,6 +590,7 @@ class TestArticlesEndpoint:
             id="123e4567-e89b-12d3-a456-426614174000",
             source_url="https://example.com/article",
             source_host="example.com",
+            source_id=None,
             is_news=True,
             title="Test Title",
             body="Test body",
@@ -587,6 +613,7 @@ class TestArticlesEndpoint:
             publish_time=None,
             created_at="2024-01-01T00:00:00+00:00",
             updated_at="2024-01-01T00:00:00+00:00",
+            processing_status="pending",
         )
         assert response.title == "Test Title"
         assert response.score == 0.8
@@ -705,6 +732,7 @@ class TestArticlesEndpoint:
         mock_article.id = uuid.UUID("12345678-1234-5678-1234-567812345678")
         mock_article.source_url = "https://example.com/article"
         mock_article.source_host = "example.com"
+        mock_article.source_id = None
         mock_article.is_news = True
         mock_article.title = "Test Article"
         mock_article.body = "Body"
@@ -725,6 +753,7 @@ class TestArticlesEndpoint:
         mock_article.cross_verification = None
         mock_article.content_check_score = None
         mock_article.publish_time = None
+        mock_article.persist_status = None
         mock_article.created_at = datetime(2024, 1, 1, tzinfo=UTC)
         mock_article.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
@@ -1065,7 +1094,7 @@ class TestAdminEndpoint:
         mock_authority.tier = 2
 
         mock_repo = MagicMock()
-        mock_repo.get_or_create = AsyncMock(return_value=mock_authority)
+        mock_repo.get = AsyncMock(return_value=mock_authority)
         mock_repo.update_authority = AsyncMock()
 
         mock_request = MagicMock(spec=Request)

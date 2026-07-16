@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Extended tests for pipeline endpoint coverage.
 
 This module tests previously uncovered code paths in pipeline.py:

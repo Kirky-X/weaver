@@ -1,4 +1,5 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for graph API endpoints."""
 
 from typing import Any
@@ -216,6 +217,13 @@ class TestGraphEndpoints:
         from api.endpoints.graph.graph import get_entity_relations
 
         mock_graph_repo = MagicMock()
+        mock_graph_repo.get_entity = AsyncMock(
+            return_value={
+                "id": "entity-1",
+                "canonical_name": "Apple",
+                "type": "Organization",
+            }
+        )
         mock_graph_repo.get_relation_types = AsyncMock(
             return_value=[
                 {"relation_type": "LOCATED_IN", "target_count": 10, "primary_direction": "out"},
