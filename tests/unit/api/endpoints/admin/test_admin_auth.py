@@ -292,12 +292,28 @@ class TestAdminEndpointDeduplicate:
 
         # Make session work as async context manager
         async_session = MagicMock()
-        # First execute: DELETE (needs rowcount), Second execute: SELECT COUNT (needs scalar)
+        # deduplicate_articles() executes 4 statements (in order):
+        #   1. SELECT COUNT(*) BEFORE  → scalar()
+        #   2. DELETE                  → rowcount
+        #   3. SELECT COUNT(*) AFTER   → scalar()  (only when rowcount == 0)
+        #   4. SELECT COUNT(DISTINCT)  → scalar()
+        # Plus a 5th safety slot in case DuckDB rowcount path differs.
+        count_before_result = MagicMock()
+        count_before_result.scalar = MagicMock(return_value=0)
         delete_result = MagicMock()
-        delete_result.rowcount = 0
-        count_result = MagicMock()
-        count_result.scalar = MagicMock(return_value=0)
-        async_session.execute = AsyncMock(side_effect=[delete_result, count_result])
+        delete_result.rowcount = 0  # triggers after-count branch
+        count_after_result = MagicMock()
+        count_after_result.scalar = MagicMock(return_value=0)
+        kept_result = MagicMock()
+        kept_result.scalar = MagicMock(return_value=0)
+        async_session.execute = AsyncMock(
+            side_effect=[
+                count_before_result,
+                delete_result,
+                count_after_result,
+                kept_result,
+            ]
+        )
         async_session.commit = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=async_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)

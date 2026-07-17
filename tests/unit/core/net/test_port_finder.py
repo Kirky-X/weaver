@@ -15,27 +15,46 @@ from core.net.errors import PortExhaustionError
 class TestIsPortAvailable:
     """Tests for PortFinder.is_port_available()."""
 
+    @staticmethod
+    def _grab_free_port() -> tuple[int, socket.socket]:
+        """Ask the OS for an ephemeral port and return (port, bound_socket).
+
+        The caller MUST close the returned socket when done. Used to avoid
+        hardcoding ports that may collide with long-running system
+        processes (e.g. an IDE's outgoing connection on 54322).
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        return s.getsockname()[1], s
+
     def test_returns_true_when_port_is_free(self) -> None:
         """Port should be reported as available when nothing is bound to it."""
-        # Use a high port that's likely to be free
-        assert PortFinder.is_port_available("127.0.0.1", 54321) is True
+        port, s = self._grab_free_port()
+        try:
+            s.close()  # release immediately, port is now free
+            assert PortFinder.is_port_available("127.0.0.1", port) is True
+        finally:
+            # socket already closed above; guard double-close with try/except
+            try:
+                s.close()
+            except OSError:
+                pass
 
     def test_returns_false_when_port_is_in_use(self) -> None:
         """Port should be reported as unavailable when already bound."""
-        # Bind and listen to fully occupy the port
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 54322))
-            s.listen(1)
-            # Now check if it's available
-            assert PortFinder.is_port_available("127.0.0.1", 54322) is False
+        # Use OS-allocated ephemeral port to avoid collisions with
+        # long-running system processes on hardcoded ports.
+        port, s = self._grab_free_port()
+        try:
+            assert PortFinder.is_port_available("127.0.0.1", port) is False
+        finally:
+            s.close()
 
     def test_returns_true_after_socket_closed(self) -> None:
         """Port should become available after socket is closed."""
-        port = 54323
-        # Bind and close a socket
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", port))
-
+        port, s = self._grab_free_port()
+        s.close()
         # Socket is now closed, port should be available
         assert PortFinder.is_port_available("127.0.0.1", port) is True
 
