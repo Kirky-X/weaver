@@ -425,3 +425,109 @@ class AnalyticsStorage:
 
             await session.commit()
             return int(briefing.id)
+
+    # ── T008: DailyBriefingService query support ────────────────────────
+
+    async def get_briefing(
+        self,
+        briefing_date: date,
+        category: str,
+    ) -> dict[str, Any] | None:
+        """Fetch a single persisted briefing by (date, category).
+
+        Args:
+            briefing_date: Date to query.
+            category: Briefing category (finance/tech/ai/general). Must be
+                normalized by caller (None → 'general').
+
+        Returns:
+            Briefing dict with id/briefing_date/category/summary/items/
+            generated_at, or None if not found. Items is a list of dicts
+            with rank/article_id/category/score/reason.
+
+        Raises:
+            Exception: On DB error (Rule 12 — failures must surface).
+        """
+        async with self._pool.session_context() as session:
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            from core.db import DailyBriefing
+
+            query = (
+                select(DailyBriefing)
+                .options(selectinload(DailyBriefing.items))
+                .where(
+                    DailyBriefing.briefing_date == briefing_date,
+                    DailyBriefing.category == category,
+                )
+            )
+            result = await session.execute(query)
+            row = result.scalars().first()
+            if row is None:
+                return None
+            return self._briefing_row_to_dict(row)
+
+    async def list_briefings(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> list[dict[str, Any]]:
+        """List briefings within a date range (inclusive).
+
+        Args:
+            date_from: Start date (inclusive).
+            date_to: End date (inclusive).
+
+        Returns:
+            List of briefing dicts (same shape as get_briefing's return)
+            ordered by briefing_date descending. Empty list if none in range.
+
+        Raises:
+            Exception: On DB error (Rule 12 — failures must surface).
+        """
+        async with self._pool.session_context() as session:
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            from core.db import DailyBriefing
+
+            query = (
+                select(DailyBriefing)
+                .options(selectinload(DailyBriefing.items))
+                .where(
+                    DailyBriefing.briefing_date >= date_from,
+                    DailyBriefing.briefing_date <= date_to,
+                )
+                .order_by(DailyBriefing.briefing_date.desc())
+            )
+            result = await session.execute(query)
+            rows = result.scalars().all()
+            return [self._briefing_row_to_dict(r) for r in rows]
+
+    @staticmethod
+    def _briefing_row_to_dict(row: Any) -> dict[str, Any]:
+        """Convert a DailyBriefing ORM row (with loaded items) to dict.
+
+        Shared by get_briefing + list_briefings to ensure consistent shape.
+        Matches BriefingGenerator.generate() return shape (id/briefing_date/
+        category/summary/items/generated_at) so DailyBriefingService.
+        _map_to_briefing_result can handle both uniformly.
+        """
+        return {
+            "id": row.id,
+            "briefing_date": row.briefing_date,
+            "category": row.category,
+            "summary": row.summary,
+            "items": [
+                {
+                    "rank": item.rank,
+                    "article_id": str(item.article_id),
+                    "category": item.category,
+                    "score": float(item.score) if item.score else None,
+                    "reason": item.reason,
+                }
+                for item in row.items
+            ],
+            "generated_at": row.generated_at,
+        }

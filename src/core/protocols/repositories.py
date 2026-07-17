@@ -496,19 +496,24 @@ class AnalyticsStorageProtocol(Protocol):
     Used by:
         - BriefingGenerator (T004): depends on this Protocol for fetching
           articles + persisting daily briefings.
-        - T008 DailyBriefingService / T010 scheduler: will also depend on
-          this Protocol.
+        - T008 DailyBriefingService: depends on this Protocol for fetching
+          (get_briefing) + listing (list_briefings) existing briefings.
+          Generation is delegated to BriefingGenerator (which itself uses
+          fetch_articles_for_briefing + save_briefing on this same Protocol).
+        - T010 scheduler: will use DailyBriefingService, transitively
+          depends on this Protocol.
 
     Decoupling rationale: BriefingGenerator is in modules/briefing/, storage
     is in modules/analytics/. Protocol dependency avoids circular import
     and allows test mocks (test_generator.py uses AsyncMock satisfying
     this Protocol).
 
-    Note: This Protocol only declares the methods used by BriefingGenerator
-    (Interface Segregation Principle). AnalyticsStorage also implements
+    Note: This Protocol declares the methods used by BriefingGenerator
+    (fetch_articles_for_briefing, save_briefing) + DailyBriefingService
+    (get_briefing, list_briefings). AnalyticsStorage also implements
     save_shift/get_shifts/get_briefings_with_items for other consumers
-    (analytics endpoint, SentimentTrackerNode) — those are not part of
-    this Protocol.
+    (analytics endpoint, SentimentTrackerNode) — those legacy methods are
+    not part of this Protocol.
     """
 
     async def fetch_articles_for_briefing(
@@ -520,7 +525,8 @@ class AnalyticsStorageProtocol(Protocol):
 
         Args:
             briefing_date: Date to fetch articles for.
-            category: Briefing category (finance/tech/ai/general).
+            category: Briefing category (finance/tech/ai/general). Must be
+                normalized by caller (None → 'general') before calling.
 
         Returns:
             List of article dicts with article_id/title/body/category/score/
@@ -541,5 +547,41 @@ class AnalyticsStorageProtocol(Protocol):
 
         Returns:
             The persisted briefing id.
+        """
+        ...
+
+    async def get_briefing(
+        self,
+        briefing_date: Any,
+        category: str,
+    ) -> dict[str, Any] | None:
+        """Fetch a single persisted briefing by (date, category).
+
+        Args:
+            briefing_date: Date to query.
+            category: Briefing category (finance/tech/ai/general). Must be
+                normalized by caller (None → 'general').
+
+        Returns:
+            Briefing dict with id/briefing_date/category/summary/items/
+            generated_at, or None if not found. Items is a list of dicts
+            with rank/article_id/category/score/reason.
+        """
+        ...
+
+    async def list_briefings(
+        self,
+        date_from: Any,
+        date_to: Any,
+    ) -> list[dict[str, Any]]:
+        """List briefings within a date range (inclusive).
+
+        Args:
+            date_from: Start date (inclusive).
+            date_to: End date (inclusive).
+
+        Returns:
+            List of briefing dicts (same shape as get_briefing's return)
+            ordered by briefing_date descending. Empty list if none in range.
         """
         ...

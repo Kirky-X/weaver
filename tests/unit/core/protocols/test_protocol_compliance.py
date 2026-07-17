@@ -14,8 +14,10 @@ from typing import Any
 import pytest
 
 from core.protocols import (
+    AnalyticsStorageProtocol,
     ArticleRepository,
     CachePool,
+    DailyBriefingProtocol,
     EntityRepository,
     GraphArticleRepository,
     GraphPool,
@@ -68,6 +70,9 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "MigrationTarget": MigrationTarget,
     "GraphMigrationSource": GraphMigrationSource,
     "GraphMigrationTarget": GraphMigrationTarget,
+    # T007/T008: Briefing protocols
+    "AnalyticsStorageProtocol": AnalyticsStorageProtocol,
+    "DailyBriefingProtocol": DailyBriefingProtocol,
 }
 
 
@@ -115,6 +120,10 @@ PROTOCOL_IMPLEMENTATIONS = [
         "CommunitySearchResultMapper",
         "MapperProtocol",
     ),
+    # T008: Briefing service implementations
+    ("modules.briefing.service", "DailyBriefingService", "DailyBriefingProtocol"),
+    # T004/T008: Analytics storage (declares Implements: AnalyticsStorageProtocol)
+    ("modules.analytics.storage", "AnalyticsStorage", "AnalyticsStorageProtocol"),
 ]
 
 
