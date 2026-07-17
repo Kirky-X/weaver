@@ -9,6 +9,7 @@ relevant regions while staying within token budgets.
 
 from __future__ import annotations
 
+import asyncio
 import random
 from typing import TYPE_CHECKING
 
@@ -99,37 +100,41 @@ class MCSampler:
         # Step 2: Extract regions around anchor points
         regions = self._extract_regions(document, anchors)
 
-        # Step 3: Score each region using LLM
-        scored_regions: list[tuple[str, EvidenceScoreOutput]] = []
-        for i, region in enumerate(regions):
+        # Step 3: Score all regions concurrently using LLM (P1-2 fix).
+        # Previously a sequential for-loop: N regions x LLM latency
+        # (e.g. 5 x 0.3s = 1.5s). Now asyncio.gather runs them in
+        # parallel, cutting total time to ~max(single_region_time).
+        async def _safe_score(idx: int, region: str) -> tuple[str, EvidenceScoreOutput]:
             try:
                 score = await self._score_region(region, title)
-                scored_regions.append((region, score))
                 log.debug(
                     "region_scored",
-                    region_index=i,
+                    region_index=idx,
                     relevance=score.relevance_score,
                     density=score.information_density,
                     confidence=score.confidence,
                 )
+                return region, score
             except Exception as e:
                 log.warning(
                     "region_scoring_failed",
-                    region_index=i,
+                    region_index=idx,
                     error=str(e),
                 )
                 # Use default low score for failed regions
-                scored_regions.append(
-                    (
-                        region,
-                        EvidenceScoreOutput(
-                            relevance_score=0.3,
-                            information_density=0.3,
-                            confidence=0.0,
-                            key_facts=[],
-                        ),
-                    )
+                return (
+                    region,
+                    EvidenceScoreOutput(
+                        relevance_score=0.3,
+                        information_density=0.3,
+                        confidence=0.0,
+                        key_facts=[],
+                    ),
                 )
+
+        scored_regions = list(
+            await asyncio.gather(*[_safe_score(i, r) for i, r in enumerate(regions)])
+        )
 
         # Step 4: Calculate overall confidence
         if not scored_regions:
@@ -261,9 +266,15 @@ class MCSampler:
         return anchors
 
     def _simple_similarity(self, text1: str, text2: str) -> float:
-        """Calculate simple character-based similarity ratio.
+        """Calculate word-level similarity ratio (P1-2 fix).
 
-        Uses character n-gram overlap as a quick similarity measure.
+        Uses word-level tokenization instead of character-level:
+        - English: ``[a-zA-Z]+`` word tokens
+        - Chinese: 2-gram sliding window over CJK runs
+
+        Character-level ``set(text)`` gave false-high similarity for
+        disjoint English words sharing common letters (e.g. ``alpha``
+        vs ``gamma`` shared ``a/m/l``). Word-level fixes this.
 
         Args:
             text1: First text to compare.
@@ -275,9 +286,8 @@ class MCSampler:
         if not text1 or not text2:
             return 0.0
 
-        # Use word overlap for Chinese and space-separated languages
-        words1 = set(text1)
-        words2 = set(text2)
+        words1 = set(self._tokenize(text1))
+        words2 = set(self._tokenize(text2))
 
         if not words1 or not words2:
             return 0.0
@@ -286,6 +296,42 @@ class MCSampler:
         union = len(words1 | words2)
 
         return intersection / union if union > 0 else 0.0
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """Tokenize text into word-level tokens (P1-2 fix).
+
+        - English / Latin: ``re.findall(r'[a-zA-Z]+', text)``
+        - Chinese (CJK): 2-gram sliding window over each CJK run
+          (e.g. ``技术发展`` → ``[技术, 术发, 发展]``)
+
+        Non-CJK / non-Latin characters are ignored (punctuation,
+        digits, whitespace) — they don't carry semantic similarity
+        signal at this granularity.
+
+        Args:
+            text: Input text.
+
+        Returns:
+            List of tokens.
+        """
+        import re
+
+        tokens: list[str] = []
+
+        # English / Latin words
+        tokens.extend(re.findall(r"[a-zA-Z]+", text))
+
+        # Chinese 2-grams: for each CJK run, slide a 2-char window
+        for cjk_run in re.findall(r"[\u4e00-\u9fff]+", text):
+            if len(cjk_run) < 2:
+                # Single CJK char — treat as a token
+                tokens.append(cjk_run)
+                continue
+            for i in range(len(cjk_run) - 1):
+                tokens.append(cjk_run[i : i + 2])
+
+        return tokens
 
     def _extract_regions(
         self,

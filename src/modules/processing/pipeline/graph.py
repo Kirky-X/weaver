@@ -922,51 +922,74 @@ class Pipeline:
                 state, PHASE3_STAGES["entity_extractor"], pending_updates
             )
 
-            # === Fake News Detector 阶段 ===
-            if self._fake_news_node is not None:
-                start = time.monotonic()
-                state = await self._fake_news_node.execute(state)
+            # === Phase 3 concurrent block (P1-3 fix) ===
+            # fake_news_detector + conflict_detector + narrative_generator +
+            # schema_extractor are independent (each reads shared state and
+            # writes its own keys). Run them via asyncio.gather to cut
+            # Phase 3 tail latency from 4x LLM to ~1x LLM.
+            #
+            # Nodes modify state in-place (see conflict_detector.execute:
+            # ``state["data_conflicts"] = ...``), so gather returns the same
+            # state reference 4 times; no merge needed. Each inner function
+            # preserves MetricsCollector.pipeline_stage_latency observability.
+            #
+            # sentiment_tracker + entity_resolver remain serial (they depend
+            # on entity_extractor output and run after this block).
+            async def _run_fake_news() -> str | None:
+                if self._fake_news_node is None:
+                    return None
+                start_fn = time.monotonic()
+                await self._fake_news_node.execute(state)
                 MetricsCollector.pipeline_stage_latency.labels(stage="fake_news_detector").observe(
-                    time.monotonic() - start
+                    time.monotonic() - start_fn
                 )
-                await self._update_processing_stage(
-                    state, PHASE3_STAGES["fake_news_detector"], pending_updates
+                return "fake_news_detector"
+
+            async def _run_conflict() -> str:
+                start_c = time.monotonic()
+                await self._conflict_detector.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="conflict_detector").observe(
+                    time.monotonic() - start_c
                 )
+                return "conflict_detector"
 
-            # === Conflict Detector 阶段 ===
-            start = time.monotonic()
-            state = await self._conflict_detector.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="conflict_detector").observe(
-                time.monotonic() - start
-            )
-            await self._update_processing_stage(
-                state, PHASE3_STAGES["conflict_detector"], pending_updates
-            )
-
-            # === Narrative Generator 阶段 ===
-            # Analyzes article framing (source_bias/frame/tone/emphasis) and
-            # persists NarrativeNode linked to EventNode. Skipped when
-            # graph_writer is unavailable or when terminal/merged (the node
-            # itself also re-checks these conditions).
-            if self._narrative_generator is not None:
-                start = time.monotonic()
-                state = await self._narrative_generator.execute(state)
+            async def _run_narrative() -> str | None:
+                if self._narrative_generator is None:
+                    return None
+                start_n = time.monotonic()
+                await self._narrative_generator.execute(state)
                 MetricsCollector.pipeline_stage_latency.labels(stage="narrative_generator").observe(
-                    time.monotonic() - start
+                    time.monotonic() - start_n
                 )
-                await self._update_processing_stage(
-                    state, PHASE3_STAGES["narrative_generator"], pending_updates
-                )
+                return "narrative_generator"
 
-            # === Schema Extractor 阶段 ===
-            if self._schema_extractor is not None:
-                start = time.monotonic()
-                state = await self._schema_extractor.execute(state)
+            async def _run_schema() -> str | None:
+                if self._schema_extractor is None:
+                    return None
+                start_s = time.monotonic()
+                await self._schema_extractor.execute(state)
                 MetricsCollector.pipeline_stage_latency.labels(stage="schema_extractor").observe(
-                    time.monotonic() - start
+                    time.monotonic() - start_s
                 )
+                return "schema_extractor"
+
+            concurrent_results = await asyncio.gather(
+                _run_fake_news(),
+                _run_conflict(),
+                _run_narrative(),
+                _run_schema(),
+                return_exceptions=not self._debug,
+            )
+
+            # Update processing stages serially after concurrent completion
+            # to preserve stage ordering (fake_news → conflict → narrative →
+            # schema). Skip exceptions (when self._debug=False, gather returns
+            # Exception objects for failed nodes; log them via stage update).
+            for stage_key in concurrent_results:
+                if not isinstance(stage_key, str):
+                    continue
                 await self._update_processing_stage(
-                    state, PHASE3_STAGES["schema_extractor"], pending_updates
+                    state, PHASE3_STAGES[stage_key], pending_updates
                 )
 
             # === Sentiment Tracker 阶段 (T003) ===

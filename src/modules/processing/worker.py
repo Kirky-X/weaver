@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from core.observability import get_logger
 from modules.processing.queue import QUEUE_KEY, ProcessingQueue
@@ -24,7 +24,8 @@ class PipelineWorker:
     """Consumer that processes articles from queue.
 
     Runs as asyncio.Task in current process. Pulls from Redis queue,
-    reconstructs articles from DB, calls pipeline.process_batch().
+    reconstructs articles from DB, calls pipeline.process_batch() (deep
+    mode) or pipeline.process_batch_fast() (fast mode).
     """
 
     def __init__(
@@ -33,11 +34,13 @@ class PipelineWorker:
         pipeline: Pipeline,
         article_repo: ArticleRepo,
         pipeline_settings: PipelineProcessSettings,
+        processing_mode: Literal["fast", "deep"] = "deep",
     ) -> None:
         self._queue = queue
         self._pipeline = pipeline
         self._article_repo = article_repo
         self._settings = pipeline_settings
+        self._processing_mode: Literal["fast", "deep"] = processing_mode
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -76,14 +79,25 @@ class PipelineWorker:
                     log.warning("articles_not_found", ids=article_ids)
                     continue
 
-                # Process batch
-                await self._pipeline.process_batch(
-                    articles,
-                    article_ids=article_ids,
-                    task_id=task_id,
-                )
+                # Process batch — dispatch by processing_mode (D2 fix):
+                # fast mode skips Phase 2/3 (only Phase 1 + vectorization).
+                if self._processing_mode == "fast":
+                    await self._pipeline.process_batch_fast(
+                        articles,
+                        article_ids=article_ids,
+                        task_id=task_id,
+                    )
+                else:
+                    await self._pipeline.process_batch(
+                        articles,
+                        article_ids=article_ids,
+                        task_id=task_id,
+                    )
                 log.info(
-                    "batch_processed", count=len(articles), queue_len=await self._queue.length()
+                    "batch_processed",
+                    count=len(articles),
+                    mode=self._processing_mode,
+                    queue_len=await self._queue.length(),
                 )
 
             except asyncio.CancelledError:
@@ -104,5 +118,8 @@ class PipelineWorker:
             article_ids = [item[0] for item in items]
             articles = await self._article_repo.get_by_ids(article_ids)
             if articles:
-                await self._pipeline.process_batch(articles, article_ids=article_ids)
-                log.info("drain_processed", count=len(articles))
+                if self._processing_mode == "fast":
+                    await self._pipeline.process_batch_fast(articles, article_ids=article_ids)
+                else:
+                    await self._pipeline.process_batch(articles, article_ids=article_ids)
+                log.info("drain_processed", count=len(articles), mode=self._processing_mode)
