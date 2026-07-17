@@ -38,7 +38,27 @@ class TestDailyBriefingModel:
         col = DailyBriefing.__table__.c.briefing_date
         assert isinstance(col.type, Date)
         assert not col.nullable
-        assert col.unique
+        # Migration 32: dropped single-column unique=True in favor of
+        # composite UNIQUE(briefing_date, category) — allows 4 briefings
+        # per day (finance/tech/ai/general). Column-level unique is now
+        # None (not True); the composite constraint is verified in
+        # test_composite_unique_constraint below.
+        assert col.unique is None
+
+    def test_category_column_added_by_migration_32(self) -> None:
+        """T004/Migration 32 added category column (finance/tech/ai/general).
+
+        Nullable for backward compat with pre-migration-32 rows.
+        """
+        col = DailyBriefing.__table__.c.category
+        assert isinstance(col.type, String)
+        assert col.type.length == 20
+        assert col.nullable
+
+    def test_composite_unique_constraint_date_category(self) -> None:
+        """Migration 32: UNIQUE(briefing_date, category) replaces single-col unique."""
+        constraint_names = [c.name for c in DailyBriefing.__table__.constraints]
+        assert "uq_briefings_date_category" in constraint_names
 
     def test_title_is_string_200(self) -> None:
         col = DailyBriefing.__table__.c.title

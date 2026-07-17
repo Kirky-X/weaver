@@ -103,6 +103,9 @@ class TestDailyBriefingModel:
             "status",
             "total_items",
             "generated_at",
+            # Migration 32 (T004): added category column for per-category
+            # briefings (finance/tech/ai/general).
+            "category",
         }
         assert cols == expected
 
@@ -113,7 +116,12 @@ class TestDailyBriefingModel:
             ), f"{field} should be NOT NULL"
 
     def test_unique_constraint(self):
-        assert inspect(DailyBriefing).columns["briefing_date"].unique is True
+        # Migration 32: single-column unique on briefing_date dropped in
+        # favor of composite UNIQUE(briefing_date, category). Verify the
+        # composite constraint exists and column-level unique is None.
+        assert inspect(DailyBriefing).columns["briefing_date"].unique is None
+        constraint_names = [c.name for c in DailyBriefing.__table__.constraints]
+        assert "uq_briefings_date_category" in constraint_names
 
     def test_indexes(self):
         indexes = {idx.name for idx in DailyBriefing.__table_args__ if hasattr(idx, "name")}
