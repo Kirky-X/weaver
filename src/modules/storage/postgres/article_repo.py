@@ -88,6 +88,56 @@ def _apply_state_to_core(core: ArticleCore, state: PipelineState) -> None:
     core.persist_status = PersistStatus.PG_DONE
 
 
+# Minimum body length to consider a fetch successful (vs anti-bot error page)
+_MIN_BODY_LENGTH = 200
+
+
+def _build_core_body_values(
+    raw: Any,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Build ArticleCore / ArticleBody kwargs + body_source for a RawArticle.
+
+    Shared by ``insert_raw`` and ``bulk_insert_raw`` to keep body-length
+    fallback, normalization, and content-hash logic in one place.
+
+    Args:
+        raw: RawArticle with non-empty url.
+
+    Returns:
+        Tuple of (core_kwargs, body_kwargs, body_source) where body_source
+        is "full" or "description" (the latter when raw.body < _MIN_BODY_LENGTH
+        and a description fallback is available).
+    """
+    effective_body = raw.body
+    body_source = "full"
+    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
+        effective_body = raw.description
+        body_source = "description"
+        log.info(
+            "body_too_short_using_description",
+            url=raw.url,
+            body_len=len(raw.body),
+            desc_len=len(raw.description),
+        )
+
+    normalized_url = normalize_url(raw.url)
+    content_hash = ChangeDetector.compute_hash({"title": raw.title or "", "body": effective_body})
+
+    core_kwargs: dict[str, Any] = {
+        "source_url": normalized_url,
+        "source_host": raw.source_host or "",
+        "source_id": raw.source_id,
+        "title": raw.title or "",
+        "persist_status": PersistStatus.PENDING,
+        "content_hash": content_hash,
+    }
+    if raw.publish_time:
+        core_kwargs["publish_time"] = raw.publish_time
+
+    body_kwargs: dict[str, Any] = {"body": effective_body}
+    return core_kwargs, body_kwargs, body_source
+
+
 def _apply_state_to_body(body: ArticleBody, state: PipelineState) -> None:
     """Apply pipeline state fields to an ArticleBody object.
 
@@ -191,6 +241,35 @@ class ArticleRepo:
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
+    @staticmethod
+    async def _row_affected(
+        session: AsyncSession,
+        result: Any,
+        verify_stmt: Any | None = None,
+    ) -> bool:
+        """Check if UPDATE/DELETE affected any row, handling DuckDB rowcount.
+
+        DuckDB's SQLAlchemy driver returns -1 (unknown) for all UPDATE/DELETE
+        rowcount values, unlike PostgreSQL which returns the actual count.
+        When rowcount is -1 and a verify_stmt is provided, verify the change
+        occurred by running the verification SELECT.
+
+        Args:
+            session: AsyncSession to use for verification query.
+            result: The result of execute() for UPDATE/DELETE.
+            verify_stmt: Optional SQLAlchemy select() to verify post-state.
+                Required for correct behavior on DuckDB.
+
+        Returns:
+            True if a row was affected (or verified on DuckDB), False otherwise.
+        """
+        if result.rowcount > 0:
+            return True
+        if result.rowcount == -1 and verify_stmt is not None:
+            verify = await session.execute(verify_stmt)
+            return verify.fetchone() is not None
+        return False
+
     async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:
         """Bulk upsert articles from pipeline states.
 
@@ -227,15 +306,17 @@ class ArticleRepo:
         on one article does not abort the entire batch (critical for DuckDB
         which enters an aborted state on any transaction error).
 
+        Terminal articles (state["terminal"]=True) are also persisted so the
+        API can return them (e.g., "checked and found non-news"). The mapper
+        sets persist_status=PG_DONE for them.
+
         Args:
             states: List of pipeline states to upsert.
 
         Returns:
             List of article UUIDs for successfully upserted articles.
         """
-        # Filter terminal states first
-        valid_states = [s for s in states if not s.get("terminal")]
-        if not valid_states:
+        if not states:
             return []
 
         article_ids: list[uuid.UUID] = []
@@ -247,7 +328,7 @@ class ArticleRepo:
         max_retries = 3
         base_delay = 0.2
 
-        for state in valid_states:
+        for state in states:
             for attempt in range(max_retries):
                 async with self._pool.session() as session:
                     try:
@@ -618,7 +699,14 @@ class ArticleRepo:
             )
 
             await session.commit()
-            updated = result.rowcount > 0
+            updated = await self._row_affected(
+                session,
+                result,
+                select(ArticleCore.id).where(
+                    ArticleCore.source_url == source_url,
+                    ArticleCore.persist_status == PersistStatus.PG_DONE,
+                ),
+            )
             if updated:
                 log.info("terminal_article_marked_done", source_url=source_url[:100])
             return updated
@@ -805,6 +893,156 @@ class ArticleRepo:
             log.info("article_inserted", url=raw.url, article_id=str(core.id))
             return core.id
 
+    async def bulk_insert_raw(
+        self,
+        articles: list[Any],
+        task_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Bulk insert raw articles with single commit and URL dedup (P0-2 fix).
+
+        Replaces the N-call ``insert_raw`` for-loop in
+        ``DiscoveryProcessor.on_items_discovered`` (170-176) to cut N
+        session round-trips + N commits down to 1+1 per crawl batch.
+
+        Pipeline:
+            1. Normalize inputs to RawArticle (reject empty URL)
+            2. Batch pre-query existing URLs via ``WHERE source_url = ANY(:urls)``
+            3. Single ``session.add_all`` + single ``session.commit()``
+            4. Fallback to per-article ``insert_raw`` on batch failure
+
+        Args:
+            articles: List of RawArticle / NewsItem / duck-typed objects.
+            task_id: Optional task ID for tracking.
+
+        Returns:
+            List of article UUIDs in input order. Existing URLs return
+            their existing id; failed inserts are skipped (logged).
+        """
+        if not articles:
+            return []
+
+        from modules.ingestion.domain.models import NewsItem, RawArticle
+
+        # Stage 1: normalize all inputs to RawArticle + compute normalized_url
+        prepared: list[tuple[int, RawArticle, str]] = []  # (orig_idx, raw, normalized_url)
+        for idx, article in enumerate(articles):
+            if isinstance(article, RawArticle):
+                raw = article
+            elif isinstance(article, NewsItem):
+                raw = RawArticle(
+                    url=article.url,
+                    title=article.title,
+                    body=article.description or "",
+                    source=article.source,
+                    publish_time=article.publish_time,
+                    source_host=article.source_host,
+                    description=article.description or "",
+                )
+            else:
+                raw = RawArticle(
+                    url=getattr(article, "url", ""),
+                    title=getattr(article, "title", ""),
+                    body=getattr(article, "description", "") or getattr(article, "body", ""),
+                    source=getattr(article, "source", ""),
+                    publish_time=getattr(article, "publish_time", None),
+                    source_host=getattr(article, "source_host", ""),
+                    description=getattr(article, "description", ""),
+                )
+
+            if not raw.url:
+                log.warning("bulk_insert_raw_skipped_no_url", index=idx)
+                continue
+
+            prepared.append((idx, raw, normalize_url(raw.url)))
+
+        if not prepared:
+            return []
+
+        # Result list: fill in input order
+        results: list[uuid.UUID | None] = [None] * len(articles)
+
+        try:
+            async with self._pool.session() as session:
+                # Stage 2: batch pre-query existing URLs
+                urls_to_check = [norm_url for _, _, norm_url in prepared]
+                existing_query = select(ArticleCore.source_url, ArticleCore.id).where(
+                    ArticleCore.source_url.in_(urls_to_check)
+                )
+                existing_result = await session.execute(existing_query)
+                existing_map: dict[str, uuid.UUID] = {
+                    row[0]: row[1] for row in existing_result.all()
+                }
+
+                # Stage 3: build new objects for URLs not in existing_map
+                new_objects: list[Any] = []
+                # Track (orig_idx, core_ref) so we can read core.id after flush
+                pending_cores: list[tuple[int, ArticleCore]] = []
+
+                for idx, raw, norm_url in prepared:
+                    existing_id = existing_map.get(norm_url)
+                    if existing_id is not None:
+                        results[idx] = existing_id
+                        log.debug("bulk_insert_raw_existing", url=raw.url, normalized=norm_url)
+                        continue
+
+                    core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
+                    core = ArticleCore(**core_kwargs)
+                    session.add(core)
+                    pending_cores.append((idx, core))
+
+                    new_objects.append(ArticleProcessing(article_id=core.id, task_id=task_id))
+                    new_objects.append(ArticleBody(article_id=core.id, **body_kwargs))
+
+                    analysis_values: dict[str, Any] = {"article_id": core.id, "is_news": True}
+                    prompt_versions = (
+                        {"body_source": body_source} if body_source != "full" else None
+                    )
+                    if prompt_versions:
+                        analysis_values["prompt_versions"] = prompt_versions
+                    new_objects.append(ArticleAnalysis(**analysis_values))
+
+                if pending_cores:
+                    # Flush to assign IDs to new ArticleCore objects
+                    await session.flush()
+                    for idx, core in pending_cores:
+                        results[idx] = core.id
+
+                    # add_all the dependent objects (referencing core.id)
+                    session.add_all(new_objects)
+
+                    # Single commit
+                    await session.commit()
+
+                    for idx, core in pending_cores:
+                        log.info(
+                            "bulk_insert_raw_inserted",
+                            url=core.source_url,
+                            article_id=str(core.id),
+                        )
+
+            # Fill any None (shouldn't happen, but be defensive)
+            return [r for r in results if r is not None]
+
+        except Exception as batch_exc:
+            log.warning(
+                "bulk_insert_raw_batch_failed_fallback",
+                error=str(batch_exc),
+                article_count=len(articles),
+            )
+            # Fallback: per-article insert_raw
+            fallback_ids: list[uuid.UUID] = []
+            for idx, raw, _norm_url in prepared:
+                try:
+                    aid = await self.insert_raw(raw, task_id=task_id)
+                    fallback_ids.append(aid)
+                except Exception as per_exc:
+                    log.error(
+                        "bulk_insert_raw_fallback_failed",
+                        url=raw.url,
+                        error=str(per_exc),
+                    )
+            return fallback_ids
+
     async def get_by_ids(self, ids: list[str]) -> list[RawArticle]:
         """Fetch RawArticle objects by IDs for queue consumer.
 
@@ -895,7 +1133,14 @@ class ArticleRepo:
                 )
             )
             await session.commit()
-            return result.rowcount > 0
+            return await self._row_affected(
+                session,
+                result,
+                select(ArticleCore.id).where(
+                    ArticleCore.id == article_id,
+                    ArticleCore.persist_status == PersistStatus.PG_DONE,
+                ),
+            )
 
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
         """Get articles with neo4j_done status but missing enrichment data.
@@ -1394,6 +1639,10 @@ class ArticleRepo:
         from sqlalchemy import text
 
         async with self._pool.session() as session:
+            # Count articles before dedup (DuckDB returns -1 for DELETE rowcount)
+            before_result = await session.execute(text("SELECT COUNT(*) FROM articles_core"))
+            count_before = before_result.scalar() or 0
+
             # Use ROW_NUMBER() to identify duplicates in single query
             result = await session.execute(text("""
                                                 WITH ranked_articles AS (SELECT id,
@@ -1408,7 +1657,13 @@ class ArticleRepo:
                                                 WHERE id IN (SELECT id FROM duplicates)
                                                 """))
 
-            removed_count = result.rowcount if (result.rowcount and result.rowcount > 0) else 0
+            # DuckDB returns -1 for DELETE rowcount; compute via before/after count
+            if result.rowcount and result.rowcount > 0:
+                removed_count = result.rowcount
+            else:
+                after_result = await session.execute(text("SELECT COUNT(*) FROM articles_core"))
+                count_after = after_result.scalar() or 0
+                removed_count = max(0, count_before - count_after)
 
             # Count how many unique URLs we kept
             kept_result = await session.execute(
@@ -1457,7 +1712,14 @@ class ArticleRepo:
                 .values(persist_status=PersistStatus.PG_DONE)
             )
             await session.commit()
-            return result.rowcount > 0
+            return await self._row_affected(
+                session,
+                result,
+                select(ArticleCore.id).where(
+                    ArticleCore.id == article_id,
+                    ArticleCore.persist_status == PersistStatus.PG_DONE,
+                ),
+            )
 
     async def search_by_text(
         self,
