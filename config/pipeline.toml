@@ -86,6 +86,11 @@ name = "sentiment_tracker"
 class_path = "modules.processing.nodes.extraction.sentiment_tracker.SentimentTrackerNode"
 enabled = true
 
+# T004 BriefingGenerator is NOT registered here — it is an independent
+# generator class (user decision on T004 integration path) invoked by
+# T010 scheduler (daily 08:00) + T009 POST endpoint + T008 service, not
+# as a per-article pipeline node. See specmark tasks.md T004 for details.
+
 # ============================================================
 # Batch Processing
 # ============================================================
