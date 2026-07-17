@@ -26,6 +26,7 @@ from api.endpoints import (
     search_router,
     sources_router,
     system_router,
+    trends_router,
     visualization_router,
 )
 
@@ -55,6 +56,9 @@ api_router.include_router(analytics_router)
 
 # Briefings endpoints (T009 / R-briefing-004, R-briefing-005)
 api_router.include_router(briefings_router)
+
+# Trends endpoints (T013 / R-sentiment-003)
+api_router.include_router(trends_router)
 
 # Monitoring endpoints (read-only observation)
 api_router.include_router(alerts_router)

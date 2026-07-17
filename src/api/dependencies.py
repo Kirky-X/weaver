@@ -492,6 +492,38 @@ def get_briefing_service(
     return DailyBriefingService(generator=generator, storage=storage)
 
 
+def get_sentiment_trend_service(
+    container: Container = Depends(get_container),
+) -> Any:
+    """FastAPI dependency for SentimentTrendAnalyzer (T013 / R-sentiment-001).
+
+    SentimentTrendAnalyzer is not container-registered; this dependency
+    assembles it on-demand from the container's relational_pool.
+    SentimentTrendAnalyzer only needs a RelationalPool (PG or DuckDB) for
+    sentiment_shifts table access.
+
+    Used by:
+        - T013 trends endpoint (via the lazy ``_get_sentiment_trend_service``
+          helper in ``api.endpoints.trends``, which mirrors this logic
+          for test patching — both reach the container via
+          ``container.get_container()``).
+
+    Raises:
+        HTTPException: 503 if relational pool is unavailable.
+
+    Returns:
+        SentimentTrendAnalyzer instance (implements SentimentTrendProtocol).
+
+    """
+    from modules.trend import SentimentTrendAnalyzer
+
+    try:
+        pool = container.relational_pool()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Relational pool not initialized") from exc
+    return SentimentTrendAnalyzer(pool=pool)
+
+
 def get_task_registry(
     container: Container = Depends(get_container),
 ) -> TaskRegistryService:

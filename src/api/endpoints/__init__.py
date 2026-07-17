@@ -46,6 +46,7 @@ def __getattr__(name: str) -> APIRouter:
         "search_router": ("api.endpoints.content.search", "router"),
         "sources_router": ("api.endpoints.content.sources", "router"),
         "system_router": ("api.endpoints.system", "system_router"),
+        "trends_router": ("api.endpoints.trends", "router"),
         "visualization_router": ("api.endpoints.graph", "visualization_router"),
     }
     if name in router_map:
@@ -77,5 +78,6 @@ __all__ = [
     "search_router",
     "sources_router",
     "system_router",
+    "trends_router",
     "visualization_router",
 ]
