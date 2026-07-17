@@ -458,3 +458,28 @@ class GraphWriter(Protocol):
             The graph database internal ID of the NarrativeNode.
         """
         ...
+
+    async def merge_schema(
+        self,
+        event_type: str,
+        pattern: str,
+        confidence: float,
+    ) -> str:
+        """Merge a SchemaNode keyed by event_type (no relationships).
+
+        Creates or updates a SchemaNode capturing the structural pattern of
+        an event type. SchemaNode is MERGEd by event_type — multiple articles
+        with the same event_type produce a single SchemaNode (idempotent
+        upsert). No relationships are created (SchemaNode stands alone as a
+        schema registry consumed by SchemaDrivenStructuredOutput).
+
+        Args:
+            event_type: Event type string (e.g. 融资/政策发布/人事变动).
+            pattern: JSON Schema string describing the event's fields.
+            confidence: LLM confidence score [0.0, 1.0].
+
+        Returns:
+            The SchemaNode business-level ID (format: "schema-{event_type}"),
+            stable across re-runs and consistent across Neo4j/Ladybug backends.
+        """
+        ...

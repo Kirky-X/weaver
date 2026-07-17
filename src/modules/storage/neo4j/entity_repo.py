@@ -47,7 +47,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         Ensures that (canonical_name, type) is unique for Entity nodes.
         Also ensures NarrativeNode.id is unique to support idempotent MERGE
         in GraphWriter.merge_narrative (prevents duplicate NarrativeNode
-        creation under concurrent calls).
+        creation under concurrent calls). SchemaNode.event_type is unique to
+        support idempotent MERGE in GraphWriter.merge_schema.
         """
         constraints = [
             # Entity uniqueness constraint
@@ -61,6 +62,14 @@ class Neo4jEntityRepo(BaseEntityRepo):
             """
             CREATE CONSTRAINT narrative_id_unique IF NOT EXISTS
             FOR (n:NarrativeNode) REQUIRE n.id IS UNIQUE
+            """,
+            # SchemaNode uniqueness constraint — supports idempotent MERGE
+            # in Neo4jWriter.merge_schema. MERGE is keyed on event_type, so
+            # the constraint must be on event_type to prevent concurrent
+            # calls from creating duplicate SchemaNode for the same event.
+            """
+            CREATE CONSTRAINT schemanode_event_type_unique IF NOT EXISTS
+            FOR (s:SchemaNode) REQUIRE s.event_type IS UNIQUE
             """,
         ]
 

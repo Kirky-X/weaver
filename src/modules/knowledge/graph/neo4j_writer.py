@@ -611,3 +611,73 @@ class Neo4jWriter:
                 f"merge_narrative: NarrativeNode id empty for article_id={article_id}"
             )
         return str(returned_id)
+
+    async def merge_schema(
+        self,
+        event_type: str,
+        pattern: str,
+        confidence: float,
+    ) -> str:
+        """Merge a SchemaNode keyed by event_type (no relationships).
+
+        Implements: GraphWriter.merge_schema
+
+        Creates or updates a SchemaNode with the event pattern (JSON Schema
+        string) and confidence. SchemaNode is MERGEd by event_type so that
+        multiple articles reporting the same event type collapse into one
+        SchemaNode (idempotent upsert). No relationships are created —
+        SchemaNode serves as a standalone schema registry.
+
+        Confidence-based update policy: on MATCH, pattern/confidence are only
+        updated when the new confidence is strictly greater than the stored
+        value. This prevents a low-confidence extraction from overwriting a
+        high-quality pattern from a previous article. updated_at is always
+        refreshed to reflect the last attempt.
+
+        A deterministic id ("schema-{event_type}") is assigned on create so
+        the business-level ID is stable across re-runs and consistent with
+        LadybugWriter (LSP requirement).
+
+        Args:
+            event_type: Event type string (e.g. 融资/政策发布).
+            pattern: JSON Schema string describing the event's fields.
+            confidence: LLM confidence score [0.0, 1.0].
+
+        Returns:
+            The SchemaNode business-level ID (format: "schema-{event_type}").
+
+        Raises:
+            RuntimeError: If the query returns no records (unexpected failure).
+        """
+        schema_id = f"schema-{event_type}"
+        query = """
+        MERGE (s:SchemaNode {event_type: $event_type})
+        ON CREATE SET s.id = $schema_id,
+                      s.created_at = timestamp(),
+                      s.pattern = $pattern,
+                      s.confidence = $confidence
+        ON MATCH SET s.pattern = CASE WHEN $confidence > s.confidence THEN $pattern ELSE s.pattern END,
+                     s.confidence = CASE WHEN $confidence > s.confidence THEN $confidence ELSE s.confidence END
+        SET s.updated_at = timestamp()
+        RETURN s.id AS schema_id
+        """
+        result = await self._pool.execute_query(
+            query,
+            {
+                "event_type": event_type,
+                "schema_id": schema_id,
+                "pattern": pattern,
+                "confidence": confidence,
+            },
+        )
+        records = result or []
+        if not records:
+            raise RuntimeError(f"merge_schema returned no records for event_type={event_type}")
+        record = records[0]
+        if hasattr(record, "get"):
+            returned_id = record.get("schema_id") or record.get(0)
+        else:
+            returned_id = record[0] if record else None
+        if not returned_id:
+            raise RuntimeError(f"merge_schema: SchemaNode id empty for event_type={event_type}")
+        return str(returned_id)

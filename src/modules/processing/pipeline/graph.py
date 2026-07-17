@@ -28,6 +28,9 @@ from modules.processing.nodes.extraction.entity_extractor import EntityExtractor
 from modules.processing.nodes.extraction.narrative_generator import (
     NarrativeGeneratorNode,
 )
+from modules.processing.nodes.extraction.schema_extractor import (
+    SchemaExtractorNode,
+)
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
@@ -83,6 +86,7 @@ PHASE3_STAGES = {
     "fake_news_detector": "phase3_fake_news_detector",
     "conflict_detector": "phase3_conflict_detector",
     "narrative_generator": "phase3_narrative_generator",
+    "schema_extractor": "phase3_schema_extractor",
 }
 
 
@@ -204,6 +208,15 @@ class Pipeline:
         # Degraded gracefully when LLM or graph_writer fails (Rule 12).
         self._narrative_generator = (
             NarrativeGeneratorNode(llm, budget, prompt_loader, graph_writer)
+            if graph_writer is not None
+            else None
+        )
+        # Schema extractor node — identifies event_type and generates JSON
+        # Schema pattern, persists SchemaNode MERGEd by event_type (no
+        # relationships). Serves as the schema registry for structured output.
+        # Degraded gracefully when LLM or graph_writer fails (Rule 12).
+        self._schema_extractor = (
+            SchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
             if graph_writer is not None
             else None
         )
@@ -928,6 +941,17 @@ class Pipeline:
                 )
                 await self._update_processing_stage(
                     state, PHASE3_STAGES["narrative_generator"], pending_updates
+                )
+
+            # === Schema Extractor 阶段 ===
+            if self._schema_extractor is not None:
+                start = time.monotonic()
+                state = await self._schema_extractor.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="schema_extractor").observe(
+                    time.monotonic() - start
+                )
+                await self._update_processing_stage(
+                    state, PHASE3_STAGES["schema_extractor"], pending_updates
                 )
 
             # === Entity Resolver 阶段 ===

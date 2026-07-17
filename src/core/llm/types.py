@@ -41,6 +41,7 @@ class CallPoint(str, Enum):
     CAUSAL_INFERENCE = "causal_inference"
     ENTITY_FACTS = "entity_facts"
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
+    SCHEMA_EXTRACTION = "schema_extraction"
     EVIDENCE_SAMPLING = "evidence_sampling"
     ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"

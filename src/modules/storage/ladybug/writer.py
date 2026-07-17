@@ -454,3 +454,93 @@ class LadybugWriter:
                 f"merge_narrative: NarrativeNode id empty for article_id={article_id}"
             )
         return str(returned_id)
+
+    async def merge_schema(
+        self,
+        event_type: str,
+        pattern: str,
+        confidence: float,
+    ) -> str:
+        """Merge a SchemaNode keyed by event_type (no relationships).
+
+        Implements: GraphWriter.merge_schema
+
+        Creates or updates a SchemaNode with the event pattern (JSON Schema
+        string) and confidence. SchemaNode is MERGEd by event_type so that
+        multiple articles reporting the same event type collapse into one
+        SchemaNode (idempotent upsert). No relationships are created —
+        SchemaNode serves as a standalone schema registry.
+
+        Confidence-based update policy: pattern/confidence are only updated
+        when the new confidence is strictly greater than the stored value
+        (or when the node is new, s.confidence IS NULL). This prevents a
+        low-confidence extraction from overwriting a high-quality pattern
+        from a previous article. updated_at is always refreshed.
+
+        Uses the global write lock because LadybugDB only supports one write
+        transaction at a time (consistent with LadybugWriter.write and
+        merge_narrative). Single Cypher for atomicity.
+
+        LadybugDB does not support ON CREATE SET / ON MATCH SET, so CASE WHEN
+        with IS NULL checks is used to replicate the semantics: created_at is
+        only set when NULL (first creation), preserved on subsequent updates.
+        This fixes the semantic compromise noted in the initial implementation
+        and aligns with Neo4jWriter's ON CREATE SET behavior (LSP).
+
+        LadybugDB (Kùzu) does not support secondary UNIQUE constraints on
+        non-primary-key columns. SchemaNode.event_type uniqueness is enforced
+        by the application-level _write_lock serialization (single-writer
+        model): only one MERGE can execute at a time, so concurrent duplicate
+        creation is impossible. The Neo4j backend uses a database-level
+        constraint for the same guarantee.
+
+        A deterministic id ("schema-{event_type}") is assigned so the
+        business-level ID is stable across re-runs and consistent with
+        Neo4jWriter (LSP requirement).
+
+        Args:
+            event_type: Event type string (e.g. 融资/政策发布).
+            pattern: JSON Schema string describing the event's fields.
+            confidence: LLM confidence score [0.0, 1.0].
+
+        Returns:
+            The SchemaNode business-level ID (format: "schema-{event_type}").
+
+        Raises:
+            RuntimeError: If the query returns no records (unexpected failure).
+        """
+        schema_id = f"schema-{event_type}"
+        now = int(time.time())
+        async with _write_lock:
+            result = await self._pool.execute_query(
+                """
+                MERGE (s:SchemaNode {event_type: $event_type})
+                SET s.id = $schema_id,
+                    s.pattern = CASE WHEN s.confidence IS NULL OR $confidence > s.confidence
+                                     THEN $pattern ELSE s.pattern END,
+                    s.confidence = CASE WHEN s.confidence IS NULL OR $confidence > s.confidence
+                                        THEN $confidence ELSE s.confidence END,
+                    s.created_at = CASE WHEN s.created_at IS NULL THEN $now ELSE s.created_at END,
+                    s.updated_at = $now
+                RETURN s.id AS schema_id
+                """,
+                {
+                    "event_type": event_type,
+                    "schema_id": schema_id,
+                    "pattern": pattern,
+                    "confidence": confidence,
+                    "now": now,
+                },
+            )
+
+        records = result or []
+        if not records:
+            raise RuntimeError(f"merge_schema returned no records for event_type={event_type}")
+        record = records[0]
+        if hasattr(record, "get"):
+            returned_id = record.get("schema_id") or record.get(0)
+        else:
+            returned_id = record[0] if record else None
+        if not returned_id:
+            raise RuntimeError(f"merge_schema: SchemaNode id empty for event_type={event_type}")
+        return str(returned_id)
