@@ -115,7 +115,7 @@ class TestHttpxFetcherInit:
 
         fetcher = HttpxFetcher(
             timeout=30.0,
-            user_agent="CustomBot/1.0",
+            user_agents=["CustomBot/1.0"],
             http2=False,
             max_connections=50,
             max_keepalive=10,
@@ -504,9 +504,10 @@ class TestHttpxFetcherUserAgent:
         """Test custom User-Agent."""
         from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
 
-        fetcher = HttpxFetcher(user_agent="CustomBot/2.0")
+        fetcher = HttpxFetcher(user_agents=["CustomBot/2.0"])
 
         assert fetcher._client is not None
+        assert fetcher._user_agents == ["CustomBot/2.0"]
 
 
 class TestHttpxFetcherPost:

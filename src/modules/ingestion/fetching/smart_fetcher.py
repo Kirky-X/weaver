@@ -198,7 +198,12 @@ class SmartFetcher(BaseFetcher):
             return await self._crawl4ai.fetch(url, headers)
 
         try:
-            status, content, resp_headers = await self._httpx.fetch(url, headers)
+            # pre_validated=True: SmartFetcher.fetch() already validated URL
+            # at line 148-149; skip HttpxFetcher's redundant validation
+            # to avoid double SSRF/URLhaus/PhishTank round-trips (D3 fix).
+            status, content, resp_headers = await self._httpx.fetch(
+                url, headers, pre_validated=True
+            )
             if status == 200:
                 # Check if response appears to be SPA
                 if _appears_to_be_spa(content):

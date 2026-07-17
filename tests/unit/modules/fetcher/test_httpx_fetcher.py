@@ -124,7 +124,7 @@ class TestHttpxFetcher:
         mock_validator = MagicMock()
         fetcher = HttpxFetcher(
             timeout=30.0,
-            user_agent="CustomBot/1.0",
+            user_agents=["CustomBot/1.0"],
             http2=False,
             max_connections=50,
             max_keepalive=10,
