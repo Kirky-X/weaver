@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -294,6 +294,10 @@ class FetcherSettings(BaseModel):
     global_max_concurrency: int = 32
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
+    # User-Agent rotation pool (P1-4 fix). Each request draws a random
+    # UA from this list (plus the base ``user_agent``) to defeat naive
+    # rate-limiter fingerprinting. Empty by default → single-UA behavior.
+    user_agent_pool: list[str] = []
 
     # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True
@@ -438,6 +442,10 @@ class PipelineProcessSettings(BaseModel):
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
+    # Processing mode: "deep" runs full Phase 1+2+3 pipeline (default);
+    # "fast" runs only Phase 1 (classification + vectorization), skipping
+    # batch merger and deep analysis. See temp/report.md D2.
+    processing_mode: Literal["fast", "deep"] = "deep"
 
 
 class KnowledgeCacheSettings(BaseModel):

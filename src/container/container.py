@@ -63,6 +63,8 @@ class Container(
         self._pipeline_service: PipelineService | None = None
         self._task_registry: TaskRegistryService | None = None
         self._deduplicator: Any = None
+        self._simhash_dedup: Any = None
+        self._retry_queue: Any = None
         self._event_bus: Any = None
         self._llm_failure_repo: Any = None
         self._llm_usage_buffer: Any = None

@@ -1024,6 +1024,7 @@ class ContainerLifecycleMixin:
             crawler=self.crawler(),
             article_repo=self.article_repo(),
             deduplicator=self.deduplicator(),
+            simhash_dedup=self.simhash_dedup(),
             processing_queue=self.processing_queue(),
         )
         await self.init_source_scheduler(processor.on_items_discovered)

@@ -25,11 +25,13 @@ if TYPE_CHECKING:
     from modules.ingestion import (
         Crawler,
         Deduplicator,
+        SimHashDeduplicator,
         SmartFetcher,
         SourceConfigRepo,
         SourceRegistry,
         SourceScheduler,
     )
+    from modules.ingestion.deduplication.retry import RetryQueue
     from modules.knowledge.graph import EntityResolver
     from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
     from modules.memory.integration.memory_service import MemoryIntegrationService
@@ -67,6 +69,8 @@ class ContainerServicesMixin:
     _pipeline_service: PipelineService | None
     _task_registry: TaskRegistryService | None
     _deduplicator: Deduplicator | None
+    _simhash_dedup: SimHashDeduplicator | None
+    _retry_queue: RetryQueue | None
     _event_bus: Any
     _llm_failure_repo: LLMFailureRepo | None
     _llm_usage_buffer: LLMUsageBuffer | None
@@ -497,7 +501,8 @@ class ContainerServicesMixin:
 
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
-                user_agent=settings.user_agent,
+                # P1-4 fix: pass [base_ua, *pool] so each request rotates UA.
+                user_agents=[settings.user_agent, *settings.user_agent_pool],
             )
             crawl4ai_fetcher = Crawl4AIFetcher(
                 headless=settings.crawl4ai_headless,
@@ -534,13 +539,14 @@ class ContainerServicesMixin:
         return self._smart_fetcher
 
     def crawler(self) -> Crawler:
-        """Get crawler."""
+        """Get crawler (wired with RetryQueue — D4 fix)."""
         from modules.ingestion import Crawler
 
         if self._crawler is None:
             self._crawler = Crawler(
                 smart_fetcher=self._smart_fetcher,
                 default_per_host=self._settings.fetcher.default_per_host_concurrency,
+                retry_queue=self.retry_queue(),
             )
         return self._crawler
 
@@ -554,6 +560,30 @@ class ContainerServicesMixin:
                 article_repo=self._article_repo,
             )
         return self._deduplicator
+
+    def simhash_dedup(self) -> SimHashDeduplicator:
+        """Get SimHash title deduplicator (D1 wiring).
+
+        Cross-source title-level deduplication; uses cache pool for
+        fingerprint storage. See ``temp/report.md`` D1 dead-code fix.
+        """
+        from modules.ingestion import SimHashDeduplicator
+
+        if self._simhash_dedup is None:
+            self._simhash_dedup = SimHashDeduplicator(cache=self._cache_client)
+        return self._simhash_dedup
+
+    def retry_queue(self) -> RetryQueue:
+        """Get dead-letter retry queue (D4 wiring).
+
+        Cache-backed sorted set for failed crawl items; uses cache pool
+        for host-bucketed retry scheduling. See ``temp/report.md`` D4.
+        """
+        from modules.ingestion.deduplication.retry import RetryQueue
+
+        if self._retry_queue is None:
+            self._retry_queue = RetryQueue(cache=self._cache_client)
+        return self._retry_queue
 
     # ── Pipeline ─────────────────────────────────────────────────
 
@@ -682,7 +712,11 @@ class ContainerServicesMixin:
         return self._processing_queue
 
     def pipeline_worker(self) -> Any | None:
-        """Get the pipeline worker (background consumer)."""
+        """Get the pipeline worker (background consumer).
+
+        Reads ``processing_mode`` from pipeline_process settings (D2 fix):
+        "fast" dispatches to process_batch_fast, "deep" to process_batch.
+        """
         if self._pipeline_worker is None and self._pipeline is not None:
             from modules.processing.worker import PipelineWorker
 
@@ -691,6 +725,7 @@ class ContainerServicesMixin:
                 pipeline=self._pipeline,
                 article_repo=self.article_repo(),
                 pipeline_settings=self._settings.pipeline_process,
+                processing_mode=self._settings.pipeline_process.processing_mode,
             )
         return self._pipeline_worker
 
