@@ -324,3 +324,50 @@ def test_migration_28_downgrade_order_delete_before_drop() -> None:
         f"DELETE must come before DROP COLUMN trigger_type. "
         f"DELETE at pos {delete_pos}, DROP COLUMN at pos {drop_trigger_pos}"
     )
+
+
+def test_migration_28_downgrade_deletes_events_before_rules() -> None:
+    """Downgrade must DELETE alert_events BEFORE alert_rules (FK NO ACTION).
+
+    Architecture review HIGH (T005 review): alert_events.rule_id has FK to
+    alert_rules.id with default NO ACTION (behaviorally RESTRICT). Deleting
+    rules first would fail if any trend rule has generated alert_events.
+    Migration 28 downgrade must delete events first, then rules.
+    """
+    from alembic.command import downgrade as alembic_downgrade
+    from alembic.config import Config
+
+    alembic_cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option("sqlalchemy.url", "postgresql://nouser:nopass@localhost:15432/nodb")
+    alembic_cfg.set_main_option("script_location", str(REPO_ROOT / "src" / "alembic"))
+
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        alembic_downgrade(
+            alembic_cfg,
+            "28_extend_alert_rules_for_trend:27_create_llm_compare_hourly",
+            sql=True,
+        )
+    finally:
+        sys.stdout = old_stdout
+    sql = captured.getvalue()
+
+    # Both DELETEs must be present
+    assert (
+        "DELETE FROM alert_events" in sql
+    ), f"alert_events delete not found in downgrade SQL: {sql[:500]}"
+    assert "DELETE FROM alert_rules" in sql
+
+    # Order: alert_events DELETE must come before alert_rules DELETE
+    events_pos = sql.find("DELETE FROM alert_events")
+    rules_pos = sql.find("DELETE FROM alert_rules")
+    assert events_pos < rules_pos, (
+        f"alert_events delete (pos {events_pos}) must come before "
+        f"alert_rules delete (pos {rules_pos})"
+    )
+
+    # Must print both deleted counts (Rule 12: Fail Loud)
+    assert "RAISE NOTICE" in sql
+    assert "deleted_events" in sql or "ROW_COUNT" in sql

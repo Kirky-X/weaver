@@ -91,27 +91,37 @@ def downgrade() -> None:
     """Remove trend rules, CHECK constraints, and 3 columns.
 
     Order matters:
-    1. DELETE trend rules first (trigger_type != 'threshold') to clean
-       data that references the soon-to-be-dropped columns. Includes
-       both migration 29 seed rules and any user-created trend rules.
-    2. DROP CHECK constraints (trigger_type values + trend fields required).
-    3. DROP 3 columns.
+    1. DELETE alert_events referencing trend rules first (FK NO ACTION,
+       behaviorally equivalent to RESTRICT for non-deferred constraints).
+       Without this, DELETE FROM alert_rules would fail if any trend rule
+       has generated alert_events.
+    2. DELETE trend rules (trigger_type != 'threshold') to clean data
+       that references the soon-to-be-dropped columns. Includes both
+       migration 29 seed rules and any user-created trend rules.
+    3. DROP CHECK constraints (trigger_type values + trend fields required).
+    4. DROP 3 columns.
     """
-    # 1. Delete trend rules — print row count for operator visibility (Rule 12)
+    # 1+2. Delete events first, then rules — print row counts (Rule 12)
     op.execute(
-        "DO $$ DECLARE deleted_count INTEGER; "
+        "DO $$ DECLARE "
+        "deleted_events INTEGER; "
+        "deleted_rules INTEGER; "
         "BEGIN "
+        "DELETE FROM alert_events WHERE rule_id IN "
+        "(SELECT id FROM alert_rules WHERE trigger_type != 'threshold'); "
+        "GET DIAGNOSTICS deleted_events = ROW_COUNT; "
         "DELETE FROM alert_rules WHERE trigger_type != 'threshold'; "
-        "GET DIAGNOSTICS deleted_count = ROW_COUNT; "
-        "RAISE NOTICE 'Migration 28 downgrade: deleted % trend rules', deleted_count; "
+        "GET DIAGNOSTICS deleted_rules = ROW_COUNT; "
+        "RAISE NOTICE 'Migration 28 downgrade: deleted % alert events, % trend rules', "
+        "deleted_events, deleted_rules; "
         "END $$"
     )
 
-    # 2. Drop CHECK constraints
+    # 3. Drop CHECK constraints
     op.drop_constraint("chk_alert_trend_fields_required", "alert_rules", type_="check")
     op.drop_constraint("chk_alert_trigger_type_values", "alert_rules", type_="check")
 
-    # 3. Drop columns (reverse order of upgrade)
+    # 4. Drop columns (reverse order of upgrade)
     op.drop_column("alert_rules", "trend_threshold")
     op.drop_column("alert_rules", "trend_window_days")
     op.drop_column("alert_rules", "trigger_type")
