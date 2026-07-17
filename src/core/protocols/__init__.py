@@ -52,6 +52,7 @@ from core.protocols.services import (
     PipelineService,
     SentimentTrendProtocol,
     TaskRegistryService,
+    TrendDetectionProtocol,
 )
 
 # Shared type definitions used in Protocol signatures
@@ -87,6 +88,7 @@ __all__ = [
     "SentimentTrendProtocol",
     "SourceAuthorityRepository",
     "TaskRegistryService",
+    "TrendDetectionProtocol",
     "VectorRepository",
     "assert_implements",
     "get_protocol_methods",

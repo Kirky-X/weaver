@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from modules.briefing.models import BriefingResult
-    from modules.trend.models import SentimentTrendResult
+    from modules.trend.models import SentimentTrendResult, TrendDetectionResult
 
 
 @runtime_checkable
@@ -282,6 +282,8 @@ class SentimentTrendProtocol(Protocol):
           this Protocol via api.dependencies.get_sentiment_trend_service.
         - T018 TrendAlertEvaluator: sentiment_shift trigger_type rules
           invoke analyze_trend to detect shifts > threshold.
+        - T015 TrendDetector: optional dependency for sentiment_change
+          contribution to trend_score (R-trend-005).
 
     Field semantics (Rule 7 — exposed ambiguity in spec):
         spec R-sentiment-001 lists two list-typed fields ``shifts`` and
@@ -325,6 +327,70 @@ class SentimentTrendProtocol(Protocol):
         ...
 
 
+@runtime_checkable
+class TrendDetectionProtocol(Protocol):
+    """Protocol for trend detection (R-trend-001).
+
+    This service provides a stable interface for modules that need to
+    detect trending entities over a time window by analyzing EventNode
+    frequency changes and optional sentiment contribution, without
+    depending on the concrete implementation (TrendDetector, T015).
+
+    Implementations:
+        - TrendDetector: src/modules/trend/detection.py (T015)
+
+    Used by:
+        - T016 trends endpoint: GET /api/v1/trends/detection depends on
+          this Protocol via api.dependencies.get_trend_detection_service.
+        - T018 TrendAlertEvaluator: trend_spike / trend_drop trigger_type
+          rules invoke detect_trends to evaluate frequency changes.
+
+    Trend score formula (R-trend-005):
+        trend_score = 0.6 * frequency_change + 0.4 * sentiment_change
+        When sentiment data is unavailable (analyzer None or entity has
+        no sentiment_shifts), trend_score degenerates to frequency_change
+        alone (Rule 12 — fail loud, but degrade gracefully on data
+        availability rather than raising).
+
+    Direction thresholds (R-trend-005):
+        trend_score > 0.2  → 'up'
+        trend_score < -0.2 → 'down'
+        otherwise         → 'stable'
+
+    Insufficient-data contract (R-trend-003):
+        When EventNode count < 50 in the window, returns
+        status='insufficient_data', trends=[], list=[]. Does NOT raise —
+        data insufficiency is a legitimate state, not an error. The API
+        endpoint returns HTTP 200 in this case (R-trend-004).
+    """
+
+    async def detect_trends(
+        self,
+        window_days: int = 7,
+        entity_type: str | None = None,
+    ) -> TrendDetectionResult:
+        """Detect trending entities over a time window (R-trend-002/003).
+
+        Args:
+            window_days: Time window in days (7 or 30 per spec constraints;
+                other values raise ValueError at the implementation layer).
+            entity_type: Optional EventNode.name filter (R-trend-002:
+                "按 entity_type 过滤"). None aggregates across all entity
+                types.
+
+        Returns:
+            TrendDetectionResult with per-entity trends, aggregated
+            MENTIONS heat time-series, and status
+            ('ok' when EventNode count ≥ 50, 'insufficient_data' otherwise).
+
+        Raises:
+            ValueError: If window_days is not in {7, 30}.
+            Exception: On graph DB error (Rule 12 — fail loud). Note that
+                insufficient data is NOT a DB error and does not raise.
+        """
+        ...
+
+
 __all__ = [
     "DailyBriefingProtocol",
     "DeduplicationStrategy",
@@ -332,4 +398,5 @@ __all__ = [
     "PipelineService",
     "SentimentTrendProtocol",
     "TaskRegistryService",
+    "TrendDetectionProtocol",
 ]

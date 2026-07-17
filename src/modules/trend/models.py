@@ -63,4 +63,55 @@ class SentimentTrendResult:
     trend_direction: str = "stable"
 
 
-__all__ = ["SentimentTrendResult"]
+@dataclass
+class TrendDetectionResult:
+    """Result returned by TrendDetectionProtocol.detect_trends (R-trend-001).
+
+    Used by:
+        - TrendDetector.detect_trends (T015)
+        - T016 trends API endpoint (serialized to APIResponse[dict])
+        - T018 TrendAlertEvaluator (trend_spike / trend_drop trigger_type rules
+          consume trend_score + direction per entity)
+
+    Fields (spec R-trend-001 — 5 fields, exact order):
+        window_days: Time window in days (7 or 30 per spec constraints).
+            Echoed from detect_trends input for client transparency.
+        entity_type: Optional entity_type filter applied to EventNode.name
+            (R-trend-002: "按 entity_type 过滤"). None means no filter —
+            aggregate trends across all entity types.
+        trends: Per-entity trend entries. Each dict carries:
+            - entity_name: canonical entity name from EventNode.name
+            - trend_score: 0.6 * frequency_change + 0.4 * sentiment_change
+              (R-trend-005); degenerates to frequency_change alone when
+              sentiment_shifts has no data for the entity.
+            - direction: 'up' (>0.2) / 'down' (<-0.2) / 'stable' (otherwise)
+              per spec R-trend-005 thresholds.
+            - frequency_change: (current_window_count - previous_window_count)
+              / max(previous_window_count, 1) — in [-1.0, +inf).
+            Empty list when status='insufficient_data'.
+        list: Aggregated MENTIONS heat time-series data points (R-trend-002:
+            "Entity MENTIONS 时序热度：按时间聚合 MENTIONS 关系计数").
+            Each dict represents one day bucket with day/mentions/count
+            fields. Empty list when no data. Field name ``list`` mirrors
+            SentimentTrendResult.list convention (Rule 7 — exposed in
+            docstring; shadows Python builtin only within attribute access).
+        status: 'ok' when EventNode count ≥ 50 (R-trend-002);
+            'insufficient_data' when < 50 (R-trend-003, includes count=0).
+            The detector MUST NOT raise on insufficient data — it returns
+            this status explicitly (Rule 12: fail loud, fail visible).
+
+    No-data contract (R-trend-003):
+        trends=[], list=[], status='insufficient_data'. The detector MUST
+        return this shape (not None, not raise) when EventNode count < 50 —
+        API endpoint relies on it to return HTTP 200 (R-trend-004: data
+        insufficiency is not an error).
+    """
+
+    window_days: int = 7
+    entity_type: str | None = None
+    trends: list[dict[str, Any]] = field(default_factory=list)
+    list: list[dict[str, Any]] = field(default_factory=list)
+    status: str = "insufficient_data"
+
+
+__all__ = ["SentimentTrendResult", "TrendDetectionResult"]

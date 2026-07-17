@@ -3,14 +3,14 @@
 """Trend module — sentiment time-series analysis and trend detection.
 
 This package groups trend-related services:
-- models: SentimentTrendResult dataclass (T011) and (later) TrendDetectionResult (T014)
+- models: SentimentTrendResult dataclass (T011) and TrendDetectionResult (T014)
 - sentiment: SentimentTrendAnalyzer implementing SentimentTrendProtocol (T012)
-- detection: TrendDetector implementing TrendDetectionProtocol (T015, future)
+- detection: TrendDetector implementing TrendDetectionProtocol (T015)
 """
 
 from __future__ import annotations
 
-from modules.trend.models import SentimentTrendResult
+from modules.trend.models import SentimentTrendResult, TrendDetectionResult
 from modules.trend.sentiment import SentimentTrendAnalyzer
 
-__all__ = ["SentimentTrendAnalyzer", "SentimentTrendResult"]
+__all__ = ["SentimentTrendAnalyzer", "SentimentTrendResult", "TrendDetectionResult"]
