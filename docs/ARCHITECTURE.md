@@ -464,6 +464,165 @@ ProviderPool.execute()
 
 ---
 
+## Schema-Driven Structured Output
+
+### 概述
+
+Weaver 实现了基于 SchemaNode 的 LLM 结构化输出能力，将图数据库中存储的 JSON Schema 转换为 LLM `response_format` 参数，并对响应进行校验和重试。该机制使业务事件抽取（融资、政策发布、并购等）能够获得符合预定义 schema 的结构化数据，而非自由文本。
+
+### 核心组件
+
+#### SchemaDrivenStructuredOutput (`src/core/llm/structured_output.py`)
+
+查询 SchemaNode 并转换为 JSON Schema dict。
+
+**SchemaNode 字段**:
+- `id` (str, 主键, 格式 `schema-{event_type}`)
+- `event_type` (str, 业务键, 如 `融资`/`政策发布`)
+- `pattern` (str, JSON Schema 字符串, 由 SchemaExtractorNode 生成)
+- `confidence` (float [0,1])
+- `created_at` / `updated_at` (timestamps)
+
+**查询 Cypher**（参数化, Neo4j + LadybugDB 兼容）:
+
+```cypher
+MATCH (s:SchemaNode {id: $schema_node_id})
+RETURN s.id AS id,
+       s.event_type AS event_type,
+       s.pattern AS pattern,
+       s.confidence AS confidence
+LIMIT 1
+```
+
+**转换规则**:
+- `pattern` (JSON string) → `json.loads` → schema dict
+- `event_type` → schema["title"] (覆盖 pattern 内嵌的 title)
+- 返回 `{schema: dict, schema_node_id: str}`
+
+#### LLMClient.structured_call (`src/core/llm/client.py`)
+
+Schema 驱动的 LLM 调用,含降级和重试。
+
+**两条互斥路径**:
+
+1. **SchemaNotFoundError 路径**（schema 不存在）→ 直接降级
+   - 无重试（schema 缺失是数据问题,重试无意义）
+   - 调用 LLM 时不传 `response_format`
+   - 返回 `{"_fallback": True, "content": <llm_response>}`
+
+2. **Validation-retry 路径**（schema 存在）→ 校验失败重试
+   - 调用 LLM 时传 `response_format=schema`
+   - 用 `jsonschema.validate()` 校验响应
+   - 校验失败（`ValidationError` 或 `JSONDecodeError`）→ 重试 1 次, prompt 含 `_retry_hint`
+   - 重试仍失败 → 抛 `StructuredOutputValidationError`（携带 `schema` + `last_response` 属性）
+
+**签名**:
+
+```python
+async def structured_call(
+    self,
+    prompt: str,
+    schema_node_id: str,
+    *,
+    call_point: CallPoint | str | None = None,
+    article_id: str | None = None,
+    task_id: str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+```
+
+**返回值**:
+- 成功: 解析后的 JSON dict (符合 schema)
+- SchemaNotFoundError: `{"_fallback": True, "content": <str>}`
+
+**异常**:
+- `ValueError`: `_graph_pool` 未注入（container wiring 缺失或图数据库不可用）
+- `StructuredOutputValidationError`: 重试后仍校验失败（含 `schema` + `last_response`）
+- 其他异常: GraphPool 错误、LLM provider 错误等透传 (Rule 12)
+
+### Schema 缓存
+
+`LLMClient._schema_cache` (TTLCache, maxsize=64, ttl=300s) 缓存 schema 查询结果,避免同一 `schema_node_id` 重复查询图数据库。SchemaNode 由 SchemaExtractorNode 偶发更新,5 分钟 TTL 是合理的 freshness/perf 折中。
+
+### Container Wiring
+
+`container/lifecycle.py` 在创建 `LLMClient` 后注入 `_graph_pool`:
+
+```python
+self._llm_client._smart_router = self._smart_router
+graph_pool = self.graph_pool()
+if graph_pool is not None:
+    self._llm_client._graph_pool = graph_pool
+    log.info("llm_client_graph_pool_injected", graph_type=...)
+else:
+    log.warning("llm_client_graph_pool_unavailable_structured_call_disabled")
+```
+
+**失败处理**: 当图数据库不可用时（Neo4j 和 LadybugDB 均宕机）, `_graph_pool` 保持 None, `structured_call` 调用时抛 `ValueError`（Rule 12 fail-loud）, 但 plain `call`/`call_at`/`embed` 等方法仍完全可用。
+
+### 使用示例
+
+```python
+from core.llm import LLMClient
+from core.llm.types import CallPoint
+
+llm_client = container.llm_client()
+
+# 成功路径: schema 存在,LLM 返回符合 schema 的 JSON
+result = await llm_client.structured_call(
+    prompt="Extract funding info from: Acme raised $10M Series A",
+    schema_node_id="schema-funding",
+    call_point=CallPoint.CLASSIFIER,
+    article_id="art-123",
+)
+# result == {"amount": 10000000, "company": "Acme", "round": "Series A"}
+
+# 降级路径: schema 不存在（数据未生成）, 返回 plain LLM 响应
+result = await llm_client.structured_call(
+    prompt="Analyze this article...",
+    schema_node_id="schema-unknown-event",
+)
+# result == {"_fallback": True, "content": "<plain text LLM response>"}
+```
+
+### 异常处理建议
+
+```python
+from core.llm.structured_output import (
+    SchemaNotFoundError,  # 内部异常, structured_call 已捕获并降级
+    StructuredOutputValidationError,  # 重试后仍失败,需上层处理
+)
+
+try:
+    result = await llm_client.structured_call(
+        prompt=user_prompt,
+        schema_node_id=schema_id,
+    )
+    if result.get("_fallback"):
+        # SchemaNotFoundError 路径, 降级处理
+        logger.warning("structured_call_degraded", schema_node_id=schema_id)
+        # ... 使用 result["content"] 作为 plain text
+    else:
+        # 成功路径,使用 result dict
+        process_structured_data(result)
+except StructuredOutputValidationError as exc:
+    # 重试后仍校验失败
+    logger.error(
+        "structured_call_validation_failed",
+        schema_node_id=schema_id,
+        schema_title=exc.schema.get("title"),
+        last_response_len=len(exc.last_response),
+    )
+    # 可选: 触发 schema 重新生成 (SchemaExtractorNode)
+    raise  # 或返回 500 给 API caller
+```
+
+### PII 注意事项
+
+`StructuredOutputValidationError.last_response` 属性可能包含 LLM 对 prompt 的原始响应,若 prompt 含 PII,响应也可能含 PII。日志记录或持久化时,应按系统其他 LLM payload 的脱敏策略处理。**禁止将 `last_response` 原样返回给 API 终端用户**。
+
+---
+
 ## MAGMA Memory集成架构
 
 ### 概述
