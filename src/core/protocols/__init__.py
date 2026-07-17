@@ -46,6 +46,7 @@ from core.protocols.repositories import (
 
 # Service protocols
 from core.protocols.services import (
+    DailyBriefingProtocol,
     DeduplicationStrategy,
     EmbeddingServiceProtocol,
     PipelineService,
@@ -68,6 +69,7 @@ __all__ = [
     "AnalyticsStorageProtocol",
     "ArticleRepository",
     "CachePool",
+    "DailyBriefingProtocol",
     "DeduplicationStrategy",
     "EmbeddingServiceProtocol",
     "EntityRepository",

@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
+    from datetime import date
+
+    from modules.briefing.models import BriefingResult
 
 
 @runtime_checkable
@@ -180,7 +183,89 @@ class DeduplicationStrategy(Protocol):
         ...
 
 
+@runtime_checkable
+class DailyBriefingProtocol(Protocol):
+    """Protocol for daily briefing service (R-briefing-001).
+
+    This service provides a stable interface for modules that need to
+    generate, fetch, and list daily briefings without depending on the
+    concrete implementation (DailyBriefingService, T008).
+
+    Implementations:
+        - DailyBriefingService: src/modules/briefing/service.py (T008)
+
+    Used by:
+        - T009 briefings endpoint: GET /api/v1/briefings/daily and
+          POST /api/v1/briefings/daily/generate depend on this Protocol
+          via api.dependencies.get_briefing_service.
+        - T010 APScheduler task: generate_daily_briefing calls
+          generate_briefing for 4 categories (general/finance/tech/ai).
+
+    Naming (Rule 7 — exposed conflict):
+        Parameter name is `date` (not `briefing_date`) per spec
+        R-briefing-001. The `date: date` annotation (parameter name
+        shadowing type name) is intentional — spec compliance takes
+        priority over stylistic preference. BriefingResult field is
+        also `date`, keeping Protocol↔DTO naming aligned.
+    """
+
+    async def generate_briefing(
+        self,
+        date: date,
+        category: str | None = None,
+    ) -> BriefingResult:
+        """Generate (or regenerate) a daily briefing for the given date + category.
+
+        Idempotent: same (date, category) replaces any existing briefing.
+
+        Args:
+            date: The date to generate the briefing for.
+            category: Briefing category — one of {finance, tech, ai, general}.
+                None means "综合" (general, no article filter).
+
+        Returns:
+            BriefingResult with summary, items, and narrative_mode flag.
+            On LLM failure, summary is None but briefing is still persisted
+            (Rule 12: best-effort per spec R-briefing-002).
+        """
+        ...
+
+    async def get_briefing(
+        self,
+        date: date,
+        category: str | None = None,
+    ) -> BriefingResult | None:
+        """Fetch an existing briefing for the given date + category.
+
+        Args:
+            date: The date to fetch.
+            category: Briefing category. None means "综合".
+
+        Returns:
+            BriefingResult if found, None otherwise.
+        """
+        ...
+
+    async def list_briefings(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> list[BriefingResult]:
+        """List briefings within a date range (inclusive).
+
+        Args:
+            date_from: Start date (inclusive).
+            date_to: End date (inclusive).
+
+        Returns:
+            List of BriefingResult sorted by date descending. Empty list
+            if no briefings in the range.
+        """
+        ...
+
+
 __all__ = [
+    "DailyBriefingProtocol",
     "DeduplicationStrategy",
     "EmbeddingServiceProtocol",
     "PipelineService",
