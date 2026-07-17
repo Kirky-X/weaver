@@ -8,6 +8,7 @@ import asyncio
 import os
 import re
 import time
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import trafilatura
@@ -16,6 +17,9 @@ from core.observability import get_logger
 from modules.ingestion.domain.models import NewsItem, RawArticle
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.exceptions import FetchError
+
+if TYPE_CHECKING:
+    from modules.ingestion.deduplication.retry import RetryQueue
 
 log = get_logger(__name__)
 
@@ -82,9 +86,15 @@ class Crawler:
         default_per_host: Default per-host concurrency limit.
     """
 
-    def __init__(self, smart_fetcher: BaseFetcher, default_per_host: int = 2) -> None:
+    def __init__(
+        self,
+        smart_fetcher: BaseFetcher,
+        default_per_host: int = 2,
+        retry_queue: RetryQueue | None = None,
+    ) -> None:
         self._fetcher = smart_fetcher
         self._default_per_host = default_per_host
+        self._retry_queue = retry_queue
 
     async def _fetch_html(self, url: str, force_browser: bool = False) -> tuple[str | None, int]:
         """Fetch HTML with HTTP status validation.
@@ -93,12 +103,21 @@ class Crawler:
         pages like 404/403 are not valid article content). This prevents
         error pages and login redirects from being persisted as articles
         (R1 fix — previously status_code was discarded with ``_``).
+
+        Contract: on fetch exception or status >= 400, enqueues the URL
+        to ``RetryQueue`` (if wired) for dead-letter retry, THEN
+        re-raises so ``crawl_one`` propagates the failure to
+        ``asyncio.gather(return_exceptions=True)``. Swallowing the
+        exception here would cause ``crawl_one`` to return an empty
+        ``RawArticle`` — silently masking the failure (pre-existing
+        test regression fixed here). See ``temp/report.md`` D4.
         """
         try:
             status, html, _ = await self._fetcher.fetch(url, force_browser=force_browser)
         except Exception as exc:
             log.warning("crawler_fetch_error", url=url, error=str(exc))
-            return None, 0
+            await self._enqueue_retry(url)
+            raise
 
         if status >= 400:
             log.warning(
@@ -106,9 +125,27 @@ class Crawler:
                 url=url,
                 status=status,
             )
-            return None, status
+            await self._enqueue_retry(url)
+            raise FetchError(
+                url=url,
+                message=f"HTTP {status} for {url}",
+            )
 
         return html, status
+
+    async def _enqueue_retry(self, url: str) -> None:
+        """Enqueue URL to RetryQueue with host extracted from url (D4 fix).
+
+        No-op when retry_queue is not wired (backward compat).
+        """
+        if self._retry_queue is None:
+            return
+        host = urlparse(url).netloc
+        try:
+            await self._retry_queue.enqueue(url, host, attempt=0)
+        except Exception as exc:
+            # Retry queue failure must not break the crawl flow
+            log.warning("retry_queue_enqueue_failed", url=url, host=host, error=str(exc))
 
     async def crawl_batch(
         self,
