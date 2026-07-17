@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for briefings API endpoints (T009 / R-briefing-004, R-briefing-005).
+"""Unit tests for briefings API endpoints (T009 / T022 / R-briefing-004, R-briefing-005).
 
 Covers:
 - GET /briefings/daily — fetch existing briefing by date + category
 - POST /briefings/daily/generate — on-demand generation with narrative_mode param
-- narrative_mode=True returns HTTP 501 (T009 挡板, T022 will remove)
+- narrative_mode=true forwards to service.generate_briefing(narrative_mode=True)
+  (T022 removed the T009 501 挡板)
+- narrative_mode=true without narrative_generator → 503 (T022 fail-loud)
+- Other ValueError (invalid category) → 400 (T022 client error)
 - Router registration (prefix, tags, routes)
 
 Patch surface: ``api.endpoints.briefings._get_briefing_service`` returns a mock
@@ -29,6 +32,7 @@ def _make_briefing_result(
     summary: str | None = "Daily summary text",
     items: list | None = None,
     briefing_id: int | None = 1,
+    narrative_mode: bool = False,
 ) -> BriefingResult:
     """Build a BriefingResult fixture for tests."""
     return BriefingResult(
@@ -37,7 +41,7 @@ def _make_briefing_result(
         summary=summary,
         items=items or [],
         generated_at=datetime.now(UTC),
-        narrative_mode=False,
+        narrative_mode=narrative_mode,
         briefing_id=briefing_id,
     )
 
@@ -168,7 +172,7 @@ class TestGenerateDailyBriefing:
         self.client = create_test_client(router)
 
     def test_generate_daily_briefing_default_narrative_mode_false(self) -> None:
-        """POST without narrative_mode defaults to False and generates."""
+        """POST without narrative_mode defaults to False and generates (T022)."""
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(
             return_value=_make_briefing_result(category="finance")
@@ -183,14 +187,13 @@ class TestGenerateDailyBriefing:
         body = response.json()
         assert body["code"] == 0
         assert body["data"]["category"] == "finance"
-        # Service called with date + category (narrative_mode not yet forwarded
-        # to service — T009 挡板: 501 on True, direct call on False).
+        # T022: narrative_mode is forwarded to service (default False).
         mock_service.generate_briefing.assert_called_once_with(
-            date=date(2026, 7, 17), category="finance"
+            date=date(2026, 7, 17), category="finance", narrative_mode=False
         )
 
     def test_generate_daily_briefing_narrative_mode_false_explicit(self) -> None:
-        """POST with narrative_mode=false generates normally."""
+        """POST with narrative_mode=false forwards to service with narrative_mode=False."""
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(return_value=_make_briefing_result())
 
@@ -200,31 +203,85 @@ class TestGenerateDailyBriefing:
             )
 
         assert response.status_code == 200
-        mock_service.generate_briefing.assert_called_once()
+        mock_service.generate_briefing.assert_called_once_with(
+            date=date(2026, 7, 17), category=None, narrative_mode=False
+        )
 
-    def test_generate_daily_briefing_narrative_mode_true_returns_501(self) -> None:
-        """POST with narrative_mode=true returns 501 (T009 挡板, T022 removes).
+    def test_generate_daily_briefing_narrative_mode_true_forwards_to_service(self) -> None:
+        """POST with narrative_mode=true forwards to service with narrative_mode=True (T022).
 
-        Before T021/T022 implement narrative mode, the endpoint MUST refuse
-        with HTTP 501 Not Implemented and a clear message. This is a deliberate
-        boundary (Rule 24: cover the scenario, not simplify it away).
+        T022 removes the T009 501 挡板: narrative_mode is transparently
+        forwarded to DailyBriefingService.generate_briefing(narrative_mode=True).
+        Service layer (T021) handles routing + degradation.
         """
         mock_service = MagicMock()
-        mock_service.generate_briefing = AsyncMock(return_value=_make_briefing_result())
+        mock_service.generate_briefing = AsyncMock(
+            return_value=_make_briefing_result(category="finance", narrative_mode=True)
+        )
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post(
+                "/briefings/daily/generate?date=2026-07-17&category=finance&narrative_mode=true"
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == 0
+        # Service called with narrative_mode=True (T022 forwarding).
+        mock_service.generate_briefing.assert_called_once_with(
+            date=date(2026, 7, 17), category="finance", narrative_mode=True
+        )
+        # BriefingResult.narrative_mode=True reflected in response (T021 contract).
+        assert body["data"]["narrative_mode"] is True
+
+    def test_generate_daily_briefing_narrative_mode_unavailable_returns_503(self) -> None:
+        """narrative_mode=true without narrative_generator → 503 (T022, R-briefing-008).
+
+        Service raises ValueError when narrative_mode=True but narrative_generator
+        is None (graph_pool unavailable). Handler maps to 503 so caller can
+        retry with narrative_mode=false (Rule 12 fail-loud + actionable).
+        """
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(
+            side_effect=ValueError(
+                "narrative_mode=True requested but narrative_generator is None. "
+                "Caller must inject NarrativeBriefingGenerator when constructing "
+                "DailyBriefingService to use narrative mode (R-briefing-008)."
+            )
+        )
 
         with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
             response = self.client.post(
                 "/briefings/daily/generate?date=2026-07-17&narrative_mode=true"
             )
 
-        assert response.status_code == 501
+        assert response.status_code == 503
         body = response.json()
         assert "detail" in body
-        # Message must clearly indicate narrative mode is not implemented.
         detail = body["detail"]
-        assert "narrative" in detail.lower() or "尚未实现" in detail
-        # Service MUST NOT be called when 501 is returned.
-        mock_service.generate_briefing.assert_not_called()
+        # Actionable message: tells caller to retry with false or start graph pool.
+        assert "narrative" in detail.lower() or "graph pool" in detail.lower()
+
+    def test_generate_daily_briefing_invalid_category_value_error_returns_400(self) -> None:
+        """ValueError from invalid category (not narrative_generator) → 400 (T022).
+
+        Handler distinguishes:
+        - ValueError containing 'narrative_generator' → 503 (service unavailable)
+        - Other ValueError (invalid category, etc.) → 400 (client error)
+        """
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(
+            side_effect=ValueError("Invalid category 'sports'")
+        )
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post(
+                "/briefings/daily/generate?date=2026-07-17&category=finance"
+            )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert "detail" in body
 
     def test_generate_daily_briefing_no_date_uses_today(self) -> None:
         """POST without date uses today's date."""
