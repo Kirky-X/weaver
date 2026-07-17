@@ -50,6 +50,7 @@ from core.protocols.services import (
     DeduplicationStrategy,
     EmbeddingServiceProtocol,
     PipelineService,
+    SentimentTrendProtocol,
     TaskRegistryService,
 )
 
@@ -83,6 +84,7 @@ __all__ = [
     "PipelineService",
     "PipelineState",
     "RelationalPool",
+    "SentimentTrendProtocol",
     "SourceAuthorityRepository",
     "TaskRegistryService",
     "VectorRepository",

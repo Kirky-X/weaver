@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from modules.briefing.models import BriefingResult
+    from modules.trend.models import SentimentTrendResult
 
 
 @runtime_checkable
@@ -264,10 +265,71 @@ class DailyBriefingProtocol(Protocol):
         ...
 
 
+@runtime_checkable
+class SentimentTrendProtocol(Protocol):
+    """Protocol for sentiment trend analysis (R-sentiment-001).
+
+    This service provides a stable interface for modules that need to
+    analyze sentiment shifts over a time window for an entity or
+    community, without depending on the concrete implementation
+    (SentimentTrendAnalyzer, T012).
+
+    Implementations:
+        - SentimentTrendAnalyzer: src/modules/trend/sentiment.py (T012)
+
+    Used by:
+        - T013 trends endpoint: GET /api/v1/trends/sentiment depends on
+          this Protocol via api.dependencies.get_sentiment_trend_service.
+        - T018 TrendAlertEvaluator: sentiment_shift trigger_type rules
+          invoke analyze_trend to detect shifts > threshold.
+
+    Field semantics (Rule 7 — exposed ambiguity in spec):
+        spec R-sentiment-001 lists two list-typed fields ``shifts`` and
+        ``list`` in SentimentTrendResult. They serve distinct purposes:
+        - ``shifts``: raw shift records from sentiment_shifts table
+          (one entry per article-level comparison).
+        - ``list``: aggregated trend data points (e.g. daily avg_shift),
+          suitable for charting / time-series visualization.
+        Both default to empty list when no data is found in the window.
+    """
+
+    async def analyze_trend(
+        self,
+        entity_name: str | None = None,
+        community_id: str | None = None,
+        window_days: int = 7,
+    ) -> SentimentTrendResult:
+        """Analyze sentiment shifts for an entity or community over a window.
+
+        Args:
+            entity_name: Canonical entity name to filter article-level
+                sentiment_shifts (article_id IS NOT NULL). Mutually
+                exclusive with community_id — at least one MUST be set
+                (spec R-sentiment-001 constraints).
+            community_id: Community identifier to filter community-level
+                shifts. When given, all entity shifts within the community
+                are aggregated.
+            window_days: Time window in days (only 7 and 30 are supported
+                per spec R-sentiment-001 constraints; other values raise
+                ValueError at the implementation layer).
+
+        Returns:
+            SentimentTrendResult with raw shifts, aggregated list,
+            avg_shift, and trend_direction ('up'/'down'/'stable').
+
+        Raises:
+            ValueError: If both entity_name and community_id are None,
+                or window_days is not in {7, 30}.
+            Exception: On DB error (Rule 12 — fail loud).
+        """
+        ...
+
+
 __all__ = [
     "DailyBriefingProtocol",
     "DeduplicationStrategy",
     "EmbeddingServiceProtocol",
     "PipelineService",
+    "SentimentTrendProtocol",
     "TaskRegistryService",
 ]
