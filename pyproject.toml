@@ -114,6 +114,7 @@ dev = [
     "commitizen>=4.13.9",
     # ── Docstring style ───────────────────────────────────
     "pydocstyle>=6.3.0",
+    "pytest-benchmark>=5.2.3",
 ]
 test = [
     "anyio>=4.13.0",
