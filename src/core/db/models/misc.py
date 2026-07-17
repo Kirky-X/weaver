@@ -280,7 +280,10 @@ class DailyBriefing(Base):
     __tablename__ = "daily_briefings"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    briefing_date: Mapped[datetime] = mapped_column(Date, nullable=False, unique=True)
+    # Migration 32: dropped single-column unique=True to allow 4 briefings
+    # per day (finance/tech/ai/general). Composite UNIQUE(briefing_date,
+    # category) replaces it — see __table_args__ below.
+    briefing_date: Mapped[datetime] = mapped_column(Date, nullable=False)
     # Design doc §12.2: briefing metadata
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
@@ -293,6 +296,11 @@ class DailyBriefing(Base):
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
+    # T004: Briefing category — finance/tech/ai/general (spec R-briefing-003).
+    # Nullable for backward compat with pre-migration-32 rows. DISTINCT from
+    # articles_core.category (CategoryType enum) — briefing category is the
+    # output grouping, article category is the input filter.
+    category: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     items: Mapped[list[DailyBriefingItem]] = relationship(
         back_populates="briefing", cascade="all, delete-orphan"
@@ -304,6 +312,15 @@ class DailyBriefing(Base):
             name="chk_briefing_status",
         ),
         Index("idx_briefings_date", "briefing_date"),
+        # Migration 32: composite unique replaces single-column unique on
+        # briefing_date. Allows up to 4 briefings per day (one per category).
+        # NULL category treated as distinct by PostgreSQL, so pre-migration-32
+        # rows with category=NULL remain valid.
+        UniqueConstraint(
+            "briefing_date",
+            "category",
+            name="uq_briefings_date_category",
+        ),
     )
 
 

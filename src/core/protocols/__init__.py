@@ -35,6 +35,7 @@ from core.protocols.pools import (
 
 # Repository protocols
 from core.protocols.repositories import (
+    AnalyticsStorageProtocol,
     ArticleRepository,
     EntityRepository,
     GraphArticleRepository,
@@ -64,6 +65,7 @@ from core.protocols.validation import (
 )
 
 __all__ = [
+    "AnalyticsStorageProtocol",
     "ArticleRepository",
     "CachePool",
     "DeduplicationStrategy",

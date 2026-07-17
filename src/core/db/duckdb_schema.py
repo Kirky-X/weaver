@@ -310,7 +310,9 @@ SCHEMA_QUERIES = [
         summary VARCHAR,
         status VARCHAR DEFAULT 'draft',
         total_items INTEGER DEFAULT 0,
-        generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        category VARCHAR,
+        UNIQUE (briefing_date, category)
     )""",
     # ── Daily Briefing Items ────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS daily_briefing_items
@@ -630,6 +632,45 @@ async def _upgrade_schema(session) -> None:
         log.info("duckdb_schema_upgrade_added_sentiment_shifts_article_index")
     except Exception as exc:
         log.warning("duckdb_schema_upgrade_sentiment_shifts_article_index_failed", error=str(exc))
+
+    # Migration 32: Add category column + composite UNIQUE(briefing_date,
+    # category) to daily_briefings for T004 BriefingGenerator's per-category
+    # briefings (finance/tech/ai/general).
+    # Pre-existing DuckDB files won't get the column via CREATE TABLE IF
+    # NOT EXISTS. Idempotent ALTER TABLE + CREATE UNIQUE INDEX IF NOT EXISTS
+    # (DuckDB doesn't support ALTER TABLE ADD CONSTRAINT, so use unique index
+    # to enforce the composite uniqueness — matches PostgreSQL migration 32).
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'daily_briefings' AND column_name = 'category'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(text("ALTER TABLE daily_briefings ADD COLUMN category VARCHAR"))
+            log.info("duckdb_schema_upgrade_added_daily_briefings_category")
+        except Exception as exc:
+            log.warning(
+                "duckdb_schema_upgrade_daily_briefings_category_failed",
+                error=str(exc),
+            )
+    # Composite unique index — idempotent. DuckDB CREATE UNIQUE INDEX IF NOT
+    # EXISTS is supported (DuckDB >=0.6). Equivalent to PostgreSQL's
+    # uq_briefings_date_category constraint from migration 32.
+    try:
+        await session.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_briefings_date_category "
+                "ON daily_briefings(briefing_date, category)"
+            )
+        )
+        log.info("duckdb_schema_upgrade_added_briefings_date_category_unique")
+    except Exception as exc:
+        log.warning(
+            "duckdb_schema_upgrade_briefings_date_category_unique_failed",
+            error=str(exc),
+        )
 
     # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.

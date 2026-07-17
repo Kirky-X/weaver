@@ -46,6 +46,9 @@ class CallPoint(str, Enum):
     ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"
     CLAIM_EXTRACTION = "claim_extraction"
+    # T004: BriefingGenerator — daily per-category briefing summary generation.
+    # Used by BriefingGenerator.generate() to summarize articles per category.
+    BRIEFING = "briefing"
 
 
 class Capability(str, Enum):

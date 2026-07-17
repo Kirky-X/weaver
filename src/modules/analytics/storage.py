@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from core.observability import get_logger
@@ -20,7 +21,7 @@ ShiftScope = Literal["community", "article", "all"]
 class AnalyticsStorage:
     """Persist and retrieve analytics data.
 
-    Implements: AnalyticsStorageProtocol
+    Implements: AnalyticsStorageProtocol (core.protocols.repositories)
     """
 
     def __init__(self, pool: RelationalPool) -> None:
@@ -180,46 +181,247 @@ class AnalyticsStorage:
         Returns:
             List of briefing dicts, each including an ``items`` list with
             score breakdown and reason. Ordered by generation time desc.
+
+        Raises:
+            Exception: On DB error (Rule 12). API endpoint catches and
+                returns an empty list to the client.
         """
-        try:
-            async with self._pool.session_context() as session:
-                from datetime import date as date_type
+        async with self._pool.session_context() as session:
+            from datetime import date as date_type
 
-                from sqlalchemy import select
-                from sqlalchemy.orm import selectinload
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
 
-                from core.db import DailyBriefing
+            from core.db import DailyBriefing
 
-                query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
-                if date:
-                    target_date = date_type.fromisoformat(date)
-                    query = query.where(DailyBriefing.briefing_date == target_date)
-                query = query.order_by(DailyBriefing.generated_at.desc()).limit(limit)
-                result = await session.execute(query)
-                rows = result.scalars().all()
-                return [
-                    {
-                        "id": r.id,
-                        "briefing_date": str(r.briefing_date),
-                        "title": r.title,
-                        "summary": r.summary,
-                        "status": r.status,
-                        "total_items": r.total_items,
-                        "generated_at": r.generated_at.isoformat() if r.generated_at else None,
-                        "items": [
-                            {
-                                "rank": item.rank,
-                                "article_id": str(item.article_id),
-                                "category": item.category,
-                                "score": float(item.score) if item.score else None,
-                                "score_breakdown": item.score_breakdown,
-                                "reason": item.reason,
-                            }
-                            for item in r.items
-                        ],
-                    }
-                    for r in rows
-                ]
-        except Exception as exc:
-            log.error("get_briefings_with_items_failed", error=str(exc))
-            return []
+            query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
+            if date:
+                target_date = date_type.fromisoformat(date)
+                query = query.where(DailyBriefing.briefing_date == target_date)
+            query = query.order_by(DailyBriefing.generated_at.desc()).limit(limit)
+            result = await session.execute(query)
+            rows = result.scalars().all()
+            return [
+                {
+                    "id": r.id,
+                    "briefing_date": str(r.briefing_date),
+                    "title": r.title,
+                    "summary": r.summary,
+                    "status": r.status,
+                    "total_items": r.total_items,
+                    "category": r.category,
+                    "generated_at": r.generated_at.isoformat() if r.generated_at else None,
+                    "items": [
+                        {
+                            "rank": item.rank,
+                            "article_id": str(item.article_id),
+                            "category": item.category,
+                            "score": float(item.score) if item.score else None,
+                            "score_breakdown": item.score_breakdown,
+                            "reason": item.reason,
+                        }
+                        for item in r.items
+                    ],
+                }
+                for r in rows
+            ]
+
+    # ── T004: BriefingGenerator support ────────────────────────────────────
+
+    # Briefing category → articles_core.category mapping.
+    # - finance → 经济 (CategoryType.ECONOMY)
+    # - tech → 科技 (CategoryType.TECHNOLOGY)
+    # - ai → keyword match on title/body (no direct enum equivalent)
+    # - general → no filter (all categories)
+    # AI_KEYWORDS used for ai category filter (case-insensitive substring).
+    AI_KEYWORDS: tuple[str, ...] = (
+        "AI",
+        "人工智能",
+        "大模型",
+        "LLM",
+        "GPT",
+        "Claude",
+        "Gemini",
+        "机器学习",
+        "深度学习",
+        "神经网络",
+    )
+
+    async def fetch_articles_for_briefing(
+        self,
+        briefing_date: date,
+        category: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch articles for a given date filtered by briefing category.
+
+        Implements the category mapping decision (Rule 7 — exposed conflict,
+        decision: hybrid):
+        - finance → articles_core.category == CategoryType.ECONOMY ('经济')
+        - tech → articles_core.category == CategoryType.TECHNOLOGY ('科技')
+        - ai → title OR body contains any AI_KEYWORDS (case-insensitive)
+        - general → no category filter (all articles on that date)
+
+        Body is fetched via LEFT JOIN to article_bodies (vertical split per
+        Weaver-数据库设计文档 §9.1). Required by spec R-briefing-003 — LLM
+        summary needs article body, not just title (Rule 24 — no simplified
+        implementation).
+
+        Args:
+            briefing_date: Date to fetch articles for. publish_time window is
+                [briefing_date 00:00:00, briefing_date 23:59:59] (same day,
+                no -24h lookback — that was a bug).
+            category: Briefing category — one of {finance, tech, ai, general}.
+
+        Returns:
+            List of article dicts with article_id/title/body/category/score/
+            sentiment_score/credibility_score/quality_score/publish_time.
+
+        Raises:
+            ValueError: If category is not in {finance, tech, ai, general}.
+            Exception: On DB error (Rule 12). BriefingGenerator propagates
+                to caller.
+        """
+        if category not in {"finance", "tech", "ai", "general"}:
+            raise ValueError(
+                f"Invalid briefing category '{category}'. " f"Valid: finance/tech/ai/general"
+            )
+
+        async with self._pool.session_context() as session:
+            from datetime import datetime as dt
+
+            from sqlalchemy import or_, select
+
+            from core.db import ArticleBody, ArticleCore
+            from core.db.models.base import CategoryType
+
+            # Same-day window [00:00:00, 23:59:59]. No -24h lookback —
+            # previous fix incorrectly expanded the window to 48h.
+            start_dt = dt(briefing_date.year, briefing_date.month, briefing_date.day)
+            end_dt = dt(briefing_date.year, briefing_date.month, briefing_date.day, 23, 59, 59)
+
+            # LEFT JOIN article_bodies to fetch body in the same query
+            # (vertical split per §9.1). Body is required by spec R-briefing-003
+            # for LLM summary input — returning body="" was a Rule 24 violation.
+            query = (
+                select(ArticleCore, ArticleBody.body)
+                .outerjoin(ArticleBody, ArticleBody.article_id == ArticleCore.id)
+                .where(
+                    ArticleCore.publish_time >= start_dt,
+                    ArticleCore.publish_time <= end_dt,
+                )
+                .order_by(ArticleCore.publish_time.desc())
+            )
+
+            # Apply category filter.
+            if category == "finance":
+                query = query.where(ArticleCore.category == CategoryType.ECONOMY)
+            elif category == "tech":
+                query = query.where(ArticleCore.category == CategoryType.TECHNOLOGY)
+            elif category == "ai":
+                # Keyword match on title OR body (Rule 24 — must match body
+                # too, not just title). Body is now available via the JOIN.
+                title_conditions = [ArticleCore.title.ilike(f"%{kw}%") for kw in self.AI_KEYWORDS]
+                body_conditions = [ArticleBody.body.ilike(f"%{kw}%") for kw in self.AI_KEYWORDS]
+                query = query.where(or_(*title_conditions, *body_conditions))
+            # general: no filter
+
+            result = await session.execute(query)
+            rows = result.all()
+
+            return [
+                {
+                    "article_id": str(r.ArticleCore.id),
+                    "title": r.ArticleCore.title,
+                    "body": r.body or "",
+                    "category": r.ArticleCore.category,
+                    "score": float(r.ArticleCore.score) if r.ArticleCore.score else 0.0,
+                    "sentiment_score": (
+                        float(r.ArticleCore.sentiment_score)
+                        if r.ArticleCore.sentiment_score
+                        else None
+                    ),
+                    "credibility_score": (
+                        float(r.ArticleCore.credibility_score)
+                        if r.ArticleCore.credibility_score
+                        else None
+                    ),
+                    "quality_score": None,  # lives in article_analysis (separate join)
+                    "publish_time": r.ArticleCore.publish_time,
+                }
+                for r in rows
+            ]
+
+    async def save_briefing(
+        self,
+        briefing_date: date,
+        category: str,
+        summary: str | None,
+        items: list[dict[str, Any]],
+    ) -> int:
+        """Persist a daily briefing + items.
+
+        Idempotent: if a briefing with the same (briefing_date, category)
+        already exists, it is replaced (delete + insert). This matches the
+        spec R-briefing-002 'same-day same-category 覆盖' semantics.
+
+        Args:
+            briefing_date: Briefing date.
+            category: Briefing category (finance/tech/ai/general).
+            summary: LLM-generated summary (None if LLM failed).
+            items: List of item dicts with article_id/rank/score/category/reason.
+
+        Returns:
+            The persisted briefing id.
+
+        Raises:
+            Exception: On DB error (Rule 12). BriefingGenerator propagates
+                to caller (T010 scheduler / T009 endpoint).
+        """
+        async with self._pool.session_context() as session:
+            from sqlalchemy import delete, select
+
+            from core.db import DailyBriefing, DailyBriefingItem
+
+            # Idempotency: delete existing briefing with same (date, category).
+            # CASCADE on daily_briefing_items.briefing_id will auto-delete items.
+            existing = await session.execute(
+                select(DailyBriefing).where(
+                    DailyBriefing.briefing_date == briefing_date,
+                    DailyBriefing.category == category,
+                )
+            )
+            existing_row = existing.scalar_one_or_none()
+            if existing_row:
+                await session.execute(
+                    delete(DailyBriefing).where(DailyBriefing.id == existing_row.id)
+                )
+
+            briefing = DailyBriefing(
+                briefing_date=briefing_date,
+                title=f"Daily briefing — {category}",
+                summary=summary,
+                status="published" if summary else "draft",
+                total_items=len(items),
+                category=category,
+            )
+            session.add(briefing)
+            await session.flush()
+
+            for item in items:
+                # Explicit UUID conversion — DailyBriefingItem.article_id is
+                # UUID(as_uuid=True). Items from BriefingGenerator carry str
+                # article_id; explicit conversion ensures DuckDB compatibility
+                # (DuckDB's UUID type is stricter than PostgreSQL's).
+                briefing_item = DailyBriefingItem(
+                    briefing_id=briefing.id,
+                    article_id=uuid.UUID(item["article_id"]),
+                    rank=item["rank"],
+                    score=item.get("score", 0.0),
+                    score_breakdown=item.get("score_breakdown"),
+                    category=item.get("category"),
+                    reason=item.get("reason"),
+                )
+                session.add(briefing_item)
+
+            await session.commit()
+            return int(briefing.id)

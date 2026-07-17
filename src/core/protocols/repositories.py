@@ -483,3 +483,63 @@ class GraphWriter(Protocol):
             stable across re-runs and consistent across Neo4j/Ladybug backends.
         """
         ...
+
+
+@runtime_checkable
+class AnalyticsStorageProtocol(Protocol):
+    """Protocol for analytics storage implementations.
+
+    Implementations:
+        - AnalyticsStorage: PostgreSQL/DuckDB-backed analytics storage
+          (src/modules/analytics/storage.py)
+
+    Used by:
+        - BriefingGenerator (T004): depends on this Protocol for fetching
+          articles + persisting daily briefings.
+        - T008 DailyBriefingService / T010 scheduler: will also depend on
+          this Protocol.
+
+    Decoupling rationale: BriefingGenerator is in modules/briefing/, storage
+    is in modules/analytics/. Protocol dependency avoids circular import
+    and allows test mocks (test_generator.py uses AsyncMock satisfying
+    this Protocol).
+
+    Note: This Protocol only declares the methods used by BriefingGenerator
+    (Interface Segregation Principle). AnalyticsStorage also implements
+    save_shift/get_shifts/get_briefings_with_items for other consumers
+    (analytics endpoint, SentimentTrackerNode) — those are not part of
+    this Protocol.
+    """
+
+    async def fetch_articles_for_briefing(
+        self,
+        briefing_date: Any,
+        category: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch articles for a given date filtered by briefing category.
+
+        Args:
+            briefing_date: Date to fetch articles for.
+            category: Briefing category (finance/tech/ai/general).
+
+        Returns:
+            List of article dicts with article_id/title/body/category/score/
+            sentiment_score/credibility_score/quality_score/publish_time.
+        """
+        ...
+
+    async def save_briefing(
+        self,
+        briefing_date: Any,
+        category: str,
+        summary: str | None,
+        items: list[dict[str, Any]],
+    ) -> int:
+        """Persist a daily briefing + items.
+
+        Idempotent: same (briefing_date, category) replaces existing briefing.
+
+        Returns:
+            The persisted briefing id.
+        """
+        ...
