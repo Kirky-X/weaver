@@ -45,12 +45,22 @@ class Neo4jEntityRepo(BaseEntityRepo):
         """Create uniqueness constraints if they don't exist.
 
         Ensures that (canonical_name, type) is unique for Entity nodes.
+        Also ensures NarrativeNode.id is unique to support idempotent MERGE
+        in GraphWriter.merge_narrative (prevents duplicate NarrativeNode
+        creation under concurrent calls).
         """
         constraints = [
             # Entity uniqueness constraint
             """
             CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS
             FOR (e:Entity) REQUIRE (e.canonical_name, e.type) IS UNIQUE
+            """,
+            # NarrativeNode uniqueness constraint — supports idempotent MERGE
+            # in Neo4jWriter.merge_narrative. Without this, concurrent calls
+            # could create duplicate NarrativeNode for the same article.
+            """
+            CREATE CONSTRAINT narrative_id_unique IF NOT EXISTS
+            FOR (n:NarrativeNode) REQUIRE n.id IS UNIQUE
             """,
         ]
 

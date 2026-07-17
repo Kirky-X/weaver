@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -245,3 +245,43 @@ class MergerOutput(BaseModel):
 
     merged_title: str
     merged_body: str
+
+
+class NarrativeOutput(BaseModel):
+    """Output model for the narrative synthesis node.
+
+    Captures the four framing dimensions used to populate NarrativeNode:
+    - source_bias: 媒体立场倾向（如 左倾/右倾/中立/官方/民营）
+    - frame: 叙事框架（如 经济影响/技术突破/政策监管/社会影响）
+    - tone: 文章语调（如 乐观/悲观/客观/批判/振奋）
+    - emphasis: 报道侧重点（如 合作战略/市场竞争/风险警示/技术创新）
+
+    Enum constraints on source_bias/tone align with the prompt contract
+    (config/prompts/narrative_synthesis.toml) to prevent prompt injection
+    from polluting the knowledge graph with arbitrary strings.
+    """
+
+    source_bias: Literal[
+        "左倾",
+        "右倾",
+        "中立",
+        "官方",
+        "民营",
+        "商业",
+        "学术",
+        "民间",
+    ] = "中立"
+    frame: str = Field(min_length=1, max_length=100)
+    tone: Literal[
+        "乐观",
+        "悲观",
+        "客观",
+        "批判",
+        "振奋",
+        "焦虑",
+        "冷静",
+        "激昂",
+        "嘲讽",
+        "同情",
+    ] = "客观"
+    emphasis: str = Field(min_length=1, max_length=60)

@@ -431,3 +431,30 @@ class GraphWriter(Protocol):
     async def cleanup_orphan_entities(self) -> int: ...
 
     async def archive_old_articles(self, days: int = 90) -> int: ...
+
+    async def merge_narrative(
+        self,
+        article_id: str,
+        source_bias: str,
+        frame: str,
+        tone: str,
+        emphasis: str,
+    ) -> str:
+        """Merge a NarrativeNode and link it to the article's EventNode.
+
+        Creates or updates a NarrativeNode with the four framing dimensions,
+        then establishes EventNode-[:HAS_NARRATIVE]->NarrativeNode relationship
+        (EventNode is matched by `id = article_id`, which LadybugWriter.write
+        and Neo4jWriter.write already create during article persistence).
+
+        Args:
+            article_id: Article UUID string. Used to match the EventNode.
+            source_bias: 媒体立场倾向（左倾/右倾/中立/官方/民营 等）.
+            frame: 叙事框架（经济影响/技术突破/政策监管/社会影响 等）.
+            tone: 文章语调（乐观/悲观/客观/批判/振奋 等）.
+            emphasis: 报道侧重点（合作战略/市场竞争/风险警示/技术创新 等）.
+
+        Returns:
+            The graph database internal ID of the NarrativeNode.
+        """
+        ...

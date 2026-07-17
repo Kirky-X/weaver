@@ -71,6 +71,11 @@ name = "conflict_detector"
 class_path = "modules.processing.nodes.quality.conflict_detector.ConflictDetectorNode"
 enabled = true
 
+[[phase3.stages]]
+name = "narrative_generator"
+class_path = "modules.processing.nodes.extraction.narrative_generator.NarrativeGeneratorNode"
+enabled = true
+
 # ============================================================
 # Batch Processing
 # ============================================================

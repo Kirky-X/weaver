@@ -367,3 +367,90 @@ class LadybugWriter:
     async def archive_old_articles(self, days: int = 90) -> int:
         """Archive/delete articles older than specified days."""
         return await self.article_repo.delete_old_articles(days)
+
+    async def merge_narrative(
+        self,
+        article_id: str,
+        source_bias: str,
+        frame: str,
+        tone: str,
+        emphasis: str,
+    ) -> str:
+        """Merge a NarrativeNode and link it to the article's EventNode.
+
+        Implements: GraphWriter.merge_narrative
+
+        Creates or updates a NarrativeNode with the four framing dimensions
+        (source_bias/frame/tone/emphasis), then establishes
+        EventNode-[:HAS_NARRATIVE]->NarrativeNode relationship.
+
+        EventNode is idempotently MERGEd inside this call (id = article_id)
+        to avoid pipeline phase ordering coupling: the caller does not need
+        to guarantee EventNode pre-existence. If EventNode was already
+        created by LadybugWriter._write_locked, MERGE is a no-op; otherwise
+        this call creates a minimal EventNode stub.
+
+        Uses the global write lock because LadybugDB only supports one write
+        transaction at a time (consistent with LadybugWriter.write). The
+        NarrativeNode MERGE + EventNode MERGE + HAS_NARRATIVE MERGE are
+        issued as a single Cypher to ensure atomicity (avoids orphan
+        NarrativeNode if the relationship step fails).
+
+        Args:
+            article_id: Article UUID string. Used as EventNode id and to
+                derive NarrativeNode id.
+            source_bias: 媒体立场倾向.
+            frame: 叙事框架.
+            tone: 文章语调.
+            emphasis: 报道侧重点.
+
+        Returns:
+            The NarrativeNode business-level ID (format: "narrative-{article_id}"),
+            stable across re-runs and consistent across Neo4j/Ladybug backends.
+
+        Raises:
+            RuntimeError: If the query returns no records (unexpected failure).
+        """
+        narrative_id = f"narrative-{article_id}"
+        now = int(time.time())
+        async with _write_lock:
+            # Single Cypher for atomicity: MERGE NarrativeNode + MERGE EventNode
+            # (idempotent stub) + MERGE HAS_NARRATIVE. Aligned with Neo4jWriter
+            # behavior to satisfy LSP (both writers must behave identically).
+            result = await self._pool.execute_query(
+                """
+                MERGE (n:NarrativeNode {id: $narrative_id})
+                SET n.source_bias = $source_bias,
+                    n.frame = $frame,
+                    n.tone = $tone,
+                    n.emphasis = $emphasis,
+                    n.updated_at = $now
+                WITH n
+                MERGE (e:EventNode {id: $article_id})
+                MERGE (e)-[:HAS_NARRATIVE]->(n)
+                RETURN n.id AS narrative_id
+                """,
+                {
+                    "narrative_id": narrative_id,
+                    "article_id": article_id,
+                    "source_bias": source_bias,
+                    "frame": frame,
+                    "tone": tone,
+                    "emphasis": emphasis,
+                    "now": now,
+                },
+            )
+
+        records = result or []
+        if not records:
+            raise RuntimeError(f"merge_narrative returned no records for article_id={article_id}")
+        record = records[0]
+        if hasattr(record, "get"):
+            returned_id = record.get("narrative_id") or record.get(0)
+        else:
+            returned_id = record[0] if record else None
+        if not returned_id:
+            raise RuntimeError(
+                f"merge_narrative: NarrativeNode id empty for article_id={article_id}"
+            )
+        return str(returned_id)

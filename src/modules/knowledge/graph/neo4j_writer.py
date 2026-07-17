@@ -539,3 +539,75 @@ class Neo4jWriter:
         # After deleting articles, clean up orphan entities
         await self.cleanup_orphan_entities()
         return count
+
+    async def merge_narrative(
+        self,
+        article_id: str,
+        source_bias: str,
+        frame: str,
+        tone: str,
+        emphasis: str,
+    ) -> str:
+        """Merge a NarrativeNode and link it to the article's EventNode.
+
+        Implements: GraphWriter.merge_narrative
+
+        Creates or updates a NarrativeNode with the four framing dimensions
+        (source_bias/frame/tone/emphasis), then establishes
+        EventNode-[:HAS_NARRATIVE]->NarrativeNode relationship.
+
+        EventNode is idempotently MERGEd inside this call (id = article_id)
+        to avoid pipeline phase ordering coupling: the caller does not need
+        to guarantee EventNode pre-existence. If EventNode was already
+        created by memory_publisher or LadybugWriter.write, MERGE is a no-op;
+        otherwise this call creates a minimal EventNode stub.
+
+        Args:
+            article_id: Article UUID string. Used as EventNode id and to
+                derive NarrativeNode id.
+            source_bias: 媒体立场倾向.
+            frame: 叙事框架.
+            tone: 文章语调.
+            emphasis: 报道侧重点.
+
+        Returns:
+            The NarrativeNode business-level ID (format: "narrative-{article_id}"),
+            stable across re-runs and consistent across Neo4j/Ladybug backends.
+        """
+        narrative_id = f"narrative-{article_id}"
+        query = """
+        MERGE (n:NarrativeNode {id: $narrative_id})
+        SET n.source_bias = $source_bias,
+            n.frame = $frame,
+            n.tone = $tone,
+            n.emphasis = $emphasis,
+            n.updated_at = timestamp()
+        WITH n
+        MERGE (e:EventNode {id: $article_id})
+        MERGE (e)-[:HAS_NARRATIVE]->(n)
+        RETURN n.id AS narrative_id
+        """
+        result = await self._pool.execute_query(
+            query,
+            {
+                "narrative_id": narrative_id,
+                "article_id": article_id,
+                "source_bias": source_bias,
+                "frame": frame,
+                "tone": tone,
+                "emphasis": emphasis,
+            },
+        )
+        records = result or []
+        if not records:
+            raise RuntimeError(f"merge_narrative returned no records for article_id={article_id}")
+        record = records[0]
+        if hasattr(record, "get"):
+            returned_id = record.get("narrative_id") or record.get(0)
+        else:
+            returned_id = record[0] if record else None
+        if not returned_id:
+            raise RuntimeError(
+                f"merge_narrative: NarrativeNode id empty for article_id={article_id}"
+            )
+        return str(returned_id)

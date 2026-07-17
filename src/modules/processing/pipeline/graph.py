@@ -25,6 +25,9 @@ from modules.processing.nodes.classification.credibility_checker import (
 )
 from modules.processing.nodes.extraction.analyze import AnalyzeNode
 from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+from modules.processing.nodes.extraction.narrative_generator import (
+    NarrativeGeneratorNode,
+)
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
@@ -79,6 +82,7 @@ PHASE3_STAGES = {
     "entity_extractor": "phase3_entity_extractor",
     "fake_news_detector": "phase3_fake_news_detector",
     "conflict_detector": "phase3_conflict_detector",
+    "narrative_generator": "phase3_narrative_generator",
 }
 
 
@@ -193,6 +197,14 @@ class Pipeline:
         self._fake_news_node = (
             FakeNewsDetectorNode(detector=fake_news_detector)
             if fake_news_detector is not None
+            else None
+        )
+        # Narrative synthesis node — analyzes framing dimensions (source_bias/
+        # frame/tone/emphasis) and persists NarrativeNode linked to EventNode.
+        # Degraded gracefully when LLM or graph_writer fails (Rule 12).
+        self._narrative_generator = (
+            NarrativeGeneratorNode(llm, budget, prompt_loader, graph_writer)
+            if graph_writer is not None
             else None
         )
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
@@ -902,6 +914,21 @@ class Pipeline:
             await self._update_processing_stage(
                 state, PHASE3_STAGES["conflict_detector"], pending_updates
             )
+
+            # === Narrative Generator 阶段 ===
+            # Analyzes article framing (source_bias/frame/tone/emphasis) and
+            # persists NarrativeNode linked to EventNode. Skipped when
+            # graph_writer is unavailable or when terminal/merged (the node
+            # itself also re-checks these conditions).
+            if self._narrative_generator is not None:
+                start = time.monotonic()
+                state = await self._narrative_generator.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="narrative_generator").observe(
+                    time.monotonic() - start
+                )
+                await self._update_processing_stage(
+                    state, PHASE3_STAGES["narrative_generator"], pending_updates
+                )
 
             # === Entity Resolver 阶段 ===
             if state.get("entities") and self._deps.nlp.entity_resolver:
