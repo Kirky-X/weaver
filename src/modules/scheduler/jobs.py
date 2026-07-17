@@ -3,10 +3,11 @@
 """Scheduled jobs for weaver backend.
 
 The SchedulerJobs class is a backward-compatible facade that delegates to
-three single-responsibility sub-classes:
+four single-responsibility sub-classes:
 - ConsistencyJobs: retry, sync, and consistency checks
 - MaintenanceJobs: cleanup and archival
 - AnalyticsJobs: aggregation, briefing, and signal detection
+- AlertJobs: trend alert evaluation (T019 / R-alert-002)
 
 The registration/scheduling logic and the source-scoring/metrics jobs remain
 in SchedulerJobs itself.
@@ -23,6 +24,7 @@ from core.db import Article, PersistStatus
 from core.observability import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
+from modules.scheduler.alert_jobs import AlertJobs
 from modules.scheduler.analytics_jobs import AnalyticsJobs
 from modules.scheduler.consistency_jobs import ConsistencyJobs
 from modules.scheduler.maintenance_jobs import MaintenanceJobs
@@ -31,6 +33,7 @@ from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, V
 
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
+    from core.protocols.services import SentimentTrendProtocol, TrendDetectionProtocol
     from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
 log = get_logger(__name__)
@@ -39,12 +42,13 @@ log = get_logger(__name__)
 class SchedulerJobs:
     """APScheduler jobs facade for compensation, maintenance, and analytics tasks.
 
-    Delegates consistency, maintenance, and analytics jobs to dedicated
+    Delegates consistency, maintenance, analytics, and alert jobs to dedicated
     sub-classes while keeping source scoring and persist-status metrics
     jobs inline. Preserves the original public API so external callers
     and tests can continue to invoke any job method directly on this class.
 
-    Implements: composition root for ConsistencyJobs, MaintenanceJobs, AnalyticsJobs.
+    Implements: composition root for ConsistencyJobs, MaintenanceJobs,
+    AnalyticsJobs, AlertJobs.
     """
 
     def __init__(
@@ -61,6 +65,8 @@ class SchedulerJobs:
         llm_failure_repo: Any = None,
         url_validator: Any = None,
         knowledge_cache: Any = None,
+        trend_detector: TrendDetectionProtocol | None = None,
+        sentiment_analyzer: SentimentTrendProtocol | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -104,6 +110,11 @@ class SchedulerJobs:
             settings=self._settings_impl,
             knowledge_cache=knowledge_cache,
             consistency_jobs=self._consistency_jobs,
+        )
+        self._alert_jobs = AlertJobs(
+            relational_pool=relational_pool,
+            trend_detector=trend_detector,
+            sentiment_analyzer=sentiment_analyzer,
         )
 
     # ── Settings propagation ────────────────────────────────────────
@@ -215,6 +226,17 @@ class SchedulerJobs:
     async def _fetch_sentiment_signal(self, window_days: int) -> list[float]:
         """Delegate to AnalyticsJobs._fetch_sentiment_signal."""
         return await self._analytics_jobs._fetch_sentiment_signal(window_days)
+
+    # ── AlertJobs delegation ─────────────────────────────────────────
+    async def evaluate_trend_alerts(self) -> int:
+        """Delegate to AlertJobs.evaluate_trend_alerts (T019 / R-alert-002).
+
+        Hourly trend alert evaluation — queries enabled alert_rules,
+        evaluates trend_spike/trend_drop/sentiment_shift rules, and inserts
+        alert_events with 24h dedup. Returns the number of new events
+        inserted (0 when no triggers or when trend services unavailable).
+        """
+        return await self._alert_jobs.evaluate_trend_alerts()
 
     # ── Inline jobs (source scoring & metrics) ───────────────────────
     @scheduled_task("update_source_auto_scores", timeout_seconds=600)

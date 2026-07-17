@@ -89,6 +89,8 @@ class ContainerServicesMixin:
     _causal_inference_service: Any
     _processing_queue: Any
     _pipeline_worker: Any
+    _trend_detector: Any
+    _sentiment_trend_analyzer: Any
 
     # ── Prompt Loader ─────────────────────────────────────────────
 
@@ -255,8 +257,56 @@ class ContainerServicesMixin:
                 llm_failure_repo=self.llm_failure_repo(),
                 url_validator=None,
                 knowledge_cache=self._knowledge_cache,
+                trend_detector=self.trend_detector(),
+                sentiment_analyzer=self.sentiment_trend_analyzer(),
             )
         return self._scheduler_jobs_service
+
+    # ── Trend Services (T019 / R-alert-002) ─────────────────────────
+
+    def trend_detector(self) -> Any:
+        """Get TrendDetector instance (T015 / R-trend-002).
+
+        Returns None when graph pool is unavailable — TrendDetector requires
+        a GraphPool (Neo4j or LadybugDB) to query EventNode frequency. The
+        AlertJobs scheduler handles None gracefully (skips evaluation).
+
+        Returns:
+            TrendDetector instance or None.
+
+        """
+        if self._trend_detector is None:
+            graph_pool = self.graph_pool()
+            if graph_pool is None:
+                return None
+            from modules.trend.detection import TrendDetector
+
+            self._trend_detector = TrendDetector(
+                graph_pool=graph_pool,
+                sentiment_analyzer=self.sentiment_trend_analyzer(),
+            )
+        return self._trend_detector
+
+    def sentiment_trend_analyzer(self) -> Any:
+        """Get SentimentTrendAnalyzer instance (T012 / R-sentiment-002).
+
+        Returns None when relational pool is unavailable — the analyzer
+        requires a RelationalPool to query sentiment_shifts. The AlertJobs
+        scheduler handles None gracefully (skips evaluation).
+
+        Returns:
+            SentimentTrendAnalyzer instance or None.
+
+        """
+        if self._sentiment_trend_analyzer is None:
+            try:
+                pool = self.relational_pool()
+            except RuntimeError:
+                return None
+            from modules.trend.sentiment import SentimentTrendAnalyzer
+
+            self._sentiment_trend_analyzer = SentimentTrendAnalyzer(pool=pool)
+        return self._sentiment_trend_analyzer
 
     # ── Graph Repositories ─────────────────────────────────────────
 

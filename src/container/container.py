@@ -96,6 +96,8 @@ class Container(
         self._cascade_classifier: Any = None
         self._gliner_extractor: Any = None
         self._gliner_warmup_task: Any = None
+        self._trend_detector: Any = None
+        self._sentiment_trend_analyzer: Any = None
 
     def configure(self, settings: Settings, debug: bool = False) -> Container:
         """Configure the container with settings."""

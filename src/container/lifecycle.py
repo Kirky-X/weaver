@@ -671,6 +671,19 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
+        # Trend Alert Evaluation (T019 / R-alert-002) — hourly at minute=0.
+        # Evaluates trend_spike/trend_drop/sentiment_shift rules and inserts
+        # alert_events with 24h dedup. Graceful skip when trend services
+        # unavailable (returns 0, does not block scheduler).
+        scheduler.add_job(
+            jobs.evaluate_trend_alerts,
+            CronTrigger(minute=0),
+            id="evaluate_trend_alerts",
+            name="Evaluate trend alert rules (hourly)",
+            max_instances=1,
+            coalesce=True,
+        )
+
         # Causal Inference - Extract causal edges from graph (every 2 hours)
         # Note: causal service is initialized in startup() before _setup_scheduler
         if self._causal_inference_service is not None:
