@@ -443,6 +443,55 @@ def get_pipeline_service(
         raise HTTPException(status_code=503, detail="Pipeline service not initialized")
 
 
+def get_briefing_service(
+    container: Container = Depends(get_container),
+) -> Any:
+    """FastAPI dependency for DailyBriefingService (T009 / R-briefing-002).
+
+    DailyBriefingService is not container-registered; this dependency assembles
+    it on-demand from container accessors: BriefingGenerator needs
+    (llm_client, token_budget, prompt_loader, AnalyticsStorage), and
+    DailyBriefingService wraps (generator, storage).
+
+    Used by:
+        - T009 briefings endpoint (via the lazy ``_get_briefing_service``
+          helper in ``api.endpoints.briefings``, which mirrors this logic
+          for test patching — both reach the container via
+          ``container.get_container()``).
+        - T010 APScheduler ``generate_daily_briefing`` (lazy-instantiates
+          the service inside the job body; see analytics_jobs.py).
+
+    Raises:
+        HTTPException: 503 if relational pool or LLM client unavailable.
+
+    Returns:
+        DailyBriefingService instance (implements DailyBriefingProtocol).
+
+    """
+    from core.llm.config.token_budget import TokenBudgetManager
+    from modules.analytics import AnalyticsStorage
+    from modules.briefing import BriefingGenerator, DailyBriefingService
+
+    try:
+        pool = container.relational_pool()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Relational pool not initialized")
+
+    llm = container.llm_client()
+    if llm is None:
+        raise HTTPException(status_code=503, detail="LLM client not initialized")
+
+    prompt_loader = container.prompt_loader()
+    storage = AnalyticsStorage(pool=pool)
+    generator = BriefingGenerator(
+        llm=llm,
+        budget=TokenBudgetManager(),
+        prompt_loader=prompt_loader,
+        storage=storage,
+    )
+    return DailyBriefingService(generator=generator, storage=storage)
+
+
 def get_task_registry(
     container: Container = Depends(get_container),
 ) -> TaskRegistryService:

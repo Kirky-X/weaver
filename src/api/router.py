@@ -11,6 +11,7 @@ from api.endpoints import (
     alerts_router,
     analytics_router,
     articles_router,
+    briefings_router,
     causal_router,
     communities_monitoring_router,
     communities_router,
@@ -51,6 +52,9 @@ api_router.include_router(saga_router)
 
 # Analytics endpoints
 api_router.include_router(analytics_router)
+
+# Briefings endpoints (T009 / R-briefing-004, R-briefing-005)
+api_router.include_router(briefings_router)
 
 # Monitoring endpoints (read-only observation)
 api_router.include_router(alerts_router)

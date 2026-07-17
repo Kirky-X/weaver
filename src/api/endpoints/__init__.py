@@ -28,6 +28,7 @@ def __getattr__(name: str) -> APIRouter:
         "alerts_router": ("api.endpoints.monitoring", "alerts_router"),
         "analytics_router": ("api.endpoints.analytics", "router"),
         "articles_router": ("api.endpoints.content.articles", "router"),
+        "briefings_router": ("api.endpoints.briefings", "router"),
         "causal_router": ("api.endpoints.monitoring", "causal_router"),
         "communities_monitoring_router": (
             "api.endpoints.monitoring",
@@ -61,6 +62,7 @@ __all__ = [
     "alerts_router",
     "analytics_router",
     "articles_router",
+    "briefings_router",
     "causal_router",
     "communities_monitoring_router",
     "communities_router",
