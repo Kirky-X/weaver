@@ -346,7 +346,12 @@ SCHEMA_QUERIES = [
         channel VARCHAR DEFAULT 'webhook',
         cooldown_minutes INTEGER DEFAULT 60,
         enabled BOOLEAN DEFAULT true,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        trigger_type VARCHAR DEFAULT 'threshold',
+        trend_window_days INTEGER,
+        trend_threshold DECIMAL(10, 2),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        CHECK (trigger_type IN ('threshold', 'trend_spike', 'trend_drop', 'sentiment_shift')),
+        CHECK (trigger_type = 'threshold' OR (trend_window_days IS NOT NULL AND trend_threshold IS NOT NULL))
     )""",
     # ── Alert Events ────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS alert_events
@@ -539,6 +544,28 @@ async def _upgrade_schema(session) -> None:
             log.info("duckdb_schema_upgrade_added_source_id")
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_source_id_failed", error=str(exc))
+
+    # Migration 28: Add trigger_type/trend_window_days/trend_threshold to alert_rules
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'alert_rules' AND column_name = 'trigger_type'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(
+                text("ALTER TABLE alert_rules ADD COLUMN trigger_type VARCHAR DEFAULT 'threshold'")
+            )
+            await session.execute(
+                text("ALTER TABLE alert_rules ADD COLUMN trend_window_days INTEGER")
+            )
+            await session.execute(
+                text("ALTER TABLE alert_rules ADD COLUMN trend_threshold DECIMAL(10, 2)")
+            )
+            log.info("duckdb_schema_upgrade_added_alert_rules_trend_columns")
+        except Exception as exc:
+            log.warning("duckdb_schema_upgrade_alert_rules_trend_failed", error=str(exc))
 
     # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.

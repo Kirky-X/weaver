@@ -50,6 +50,19 @@ class AlertRule(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+    # Trigger type distinguishes traditional threshold rules from new
+    # trend-based rules (added by migration 28). Default 'threshold'
+    # preserves backward compatibility — existing rules continue to use
+    # metric/operator/threshold fields. Trend rules use
+    # trend_window_days + trend_threshold instead.
+    trigger_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="threshold",
+        server_default=text("'threshold'"),
+    )
+    trend_window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trend_threshold: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -69,6 +82,18 @@ class AlertRule(Base):
         CheckConstraint(
             "operator IN ('z_score>', 'pct_change>', 'absolute>')",
             name="chk_alert_operator_values",
+        ),
+        CheckConstraint(
+            "trigger_type IN ('threshold', 'trend_spike', 'trend_drop', 'sentiment_shift')",
+            name="chk_alert_trigger_type_values",
+        ),
+        # Trend rules (trigger_type != 'threshold') must have both
+        # trend_window_days and trend_threshold populated. Prevents
+        # half-broken trend rules from seed scripts or API writes.
+        CheckConstraint(
+            "trigger_type = 'threshold' OR (trend_window_days IS NOT NULL "
+            "AND trend_threshold IS NOT NULL)",
+            name="chk_alert_trend_fields_required",
         ),
     )
 

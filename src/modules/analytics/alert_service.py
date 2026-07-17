@@ -77,6 +77,11 @@ class AlertService:
                 "channel": rule.channel,
                 "cooldown_minutes": rule.cooldown_minutes,
                 "enabled": rule.enabled,
+                "trigger_type": rule.trigger_type,
+                "trend_window_days": rule.trend_window_days,
+                "trend_threshold": (
+                    float(rule.trend_threshold) if rule.trend_threshold is not None else None
+                ),
             }
 
     async def get_rule(self, rule_id: int) -> dict[str, Any] | None:
@@ -99,6 +104,11 @@ class AlertService:
                 "channel": rule.channel,
                 "cooldown_minutes": rule.cooldown_minutes,
                 "enabled": rule.enabled,
+                "trigger_type": rule.trigger_type,
+                "trend_window_days": rule.trend_window_days,
+                "trend_threshold": (
+                    float(rule.trend_threshold) if rule.trend_threshold is not None else None
+                ),
             }
 
     async def list_rules(
@@ -130,6 +140,11 @@ class AlertService:
                     "channel": r.channel,
                     "cooldown_minutes": r.cooldown_minutes,
                     "enabled": r.enabled,
+                    "trigger_type": r.trigger_type,
+                    "trend_window_days": r.trend_window_days,
+                    "trend_threshold": (
+                        float(r.trend_threshold) if r.trend_threshold is not None else None
+                    ),
                 }
                 for r in rules
             ]
@@ -158,6 +173,11 @@ class AlertService:
                 "channel": rule.channel,
                 "cooldown_minutes": rule.cooldown_minutes,
                 "enabled": rule.enabled,
+                "trigger_type": rule.trigger_type,
+                "trend_window_days": rule.trend_window_days,
+                "trend_threshold": (
+                    float(rule.trend_threshold) if rule.trend_threshold is not None else None
+                ),
             }
 
     async def delete_rule(self, rule_id: int) -> bool:
