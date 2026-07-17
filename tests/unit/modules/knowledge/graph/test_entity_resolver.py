@@ -518,14 +518,17 @@ class TestEntityResolverResolveEntityExtended:
 
     @pytest.mark.asyncio
     async def test_resolve_entity_llm_dedup_merge(self, mock_entity_repo, mock_vector_repo):
-        """Test resolve_entity merges via LLM dedup."""
+        """Test resolve_entity merges via LLM dedup.
+
+        P2 fix: _llm_deduplicate now routes via call_at(CallPoint.ENTITY_RESOLVER)
+        instead of raw self._llm.chat(). Mock call_at accordingly.
+        """
         from modules.knowledge.graph.entity_resolver import EntityResolver
 
         mock_llm = MagicMock()
-        mock_llm.chat = AsyncMock(
-            return_value=MagicMock(
-                content='{"should_merge": true, "confidence": 0.85, "target_entity": {"canonical_name": "TargetEntity", "neo4j_id": "target-id"}}'
-            )
+        # call_at returns raw string content (parsed by parse_llm_json)
+        mock_llm.call_at = AsyncMock(
+            return_value='{"should_merge": true, "confidence": 0.85, "target_entity": {"canonical_name": "TargetEntity", "neo4j_id": "target-id"}}'
         )
 
         resolver = EntityResolver(

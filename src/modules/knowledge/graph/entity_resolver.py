@@ -19,6 +19,7 @@ from tenacity import (
 
 from core.constants import EntityType
 from core.llm.client import LLMClient
+from core.llm.types import CallPoint
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.protocols import EntityRepository, VectorRepository
@@ -527,10 +528,17 @@ class EntityResolver:
         entity_type: str,
         candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Use LLM to determine if entities should be merged."""
+        """Use LLM to determine if entities should be merged.
+
+        Routed via ``call_at(CallPoint.ENTITY_RESOLVER)`` so the call
+        participates in routing / cache / resilience / usage accounting
+        (P2 fix — previously bypassed via ``self._llm.chat()``, which
+        skipped prompt-loader, router, and failure recording).
+        """
         if not self._llm:
             return {"should_merge": False}
 
+        # Build candidate summary (top 5 by similarity)
         candidate_text = "\n".join(
             [
                 f"- {c.get('canonical_name', 'unknown')} "
@@ -540,36 +548,18 @@ class EntityResolver:
             ]
         )
 
-        prompt = f"""Given a new entity name and existing candidate entities, determine if they refer to the same real-world entity.
-
-New entity:
-- Name: {query_name}
-- Type: {entity_type}
-
-Candidate entities:
-{candidate_text}
-
-Respond with JSON:
-{{
-  "should_merge": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "brief explanation",
-  "target_entity": {{"canonical_name": "...", "neo4j_id": "..."}} (only if should_merge is true)
-}}
-
-Consider:
-- Same person, organization, or location should be merged
-- Different entities with similar names should NOT be merged
-- Consider if they could be aliases, abbreviations, or translations of each other
-- Entity type should match for merge"""
-
         try:
-            result = await self._llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+            content = await self._llm.call_at(
+                CallPoint.ENTITY_RESOLVER,
+                {
+                    "query_name": query_name,
+                    "entity_type": entity_type,
+                    "candidates": candidate_text,
+                },
             )
-            content = result.content if hasattr(result, "content") else str(result)
-            return parse_llm_json(content)
+            # call_at may return a model instance or raw string; coerce to str
+            text = content if isinstance(content, str) else str(content)
+            return parse_llm_json(text)
         except Exception as e:
             log.warning("llm_dedupe_failed", error=str(e))
 
