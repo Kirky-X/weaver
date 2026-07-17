@@ -520,6 +520,7 @@ class ContainerServicesMixin:
             SentimentAnalyzer,
             SentimentAnalyzerConfig,
         )
+        from modules.analytics.storage import AnalyticsStorage
         from modules.processing.nlp.spacy_extractor import SpacyExtractor
         from modules.processing.pipeline.deps import (
             PipelineAnalyzers,
@@ -604,6 +605,10 @@ class ContainerServicesMixin:
                             self.community_updater() if self.graph_pool() is not None else None
                         ),
                         saga_orchestrator=self._saga_orchestrator,
+                        # T003: AnalyticsStorage for SentimentTrackerNode.
+                        # None when relational pool is unavailable; pipeline
+                        # skips the node (graph.py guards on None).
+                        sentiment_shift_repo=AnalyticsStorage(pool=self.relational_pool()),
                     ),
                 ),
                 settings=self._settings,

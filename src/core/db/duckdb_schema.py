@@ -295,7 +295,11 @@ SCHEMA_QUERIES = [
         window_end TIMESTAMP WITH TIME ZONE,
         before_avg DECIMAL(5, 4),
         after_avg DECIMAL(5, 4),
-        trigger_article_ids VARCHAR[]
+        trigger_article_ids VARCHAR[],
+        article_id UUID,
+        entity_name VARCHAR,
+        shift_value DECIMAL(5, 4),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",
     # ── Daily Briefings ─────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS daily_briefings
@@ -566,6 +570,66 @@ async def _upgrade_schema(session) -> None:
             log.info("duckdb_schema_upgrade_added_alert_rules_trend_columns")
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_alert_rules_trend_failed", error=str(exc))
+
+    # Migration 30: Add article_id/entity_name/shift_value to sentiment_shifts
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'sentiment_shifts' AND column_name = 'article_id'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(text("ALTER TABLE sentiment_shifts ADD COLUMN article_id UUID"))
+            await session.execute(
+                text("ALTER TABLE sentiment_shifts ADD COLUMN entity_name VARCHAR")
+            )
+            await session.execute(
+                text("ALTER TABLE sentiment_shifts ADD COLUMN shift_value DECIMAL(5, 4)")
+            )
+            log.info("duckdb_schema_upgrade_added_sentiment_shifts_article_columns")
+        except Exception as exc:
+            log.warning("duckdb_schema_upgrade_sentiment_shifts_article_failed", error=str(exc))
+
+    # created_at column: ORM SentimentShift model defines created_at with
+    # default NOW(), but pre-existing DuckDB sentiment_shifts tables lacked
+    # this column. T003 SentimentTrackerNode is the first path to write
+    # sentiment_shifts via ORM (save_shift), which would fail without this
+    # column. Idempotent ALTER TABLE for pre-existing files.
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'sentiment_shifts' AND column_name = 'created_at'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(
+                text(
+                    "ALTER TABLE sentiment_shifts "
+                    "ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"
+                )
+            )
+            log.info("duckdb_schema_upgrade_added_sentiment_shifts_created_at")
+        except Exception as exc:
+            log.warning("duckdb_schema_upgrade_sentiment_shifts_created_at_failed", error=str(exc))
+
+    # Migration 31: covering index for T003 SentimentTrackerNode's
+    # get_last_article_shift query (WHERE entity_name=? AND article_id IS
+    # NOT NULL ORDER BY detected_at DESC LIMIT 1). DuckDB does not support
+    # partial indexes (postgresql_where is ignored), so this is a regular
+    # composite index covering all rows. Idempotent CREATE INDEX IF NOT
+    # EXISTS.
+    try:
+        await session.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_shifts_entity_article_detected "
+                "ON sentiment_shifts(entity_name, article_id, detected_at)"
+            )
+        )
+        log.info("duckdb_schema_upgrade_added_sentiment_shifts_article_index")
+    except Exception as exc:
+        log.warning("duckdb_schema_upgrade_sentiment_shifts_article_index_failed", error=str(exc))
 
     # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.

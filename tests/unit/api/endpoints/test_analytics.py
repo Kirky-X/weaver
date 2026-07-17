@@ -163,6 +163,40 @@ class TestAnalyticsShiftsWithData:
         body = response.json()
         assert body["data"]["total"] == 1
         assert len(body["data"]["shifts"]) == 1
+        # Default scope='community' is forwarded to storage (T003-sub4 H1).
+        mock_storage.get_shifts.assert_called_once_with(
+            community_id=None, limit=50, scope="community"
+        )
+
+    def test_shifts_endpoint_forwards_scope_article(self) -> None:
+        """Test shifts endpoint forwards scope=article to storage (T003-sub4 H1)."""
+        mock_storage = MagicMock()
+        mock_storage.get_shifts = AsyncMock(return_value=[])
+
+        with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
+            response = self.client.get("/analytics/shifts?scope=article")
+
+        assert response.status_code == 200
+        mock_storage.get_shifts.assert_called_once_with(
+            community_id=None, limit=50, scope="article"
+        )
+
+    def test_shifts_endpoint_forwards_scope_all(self) -> None:
+        """Test shifts endpoint forwards scope=all to storage (T003-sub4 H1)."""
+        mock_storage = MagicMock()
+        mock_storage.get_shifts = AsyncMock(return_value=[])
+
+        with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
+            response = self.client.get("/analytics/shifts?scope=all")
+
+        assert response.status_code == 200
+        mock_storage.get_shifts.assert_called_once_with(community_id=None, limit=50, scope="all")
+
+    def test_shifts_endpoint_rejects_invalid_scope(self) -> None:
+        """Test shifts endpoint rejects invalid scope value (T003-sub4 H1)."""
+        response = self.client.get("/analytics/shifts?scope=invalid")
+
+        assert response.status_code == 422
 
     def test_shifts_endpoint_handles_storage_error(self) -> None:
         """Test shifts endpoint handles storage errors gracefully."""

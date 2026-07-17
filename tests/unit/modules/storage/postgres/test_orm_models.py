@@ -53,6 +53,10 @@ class TestSentimentShiftModel:
             "before_avg",
             "after_avg",
             "trigger_article_ids",
+            # Migration 30: article-level tracking fields (T003 SentimentTrackerNode)
+            "article_id",
+            "entity_name",
+            "shift_value",
             "created_at",
         }
         assert cols == expected

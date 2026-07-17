@@ -243,6 +243,10 @@ class SentimentShift(Base):
     before_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
     after_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
     trigger_article_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    # Migration 30: article-level tracking fields (T003 SentimentTrackerNode)
+    article_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    entity_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    shift_value: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -257,6 +261,18 @@ class SentimentShift(Base):
         Index("idx_shifts_community", "community_id"),
         Index("idx_shifts_type", "shift_type"),
         Index("idx_shifts_detected", "detected_at"),
+        # Migration 31: covering index for T003 SentimentTrackerNode's
+        # get_last_article_shift query (WHERE entity_name=? AND article_id IS
+        # NOT NULL ORDER BY detected_at DESC LIMIT 1). Partial index keeps it
+        # small — only article-level rows are indexed. DuckDB falls back to a
+        # regular composite index (no partial index support).
+        Index(
+            "idx_shifts_entity_article_detected",
+            "entity_name",
+            "article_id",
+            "detected_at",
+            postgresql_where=text("article_id IS NOT NULL"),
+        ),
     )
 
 

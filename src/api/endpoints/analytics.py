@@ -8,8 +8,11 @@ from fastapi import APIRouter, Depends, Query
 
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.observability import get_logger
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+log = get_logger(__name__)
 
 
 def _get_analytics_storage():
@@ -34,18 +37,45 @@ def _get_briefing_engine():
 async def get_shifts(
     community_id: str | None = Query(None, description="Filter by community ID"),
     limit: int = Query(50, ge=1, le=500, description="Maximum results to return"),
+    scope: str = Query(
+        "community",
+        description=(
+            "Which shifts to return: 'community' (default, article_id IS NULL), "
+            "'article' (article_id IS NOT NULL, T003 per-entity article-level), "
+            "or 'all' (both)."
+        ),
+        pattern="^(community|article|all)$",
+    ),
     _: str = Depends(verify_api_key),
 ) -> APIResponse[dict]:
     """Get detected sentiment shifts.
 
     Returns a list of detected sentiment shifts, optionally filtered by community.
     Results are ordered by detection time (newest first).
+
+    The ``scope`` parameter separates community-level shifts (detected by the
+    scheduled SentimentShiftDetector) from article-level shifts (recorded by
+    T003 SentimentTrackerNode when each article is processed). Default
+    ``scope=community`` preserves historical behavior and avoids polluting
+    community queries with per-entity article-level rows (Rule 14).
     """
     try:
         storage = _get_analytics_storage()
-        shifts = await storage.get_shifts(community_id=community_id, limit=limit)
+        shifts = await storage.get_shifts(community_id=community_id, limit=limit, scope=scope)
         return success_response({"shifts": shifts, "total": len(shifts)})
-    except Exception:
+    except Exception as exc:
+        # Rule 12: storage layer raises on DB error (T003-sub4 H2). Endpoint
+        # catches to keep the API contract stable (200 + empty list) but must
+        # log loudly — silently swallowing would hide DB failures from
+        # operators (T003-sub4 architecture review H3).
+        log.error(
+            "analytics_shifts_endpoint_failed",
+            community_id=community_id,
+            scope=scope,
+            limit=limit,
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
         return success_response({"shifts": [], "total": 0})
 
 

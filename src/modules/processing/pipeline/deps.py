@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         VectorRepository,
     )
     from modules.analytics.sentiment_analyzer import SentimentAnalyzer
+    from modules.analytics.storage import AnalyticsStorage
     from modules.knowledge.graph.community.updater import (
         IncrementalCommunityUpdater,
     )
@@ -83,6 +84,9 @@ class PipelineInfra:
     cache_client: CachePool | None = None
     community_updater: IncrementalCommunityUpdater | None = None
     saga_orchestrator: Any | None = None
+    # T003: AnalyticsStorage for SentimentTrackerNode article-level tracking.
+    # None when relational pool is unavailable; pipeline skips the node.
+    sentiment_shift_repo: AnalyticsStorage | None = None
 
 
 @dataclass

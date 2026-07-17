@@ -81,6 +81,11 @@ name = "schema_extractor"
 class_path = "modules.processing.nodes.extraction.schema_extractor.SchemaExtractorNode"
 enabled = true
 
+[[phase3.stages]]
+name = "sentiment_tracker"
+class_path = "modules.processing.nodes.extraction.sentiment_tracker.SentimentTrackerNode"
+enabled = true
+
 # ============================================================
 # Batch Processing
 # ============================================================

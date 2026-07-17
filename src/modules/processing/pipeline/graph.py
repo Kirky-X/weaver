@@ -31,6 +31,9 @@ from modules.processing.nodes.extraction.narrative_generator import (
 from modules.processing.nodes.extraction.schema_extractor import (
     SchemaExtractorNode,
 )
+from modules.processing.nodes.extraction.sentiment_tracker import (
+    SentimentTrackerNode,
+)
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
@@ -87,6 +90,7 @@ PHASE3_STAGES = {
     "conflict_detector": "phase3_conflict_detector",
     "narrative_generator": "phase3_narrative_generator",
     "schema_extractor": "phase3_schema_extractor",
+    "sentiment_tracker": "phase3_sentiment_tracker",
 }
 
 
@@ -218,6 +222,17 @@ class Pipeline:
         self._schema_extractor = (
             SchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
             if graph_writer is not None
+            else None
+        )
+        # T003: Sentiment tracker node — pure computation (no LLM). Computes
+        # per-entity article-level sentiment shifts against the previous
+        # article mentioning the same entity, persists to sentiment_shifts
+        # (article_id/entity_name/shift_value fields from migration 30).
+        # Skipped when sentiment_shift_repo is unavailable.
+        sentiment_shift_repo = deps.infrastructure.sentiment_shift_repo
+        self._sentiment_tracker = (
+            SentimentTrackerNode(shift_repo=sentiment_shift_repo)
+            if sentiment_shift_repo is not None
             else None
         )
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
@@ -952,6 +967,20 @@ class Pipeline:
                 )
                 await self._update_processing_stage(
                     state, PHASE3_STAGES["schema_extractor"], pending_updates
+                )
+
+            # === Sentiment Tracker 阶段 (T003) ===
+            # Pure computation node — no LLM. Computes per-entity article-level
+            # sentiment shifts and persists to sentiment_shifts. Skipped when
+            # sentiment_shift_repo is unavailable or when terminal/merged.
+            if self._sentiment_tracker is not None:
+                start = time.monotonic()
+                state = await self._sentiment_tracker.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="sentiment_tracker").observe(
+                    time.monotonic() - start
+                )
+                await self._update_processing_stage(
+                    state, PHASE3_STAGES["sentiment_tracker"], pending_updates
                 )
 
             # === Entity Resolver 阶段 ===
