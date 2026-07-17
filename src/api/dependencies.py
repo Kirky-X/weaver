@@ -524,6 +524,60 @@ def get_sentiment_trend_service(
     return SentimentTrendAnalyzer(pool=pool)
 
 
+def get_trend_detection_service(
+    container: Container = Depends(get_container),
+) -> Any:
+    """FastAPI dependency for TrendDetector (T016 / R-trend-001).
+
+    TrendDetector is not container-registered; this dependency assembles
+    it on-demand from the container's graph_pool (required) and an
+    optional SentimentTrendAnalyzer built from relational_pool.
+
+    Two-tier construction (Rule 24 — full scenario coverage):
+        1. graph_pool (REQUIRED) — TrendDetector queries EventNode via
+           ``pool.execute_query()``. Raises 503 if unavailable.
+        2. sentiment_analyzer (OPTIONAL) — built from relational_pool via
+           SentimentTrendAnalyzer. If relational_pool is unavailable or
+           construction fails, the analyzer is set to None and TrendDetector
+           degrades to frequency-only trend_score (R-trend-005 degradation,
+           implemented in T015). This is a deliberate graceful degradation,
+           NOT silent failure: TrendDetector logs per-entity degradation.
+
+    Used by:
+        - T016 trends endpoint (via the lazy ``_get_trend_detection_service``
+          helper in ``api.endpoints.trends``, which mirrors this logic for
+          test patching).
+
+    Raises:
+        HTTPException: 503 if graph pool is unavailable.
+
+    Returns:
+        TrendDetector instance (implements TrendDetectionProtocol).
+
+    """
+    from modules.trend import SentimentTrendAnalyzer, TrendDetector
+
+    graph_pool = container.graph_pool()
+    if graph_pool is None:
+        raise HTTPException(status_code=503, detail="Graph pool not initialized")
+
+    # Optional sentiment analyzer — degrade to None on relational pool
+    # unavailability (RuntimeError from container.relational_pool()).
+    # Other exceptions (e.g. construction errors) propagate per Rule 12.
+    # Logged at the endpoint layer (_get_trend_detection_service in
+    # trends.py) where this canonical dep is actually consumed.
+    sentiment_analyzer = None
+    try:
+        relational_pool = container.relational_pool()
+        sentiment_analyzer = SentimentTrendAnalyzer(pool=relational_pool)
+    except RuntimeError:
+        # Relational pool not initialized — graceful degradation.
+        # TrendDetector handles analyzer=None per-entity (R-trend-005).
+        pass
+
+    return TrendDetector(graph_pool=graph_pool, sentiment_analyzer=sentiment_analyzer)
+
+
 def get_task_registry(
     container: Container = Depends(get_container),
 ) -> TaskRegistryService:
