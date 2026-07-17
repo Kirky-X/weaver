@@ -10,7 +10,13 @@ This package groups trend-related services:
 
 from __future__ import annotations
 
+from modules.trend.detection import TrendDetector
 from modules.trend.models import SentimentTrendResult, TrendDetectionResult
 from modules.trend.sentiment import SentimentTrendAnalyzer
 
-__all__ = ["SentimentTrendAnalyzer", "SentimentTrendResult", "TrendDetectionResult"]
+__all__ = [
+    "SentimentTrendAnalyzer",
+    "SentimentTrendResult",
+    "TrendDetectionResult",
+    "TrendDetector",
+]
