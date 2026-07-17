@@ -12,6 +12,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Any, TypeVar
 
+import jsonschema
 from cachetools import TTLCache
 from pydantic import BaseModel
 
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from core.llm.routing.smart_router import SmartRouter
     from core.llm.routing.tiered_router import TieredRouter
     from core.prompt.loader import PromptLoader
+    from core.protocols import GraphPool
 
 log = get_logger(__name__)
 
@@ -111,6 +113,7 @@ class LLMClient:
         smart_router: SmartRouter | None = None,
         eval_runner: EvalRunner | None = None,
         tiered_router: TieredRouter | None = None,
+        graph_pool: GraphPool | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -123,6 +126,9 @@ class LLMClient:
             smart_router: 可选的智能路由器（动态评分选择模型）
             eval_runner: 可选的影子评测器
             tiered_router: 可选的分级路由器（难度分级选择模型）
+            graph_pool: 可选的图数据库池（用于structured_call schema查询）.
+                container 在创建实例后也可通过属性赋值注入（mirrors
+                _smart_router 模式，lifecycle.py:194）.
         """
         self._global_config = global_config
         self._router = LabelRouter(global_config)
@@ -132,10 +138,22 @@ class LLMClient:
         self._redis = cache_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
+        # GraphPool for schema-driven structured output (T024 / R-structured-002).
+        # Construct-injected OR lazy-injected by container/lifecycle.py
+        # (mirrors _smart_router pattern). None means caller has not wired a
+        # graph pool — structured_call raises ValueError on use (Rule 12).
+        self._graph_pool: GraphPool | None = graph_pool
 
         self._response_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=1000, ttl=3600)
         self._cache_hits: int = 0
         self._cache_misses: int = 0
+
+        # Schema cache for structured_call (T024 / R-structured-001).
+        # Avoids repeated graph DB roundtrips when same schema_node_id is
+        # queried multiple times. SchemaNode is updated by SchemaExtractorNode
+        # occasionally; 5-minute TTL is a reasonable freshness/perf tradeoff.
+        # Key: schema_node_id; Value: schema dict returned by get_schema.
+        self._schema_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=64, ttl=300)
 
         # Prefix shape diagnostics tracker (pure observability, does not affect cache logic)
         self._prefix_tracker = PrefixHashTracker()
@@ -687,6 +705,208 @@ class LLMClient:
             )
 
         return result
+
+    def _get_first_label(self, call_point: CallPoint | str) -> Label:
+        """Return the first routing label for ``call_point``.
+
+        Uses SmartRouter if available, otherwise LabelRouter. Raises ValueError
+        if no labels are configured — mirrors call_at behavior.
+
+        Args:
+            call_point: Call point name.
+
+        Returns:
+            First Label in the route.
+
+        Raises:
+            ValueError: If no labels are configured for the call point.
+        """
+        if self._smart_router:
+            labels = self._smart_router.route(call_point)
+        else:
+            labels = self._router.get_call_point_route(call_point)
+        if not labels:
+            raise ValueError(f"Call point not configured: {call_point}")
+        return labels[0]
+
+    async def structured_call(
+        self,
+        prompt: str,
+        schema_node_id: str,
+        *,
+        call_point: CallPoint | str | None = None,
+        article_id: str | None = None,
+        task_id: str | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Schema-driven structured output (T024 / R-structured-002, R-structured-003).
+
+        Fetches the JSON Schema for ``schema_node_id`` from the graph database
+        (SchemaDrivenStructuredOutput.get_schema), then calls the LLM with
+        ``response_format=schema`` and validates the response.
+
+        Two mutually-exclusive paths (R-structured-002 priority):
+
+        1. **SchemaNotFoundError path** (schema absent): degrade to a plain
+           LLM call (no ``response_format``, no retry) and return
+           ``{"_fallback": True, "content": <llm_response>}``. This is the
+           ONLY fallback path — schema absence is a data problem, not a
+           validation problem, so retry is meaningless.
+
+        2. **Validation-retry path** (schema exists): call LLM with
+           ``response_format=schema``. If response fails JSON Schema
+           validation (jsonschema.validate raises ``ValidationError``) or
+           is not valid JSON (``json.JSONDecodeError``), retry once with a
+           ``_retry_hint`` appended to the prompt. If the retry also fails,
+           raise ``StructuredOutputValidationError`` carrying ``schema`` and
+           ``last_response`` for debugging.
+
+        Args:
+            prompt: User prompt for the LLM.
+            schema_node_id: SchemaNode business-level id (format
+                "schema-{event_type}", e.g. "schema-funding").
+            call_point: Optional CallPoint for routing/tracing. Defaults
+                to ``CallPoint.CLASSIFIER`` (structured extraction is
+                typically a classification task).
+            article_id: Optional article id for LLM call tracing.
+            task_id: Optional task id for LLM call tracing.
+            timeout: Optional per-call timeout override (seconds).
+
+        Returns:
+            - On success: the parsed JSON dict from the LLM response.
+            - On SchemaNotFoundError: ``{"_fallback": True, "content": <str>}``
+              where ``content`` is the raw LLM response (plain call, no
+              schema enforcement).
+
+        Raises:
+            ValueError: If ``self._graph_pool`` is None (container did not
+                inject a graph pool). Rule 12 fail-loud.
+            StructuredOutputValidationError: If both the initial call and
+                the retry fail JSON Schema validation (or are non-JSON).
+                Carries ``schema`` and ``last_response`` attributes.
+            Exception: GraphPool errors, LLM provider errors, etc.
+                propagate (Rule 12 fail-loud).
+
+        """
+        # Rule 12: fail-loud if container forgot to inject _graph_pool.
+        # Mirrors _smart_router pattern: lazy attribute injection in
+        # container/lifecycle.py:194.
+        if self._graph_pool is None:
+            raise ValueError(
+                "structured_call requires _graph_pool to be injected "
+                "(container/lifecycle.py). None means container wiring is "
+                "missing or graph database is unavailable."
+            )
+
+        from core.llm.structured_output import (
+            SchemaDrivenStructuredOutput,
+            SchemaNotFoundError,
+            StructuredOutputValidationError,
+        )
+
+        cp: CallPoint | str = call_point if call_point is not None else CallPoint.CLASSIFIER
+
+        # Schema cache lookup (avoids graph DB roundtrip on repeated calls
+        # with the same schema_node_id — see HIGH-1 in performance review).
+        # TTL is 5 minutes (set in __init__); SchemaNode updates are rare.
+        cached_schema = self._schema_cache.get(schema_node_id)
+        if cached_schema is not None:
+            schema_result = cached_schema
+        else:
+            schema_provider = SchemaDrivenStructuredOutput(self._graph_pool)
+
+            # R-structured-002 priority 1: SchemaNotFoundError → DIRECT fallback.
+            # No retry — schema absence is a data problem, not validation.
+            try:
+                schema_result = await schema_provider.get_schema(schema_node_id)
+            except SchemaNotFoundError:
+                log.warning(
+                    "structured_output_schema_not_found_degrade",
+                    schema_node_id=schema_node_id,
+                )
+                fallback_payload: dict[str, Any] = {"user_content": prompt}
+                # No response_format — plain call, schema absent.
+                fallback_response = await self.call(
+                    self._get_first_label(cp),
+                    fallback_payload,
+                    call_point=cp,
+                    article_id=article_id,
+                    task_id=task_id,
+                    timeout=timeout,
+                )
+                return {"_fallback": True, "content": fallback_response}
+
+            # Cache the fetched schema for subsequent calls.
+            self._schema_cache[schema_node_id] = schema_result
+
+        schema: dict[str, Any] = schema_result["schema"]
+
+        # R-structured-002 priority 2: schema exists → retry path.
+        # Call with response_format=schema; retry once on validation failure.
+        payloads = [
+            {"user_content": prompt, "response_format": schema},
+            # Retry payload: append schema-violation hint.
+            {
+                "user_content": prompt,
+                "response_format": schema,
+                "_retry_hint": (
+                    "上一次响应不符合 JSON Schema 要求。"
+                    "请严格按 schema 输出，不要添加任何额外字段或解释文字。"
+                ),
+            },
+        ]
+
+        last_response: str = ""
+        for attempt, payload in enumerate(payloads):
+            response = await self.call(
+                self._get_first_label(cp),
+                payload,
+                call_point=cp,
+                article_id=article_id,
+                task_id=task_id,
+                timeout=timeout,
+            )
+            # Coerce to string — call() may return str or a BaseModel.
+            if isinstance(response, str):
+                last_response = response
+            else:
+                # Non-string response (e.g. BaseModel) — serialize to JSON.
+                last_response = (
+                    response.model_dump_json()
+                    if hasattr(response, "model_dump_json")
+                    else str(response)
+                )
+
+            try:
+                parsed = json.loads(last_response)
+            except json.JSONDecodeError as exc:
+                log.warning(
+                    "structured_output_invalid_json_retry",
+                    schema_node_id=schema_node_id,
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                # Continue to retry (or raise after last attempt below).
+                continue
+
+            try:
+                jsonschema.validate(parsed, schema)
+            except jsonschema.ValidationError as exc:
+                log.warning(
+                    "structured_output_schema_violation_retry",
+                    schema_node_id=schema_node_id,
+                    attempt=attempt,
+                    error_path=list(exc.absolute_path),
+                    error_message=exc.message,
+                )
+                # Continue to retry (or raise after last attempt below).
+                continue
+
+            # Validation passed.
+            return parsed
+
+        # Both attempts failed. Raise with diagnostic context.
+        raise StructuredOutputValidationError(schema=schema, last_response=last_response)
 
     def _try_tiered_routing(
         self, call_point: str | CallPoint, payload: dict[str, Any]

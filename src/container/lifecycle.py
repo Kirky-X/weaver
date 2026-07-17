@@ -192,6 +192,23 @@ class ContainerLifecycleMixin:
                 event_bus=self._event_bus,
             )
             self._llm_client._smart_router = self._smart_router
+            # Inject GraphPool for schema-driven structured output (T024).
+            # Mirrors _smart_router lazy-injection pattern. If graph_pool is
+            # unavailable (e.g. both Neo4j and LadybugDB down at startup),
+            # _graph_pool stays None — structured_call will raise ValueError
+            # on use (Rule 12 fail-loud). Plain call/call_at/embed remain
+            # fully functional without graph database.
+            graph_pool = self.graph_pool()
+            if graph_pool is not None:
+                self._llm_client._graph_pool = graph_pool
+                log.info(
+                    "llm_client_graph_pool_injected",
+                    graph_type=self._strategy.graph_type if self._strategy else None,
+                )
+            else:
+                log.warning(
+                    "llm_client_graph_pool_unavailable_structured_call_disabled",
+                )
             if self._eval_runner:
                 self._eval_runner._llm_client = self._llm_client
                 self._llm_client._eval_runner = self._eval_runner

@@ -89,6 +89,54 @@ class SchemaNotFoundError(Exception):
         super().__init__(f"SchemaNode not found for schema_node_id={schema_node_id!r}")
 
 
+class StructuredOutputValidationError(Exception):
+    """Raised when LLM response cannot be reconciled with the JSON Schema.
+
+    Spec R-structured-002 / R-structured-003: after ``structured_call``
+    fetches the schema and calls the LLM with ``response_format``, the
+    response must be validated against the schema. If validation fails
+    after one retry (with a schema-violation hint prompt), this exception
+    is raised carrying:
+
+        - ``schema``: the JSON Schema dict that was used for validation
+          (includes ``title``=event_type). Useful for debugging which
+          field violated what constraint.
+        - ``last_response``: the raw LLM response string from the final
+          attempt (after retry). May be non-JSON or JSON that fails
+          schema validation. Never None — at least one call was made.
+
+    This exception is a programming/data-quality signal: either the LLM
+    cannot satisfy the schema, or the schema is misconfigured, or the
+    prompt is ambiguous. It MUST propagate to the caller (Rule 12) —
+    silently swallowing it would mask the failure (3.25 behavior).
+
+    Callers should:
+        - Surface as a 500 / domain error (NOT 200 with fallback —
+          R-structured-002 makes ``SchemaNotFoundError`` the ONLY
+          trigger for fallback; validation failure is a hard error).
+        - Log schema + last_response for debugging.
+        - PII handling: ``last_response`` may contain user-content echoed
+          by the LLM. When logging or persisting, apply the same redaction
+          policy used for LLM request/response payloads elsewhere in the
+          system. Never return ``last_response`` verbatim to API end users.
+        - Consider regenerating the schema via SchemaExtractorNode if
+          the schema is the root cause.
+
+    Attributes:
+        schema: JSON Schema dict that was used for validation.
+        last_response: Raw LLM response string from the final attempt.
+    """
+
+    def __init__(self, *, schema: dict[str, Any], last_response: str) -> None:
+        self.schema = schema
+        self.last_response = last_response
+        super().__init__(
+            "Structured output validation failed after retry. "
+            f"schema_title={schema.get('title')!r}, "
+            f"last_response_len={len(last_response)}"
+        )
+
+
 class SchemaDrivenStructuredOutput:
     """Query SchemaNode and convert to JSON Schema for LLM structured output.
 
@@ -190,4 +238,8 @@ class SchemaDrivenStructuredOutput:
         }
 
 
-__all__ = ["SchemaDrivenStructuredOutput", "SchemaNotFoundError"]
+__all__ = [
+    "SchemaDrivenStructuredOutput",
+    "SchemaNotFoundError",
+    "StructuredOutputValidationError",
+]

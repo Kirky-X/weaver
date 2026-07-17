@@ -66,6 +66,7 @@ dependencies = [
     # ── Cascade Classification ──────────────────────────────
     "fasttext-wheel>=0.9.2",
     "setfit>=1.1.0",
+    "jsonschema>=4.26.0",
 ]
 
 [project.optional-dependencies]
