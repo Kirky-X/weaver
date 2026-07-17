@@ -149,31 +149,117 @@ class AnalyticsJobs:
 
     @scheduled_task("generate_daily_briefing", timeout_seconds=300)
     async def generate_daily_briefing(self) -> dict[str, Any]:
-        """Generate daily intelligence briefing.
+        """Generate 4 daily briefings (general/finance/tech/ai) per spec R-briefing-006.
 
-        Uses BriefingEngine to analyze recent articles and produce
-        a ranked briefing with diversity across categories.
+        Replaces the legacy single-briefing DailyBriefingEngine path with
+        DailyBriefingService.generate_briefing called once per category.
+
+        Error isolation (Rule 12 + R-briefing-006):
+            A single category failure is logged and recorded in the results
+            dict but does NOT block other categories. The scheduler itself
+            is never blocked — if the briefing service can't be built (LLM
+            or pool unavailable), the job returns an error dict rather than
+            raising.
 
         Returns:
-            Dict with briefing_id, date, and items count.
+            Dict with categories_total, categories_generated, and per-category
+            results (briefing_id/summary_present/items_count on success,
+            error on failure).
         """
-        log.info("generate_daily_briefing_start")
+        from datetime import date as _date
 
+        log.info("generate_daily_briefing_start", categories=4)
+
+        service = self._build_briefing_service()
+        if service is None:
+            log.warning("generate_daily_briefing_service_unavailable")
+            return {
+                "error": "briefing service unavailable (LLM or pool not initialized)",
+                "categories_generated": 0,
+                "categories_total": 4,
+            }
+
+        categories = ("general", "finance", "tech", "ai")
+        today = _date.today()
+        results: dict[str, dict[str, Any]] = {}
+        succeeded = 0
+
+        for category in categories:
+            try:
+                result = await service.generate_briefing(date=today, category=category)
+                results[category] = {
+                    "briefing_id": result.briefing_id,
+                    "summary_present": result.summary is not None,
+                    "items_count": len(result.items),
+                }
+                succeeded += 1
+            except Exception as exc:
+                # Rule 12: error is logged + surfaced in results, not swallowed.
+                # R-briefing-006: failure doesn't block next execution or other
+                # categories.
+                log.error(
+                    "generate_daily_briefing_category_failed",
+                    category=category,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+                results[category] = {"error": str(exc)}
+
+        log.info(
+            "generate_daily_briefing_complete",
+            categories_total=len(categories),
+            categories_succeeded=succeeded,
+            categories_failed=len(categories) - succeeded,
+        )
+        return {
+            "categories_generated": succeeded,
+            "categories_total": len(categories),
+            "results": results,
+        }
+
+    def _build_briefing_service(self) -> Any:
+        """Lazy-construct DailyBriefingService from container (T010).
+
+        AnalyticsJobs does not hold a container reference, so we fetch it
+        via ``container.get_container()`` (same pattern as api/middleware/auth.py).
+        BriefingGenerator needs (llm, budget, prompt_loader, storage);
+        DailyBriefingService wraps (generator, storage).
+
+        Returns:
+            DailyBriefingService instance, or None if container/LLM/prompt_loader
+            unavailable. Returning None (not raising) ensures the scheduler
+            is not blocked by missing dependencies — the caller logs a warning
+            and returns an error dict (R-briefing-006).
+        """
         try:
-            from modules.briefing import DailyBriefingEngine
+            from container import get_container
+            from core.llm.config.token_budget import TokenBudgetManager
+            from modules.analytics import AnalyticsStorage
+            from modules.briefing import BriefingGenerator, DailyBriefingService
 
-            engine = DailyBriefingEngine(pool=self._relational_pool)
-            result = await engine.generate()
-
-            log.info(
-                "generate_daily_briefing_complete",
-                briefing_id=result.get("id"),
-                items=len(result.get("items", [])),
-            )
-            return result
+            container = get_container()
+            llm = container.llm_client()
+            prompt_loader = container.prompt_loader()
         except Exception as exc:
-            log.error("generate_daily_briefing_failed", error=str(exc))
-            return {"error": str(exc)}
+            log.warning(
+                "briefing_service_dependencies_unavailable",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+            return None
+
+        if llm is None:
+            log.warning("briefing_service_llm_unavailable")
+            return None
+
+        storage = AnalyticsStorage(pool=self._relational_pool)
+        generator = BriefingGenerator(
+            llm=llm,
+            budget=TokenBudgetManager(),
+            prompt_loader=prompt_loader,
+            storage=storage,
+        )
+        return DailyBriefingService(generator=generator, storage=storage)
 
     @scheduled_task("detect_sentiment_shifts", timeout_seconds=300)
     async def detect_sentiment_shifts(self) -> list[dict[str, Any]]:

@@ -638,14 +638,15 @@ class ContainerLifecycleMixin:
                 coalesce=True,
             )
 
-        # Analytics - Daily Briefing Generation
+        # Analytics - Daily Briefing Generation (T010 / R-briefing-006)
+        # Generates 4 category briefings (general/finance/tech/ai) at 08:00 Asia/Shanghai.
         from zoneinfo import ZoneInfo
 
         scheduler.add_job(
             jobs.generate_daily_briefing,
-            CronTrigger(hour=7, minute=0, timezone=ZoneInfo("Asia/Shanghai")),
+            CronTrigger(hour=8, minute=0, timezone=ZoneInfo("Asia/Shanghai")),
             id="daily_briefing_generation",
-            name="Generate daily intelligence briefing",
+            name="Generate daily briefings (4 categories)",
             max_instances=1,
             coalesce=True,
         )
