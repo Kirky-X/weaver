@@ -167,13 +167,17 @@ class DiscoveryProcessor:
                 log.warning("no_articles_crawled", source=source.id)
                 return
 
-            article_ids = []
-            for article in successful_articles:
-                try:
-                    article_id = await self._article_repo.insert_raw(article, task_id=task_id)
-                    article_ids.append(article_id)
-                except Exception as exc:
-                    log.error("insert_raw_failed", url=article.url, error=str(exc))
+            article_ids: list = []
+            try:
+                article_ids = await self._article_repo.bulk_insert_raw(
+                    successful_articles, task_id=task_id
+                )
+            except Exception as exc:
+                # bulk_insert_raw has internal per-article fallback; this
+                # catch only triggers when the entire batch path fails hard
+                # (e.g. pool unavailable). Per-article errors are logged
+                # inside bulk_insert_raw as "bulk_insert_raw_fallback_failed".
+                log.error("bulk_insert_raw_failed", error=str(exc))
 
             if article_ids and self._processing_queue:
                 for idx, aid in enumerate(article_ids):
@@ -182,12 +186,18 @@ class DiscoveryProcessor:
                         task_id=str(task_id) if task_id else None,
                     )
                     if not success:
-                        log.warning(
-                            "queue_full_articles_skipped",
-                            queued=idx,
-                            skipped=len(article_ids) - idx,
+                        # continue instead of break: give remaining articles
+                        # a chance to enqueue (queue may have drained by next
+                        # iteration). Log per-article so drops are visible
+                        # rather than silently swallowed. See temp/report.md
+                        # P0-4 (queue-full silent drop).
+                        log.error(
+                            "queue_full_article_dropped",
+                            article_id=str(aid),
+                            index=idx,
+                            total=len(article_ids),
                         )
-                        break
+                        continue
                 log.info("articles_enqueued", count=len(article_ids))
         except Exception as exc:
             log.error(

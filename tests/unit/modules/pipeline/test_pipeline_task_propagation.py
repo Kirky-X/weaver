@@ -182,7 +182,12 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_passes_task_id_to_insert_raw(self):
-        """Test that on_items_discovered passes task_id to article_repo.insert_raw."""
+        """Test that on_items_discovered passes task_id to article_repo.bulk_insert_raw.
+
+        Note: T006 refactored the per-article ``insert_raw`` loop into a
+        single ``bulk_insert_raw`` call. The task_id propagation contract
+        is preserved — ``bulk_insert_raw`` accepts ``task_id`` kwarg.
+        """
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
@@ -198,7 +203,8 @@ class TestDiscoveryProcessorTaskIdPropagation:
         ]
 
         mock_repo = AsyncMock()
-        mock_repo.insert_raw.return_value = uuid.uuid4()
+        # bulk_insert_raw returns list[uuid.UUID] (one per article)
+        mock_repo.bulk_insert_raw.return_value = [uuid.uuid4()]
 
         mock_dedup = AsyncMock()
         mock_dedup.dedup.side_effect = lambda x: x
@@ -216,13 +222,16 @@ class TestDiscoveryProcessorTaskIdPropagation:
         task_id = uuid.uuid4()
         await processor.on_items_discovered(items, source, max_items=10, task_id=task_id)
 
-        mock_repo.insert_raw.assert_called()
-        call_kwargs = mock_repo.insert_raw.call_args
+        mock_repo.bulk_insert_raw.assert_called()
+        call_kwargs = mock_repo.bulk_insert_raw.call_args
         assert call_kwargs.kwargs.get("task_id") == task_id
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_works_without_task_id(self):
-        """Test backward compatibility - on_items_discovered works without task_id."""
+        """Test backward compatibility - on_items_discovered works without task_id.
+
+        Note: T006 refactored to ``bulk_insert_raw``; task_id defaults to None.
+        """
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
@@ -238,7 +247,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
         ]
 
         mock_repo = AsyncMock()
-        mock_repo.insert_raw.return_value = uuid.uuid4()
+        mock_repo.bulk_insert_raw.return_value = [uuid.uuid4()]
 
         mock_dedup = AsyncMock()
         mock_dedup.dedup.side_effect = lambda x: x
@@ -255,6 +264,6 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
         await processor.on_items_discovered(items, source, max_items=10)
 
-        mock_repo.insert_raw.assert_called()
-        call_kwargs = mock_repo.insert_raw.call_args
+        mock_repo.bulk_insert_raw.assert_called()
+        call_kwargs = mock_repo.bulk_insert_raw.call_args
         assert call_kwargs.kwargs.get("task_id") is None

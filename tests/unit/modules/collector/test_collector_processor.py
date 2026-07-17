@@ -203,7 +203,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         # Setup mocks
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
         mock_processing_queue.enqueue = AsyncMock(return_value=True)
 
         processor = DiscoveryProcessor(
@@ -221,7 +221,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         )
 
         mock_crawler.crawl_batch.assert_called_once()
-        mock_article_repo.insert_raw.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
         mock_processing_queue.enqueue.assert_called_once()
 
     @pytest.mark.asyncio
@@ -240,7 +240,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         # Deduplicator returns only one item
         mock_deduplicator.dedup = AsyncMock(return_value=[sample_items[0]])
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -306,7 +306,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         unique_items = [TitleItem(url=sample_items[0].url, title=sample_items[0].title)]
         mock_simhash_dedup.dedup_titles_with_metrics = AsyncMock(return_value=(unique_items, 1))
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -339,7 +339,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         mock_deduplicator.dedup = AsyncMock(return_value=sample_items)
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -370,7 +370,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -408,7 +408,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         # Mix of success and failure
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article, fetch_error])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -421,7 +421,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         )
 
         # Should only insert successful article
-        mock_article_repo.insert_raw.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_no_successful_articles(
@@ -452,7 +452,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             source=mock_source,
         )
 
-        mock_article_repo.insert_raw.assert_not_called()
+        mock_article_repo.bulk_insert_raw.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_insert_error(
@@ -467,7 +467,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(side_effect=Exception("DB error"))
+        mock_article_repo.bulk_insert_raw = AsyncMock(side_effect=Exception("DB error"))
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -480,7 +480,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         )
 
         # Should not raise, just log
-        mock_article_repo.insert_raw.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_with_task_id(
@@ -497,7 +497,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         task_id = uuid.uuid4()
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
         mock_processing_queue.enqueue = AsyncMock(return_value=True)
 
         processor = DiscoveryProcessor(
@@ -512,8 +512,8 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             task_id=task_id,
         )
 
-        # Check task_id was passed to insert_raw
-        call_args = mock_article_repo.insert_raw.call_args
+        # Check task_id was passed to bulk_insert_raw
+        call_args = mock_article_repo.bulk_insert_raw.call_args
         assert call_args[1]["task_id"] == task_id
 
         # Check task_id was passed to enqueue
@@ -534,7 +534,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
         mock_processing_queue.enqueue = AsyncMock(return_value=False)  # Queue full
 
         processor = DiscoveryProcessor(
@@ -550,7 +550,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         )
 
         # Insert should have been called before queue full
-        mock_article_repo.insert_raw.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
         # Enqueue should have been attempted
         mock_processing_queue.enqueue.assert_called_once()
 
@@ -567,7 +567,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -580,7 +580,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             source=mock_source,
         )
 
-        mock_article_repo.insert_raw.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_items_without_title(
@@ -603,7 +603,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         mock_deduplicator = AsyncMock()
         mock_deduplicator.dedup = AsyncMock(return_value=[item])
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
-        mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -663,7 +663,7 @@ class TestDiscoveryProcessorEdgeCases:
 
         # crawl_batch is called with empty list, but no articles to insert
         mock_crawler.crawl_batch.assert_called_once_with([])
-        mock_article_repo.insert_raw.assert_not_called()
+        mock_article_repo.bulk_insert_raw.assert_not_called()
 
 
 class TestDiscoveryProcessorErrorHandling:
