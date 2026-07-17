@@ -787,6 +787,63 @@ class LLMClient:
             Exception: GraphPool errors, LLM provider errors, etc.
                 propagate (Rule 12 fail-loud).
 
+        How to obtain ``schema_node_id``:
+
+            SchemaNode records are written by ``SchemaExtractorNode`` (pipeline
+            phase3) via ``GraphWriter.merge_schema(event_type, pattern,
+            confidence)``. The business-level id is deterministic and follows
+            the format ``"schema-{event_type}"`` (e.g. ``"schema-funding"``,
+            ``"schema-融资"``). Two ways to discover a valid id:
+
+            1. **From pipeline state** (preferred when running inside a
+               pipeline node): ``state["schema"]["schema_id"]`` is set by
+               ``SchemaExtractorNode`` after a successful MERGE.
+            2. **From the graph database** (for ad-hoc / API callers):
+               query ``MATCH (s:SchemaNode) RETURN s.id, s.event_type``
+               via ``GraphPool.execute_query`` to enumerate available schemas.
+
+            See ``docs/ARCHITECTURE.md`` § "Schema-Driven Structured Output"
+            for the full data flow and SchemaNode field reference.
+
+        Example::
+
+            from core.llm.client import LLMClient
+            from core.llm.structured_output import (
+                SchemaNotFoundError,
+                StructuredOutputValidationError,
+            )
+
+            llm = container.llm_client()  # _graph_pool injected by lifecycle.py
+            try:
+                result = await llm.structured_call(
+                    prompt="分析本文的核心事件",
+                    schema_node_id="schema-funding",
+                    call_point=CallPoint.CLASSIFIER,
+                    article_id="abc-123",
+                )
+                # result is a dict validated against the funding JSON Schema.
+                print(result["event_type"], result.get("amount"))
+            except SchemaNotFoundError:
+                # Should not reach here — structured_call already degrades
+                # internally to a plain call and returns ``{"_fallback": ...}``.
+                # Catch only if you call SchemaDrivenStructuredOutput directly.
+                pass
+            except StructuredOutputValidationError as exc:
+                # LLM response did not match schema after retry.
+                # exc.schema  → the JSON Schema dict used for validation
+                # exc.last_response → raw LLM response string from final attempt
+                log.error(
+                    "structured_call_failed",
+                    schema_title=exc.schema.get("title"),
+                    response_preview=exc.last_response[:200],
+                )
+                raise
+            else:
+                # Detect the fallback path (schema absent → plain call).
+                if isinstance(result, dict) and result.get("_fallback"):
+                    plain_text = result["content"]
+                    # Caller decides: accept degraded output OR raise.
+
         """
         # Rule 12: fail-loud if container forgot to inject _graph_pool.
         # Mirrors _smart_router pattern: lazy attribute injection in
