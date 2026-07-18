@@ -1054,8 +1054,12 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
                 if graph_writer:
                     neo4j_ids = await graph_writer.write(state)
                     state["neo4j_ids"] = neo4j_ids
+                    # PersistStatus has no ENRICHING state; use NEO4J_DONE
+                    # to mark the graph write phase complete (vectors may
+                    # still run after this, but they don't change graph
+                    # state).
                     await article_repo.update_persist_status(
-                        article_id_uuid, PersistStatus.ENRICHING
+                        article_id_uuid, PersistStatus.NEO4J_DONE
                     )
                     print(f"  ✓ Neo4j/LadybugDB 持久化完成")
 

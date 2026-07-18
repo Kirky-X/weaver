@@ -164,13 +164,40 @@ def _convert_value_for_duckdb(v: Any) -> Any:
     return v
 
 
-def _convert_value_for_pg(v: Any) -> Any:
-    """Convert a DuckDB value to a PG-compatible asyncpg value."""
+def _convert_value_for_pg(v: Any, *, is_vector: bool = False) -> Any:
+    """Convert a DuckDB value to a PG-compatible asyncpg value.
+
+    - pgvector columns (is_vector=True): list[float] → "[0.1,0.2,...]" str
+      (asyncpg doesn't natively understand pgvector type without codec
+      registration, which SQLAlchemy asyncpg dialect doesn't expose)
+    - other list/tuple: pass through as list (asyncpg handles arrays)
+    """
     if v is None:
         return None
+    if is_vector and isinstance(v, (list, tuple)):
+        # pgvector text format: "[0.1,0.2,...]"
+        return "[" + ",".join(repr(float(x)) for x in v) + "]"
     if isinstance(v, (list, tuple)):
         return list(v)
     return v
+
+
+async def _get_pg_vector_columns(pg_conn, table: str) -> set[str]:
+    """Return column names of pgvector type for a PG table.
+
+    pgvector columns have udt_name='vector' (or 'vec' for some versions).
+    """
+    from sqlalchemy import text
+
+    result = await pg_conn.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = :t AND table_schema = 'public' "
+            "AND udt_name IN ('vector', 'vec', 'halfvec')"
+        ),
+        {"t": table},
+    )
+    return {r[0] for r in result.fetchall()}
 
 
 def _get_duckdb_columns(duck_conn, table: str) -> list[str]:
@@ -197,6 +224,48 @@ async def _get_pg_columns(pg_conn, table: str) -> list[str]:
     )
     # SQLAlchemy AsyncConnection: execute() is async, fetchall() is sync
     return [r[0] for r in result.fetchall()]
+
+
+def _get_duckdb_column_types(duck_conn, table: str) -> dict[str, str]:
+    """Return {column_name: data_type} for a DuckDB table."""
+    rows = duck_conn.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_name = ? ORDER BY ordinal_position",
+        [table],
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+async def _get_pg_column_types(pg_conn, table: str) -> dict[str, str]:
+    """Return {column_name: data_type} for a PG table (udt_name normalized)."""
+    from sqlalchemy import text
+
+    result = await pg_conn.execute(
+        text(
+            "SELECT column_name, udt_name FROM information_schema.columns "
+            "WHERE table_name = :t AND table_schema = 'public' "
+            "ORDER BY ordinal_position"
+        ),
+        {"t": table},
+    )
+    return {r[0]: r[1] for r in result.fetchall()}
+
+
+# Type pairs that are fundamentally incompatible (cannot auto-convert).
+# PK columns with these mismatches would silently corrupt data, so we
+# skip the entire table and print a warning.
+_INCOMPATIBLE_TYPE_PAIRS: dict[str, set[str]] = {
+    "uuid": {"int8", "bigint", "int4", "integer", "int2", "smallint"},
+    "int8": {"uuid"},
+    "int4": {"uuid"},
+}
+
+
+def _is_pk_type_incompatible(duck_type: str, pg_type: str) -> bool:
+    """Return True if DuckDB and PG PK types are fundamentally incompatible."""
+    d = duck_type.lower()
+    p = pg_type.lower()
+    return p in _INCOMPATIBLE_TYPE_PAIRS.get(d, set())
 
 
 def _init_duckdb_schema(duck_conn) -> None:
@@ -397,6 +466,9 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
             for table in reversed(EXPECTED_TABLES):
                 await pg_conn.execute(text(f'TRUNCATE TABLE "{table}" RESTART IDENTITY CASCADE'))
 
+        # Track skipped tables due to incompatible schema drift
+        skipped_tables: list[tuple[str, str]] = []
+
         # 2. Import each table
         async with engine.begin() as pg_conn:
             for table in EXPECTED_TABLES:
@@ -414,6 +486,25 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
                 if not common_cols:
                     raise RuntimeError(f"No common columns for table {table}")
 
+                # Schema drift check: if PK column has fundamentally
+                # incompatible types (e.g., DuckDB id=UUID vs PG id=BIGINT
+                # from older schema), skip the table rather than corrupt
+                # the data. This handles imports from DuckDB files created
+                # before schema drift fixes (see git log for llm_usage_raw).
+                if "id" in common_cols:
+                    duck_types = _get_duckdb_column_types(duck_conn, table)
+                    pg_types = await _get_pg_column_types(pg_conn, table)
+                    duck_id_type = duck_types.get("id", "")
+                    pg_id_type = pg_types.get("id", "")
+                    if _is_pk_type_incompatible(duck_id_type, pg_id_type):
+                        reason = f"id type incompatible: DuckDB={duck_id_type}, PG={pg_id_type}"
+                        skipped_tables.append((table, reason))
+                        print(
+                            f"  WARN: skipping {table} — {reason}",
+                            file=sys.stderr,
+                        )
+                        continue
+
                 # Read all rows from DuckDB (only common columns)
                 col_str = ",".join(f'"{c}"' for c in common_cols)
                 rows = duck_conn.execute(f'SELECT {col_str} FROM "{table}"').fetchall()
@@ -421,8 +512,18 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
                 if not rows:
                     continue
 
+                # Identify pgvector columns for this table (need string format
+                # for asyncpg, which doesn't natively understand pgvector)
+                vector_cols = await _get_pg_vector_columns(pg_conn, table)
+
                 # Convert values for PG (asyncpg)
-                converted_rows = [[_convert_value_for_pg(v) for v in row] for row in rows]
+                converted_rows = [
+                    [
+                        _convert_value_for_pg(v, is_vector=(col in vector_cols))
+                        for v, col in zip(row, common_cols, strict=True)
+                    ]
+                    for row in rows
+                ]
 
                 # Batch INSERT with named placeholders
                 # Use asyncpg-style $1, $2, ... via SQLAlchemy text()
@@ -468,6 +569,17 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
                     text(f"SELECT setval('{seq_name}', :max, true)"),
                     {"max": max_id if (max_id or 0) > 0 else 1},
                 )
+
+        # 4. Report skipped tables (Rule 12: skip count and reason must
+        # be displayed, not buried in logs)
+        if skipped_tables:
+            print(
+                f"\nWARNING: {len(skipped_tables)} table(s) skipped due to "
+                f"incompatible schema drift:",
+                file=sys.stderr,
+            )
+            for table, reason in skipped_tables:
+                print(f"  - {table}: {reason}", file=sys.stderr)
     finally:
         duck_conn.close()
         await engine.dispose()
