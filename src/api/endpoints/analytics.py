@@ -24,15 +24,6 @@ def _get_analytics_storage():
     return AnalyticsStorage(pool=pool)
 
 
-def _get_briefing_engine():
-    """Lazy import and create DailyBriefingEngine from container."""
-    from api.dependencies import get_relational_pool
-    from modules.briefing import DailyBriefingEngine
-
-    pool = get_relational_pool()
-    return DailyBriefingEngine(pool=pool)
-
-
 @router.get("/shifts", response_model=APIResponse)
 async def get_shifts(
     community_id: str | None = Query(None, description="Filter by community ID"),

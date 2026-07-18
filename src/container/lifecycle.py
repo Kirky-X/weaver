@@ -133,7 +133,6 @@ class ContainerLifecycleMixin:
     _causal_inference_service: Any
     _conflict_detector: Any
     _shift_detector: Any
-    _briefing_engine: Any
     _embedding_service: Any
     _intent_classifier: Any
     _cascade_classifier: Any
@@ -948,30 +947,6 @@ class ContainerLifecycleMixin:
         """Return the shift detector instance."""
         return self._shift_detector
 
-    # ── Briefing Engine ──────────────────────────────────────────
-
-    async def init_briefing_engine(self) -> Any | None:
-        """Initialize daily briefing engine."""
-        from core.observability import get_logger
-        from modules.briefing import DailyBriefingEngine
-
-        log = get_logger(__name__)
-        if self._briefing_engine is not None:
-            return self._briefing_engine
-
-        try:
-            pool = self.relational_pool()
-            self._briefing_engine = DailyBriefingEngine(pool=pool)
-            log.info("briefing_engine_initialized")
-            return self._briefing_engine
-        except Exception as exc:
-            log.warning("briefing_engine_init_failed", error=str(exc))
-            return None
-
-    def briefing_engine(self) -> Any | None:
-        """Return the briefing engine instance."""
-        return self._briefing_engine
-
     def _setup_memory_event_handler(self) -> None:
         from core.event import MemoryIngestEvent
         from core.observability import get_logger
@@ -1129,7 +1104,6 @@ class ContainerLifecycleMixin:
         # Initialize new modules
         await self.init_conflict_detector()
         await self.init_shift_detector()
-        await self.init_briefing_engine()
 
         # Initialize causal inference service before scheduler setup
         # (scheduler is sync, so causal service must be ready beforehand)

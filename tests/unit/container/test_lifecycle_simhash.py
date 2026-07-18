@@ -50,7 +50,6 @@ def _stub_startup_dependencies(container) -> None:
     container.init_memory_service = AsyncMock()
     container.init_conflict_detector = AsyncMock()
     container.init_shift_detector = AsyncMock()
-    container.init_briefing_engine = AsyncMock()
     container.init_causal_inference_service = AsyncMock()
     container._setup_scheduler = MagicMock()
 

@@ -93,7 +93,6 @@ class Container(
         self._llm_usage_repo: Any = None
         self._conflict_detector: Any = None
         self._shift_detector: Any = None
-        self._briefing_engine: Any = None
         self._cascade_classifier: Any = None
         self._gliner_extractor: Any = None
         self._gliner_warmup_task: Any = None
