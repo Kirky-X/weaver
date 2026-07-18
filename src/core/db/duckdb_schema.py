@@ -164,7 +164,7 @@ SCHEMA_QUERIES = [
     # ── LLM Usage Raw ───────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS llm_usage_raw
     (
-        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        id BIGINT DEFAULT nextval('llm_usage_raw_seq') PRIMARY KEY,
         label VARCHAR,
         call_point VARCHAR,
         llm_type VARCHAR,
@@ -176,7 +176,7 @@ SCHEMA_QUERIES = [
         cached_tokens INTEGER DEFAULT 0,
         reasoning_tokens INTEGER DEFAULT 0,
         cost_usd DECIMAL(12, 8) DEFAULT 0,
-        latency_ms DECIMAL(10, 2),
+        latency_ms DOUBLE,
         success BOOLEAN DEFAULT true,
         error_type VARCHAR,
         article_id UUID,
@@ -249,7 +249,7 @@ SCHEMA_QUERIES = [
     """CREATE TABLE IF NOT EXISTS article_vectors
     (
         id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
-        article_id VARCHAR,
+        article_id UUID,
         vector_type VARCHAR,
         embedding FLOAT[1024],
         model_id VARCHAR NOT NULL,
@@ -435,6 +435,7 @@ SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_failure_records_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_hourly_seq START 1",
+    "CREATE SEQUENCE IF NOT EXISTS llm_usage_raw_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS entity_vectors_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS relation_types_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS relation_type_aliases_seq START 1",
