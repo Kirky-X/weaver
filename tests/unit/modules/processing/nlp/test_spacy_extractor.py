@@ -272,73 +272,6 @@ class TestEdgeCases:
         assert result[0].end == 3
 
 
-class TestBatchExtraction:
-    """Tests for batch extraction functionality."""
-
-    @pytest.fixture
-    def extractor(self) -> SpacyExtractor:
-        """Create a SpacyExtractor instance."""
-        return SpacyExtractor(batch_size=8)
-
-    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
-    def test_batch_extraction_multiple_texts(
-        self, mock_load: MagicMock, extractor: SpacyExtractor
-    ) -> None:
-        """Test batch extraction of multiple texts."""
-        mock_nlp = MockNLP(
-            entities=[
-                MockSpan(text="张三", label_="PERSON", start_char=0, end_char=2),
-            ]
-        )
-        mock_load.return_value = mock_nlp
-
-        texts = ["张三在北京", "李四在上海", "王五在广州"]
-        results = extractor.extract_batch(texts, language="zh")
-
-        assert len(results) == 3
-        for result in results:
-            assert len(result) == 1
-            assert result[0].name == "张三"
-
-    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
-    def test_batch_extraction_empty_list(
-        self, mock_load: MagicMock, extractor: SpacyExtractor
-    ) -> None:
-        """Test batch extraction with empty list."""
-        results = extractor.extract_batch([], language="zh")
-
-        assert results == []
-
-    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
-    def test_batch_extraction_preserves_order(
-        self, mock_load: MagicMock, extractor: SpacyExtractor
-    ) -> None:
-        """Test that batch extraction preserves input order."""
-
-        # Create a mock that returns different entities for different texts
-        def create_doc(text: str) -> MockDoc:
-            if "北京" in text:
-                return MockDoc(
-                    text=text, ents=[MockSpan(text="北京", label_="GPE", start_char=0, end_char=2)]
-                )
-            return MockDoc(
-                text=text, ents=[MockSpan(text="上海", label_="GPE", start_char=0, end_char=2)]
-            )
-
-        class OrderMockNLP:
-            def pipe(self, texts: list[str], **kwargs: Any) -> list[MockDoc]:
-                return [create_doc(t) for t in texts]
-
-        mock_load.return_value = OrderMockNLP()
-
-        texts = ["北京中心", "上海总部", "北京分部"]
-        results = extractor.extract_batch(texts, language="zh")
-
-        assert results[0][0].name == "北京"
-        assert results[1][0].name == "上海"
-        assert results[2][0].name == "北京"
-
-
 class TestModelWarmup:
     """Tests for model warmup functionality."""
 
@@ -685,24 +618,3 @@ class TestDisableDataMetricsFiltering:
         result = extractor.extract("100", language="zh")
         assert len(result) == 1
         assert result[0].type == "数据指标"
-
-    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
-    def test_batch_extraction_disable_data_metrics(self, mock_load: MagicMock) -> None:
-        """Test that disable_data_metrics works with batch extraction."""
-        mock_nlp = MockNLP(
-            entities=[
-                MockSpan(text="100万", label_="CARDINAL", start_char=0, end_char=3),
-                MockSpan(text="腾讯", label_="ORG", start_char=4, end_char=6),
-            ]
-        )
-        mock_load.return_value = mock_nlp
-        extractor = SpacyExtractor(batch_size=8)
-
-        texts = ["100万腾讯", "200万阿里"]
-        results = extractor.extract_batch(texts, language="zh", disable_data_metrics=True)
-
-        assert len(results) == 2
-        for result in results:
-            # Each should only have the ORG entity, CARDINAL filtered
-            assert len(result) == 1
-            assert result[0].type == "组织机构"

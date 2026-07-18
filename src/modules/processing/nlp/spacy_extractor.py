@@ -65,30 +65,22 @@ class SpacyExtractor:
     Lazily loads spaCy models per language on first use.
     Deduplicates entities by text and maps spaCy labels
     to domain-specific entity types.
-
-    Supports batch processing via nlp.pipe() for better throughput.
     """
 
     def __init__(
         self,
-        batch_size: int = 16,
-        n_process: int = 1,
         zh_model_path: str | None = None,
         en_model_path: str | None = None,
     ) -> None:
         """Initialize SpacyExtractor.
 
         Args:
-            batch_size: Batch size for nlp.pipe() processing.
-            n_process: Number of processes for parallel processing.
             zh_model_path: Path to Chinese model (wheel file or directory).
                           Loaded from configuration file (settings.toml).
             en_model_path: Path to English model (wheel file or directory).
                           Loaded from configuration file (settings.toml).
         """
         self._models: dict[str, object] = {}
-        self._batch_size = batch_size
-        self._n_process = n_process
         self._temp_dirs: list[str] = []  # Track extracted wheel directories
         # Store model paths from config (priority over env vars)
         self._zh_model_path = zh_model_path
@@ -326,48 +318,6 @@ class SpacyExtractor:
         nlp = self._get_nlp(language)
         doc = nlp(text)
         return self._extract_from_doc(doc, disable_data_metrics)
-
-    def extract_batch(
-        self,
-        texts: list[str],
-        language: str = "zh",
-        disable_data_metrics: bool = False,
-    ) -> list[list[SpacyEntity]]:
-        """Extract named entities from multiple texts using batch processing.
-
-        Uses nlp.pipe() for efficient batch processing, which is
-        significantly faster than processing texts individually.
-
-        Args:
-            texts: List of input texts to analyze.
-            language: Language code (zh, en, etc.).
-            disable_data_metrics: Skip '数据指标' type entities when True.
-
-        Returns:
-            List of entity lists, one per input text.
-        """
-        if not texts:
-            return []
-
-        nlp = self._get_nlp(language)
-        results: list[list[SpacyEntity]] = []
-
-        docs = nlp.pipe(
-            texts,
-            batch_size=self._batch_size,
-            n_process=self._n_process,
-        )
-
-        for doc in docs:
-            results.append(self._extract_from_doc(doc, disable_data_metrics))
-
-        log.debug(
-            "spacy_batch_extracted",
-            language=language,
-            text_count=len(texts),
-            total_entities=sum(len(r) for r in results),
-        )
-        return results
 
     def _extract_from_doc(
         self, doc: object, disable_data_metrics: bool = False
