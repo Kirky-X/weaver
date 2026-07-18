@@ -129,10 +129,22 @@ class Pipeline:
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
         self._phase3_semaphore = asyncio.Semaphore(self._phase3_concurrency)
 
+        # T004: read independent stage enabled flags from TOML config.
+        # Only independent stages (no downstream dependents) respect the
+        # disabled flag; dependency stages always execute to preserve DAG
+        # integrity. Empty set when TOML doesn't configure stages —
+        # backward-compatible default (all independent stages enabled).
+        self._disabled_phase3_stage_names: set[str] = set()
+        if pipeline_settings and pipeline_settings.phase3:
+            for stage in pipeline_settings.phase3.stages:
+                if not stage.enabled and stage.name:
+                    self._disabled_phase3_stage_names.add(stage.name)
+
         log.info(
             "pipeline_init",
             phase1_concurrency=self._phase1_concurrency,
             phase3_concurrency=self._phase3_concurrency,
+            disabled_phase3_stages=sorted(self._disabled_phase3_stage_names),
         )
 
         # Unpack deps for node construction
@@ -936,6 +948,8 @@ class Pipeline:
             # sentiment_tracker + entity_resolver remain serial (they depend
             # on entity_extractor output and run after this block).
             async def _run_fake_news() -> str | None:
+                if "fake_news_detector" in self._disabled_phase3_stage_names:
+                    return None
                 if self._fake_news_node is None:
                     return None
                 start_fn = time.monotonic()
@@ -945,7 +959,9 @@ class Pipeline:
                 )
                 return "fake_news_detector"
 
-            async def _run_conflict() -> str:
+            async def _run_conflict() -> str | None:
+                if "conflict_detector" in self._disabled_phase3_stage_names:
+                    return None
                 start_c = time.monotonic()
                 await self._conflict_detector.execute(state)
                 MetricsCollector.pipeline_stage_latency.labels(stage="conflict_detector").observe(
@@ -954,6 +970,8 @@ class Pipeline:
                 return "conflict_detector"
 
             async def _run_narrative() -> str | None:
+                if "narrative_generator" in self._disabled_phase3_stage_names:
+                    return None
                 if self._narrative_generator is None:
                     return None
                 start_n = time.monotonic()
@@ -964,6 +982,8 @@ class Pipeline:
                 return "narrative_generator"
 
             async def _run_schema() -> str | None:
+                if "schema_extractor" in self._disabled_phase3_stage_names:
+                    return None
                 if self._schema_extractor is None:
                     return None
                 start_s = time.monotonic()
@@ -995,8 +1015,12 @@ class Pipeline:
             # === Sentiment Tracker 阶段 (T003) ===
             # Pure computation node — no LLM. Computes per-entity article-level
             # sentiment shifts and persists to sentiment_shifts. Skipped when
-            # sentiment_shift_repo is unavailable or when terminal/merged.
-            if self._sentiment_tracker is not None:
+            # sentiment_shift_repo is unavailable, when terminal/merged, or
+            # when disabled in TOML config (independent stage).
+            if (
+                self._sentiment_tracker is not None
+                and "sentiment_tracker" not in self._disabled_phase3_stage_names
+            ):
                 start = time.monotonic()
                 state = await self._sentiment_tracker.execute(state)
                 MetricsCollector.pipeline_stage_latency.labels(stage="sentiment_tracker").observe(

@@ -41,6 +41,9 @@ def _make_pipeline_with_mock_phase3_nodes() -> Any:
     pipeline._debug = False
     pipeline._phase3_semaphore = asyncio.Semaphore(5)
 
+    # T004: empty disabled set — all independent stages execute
+    pipeline._disabled_phase3_stage_names = set()
+
     node_delay = 0.2
 
     async def _slow_execute(state):
