@@ -31,12 +31,6 @@ from core.protocols import (
     VectorRepository,
     assert_implements,
 )
-from core.protocols.migration import (
-    GraphMigrationSource,
-    GraphMigrationTarget,
-    MigrationSource,
-    MigrationTarget,
-)
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -66,10 +60,6 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "TaskRegistryService": TaskRegistryService,
     "KnowledgeCacheProtocol": KnowledgeCacheProtocol,
     "MapperProtocol": MapperProtocol,
-    "MigrationSource": MigrationSource,
-    "MigrationTarget": MigrationTarget,
-    "GraphMigrationSource": GraphMigrationSource,
-    "GraphMigrationTarget": GraphMigrationTarget,
     # T007/T008: Briefing protocols
     "AnalyticsStorageProtocol": AnalyticsStorageProtocol,
     "DailyBriefingProtocol": DailyBriefingProtocol,
@@ -102,15 +92,6 @@ PROTOCOL_IMPLEMENTATIONS = [
     ("core.services.task_registry", "InMemoryTaskRegistry", "TaskRegistryService"),
     # Knowledge cache
     ("modules.knowledge.cache.storage", "KnowledgeCache", "KnowledgeCacheProtocol"),
-    # Migration adapters
-    ("modules.migration.adapters.postgres_source", "PostgresSource", "MigrationSource"),
-    ("modules.migration.adapters.duckdb_source", "DuckDBSource", "MigrationSource"),
-    ("modules.migration.adapters.postgres_target", "PostgresTarget", "MigrationTarget"),
-    ("modules.migration.adapters.duckdb_target", "DuckDBTarget", "MigrationTarget"),
-    ("modules.migration.adapters.neo4j_source", "Neo4jSource", "GraphMigrationSource"),
-    ("modules.migration.adapters.ladybug_source", "LadybugSource", "GraphMigrationSource"),
-    ("modules.migration.adapters.neo4j_target", "Neo4jTarget", "GraphMigrationTarget"),
-    ("modules.migration.adapters.ladybug_target", "LadybugTarget", "GraphMigrationTarget"),
     # Mapper implementations
     ("core.mappers.postgres_article_mapper", "PostgresArticleMapper", "MapperProtocol"),
     ("core.mappers.neo4j_entity_mapper", "Neo4jEntityMapper", "MapperProtocol"),

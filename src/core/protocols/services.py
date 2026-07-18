@@ -198,7 +198,8 @@ class DailyBriefingProtocol(Protocol):
     Used by:
         - T009 briefings endpoint: GET /api/v1/briefings/daily and
           POST /api/v1/briefings/daily/generate depend on this Protocol
-          via api.dependencies.get_briefing_service.
+          via the ``_get_briefing_service`` helper in
+          ``api.endpoints.briefings`` (lazy-constructed from container).
         - T010 APScheduler task: generate_daily_briefing calls
           generate_briefing for 4 categories (general/finance/tech/ai).
 
@@ -279,7 +280,8 @@ class SentimentTrendProtocol(Protocol):
 
     Used by:
         - T013 trends endpoint: GET /api/v1/trends/sentiment depends on
-          this Protocol via api.dependencies.get_sentiment_trend_service.
+          this Protocol via the ``_get_sentiment_trend_service`` helper
+          in ``api.endpoints.trends`` (lazy-constructed from container).
         - T018 TrendAlertEvaluator: sentiment_shift trigger_type rules
           invoke analyze_trend to detect shifts > threshold.
         - T015 TrendDetector: optional dependency for sentiment_change
@@ -341,7 +343,8 @@ class TrendDetectionProtocol(Protocol):
 
     Used by:
         - T016 trends endpoint: GET /api/v1/trends/detection depends on
-          this Protocol via api.dependencies.get_trend_detection_service.
+          this Protocol via the ``_get_trend_detection_service`` helper
+          in ``api.endpoints.trends`` (lazy-constructed from container).
         - T018 TrendAlertEvaluator: trend_spike / trend_drop trigger_type
           rules invoke detect_trends to evaluate frequency changes.
 
