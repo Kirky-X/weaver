@@ -396,7 +396,8 @@ class TestLLMUsageAPIEndpoints:
     def app(self, relational_pool):
         """Create FastAPI app with LLM usage endpoints using real repo."""
         from api.endpoints import admin
-        from api.middleware.auth import verify_api_key
+        from api.endpoints.monitoring.llm import router as llm_monitoring_router
+        from api.middleware.auth import verify_admin_api_key, verify_api_key
         from container import Container, set_container
 
         # Register a real container with the LLM usage repo so that
@@ -409,9 +410,14 @@ class TestLLMUsageAPIEndpoints:
 
         try:
             app = FastAPI()
-            # Override auth dependency
+            # Override auth dependencies — the LLM usage endpoint is
+            # admin-gated via verify_admin_api_key, so override that too.
             app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
+            app.dependency_overrides[verify_admin_api_key] = lambda: "test-admin-key"
             app.include_router(admin.router)
+            # LLM usage endpoint lives under /monitoring/llm, not /admin.
+            # Include it explicitly so the test can hit /monitoring/llm/usage.
+            app.include_router(llm_monitoring_router)
             yield app
         finally:
             # Clean up global container to avoid leaking state into other tests
@@ -419,13 +425,13 @@ class TestLLMUsageAPIEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_llm_usage_endpoint(self, app):
-        """Test GET /admin/llm-usage endpoint with real database."""
+        """Test GET /monitoring/llm/usage endpoint with real database."""
         from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
-                "/admin/llm-usage",
+                "/monitoring/llm/usage",
                 params={
                     "from": "2024-01-01T00:00:00Z",
                     "to": "2030-01-31T23:59:59Z",
@@ -438,13 +444,13 @@ class TestLLMUsageAPIEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_llm_usage_summary_endpoint(self, app):
-        """Test GET /admin/llm-usage endpoint with group_by=summary."""
+        """Test GET /monitoring/llm/usage endpoint with group_by=summary."""
         from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
-                "/admin/llm-usage",
+                "/monitoring/llm/usage",
                 params={
                     "from": "2024-01-01T00:00:00Z",
                     "to": "2030-01-31T23:59:59Z",
