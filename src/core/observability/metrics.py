@@ -70,6 +70,18 @@ class MetricsCollector:
         ["call_point", "provider"],
     )
 
+    # LLM cost calculation metrics (D2 / audit-unintegrated-modules)
+    llm_cost_calculation_failures = Counter(
+        "llm_cost_calculation_failures_total",
+        "Total number of LLM cost calculation failures (degraded to 0.0)",
+        ["call_point", "error_type"],
+    )
+    llm_cost_usd_total = Counter(
+        "llm_cost_usd_total",
+        "Total LLM cost in USD accumulated by call_point",
+        ["call_point", "provider", "model"],
+    )
+
     # Pipeline metrics
     pipeline_stage_latency = Histogram(
         "pipeline_stage_latency_seconds",

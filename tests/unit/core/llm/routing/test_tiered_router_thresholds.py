@@ -14,7 +14,7 @@ import pytest
 
 from core.llm.routing.difficulty_estimator import DifficultyEstimator
 from core.llm.routing.tiered_router import TieredRouter
-from core.llm.types import TierConfig, describe_routing, validate_tiers
+from core.llm.types import TierConfig, validate_tiers
 
 # ── TierConfig Validation ───────────────────────────────────────────
 
@@ -83,32 +83,6 @@ class TestTierConfigValidation:
         errors = validate_tiers(tiers)
         assert len(errors) > 0
         assert any("1.0" in e or "coverage" in e.lower() for e in errors)
-
-
-# ── TierConfig Describe Routing ─────────────────────────────────────
-
-
-class TestTierConfigDescribeRouting:
-    """Test describe_routing() method."""
-
-    def test_describe_routing_returns_string(self) -> None:
-        """describe_routing() should return a human-readable string."""
-        tiers = [
-            TierConfig(label="chat.fast.classifier", max_difficulty=0.3),
-            TierConfig(label="chat.medium.classifier", max_difficulty=0.7),
-            TierConfig(label="chat.best.classifier", max_difficulty=1.0),
-        ]
-        description = describe_routing(tiers)
-        assert isinstance(description, str)
-        assert "0.3" in description
-        assert "0.7" in description
-        assert "1.0" in description
-        assert "chat.fast.classifier" in description
-
-    def test_describe_empty_tiers(self) -> None:
-        """describe_routing() with empty tiers should indicate no routing."""
-        description = describe_routing([])
-        assert "no tiers" in description.lower() or "empty" in description.lower()
 
 
 # ── Routing Boundary Tests ──────────────────────────────────────────

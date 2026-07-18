@@ -239,37 +239,6 @@ def validate_tiers(tiers: list[TierConfig]) -> list[str]:
     return errors
 
 
-def describe_routing(tiers: list[TierConfig]) -> str:
-    """Generate a human-readable description of the routing table.
-
-    Args:
-        tiers: List of TierConfig entries.
-
-    Returns:
-        Multi-line string describing the routing decisions.
-    """
-    if not tiers:
-        return "No tiers configured — tiered routing is disabled."
-
-    lines = ["Tiered routing configuration:"]
-    prev_bound = 0.0
-    for i, tier in enumerate(tiers):
-        range_str = f"[{prev_bound:.1f}, {tier.max_difficulty:.1f})"
-        truncation = f", truncation={tier.input_truncation}" if tier.input_truncation else ""
-        lines.append(f"  Tier {i}: difficulty {range_str} → {tier.label}{truncation}")
-        prev_bound = tier.max_difficulty
-
-    # Validate and append warnings
-    errors = validate_tiers(tiers)
-    if errors:
-        lines.append("")
-        lines.append("Validation warnings:")
-        for error in errors:
-            lines.append(f"  ⚠ {error}")
-
-    return "\n".join(lines)
-
-
 class RoutingConfig(BaseModel):
     """路由配置 - pydantic BaseModel for TOML loading."""
 

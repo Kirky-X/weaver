@@ -28,9 +28,6 @@ _NEO4J_LABEL_RE = re.compile(r"^[a-zA-Z_\u4e00-\u9fff][a-zA-Z0-9_\u4e00-\u9fff]*
 # Valid edge type: uppercase letters, digits, underscore, Chinese characters
 _EDGE_TYPE_RE = re.compile(r"^[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*$")
 
-# Valid property name: letters, digits, underscore
-_PROPERTY_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
 
 # ── Validation Exceptions ───────────────────────────────────────────────────
 
@@ -119,27 +116,6 @@ def validate_edge_type(edge_type: str) -> str:
         raise InvalidIdentifierError(edge_type, "edge type")
 
     return edge_type
-
-
-def validate_property_name(name: str) -> str:
-    """Validate a property name for SQL or Neo4j.
-
-    Args:
-        name: The property name to validate.
-
-    Returns:
-        The validated property name (unchanged).
-
-    Raises:
-        InvalidIdentifierError: If the property name is invalid.
-    """
-    if not name:
-        raise InvalidIdentifierError(name, "property_name (empty)")
-
-    if not _PROPERTY_NAME_RE.match(name):
-        raise InvalidIdentifierError(name, "property name")
-
-    return name
 
 
 def validate_uuid(uuid_str: str, name: str = "uuid") -> str:

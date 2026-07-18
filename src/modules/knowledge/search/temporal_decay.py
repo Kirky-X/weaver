@@ -15,19 +15,7 @@ Implements: TemporalAwareRetriever — ADD §3.6
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from datetime import UTC, datetime
-
-
-@dataclass
-class TemporalDecayConfig:
-    """Configuration for temporal decay."""
-
-    enabled: bool = True
-    """Whether temporal decay is enabled."""
-
-    half_life_days: float = 30.0
-    """Half-life in days. After this period, the decay multiplier reaches 0.5."""
 
 
 class TemporalAwareRetriever:

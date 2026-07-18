@@ -11,7 +11,6 @@ import pytest
 
 from modules.knowledge.search.temporal_decay import (
     TemporalAwareRetriever,
-    TemporalDecayConfig,
     apply_temporal_decay,
     calculate_age_in_days,
     calculate_decay_multiplier,
@@ -135,22 +134,6 @@ class TestCalculateAgeInDays:
         age = calculate_age_in_days(timestamp)
         # Should be approximately 5 days
         assert 4.9 < age < 5.1
-
-
-class TestTemporalDecayConfig:
-    """Tests for TemporalDecayConfig dataclass."""
-
-    def test_default_values(self) -> None:
-        """Default config should have decay enabled."""
-        config = TemporalDecayConfig()
-        assert config.enabled is True
-        assert config.half_life_days == 30.0
-
-    def test_custom_values(self) -> None:
-        """Should accept custom values."""
-        config = TemporalDecayConfig(enabled=True, half_life_days=7.0)
-        assert config.enabled is True
-        assert config.half_life_days == 7.0
 
 
 class TestIntegration:

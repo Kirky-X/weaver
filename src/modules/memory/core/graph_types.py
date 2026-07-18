@@ -4,7 +4,6 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class CausalRelationType(Enum):
@@ -118,30 +117,6 @@ class OutputMode(Enum):
 
     NARRATIVE = "NARRATIVE"
     """LLM-synthesized narrative answer."""
-
-
-@dataclass
-class EntityNeighborhood:
-    """Neighborhood of an entity in the multi-graph memory.
-
-    Contains the entity, its associated events, related entities,
-    and the relations connecting them.
-    """
-
-    center: str
-    """Canonical name of the center entity."""
-
-    events: list[dict[str, Any]] = field(default_factory=list)
-    """Events mentioning or involving the center entity."""
-
-    related_entities: list[dict[str, Any]] = field(default_factory=list)
-    """Entities connected to the center entity."""
-
-    relations: list[dict[str, Any]] = field(default_factory=list)
-    """Relations between center entity and related entities."""
-
-    hops: int = 2
-    """Number of hops used to expand the neighborhood."""
 
 
 @dataclass

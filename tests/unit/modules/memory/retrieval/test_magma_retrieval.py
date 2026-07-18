@@ -355,22 +355,6 @@ class TestGraphTypes:
         assert OutputMode.CONTEXT.value == "CONTEXT"
         assert OutputMode.NARRATIVE.value == "NARRATIVE"
 
-    def test_entity_neighborhood_dataclass(self):
-        """Test EntityNeighborhood dataclass."""
-        from modules.memory.core.graph_types import EntityNeighborhood
-
-        neighborhood = EntityNeighborhood(
-            center="腾讯",
-            events=[{"content": "test"}],
-            related_entities=[{"name": "AI"}],
-            relations=[],
-            hops=2,
-        )
-
-        assert neighborhood.center == "腾讯"
-        assert len(neighborhood.events) == 1
-        assert neighborhood.hops == 2
-
     def test_aggregation_result_dataclass(self):
         """Test AggregationResult dataclass."""
         from modules.memory.core.graph_types import AggregationResult

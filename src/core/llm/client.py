@@ -36,6 +36,7 @@ from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
     from core.event import EventBus
+    from core.llm.cost.calculator import CostCalculator
     from core.llm.evaluation.eval_runner import EvalRunner
     from core.llm.routing.smart_router import SmartRouter
     from core.llm.routing.tiered_router import TieredRouter
@@ -114,6 +115,7 @@ class LLMClient:
         eval_runner: EvalRunner | None = None,
         tiered_router: TieredRouter | None = None,
         graph_pool: GraphPool | None = None,
+        cost_calculator: CostCalculator | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -129,6 +131,9 @@ class LLMClient:
             graph_pool: 可选的图数据库池（用于structured_call schema查询）.
                 container 在创建实例后也可通过属性赋值注入（mirrors
                 _smart_router 模式，lifecycle.py:194）.
+            cost_calculator: 可选的成本计算器（D2 / audit-unintegrated-modules）.
+                当传入时, _emit_usage_event 会计算 cost_usd 并填入 LLMUsageEvent;
+                None 时 cost_usd 保持 0.0 (向后兼容).
         """
         self._global_config = global_config
         self._router = LabelRouter(global_config)
@@ -143,6 +148,9 @@ class LLMClient:
         # (mirrors _smart_router pattern). None means caller has not wired a
         # graph pool — structured_call raises ValueError on use (Rule 12).
         self._graph_pool: GraphPool | None = graph_pool
+        # CostCalculator for LLM usage accounting (D2). None means caller has
+        # not wired a calculator — cost_usd stays 0.0 in LLMUsageEvent.
+        self._cost_calculator: CostCalculator | None = cost_calculator
 
         self._response_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=1000, ttl=3600)
         self._cache_hits: int = 0
@@ -206,8 +214,35 @@ class LLMClient:
         try:
             from core.event import LLMUsageEvent
 
+            # Cache str(label) once — used in cost calc, event, and logs.
+            # (LOW-1 perf: avoid repeated Label.__str__ calls.)
+            label_str = str(label)
+
+            # D2 / audit-unintegrated-modules: compute cost_usd when a
+            # CostCalculator is wired. Failures are logged, metric'd, and
+            # degraded to 0.0 — cost accounting must never block the usage
+            # event (Rule 12 fail-loud via metric, graceful via value).
+            cost_usd = 0.0
+            if self._cost_calculator is not None and token_usage is not None:
+                try:
+                    cost_usd = self._cost_calculator.calculate(
+                        label=label_str,
+                        tokens=token_usage,
+                    )
+                except Exception as calc_exc:
+                    log.warning(
+                        "cost_calculation_failed",
+                        label=label_str,
+                        error=str(calc_exc),
+                        error_type=type(calc_exc).__name__,
+                    )
+                    metrics.llm_cost_calculation_failures.labels(
+                        call_point=call_point.value,
+                        error_type=type(calc_exc).__name__,
+                    ).inc()
+
             event = LLMUsageEvent(
-                label=str(label),
+                label=label_str,
                 call_point=call_point.value,
                 llm_type=label.llm_type.value,
                 provider=label.provider,
@@ -219,8 +254,17 @@ class LLMClient:
                 timestamp=get_current_time_with_timezone(),
                 article_id=article_id,
                 task_id=task_id,
+                cost_usd=cost_usd,
             )
             await self._event_bus.publish(event)
+
+            # Accumulate cost metric for observability (D2).
+            if cost_usd > 0.0:
+                metrics.llm_cost_usd_total.labels(
+                    call_point=call_point.value,
+                    provider=label.provider,
+                    model=label.model,
+                ).inc(cost_usd)
         except Exception as exc:
             log.warning(
                 "llm_usage_event_publish_failed",
@@ -1247,6 +1291,8 @@ class LLMClient:
         Returns:
             配置好的LLMClient实例
         """
+        from core.llm.cost.calculator import CostCalculator
+
         providers = list(llm_settings.providers.values())
         global_config = GlobalConfig(
             circuit_breaker_threshold=llm_settings.circuit_breaker_threshold,
@@ -1255,4 +1301,18 @@ class LLMClient:
             defaults=llm_settings.defaults,
             call_points=llm_settings.call_points,
         )
-        return cls(providers, global_config, event_bus, cache_client, prompt_loader)
+        # D2: instantiate CostCalculator only when rates are configured.
+        # Empty CostConfig (default) would compute cost_usd=0.0 for every
+        # call — skip the work entirely. When rates exist, the calculator
+        # computes real USD cost per LLM call (MEDIUM-3 conditional init).
+        cost_calculator: CostCalculator | None = None
+        if llm_settings.cost.rates:
+            cost_calculator = CostCalculator(config=llm_settings.cost)
+        return cls(
+            providers,
+            global_config,
+            event_bus,
+            cache_client,
+            prompt_loader,
+            cost_calculator=cost_calculator,
+        )

@@ -16,7 +16,6 @@ from core.db.safe_query import (
     InvalidIdentifierError,
     validate_edge_type,
     validate_neo4j_label,
-    validate_property_name,
     validate_sql_identifier,
     validate_uuid,
 )
@@ -146,37 +145,6 @@ class TestCypherInjectionProtection:
         with pytest.raises(InvalidIdentifierError):
             validate_edge_type(edge_type)
 
-    # ── Property Name Validation Tests ─────────────────────────────────────────
-
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "name",
-            "created_at",
-            "entityId",
-            "property123",
-        ],
-    )
-    def test_valid_property_names_accepted(self, name: str) -> None:
-        """Valid property names should pass validation."""
-        result = validate_property_name(name)
-        assert result == name
-
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "name'; DELETE n; //",
-            "prop} RETURN n//",
-            "property-name",
-            "property.name",
-            "",
-        ],
-    )
-    def test_malicious_property_names_rejected(self, name: str) -> None:
-        """Malicious property names should fail validation."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_property_name(name)
-
     # ── UUID Validation Tests ─────────────────────────────────────────────────
 
     @pytest.mark.parametrize(
@@ -298,7 +266,6 @@ class TestSecurityHardeningVerification:
         # Test Neo4j validation
         assert validate_neo4j_label("Person") == "Person"
         assert validate_edge_type("RELATES_TO") == "RELATES_TO"
-        assert validate_property_name("name") == "name"
 
         # Test UUID validation
         assert validate_uuid("550e8400-e29b-41d4-a716-446655440000")
