@@ -605,36 +605,6 @@ class TestContainerServicesGraphEntityRepo:
         assert result is mock_repo
 
 
-class TestContainerServicesGraphArticleRepo:
-    """Tests for ContainerServicesMixin.graph_article_repo."""
-
-    def test_graph_article_repo_returns_none_without_graph_pool(self) -> None:
-        c = _make_container()
-        c._strategy = _make_strategy(has_graph=False)
-        c._graph_article_repo = None
-        assert c.graph_article_repo() is None
-
-    def test_graph_article_repo_neo4j(self) -> None:
-        c = _make_container()
-        c._strategy = _make_strategy(graph_type="neo4j")
-        c._graph_article_repo = None
-
-        mock_repo = MagicMock()
-        with patch("modules.storage.neo4j.Neo4jArticleRepo", return_value=mock_repo):
-            result = c.graph_article_repo()
-        assert result is mock_repo
-
-    def test_graph_article_repo_ladybug(self) -> None:
-        c = _make_container()
-        c._strategy = _make_strategy(graph_type="ladybug")
-        c._graph_article_repo = None
-
-        mock_repo = MagicMock()
-        with patch("modules.storage.ladybug.LadybugArticleRepo", return_value=mock_repo):
-            result = c.graph_article_repo()
-        assert result is mock_repo
-
-
 class TestContainerServicesCausalRepo:
     """Tests for ContainerServicesMixin.causal_repo."""
 

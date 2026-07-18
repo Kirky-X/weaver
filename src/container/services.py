@@ -59,7 +59,6 @@ class ContainerServicesMixin:
     _vector_repo: VectorRepository | None
     _source_authority_repo: SourceAuthorityRepo | None
     _graph_entity_repo: Any
-    _graph_article_repo: Any
     _graph_writer: GraphWriter | None
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
@@ -331,24 +330,6 @@ class ContainerServicesMixin:
 
                 self._graph_entity_repo = Neo4jEntityRepo(graph_pool)
         return self._graph_entity_repo
-
-    def graph_article_repo(self) -> Any | None:
-        """Get graph article repository (Neo4j or LadybugDB implementation)."""
-        graph_pool = self.graph_pool()
-        if graph_pool is None:
-            return None
-        if self._strategy is None:
-            return None
-        if self._graph_article_repo is None:
-            if self._strategy.graph_type == "ladybug":
-                from modules.storage.ladybug import LadybugArticleRepo
-
-                self._graph_article_repo = LadybugArticleRepo(graph_pool)
-            else:
-                from modules.storage.neo4j import Neo4jArticleRepo
-
-                self._graph_article_repo = Neo4jArticleRepo(graph_pool)
-        return self._graph_article_repo
 
     def causal_repo(self) -> Any | None:
         """Get causal graph repository (Neo4j or LadybugDB implementation).

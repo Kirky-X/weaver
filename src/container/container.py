@@ -53,7 +53,6 @@ class Container(
         self._vector_repo: Any = None
         self._source_authority_repo: Any = None
         self._graph_entity_repo: Any = None
-        self._graph_article_repo: Any = None
         self._graph_writer: Any = None
         self._graph_repo: Any = None
         self._entity_resolver: Any = None
