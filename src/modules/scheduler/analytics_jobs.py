@@ -151,8 +151,7 @@ class AnalyticsJobs:
     async def generate_daily_briefing(self) -> dict[str, Any]:
         """Generate 4 daily briefings (general/finance/tech/ai) per spec R-briefing-006.
 
-        Replaces the legacy single-briefing DailyBriefingEngine path with
-        DailyBriefingService.generate_briefing called once per category.
+        Uses DailyBriefingService.generate_briefing called once per category.
 
         Error isolation (Rule 12 + R-briefing-006):
             A single category failure is logged and recorded in the results

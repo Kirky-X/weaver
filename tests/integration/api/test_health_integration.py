@@ -89,18 +89,27 @@ class TestHealthEndpointIntegration:
         assert "checks" in data
         assert data["status"] == "healthy"
 
+        # Resolve expected service names from fixture-returned types
+        # (rel_type is DatabaseType enum; .value gives "postgres" or "duckdb")
+        # (g_type is a str: "neo4j" or "ladybug")
+        # (cache_client in tests is RedisClient/CashewsClient without cache_type
+        #  attribute, so health.py defaults cache service name to "redis")
+        expected_rel_name = rel_type.value
+        expected_graph_name = g_type
+        expected_cache_name = "redis"
+
         # Assert all checks present
-        assert "postgres" in data["checks"]
-        assert "neo4j" in data["checks"]
-        assert "redis" in data["checks"]
+        assert expected_rel_name in data["checks"]
+        assert expected_graph_name in data["checks"]
+        assert expected_cache_name in data["checks"]
 
         # Assert all checks healthy
-        assert data["checks"]["postgres"]["status"] == "ok"
-        assert data["checks"]["neo4j"]["status"] == "ok"
-        assert data["checks"]["redis"]["status"] == "ok"
+        assert data["checks"][expected_rel_name]["status"] == "ok"
+        assert data["checks"][expected_graph_name]["status"] == "ok"
+        assert data["checks"][expected_cache_name]["status"] == "ok"
 
         # Assert latency measured
-        for check_name in ["postgres", "neo4j", "redis"]:
+        for check_name in [expected_rel_name, expected_graph_name, expected_cache_name]:
             assert "latency_ms" in data["checks"][check_name]
             assert isinstance(data["checks"][check_name]["latency_ms"], (int, float))
             assert data["checks"][check_name]["latency_ms"] >= 0
@@ -142,8 +151,11 @@ class TestHealthEndpointIntegration:
         assert "checks" in data
         assert isinstance(data["checks"], dict)
 
-        # Assert each check has required fields
-        for check_name in ["postgres", "neo4j", "redis"]:
+        # Assert each check has required fields (use fixture-driven names)
+        expected_rel_name = rel_type.value
+        expected_graph_name = g_type
+        expected_cache_name = "redis"
+        for check_name in [expected_rel_name, expected_graph_name, expected_cache_name]:
             check = data["checks"][check_name]
             assert "status" in check
             assert "latency_ms" in check
@@ -204,9 +216,12 @@ class TestHealthEndpointIntegration:
         response_time = end_time - start_time
         assert response_time < 2.0, f"Response time too slow: {response_time}s"
 
-        # Assert latency measured in checks
+        # Assert latency measured in checks (use fixture-driven names)
         data = response.json()
-        for check_name in ["postgres", "neo4j", "redis"]:
+        expected_rel_name = rel_type.value
+        expected_graph_name = g_type
+        expected_cache_name = "redis"
+        for check_name in [expected_rel_name, expected_graph_name, expected_cache_name]:
             assert "latency_ms" in data["checks"][check_name]
             # Latency should be reasonable for real services
             assert data["checks"][check_name]["latency_ms"] < 1000

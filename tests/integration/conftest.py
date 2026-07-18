@@ -140,8 +140,14 @@ async def relational_pool():
     DuckDB is a real embedded database - no mocks.
 
     Returns:
-        tuple: (pool, database_type) where database_type is "postgresql" or "duckdb"
+        tuple: (pool, database_type) where database_type is DatabaseType.POSTGRES
+        or DatabaseType.DUCKDB. Returned as DatabaseType enum (not str) so
+        downstream code calling ``.value`` (e.g. container.relational_pool_type)
+        works correctly. DatabaseType inherits str, so ``== "postgres"`` and
+        ``== "duckdb"`` comparisons still pass for legacy callers.
     """
+    from core.db.query_builders import DatabaseType
+
     # Try PostgreSQL first
     if await check_postgres_available():
         from core.db import PostgresPool
@@ -149,7 +155,7 @@ async def relational_pool():
         dsn = get_postgres_dsn()
         pool = PostgresPool(dsn)
         await pool.startup()
-        yield pool, "postgresql"
+        yield pool, DatabaseType.POSTGRES
         await pool.shutdown()
     else:
         # Fallback to DuckDB (real embedded database)
@@ -165,7 +171,7 @@ async def relational_pool():
             pool = DuckDBPool(db_path=db_path)
             await pool.startup()
             await initialize_duckdb_schema(pool)
-            yield pool, "duckdb"
+            yield pool, DatabaseType.DUCKDB
             await pool.shutdown()
         finally:
             # Cleanup temp file
