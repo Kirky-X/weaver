@@ -8,9 +8,9 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, case, func, select, update
+from sqlalchemy import and_, bindparam, case, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,9 @@ from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.types.pipeline_state import PipelineState
 from core.url_utils import normalize_url
+
+if TYPE_CHECKING:
+    from core.protocols.types import ArticleTitleMeta
 
 log = get_logger(__name__)
 
@@ -1076,6 +1079,102 @@ class ArticleRepo:
                 raw_articles.append(raw)
 
             return raw_articles
+
+    async def fetch_titles_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, ArticleTitleMeta]:
+        """Batch fetch article metadata by PostgreSQL IDs.
+
+        Used by graph-query callers that, after the Article node slim-down
+        (design.md §D2), can only read ``pg_id`` from the graph DB and must
+        look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
+        the relational DB in a single batched query (avoids N+1).
+
+        Implements:
+            - ArticleRepository.fetch_titles_by_pg_ids
+
+        .. warning::
+            Do NOT call this method inside a per-article loop — that
+            defeats the N+1 avoidance. Pass the full ``pg_ids`` list in
+            one shot.
+
+        Args:
+            pg_ids: List of article UUID strings. Empty list short-circuits
+                without opening a session. Invalid UUID strings are skipped
+                with a warning log (not raised). Mapping keys are lowercase
+                UUID strings — callers querying the result must use
+                ``pg_id.lower()`` to look up entries.
+
+        Returns:
+            Mapping of ``pg_id`` (lowercase UUID string) -> ``ArticleTitleMeta``.
+            Missing IDs are omitted from the result. ``publish_time`` /
+            ``score`` may be ``None`` for terminal or legacy articles.
+        """
+        if not pg_ids:
+            return {}
+
+        # Filter out invalid UUIDs (graph DB may carry historical dirty
+        # data; one bad pg_id must not abort the entire batch — rule 12
+        # "failures must be explicit"). Aggregate to a single warning log
+        # with a 5-item sample to avoid log spam when many pg_ids are dirty.
+        uuid_ids: list[uuid.UUID] = []
+        skipped: list[str] = []
+        for pid in pg_ids:
+            try:
+                uuid_ids.append(uuid.UUID(pid))
+            except (ValueError, AttributeError, TypeError):
+                skipped.append(pid)
+        if skipped:
+            log.warning(
+                "fetch_titles_by_pg_ids_invalid_skipped",
+                skipped_count=len(skipped),
+                total_count=len(pg_ids),
+                sample=skipped[:5],
+            )
+        if not uuid_ids:
+            return {}
+
+        # Chunk to avoid PG parameter limits (soft limit 65535) and DuckDB
+        # plan-cache bloat. 500 keeps parse time <10ms while limiting round
+        # trips to ~100 for 50K pg_ids (realistic max). Reads can use a
+        # larger chunk than writes (bulk_upsert uses 50) since no
+        # transaction lock is held.
+        CHUNK_SIZE = 500
+        mapping: dict[str, ArticleTitleMeta] = {}
+        # Single shared session for all chunks — read-only queries have no
+        # transaction isolation needs, unlike bulk_upsert's per-state session
+        # for failure isolation. Avoids N session-construction overheads.
+        async with self._pool.session() as session:
+            for i in range(0, len(uuid_ids), CHUNK_SIZE):
+                chunk = uuid_ids[i : i + CHUNK_SIZE]
+                # expanding bindparam lets PG reuse a single plan across
+                # chunks of identical size (avoids plan-cache bloat).
+                stmt = select(
+                    ArticleCore.id,
+                    ArticleCore.title,
+                    ArticleCore.category,
+                    ArticleCore.publish_time,
+                    ArticleCore.score,
+                ).where(ArticleCore.id.in_(bindparam("ids", chunk, expanding=True)))
+                result = await session.execute(stmt)
+                # NOTE: row[i] indices match SELECT column order above —
+                # keep in sync if reordering columns.
+                for row in list(result):
+                    pid_str = str(row[0])
+                    mapping[pid_str] = {
+                        "title": row[1],
+                        "category": row[2],
+                        "publish_time": row[3],
+                        "score": row[4],
+                    }
+        log.debug(
+            "fetch_titles_by_pg_ids_complete",
+            requested=len(pg_ids),
+            returned=len(mapping),
+            skipped=len(skipped),
+        )
+        return mapping
 
     async def get_stuck_articles(self, timeout_minutes: int = 30) -> list[Article]:
         """Get articles stuck in PROCESSING state beyond timeout.

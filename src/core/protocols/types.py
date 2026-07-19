@@ -16,9 +16,13 @@ Re-exported types:
       (defined in core.models.shared)
     - ArticleSearchResultView, EntitySearchResultView, CommunitySearchResultView:
       Search result view models (defined in core.models.shared)
+    - ArticleTitleMeta: TypedDict for batch title lookup (defined here)
 """
 
 from __future__ import annotations
+
+from datetime import datetime
+from typing import TypedDict
 
 # Import directly from the definition modules (not the package __init__)
 # to avoid circular imports:
@@ -35,8 +39,24 @@ from core.models.shared import (
 )
 from core.types.pipeline_state import PipelineState
 
+
+class ArticleTitleMeta(TypedDict):
+    """Article metadata returned by ``ArticleRepository.fetch_titles_by_pg_ids``.
+
+    Used by graph-query callers that, after the Article node slim-down
+    (design.md §D2), can only read ``pg_id`` from the graph DB and must
+    look up the business fields from the relational DB in a batch.
+    """
+
+    title: str
+    category: str | None
+    publish_time: datetime | None
+    score: float | None
+
+
 __all__ = [
     "ArticleSearchResultView",
+    "ArticleTitleMeta",
     "ArticleView",
     "CommunitySearchResultView",
     "EntitySearchResultView",

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from core.protocols.types import (
         ArticleSearchResultView,
+        ArticleTitleMeta,
         ArticleView,
         EntitySearchResultView,
         EntityView,
@@ -289,6 +290,36 @@ class ArticleRepository(Protocol):
         Args:
             article_id: Article UUID.
             error: Error message.
+        """
+        ...
+
+    async def fetch_titles_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, ArticleTitleMeta]:
+        """Batch fetch article metadata by PostgreSQL IDs.
+
+        Used by graph-query callers that, after the Article node slim-down
+        (design.md §D2), can only read ``pg_id`` from the graph DB and must
+        look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
+        the relational DB in a single batched query.
+
+        .. warning::
+            Do NOT call this method inside a per-article loop — that
+            defeats the N+1 avoidance. Pass the full ``pg_ids`` list in
+            one shot.
+
+        Args:
+            pg_ids: List of article UUID strings. Empty list short-circuits
+                without opening a session. Invalid UUID strings are skipped
+                with a warning log (not raised). Mapping keys are lowercase
+                UUID strings — callers querying the result must use
+                ``pg_id.lower()`` to look up entries.
+
+        Returns:
+            Mapping of ``pg_id`` (lowercase UUID string) -> ``ArticleTitleMeta``.
+            Missing IDs are omitted from the result. ``publish_time`` /
+            ``score`` may be ``None`` for terminal or legacy articles.
         """
         ...
 
