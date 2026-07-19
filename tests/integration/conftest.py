@@ -96,8 +96,15 @@ def unique_id():
 
 @pytest.fixture
 def auth_headers():
-    """Return auth headers for API requests."""
-    api_key = os.getenv("WEAVER_API_KEY", "test-api-key")
+    """Return auth headers for API requests.
+
+    Reads ``WEAVER_API__API_KEY`` (pydantic-settings nested delimiter ``__``)
+    so the value matches what the running server is configured with via .env.
+    The fallback default satisfies ``MIN_API_KEY_LENGTH = 32`` (see
+    src/api/middleware/auth.py:21) to avoid spurious 500/403 when .env is
+    not loaded.
+    """
+    api_key = os.getenv("WEAVER_API__API_KEY", "test-api-key-32chars-long!!!!!!!")
     return {"X-API-Key": api_key}
 
 

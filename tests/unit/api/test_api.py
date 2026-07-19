@@ -433,10 +433,16 @@ class TestPipelineEndpoint:
     async def test_trigger_pipeline_failure(self):
         """Test POST /admin/pipeline/trigger handles errors gracefully.
 
-        When the scheduler fails, the endpoint raises HTTPException(500)
-        and updates the task status to failed.
+        With async trigger, the HTTP request returns immediately with a
+        ``QUEUED`` task_id; the background coroutine catches the scheduler
+        failure and records it as ``FAILED`` in the task status cache.
+        The process MUST NOT crash regardless of scheduler errors.
         """
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import (
+            TASK_STATUS_KEY,
+            TriggerRequest,
+            trigger_pipeline,
+        )
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -454,16 +460,34 @@ class TestPipelineEndpoint:
             "api.endpoints.content.pipeline.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
-            with pytest.raises(HTTPException) as exc_info:
-                await trigger_pipeline(
-                    request=request,
-                    _="test-key",
-                    cache=mock_cache,
-                    scheduler=mock_scheduler,
-                )
+            result = await trigger_pipeline(
+                request=request,
+                _="test-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+            # Allow the background task to finish so we can observe its
+            # error-handling path (status update to FAILED).
+            await asyncio.sleep(0.05)
 
-        assert exc_info.value.status_code == 500
-        assert "Pipeline trigger failed" in exc_info.value.detail
+        # HTTP request returned successfully with a queued task_id
+        assert result.data.task_id == "12345678-1234-5678-1234-567812345678"
+
+        # Background task attempted to trigger the source
+        mock_scheduler.trigger_now.assert_called_once()
+
+        # Background task recorded the failure in the task status cache.
+        # The status update call should contain a FAILED status payload.
+        status_update_calls = [
+            call
+            for call in mock_cache.hset.call_args_list
+            if len(call.args) >= 3 and call.args[0] == TASK_STATUS_KEY
+        ]
+        assert status_update_calls, "Expected at least one task status update"
+        # Find the FAILED status update (last status update should be FAILED)
+        final_status_payload = json.loads(status_update_calls[-1].args[2])
+        assert final_status_payload["status"] == "failed"
+        assert "Connection failed" in final_status_payload["error"]
 
     @pytest.mark.asyncio
     async def test_get_task_status_found(self):
