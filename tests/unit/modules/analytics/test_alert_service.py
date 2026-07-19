@@ -251,3 +251,136 @@ class TestAcknowledgeAlert:
 
         result = await service.acknowledge_event(event_id=999)
         assert result is False
+
+
+# ── 7. Delete Alert Rule (TDD for DELETE endpoint 500 fix) ───────
+#
+# Root cause: alert_events.rule_id FK is NO ACTION (RESTRICT) in PG
+# (migration 08 + confirmed by migration 28 downgrade comments).
+# Deleting a rule that has events triggers FK violation → HTTP 500.
+# Fix: in delete_rule, DELETE alert_events first, then alert_rule,
+# both in the same transaction. Must work for PostgreSQL and DuckDB.
+
+
+class TestDeleteAlertRule:
+    """test_delete_alert_rule — covers all boundary scenarios.
+
+    Scenarios required by task (do not simplify):
+    - rule_id not found        → return False (404 at API layer)
+    - rule exists, no events   → delete rule, return True
+    - rule exists, has events  → delete events then rule (transaction), return True
+    - DB exception             → propagate, no commit
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_rule_not_found_returns_false(self, service, mock_pool):
+        """Rule not found: no DELETE executed, no commit, return False."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await service.delete_rule(rule_id=999)
+
+        assert result is False
+        # Only the existence-check SELECT should have run — no DELETEs.
+        assert mock_session.execute.call_count == 1
+        mock_session.commit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_rule_no_events_deletes_rule_only(self, service, mock_pool):
+        """Rule with no associated events: SELECT + DELETE events + DELETE rule."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session.commit = AsyncMock()
+
+        # Rule lookup returns an existing rule
+        mock_rule = MagicMock()
+        mock_rule.id = 11
+        mock_rule_result = MagicMock()
+        mock_rule_result.scalars.return_value.first.return_value = mock_rule
+
+        # Core delete results (rowcount not required by service, but mocked)
+        mock_delete_events_result = MagicMock()
+        mock_delete_events_result.rowcount = 0
+        mock_delete_rule_result = MagicMock()
+        mock_delete_rule_result.rowcount = 1
+
+        mock_session.execute.side_effect = [
+            mock_rule_result,
+            mock_delete_events_result,
+            mock_delete_rule_result,
+        ]
+
+        result = await service.delete_rule(rule_id=11)
+
+        assert result is True
+        # SELECT + DELETE events + DELETE rule = 3 execute calls
+        assert mock_session.execute.call_count == 3
+        mock_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_rule_with_events_deletes_events_before_rule(self, service, mock_pool):
+        """Rule with events: MUST delete events BEFORE rule (FK NO ACTION).
+
+        This is the regression test for the 500 error. The fix must issue
+        DELETE FROM alert_events WHERE rule_id=? BEFORE
+        DELETE FROM alert_rules WHERE id=?, in the same transaction.
+        """
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session.commit = AsyncMock()
+
+        mock_rule = MagicMock()
+        mock_rule.id = 11
+        mock_rule_result = MagicMock()
+        mock_rule_result.scalars.return_value.first.return_value = mock_rule
+
+        # 3 events to be deleted first
+        mock_delete_events_result = MagicMock()
+        mock_delete_events_result.rowcount = 3
+        mock_delete_rule_result = MagicMock()
+        mock_delete_rule_result.rowcount = 1
+
+        mock_session.execute.side_effect = [
+            mock_rule_result,
+            mock_delete_events_result,
+            mock_delete_rule_result,
+        ]
+
+        result = await service.delete_rule(rule_id=11)
+
+        assert result is True
+        assert mock_session.execute.call_count == 3
+
+        # Verify statement ordering by inspecting compiled SQL.
+        calls = mock_session.execute.call_args_list
+        events_sql = str(calls[1].args[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        rule_sql = str(calls[2].args[0].compile(compile_kwargs={"literal_binds": True})).lower()
+
+        # 2nd execute must be DELETE FROM alert_events
+        assert "delete from alert_events" in events_sql
+        assert "rule_id" in events_sql
+        # 3rd execute must be DELETE FROM alert_rules
+        assert "delete from alert_rules" in rule_sql
+
+        mock_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_rule_db_exception_propagates_without_commit(self, service, mock_pool):
+        """DB exception during delete must propagate; commit must NOT run."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_rule = MagicMock()
+        mock_rule.id = 11
+        mock_rule_result = MagicMock()
+        mock_rule_result.scalars.return_value.first.return_value = mock_rule
+
+        mock_session.execute.side_effect = [
+            mock_rule_result,
+            RuntimeError("db connection lost"),
+        ]
+
+        with pytest.raises(RuntimeError, match="db connection lost"):
+            await service.delete_rule(rule_id=11)
+
+        mock_session.commit.assert_not_called()

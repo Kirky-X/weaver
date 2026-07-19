@@ -181,18 +181,59 @@ class AlertService:
             }
 
     async def delete_rule(self, rule_id: int) -> bool:
-        """Delete an alert rule."""
-        from sqlalchemy import select
+        """Delete an alert rule and its associated events.
 
-        from core.db import AlertRule
+        The ``alert_events.rule_id`` foreign key is ``NO ACTION`` (equivalent
+        to ``RESTRICT`` for non-deferred constraints) in PostgreSQL — see
+        migration ``08_create_alert_tables`` and the downgrade comments in
+        migration ``28_extend_alert_rules_for_trend``. Deleting a rule that
+        has events therefore raises an FK violation at the database layer,
+        which surfaces as an HTTP 500 from the API.
+
+        Fix: explicitly ``DELETE FROM alert_events`` first, then
+        ``DELETE FROM alert_rules``, both via SQLAlchemy Core ``delete()``
+        in the same transaction (``session_context`` auto-commits on success
+        and auto-rolls-back on exception). DuckDB has no FK enforcement but
+        we delete events for consistency and to keep the ORM session clean.
+
+        Args:
+            rule_id: ID of the alert rule to delete.
+
+        Returns:
+            True if the rule existed and was deleted; False if not found
+            (caller — the API layer — translates this to HTTP 404).
+        """
+        from sqlalchemy import delete, select
+
+        from core.db import AlertEvent, AlertRule
 
         async with self._pool.session_context() as session:
+            # 1. Existence check — returns False for 404 handling at API layer.
             result = await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
             rule = result.scalars().first()
             if rule is None:
+                log.warning("delete_alert_rule_not_found", rule_id=rule_id)
                 return False
-            await session.delete(rule)
+            # 2. Delete associated events first (FK NO ACTION in PG;
+            #    DuckDB has no FK enforcement but we delete for consistency).
+            events_result = await session.execute(
+                delete(AlertEvent).where(AlertEvent.rule_id == rule_id)
+            )
+            # 3. Delete the rule itself.
+            rule_result = await session.execute(delete(AlertRule).where(AlertRule.id == rule_id))
             await session.commit()
+            # DuckDB's CursorResult.rowcount frequently returns -1 for DELETE
+            # statements (driver limitation), which would produce misleading
+            # log output. Clamp to >= 0 so operators do not see negative
+            # "removed" counts (MEDIUM-4: delete_rule rowcount logging).
+            events_removed = max(0, events_result.rowcount) if events_result.rowcount else 0
+            rule_removed = max(0, rule_result.rowcount) if rule_result.rowcount else 0
+            log.info(
+                "alert_rule_deleted",
+                rule_id=rule_id,
+                events_removed=events_removed,
+                rule_removed=rule_removed,
+            )
             return True
 
     def evaluate_condition(
