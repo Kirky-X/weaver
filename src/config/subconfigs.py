@@ -581,3 +581,31 @@ class PgBouncerSettings(BaseModel):
     host: str = "localhost"
     port: int = 6432
     pool_mode: str = "transaction"  # session / transaction / statement
+
+
+class BingSettings(BaseModel):
+    """Bing web search fallback configuration.
+
+    When the unified search endpoint returns all three layers empty
+    (entities / sources / answer), the system falls back to Bing HTML
+    search to provide fresh results and queues the resulting URLs for
+    background pipeline ingestion.
+
+    Environment variables: WEAVER_BING__ENABLED, WEAVER_BING__MAX_RESULTS,
+    WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT
+
+    Security:
+        - Disabled by default. Must be explicitly enabled in production.
+        - Bing HTML search reuses the project's BaseFetcher (HttpxFetcher),
+          which enforces URL safety (SSRF / PhishTank / URLhaus) — no
+          third-party HTTP library is imported.
+        - User-Agent is configurable to allow rotating fingerprints.
+    """
+
+    enabled: bool = False
+    max_results: int = 5
+    timeout: int = 15  # seconds (passed to asyncio.wait_for in BingSearcher)
+    user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )

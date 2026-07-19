@@ -44,6 +44,7 @@ def _stub_startup_dependencies(container) -> None:
     container.init_search_engines = MagicMock()
     container._init_bm25_index = AsyncMock()
     container.init_smart_fetcher = AsyncMock()
+    container.init_bing_searcher = AsyncMock()
     container.init_source_scheduler = AsyncMock()
     container.init_ml_components = AsyncMock()
     container.init_pipeline = AsyncMock()

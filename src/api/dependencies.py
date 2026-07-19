@@ -443,6 +443,31 @@ def get_pipeline_service(
         raise HTTPException(status_code=503, detail="Pipeline service not initialized")
 
 
+def get_bing_searcher(
+    container: Container = Depends(get_container),
+) -> Any:
+    """FastAPI dependency for Bing web search backend.
+
+    Returns ``None`` (legitimate, non-error) when ``settings.bing.enabled``
+    is False — callers should short-circuit web-search fallback via
+    ``if bing_searcher is None: return``. The 503 path is reserved for
+    genuine initialization failures (e.g., ``init_bing_searcher()`` not
+    called when ``enabled=True``).
+
+    Returns:
+        ``BingSearcher`` instance, or ``None`` when disabled.
+
+    Raises:
+        HTTPException: 503 if ``enabled=True`` but init_bing_searcher()
+            was not called (initialization ordering bug).
+
+    """
+    try:
+        return container.bing_searcher()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Bing searcher not initialized")
+
+
 def get_task_registry(
     container: Container = Depends(get_container),
 ) -> TaskRegistryService:

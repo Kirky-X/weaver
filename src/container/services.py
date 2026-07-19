@@ -63,6 +63,7 @@ class ContainerServicesMixin:
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
     _smart_fetcher: SmartFetcher | None
+    _bing_searcher: Any
     _crawler: Crawler | None
     _pipeline: Pipeline | None
     _pipeline_service: PipelineService | None
@@ -518,6 +519,67 @@ class ContainerServicesMixin:
         if self._smart_fetcher is None:
             raise RuntimeError("Smart fetcher not initialized. Call init_smart_fetcher() first.")
         return self._smart_fetcher
+
+    async def init_bing_searcher(self) -> Any:
+        """Initialize Bing web search backend (no-op when disabled).
+
+        Returns ``None`` when ``settings.bing.enabled`` is False so callers
+        can short-circuit web-search fallback via a simple ``is None`` check.
+        Reuses the container's ``SmartFetcher`` HTTP layer (HttpxFetcher) to
+        avoid introducing a second HTTP client (project rule: no extra libs).
+
+        Returns:
+            ``BingSearcher`` instance, or ``None`` when disabled.
+
+        Raises:
+            RuntimeError: If smart fetcher has not been initialized.
+
+        """
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+
+        if self._bing_searcher is None:
+            settings = self._settings.bing
+            if not settings.enabled:
+                log.info("bing_searcher_disabled")
+                self._bing_searcher = None
+                return None
+            if self._smart_fetcher is None:
+                raise RuntimeError(
+                    "Smart fetcher not initialized. Call init_smart_fetcher() before init_bing_searcher()."
+                )
+            from modules.search.web import BingSearcher
+
+            # SmartFetcher stores HttpxFetcher at ``_httpx`` and itself
+            # implements BaseFetcher.fetch(url, headers) -> (status, body, headers),
+            # which is exactly the contract BingSearcher expects.
+            self._bing_searcher = BingSearcher(
+                fetcher=self._smart_fetcher,
+                settings=settings,
+            )
+            log.info(
+                "bing_searcher_initialized",
+                max_results=settings.max_results,
+                timeout=settings.timeout,
+            )
+        return self._bing_searcher
+
+    def bing_searcher(self) -> Any:
+        """Get the Bing web search backend.
+
+        Returns:
+            ``BingSearcher`` instance, or ``None`` when disabled.
+
+        Raises:
+            RuntimeError: If ``init_bing_searcher()`` has not been called.
+
+        """
+        if self._bing_searcher is None and not self._settings.bing.enabled:
+            return None
+        if self._bing_searcher is None:
+            raise RuntimeError("Bing searcher not initialized. Call init_bing_searcher() first.")
+        return self._bing_searcher
 
     def crawler(self) -> Crawler:
         """Get crawler (wired with RetryQueue — D4 fix)."""

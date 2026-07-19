@@ -994,6 +994,7 @@ class ContainerLifecycleMixin:
         self.init_search_engines()
         await self._init_bm25_index()
         await self.init_smart_fetcher()
+        await self.init_bing_searcher()
 
         processor = DiscoveryProcessor(
             crawler=self.crawler(),

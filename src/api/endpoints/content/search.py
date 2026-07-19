@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.dependencies import (
+    get_bing_searcher,
     get_embedding_service_optional,
     get_global_search_engine,
     get_graph_pool,
@@ -22,13 +23,14 @@ from api.dependencies import (
     get_intent_classifier_optional,
     get_llm_client,
     get_local_search_engine,
+    get_pipeline_service,
     get_vector_repo,
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
 from core.observability import get_logger
-from core.protocols import GraphPool
+from core.protocols import GraphPool, PipelineService
 from modules.knowledge.search import (
     GlobalSearchEngine,
     HybridSearchEngine,
@@ -39,9 +41,21 @@ from modules.knowledge.search import (
     RoutingConfig,
 )
 from modules.memory import IntentType, OutputMode
+from modules.search.web import (
+    BingSearchProtocol,
+    detect_three_tier_empty,
+    schedule_pipeline_background,
+    trigger_web_search,
+)
 from modules.storage import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
+
+# Module-level background task registry for web-search fallback pipeline
+# ingestion (T017). Strong references prevent asyncio Task GC; the
+# ``add_done_callback(set.discard)`` pattern auto-cleans on completion.
+# Matches the convention in src/api/endpoints/content/pipeline.py:283.
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 # ── Request/Response Models ─────────────────────────────────────
@@ -93,6 +107,8 @@ async def search_unified(
     vector_repo: VectorRepo = Depends(get_vector_repo),
     llm: LLMClient = Depends(get_llm_client),
     hybrid_engine: HybridSearchEngine = Depends(get_hybrid_engine),
+    bing_searcher: BingSearchProtocol | None = Depends(get_bing_searcher),
+    pipeline_service: PipelineService = Depends(get_pipeline_service),
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
@@ -181,6 +197,49 @@ async def search_unified(
     result_metadata["enrich_entities"] = enrich
     result_metadata["intent"] = classification.intent.value
     result_metadata["intent_confidence"] = classification.confidence
+
+    # Web search fallback (R-web-search-007): when all three search layers
+    # are empty AND Bing is enabled, fire a web search and schedule
+    # background pipeline ingestion for the result URLs. The response is
+    # populated with web snippets so the caller gets immediate value; the
+    # full article ingestion runs asynchronously in the background.
+    web_search_used = False
+    web_search_result_count = 0
+    if bing_searcher is not None and detect_three_tier_empty(engine_result):
+        web_results = await trigger_web_search(q, bing_searcher)
+        web_search_result_count = len(web_results)
+        if web_results:
+            # Replace empty answer/sources with web search snippets.
+            # entities stay [] (no graph entities yet — they will be
+            # populated by the background pipeline once ingestion completes).
+            result_answer = "\n\n".join(
+                f"- [{r.title}]({r.url})\n  {r.snippet}" for r in web_results if r.url
+            )
+            result_sources = [
+                {
+                    "url": r.url,
+                    "title": r.title,
+                    "snippet": r.snippet,
+                }
+                for r in web_results
+                if r.url
+            ]
+            result_confidence = 0.5  # web-search fallback confidence
+            # M1 fix: update context_tokens to reflect the new answer
+            # length (rough estimate: 1 token ≈ 4 chars for English/CJK
+            # mixed text). Without this, context_tokens would stay at 0
+            # (from the empty engine_result), creating an inconsistent
+            # response where answer is non-empty but context_tokens=0.
+            result_tokens = max(result_tokens, len(result_answer) // 4)
+            # Fire-and-forget: schedule background pipeline ingestion for
+            # each Bing result URL. URLs are processed sequentially inside
+            # a SINGLE background task to avoid DuckDB write lock contention
+            # (HIGH-1: matches pipeline.py:285 convention).
+            urls = [r.url for r in web_results if r.url]
+            schedule_pipeline_background(urls, pipeline_service, _background_tasks)
+            web_search_used = True
+    result_metadata["web_search_fallback"] = web_search_used
+    result_metadata["web_search_result_count"] = web_search_result_count
 
     # Determine search_type for response
     search_type = explicit_mode if use_explicit_mode else "auto"

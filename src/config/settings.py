@@ -35,6 +35,7 @@ from pydantic_settings import (
 # Import sub-configurations
 from config.subconfigs import (
     APISettings,
+    BingSettings,
     DailyBriefingSettings,
     DuckDBSettings,
     EntitySettings,
@@ -125,6 +126,9 @@ class Settings(BaseSettings):
 
     # Infrastructure integration settings (disabled by default)
     pgbouncer: PgBouncerSettings = Field(default_factory=PgBouncerSettings)
+
+    # Web search fallback (Bing HTML search; disabled by default)
+    bing: BingSettings = Field(default_factory=BingSettings)
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)

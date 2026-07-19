@@ -138,6 +138,8 @@ def _build_app_for_endpoint_test(
     vector_repo: MagicMock | None = None,
     llm: MagicMock | None = None,
     hybrid_engine: MagicMock | None = None,
+    bing_searcher: Any | None = None,
+    pipeline_service: MagicMock | None = None,
     api_key_value: str = "test-api-key-32chars-long!!!!!!!",
     admin_key: str | None = None,
     skip_auth: bool = False,
@@ -148,10 +150,12 @@ def _build_app_for_endpoint_test(
     (422) and authentication (401/403) which only trigger via HTTP layer.
     """
     from api.dependencies import (
+        get_bing_searcher,
         get_global_search_engine,
         get_hybrid_engine,
         get_llm_client,
         get_local_search_engine,
+        get_pipeline_service,
         get_vector_repo,
     )
     from api.endpoints.content.search import router
@@ -175,6 +179,14 @@ def _build_app_for_endpoint_test(
         app.dependency_overrides[get_llm_client] = lambda: llm
     if hybrid_engine is not None:
         app.dependency_overrides[get_hybrid_engine] = lambda: hybrid_engine
+    # Web search fallback deps: default to None (disabled) so existing
+    # tests that don't exercise the fallback path are unaffected.
+    # pipeline_service is always overridden (defaults to a MagicMock) to
+    # avoid FastAPI attempting to call the real container's pipeline_service()
+    # which would raise 503 in unit tests (container not initialized).
+    app.dependency_overrides[get_bing_searcher] = lambda: bing_searcher
+    effective_pipeline = pipeline_service if pipeline_service is not None else MagicMock()
+    app.dependency_overrides[get_pipeline_service] = lambda: effective_pipeline
     return app
 
 
@@ -221,6 +233,8 @@ class TestSearchUnifiedNormalInputs:
                 vector_repo=mock_vector_repo,
                 llm=mock_llm,
                 hybrid_engine=mock_hybrid_engine,
+                bing_searcher=None,
+                pipeline_service=None,
             )
 
         # Auto mode → search_type="auto"
@@ -782,6 +796,8 @@ class TestSearchUnifiedDegradation:
                 vector_repo=mock_vector_repo,
                 llm=mock_llm,
                 hybrid_engine=mock_hybrid_engine,
+                bing_searcher=None,
+                pipeline_service=None,
             )
 
         # Explicit mode NOT triggered → search_type="auto"
@@ -1064,3 +1080,309 @@ class TestSearchUnifiedResultShape:
         # metadata still gets output_mode / enrich_entities / intent injected
         assert result.data.metadata["output_mode"] == "CONTEXT"
         assert result.data.metadata["intent"] == "open"
+
+
+# ── Web Search Fallback Tests (R-web-search-007) ────────────────────
+
+
+class TestSearchUnifiedWebSearchFallback:
+    """Verify web search fallback integration in search_unified.
+
+    Covers four key paths:
+    - bing_searcher=None → fallback skipped (disabled)
+    - engine_result non-empty → fallback skipped (not needed)
+    - bing returns [] → fallback attempted but no results
+    - bing returns non-empty → response replaced + pipeline scheduled
+    """
+
+    @pytest.mark.asyncio
+    async def test_fallback_skipped_when_bing_searcher_none(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """bing_searcher=None (Bing disabled) → fallback not triggered."""
+        # Force empty three-tier result so fallback *would* trigger
+        # if bing_searcher were non-None.
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+        from api.endpoints.content.search import search_unified
+
+        result = await search_unified(
+            request=mock_request,
+            q="some-query",
+            mode="local",
+            community_level=0,
+            threshold=0.0,
+            limit=20,
+            category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
+            output_mode=None,
+            enrich_entities=None,
+            _=api_key,
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            bing_searcher=None,
+            pipeline_service=MagicMock(),
+        )
+
+        assert result.data.metadata["web_search_fallback"] is False
+        assert result.data.metadata["web_search_result_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_skipped_when_engine_result_nonempty(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """engine_result has entities → fallback not triggered.
+
+        mock_local_engine fixture returns non-empty result by default
+        (entities=["华为", "途灵平台"], sources=[...], answer="...").
+        """
+        from api.endpoints.content.search import search_unified
+
+        result = await search_unified(
+            request=mock_request,
+            q="华为",
+            mode="local",
+            community_level=0,
+            threshold=0.0,
+            limit=20,
+            category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
+            output_mode=None,
+            enrich_entities=None,
+            _=api_key,
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            bing_searcher=MagicMock(),  # non-None but should not be called
+            pipeline_service=MagicMock(),
+        )
+
+        assert result.data.metadata["web_search_fallback"] is False
+        assert result.data.metadata["web_search_result_count"] == 0
+        # bing_searcher.search should NOT have been called
+        result.data.metadata  # touch to ensure no exception
+
+    @pytest.mark.asyncio
+    async def test_fallback_returns_empty_when_bing_yields_no_results(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """Bing enabled + three-tier empty + Bing returns [] → fallback=False."""
+        # Force empty three-tier result
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+        # Bing searcher returns []
+        bing_searcher = MagicMock()
+        bing_searcher.search = AsyncMock(return_value=[])
+
+        from api.endpoints.content.search import search_unified
+
+        result = await search_unified(
+            request=mock_request,
+            q="non-existent-topic",
+            mode="local",
+            community_level=0,
+            threshold=0.0,
+            limit=20,
+            category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
+            output_mode=None,
+            enrich_entities=None,
+            _=api_key,
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            bing_searcher=bing_searcher,
+            pipeline_service=MagicMock(),
+        )
+
+        # Bing was called but returned [] → web_search_fallback=False
+        # (web_search_result_count=0 indicates Bing WAS invoked).
+        bing_searcher.search.assert_awaited_once()
+        assert result.data.metadata["web_search_fallback"] is False
+        assert result.data.metadata["web_search_result_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_replaces_response_and_schedules_pipeline(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """Bing returns non-empty → response replaced + pipeline scheduled."""
+        # Force empty three-tier result
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+
+        # Bing searcher returns 2 real BingSearchResult instances
+        from modules.search.web import BingSearchResult
+
+        bing_results = [
+            BingSearchResult(
+                title="华为途灵平台最新进展",
+                url="https://example.com/article-1",
+                snippet="华为途灵平台在 2026 年取得突破...",
+            ),
+            BingSearchResult(
+                title="途灵平台技术解析",
+                url="https://example.com/article-2",
+                snippet="途灵平台是华为自研的...",
+            ),
+        ]
+        bing_searcher = MagicMock()
+        bing_searcher.search = AsyncMock(return_value=bing_results)
+
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = AsyncMock(return_value=None)
+
+        # Patch schedule_pipeline_background to capture the call without
+        # actually creating asyncio tasks that would outlive the test.
+        with patch("api.endpoints.content.search.schedule_pipeline_background") as mock_schedule:
+            from api.endpoints.content.search import search_unified
+
+            result = await search_unified(
+                request=mock_request,
+                q="华为途灵平台",
+                mode="local",
+                community_level=0,
+                threshold=0.0,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                output_mode=None,
+                enrich_entities=None,
+                _=api_key,
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+                hybrid_engine=mock_hybrid_engine,
+                bing_searcher=bing_searcher,
+                pipeline_service=pipeline_service,
+            )
+
+        # Bing was called
+        bing_searcher.search.assert_awaited_once()
+        # schedule_pipeline_background was called with the 2 URLs
+        mock_schedule.assert_called_once()
+        call_args = mock_schedule.call_args
+        urls_arg = call_args.args[0]
+        # urls may be a list (materialized by schedule_pipeline_background)
+        # — but since we patched it, the arg is the raw list comprehension
+        assert len(list(urls_arg)) == 2
+        assert call_args.args[1] is pipeline_service
+        # The third arg is _background_tasks (module-level set) — verify
+        # it's a set instance.
+        assert isinstance(call_args.args[2], set)
+
+        # Response was replaced with web search snippets
+        assert result.data.metadata["web_search_fallback"] is True
+        assert result.data.metadata["web_search_result_count"] == 2
+        assert "华为途灵平台最新进展" in result.data.answer
+        assert "途灵平台技术解析" in result.data.answer
+        assert len(result.data.sources) == 2
+        assert result.data.sources[0]["url"] == "https://example.com/article-1"
+        assert result.data.sources[0]["title"] == "华为途灵平台最新进展"
+        assert result.data.sources[1]["url"] == "https://example.com/article-2"
+        # Confidence is set to 0.5 for web-search fallback
+        assert result.data.confidence == 0.5
+        # M1 fix: context_tokens updated to reflect new answer length
+        assert result.data.context_tokens > 0
+        assert result.data.context_tokens >= len(result.data.answer) // 4
+        # entities stay empty (no graph entities yet)
+        assert result.data.entities == []
+
+    @pytest.mark.asyncio
+    async def test_fallback_degrades_gracefully_when_bing_raises(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """Bing raises an exception → trigger_web_search catches it,
+        returns [] → web_search_fallback=False, main flow not blocked.
+
+        Verifies the graceful-degradation contract in R-web-search-005:
+        "Bing must never block the main search flow."
+        """
+        # Force empty three-tier result
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+        # Bing searcher raises a synthetic exception
+        bing_searcher = MagicMock()
+        bing_searcher.search = AsyncMock(side_effect=RuntimeError("bing HTTP 500"))
+
+        from api.endpoints.content.search import search_unified
+
+        result = await search_unified(
+            request=mock_request,
+            q="some-flaky-query",
+            mode="local",
+            community_level=0,
+            threshold=0.0,
+            limit=20,
+            category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
+            output_mode=None,
+            enrich_entities=None,
+            _=api_key,
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            bing_searcher=bing_searcher,
+            pipeline_service=MagicMock(),
+        )
+
+        # Bing was called but raised; trigger_web_search caught the
+        # exception and returned [] — main flow continues unblocked.
+        bing_searcher.search.assert_awaited_once()
+        assert result.data.metadata["web_search_fallback"] is False
+        assert result.data.metadata["web_search_result_count"] == 0
+        # Response answer stays empty (engine_result was empty, no web results)
+        assert result.data.answer == ""

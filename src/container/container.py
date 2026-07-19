@@ -57,6 +57,7 @@ class Container(
         self._graph_repo: Any = None
         self._entity_resolver: Any = None
         self._smart_fetcher: Any = None
+        self._bing_searcher: Any = None
         self._crawler: Any = None
         self._pipeline: Any = None
         self._pipeline_service: PipelineService | None = None
