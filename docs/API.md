@@ -25,6 +25,9 @@
     - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
     - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
     - [POST /api/v1/pipeline/url](#post-apiv1pipelineurl)
+- [日报端点](#日报端点)
+    - [GET /api/v1/briefings/daily](#get-apiv1briefingsdaily)
+    - [POST /api/v1/briefings/daily/generate](#post-apiv1briefingsdailygenerate)
 - [图谱端点](#图谱端点)
     - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
     - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
@@ -920,7 +923,7 @@ X-API-Key: your-api-key
 
 ### POST /api/v1/pipeline/trigger
 
-触发 Pipeline 任务，开始抓取和处理新闻。
+触发 Pipeline 任务，开始抓取和处理新闻。**异步 fire-and-forget 模式**：HTTP 请求立即返回 `task_id`，实际抓取在后台 `asyncio.create_task` 中执行，客户端通过轮询 `GET /api/v1/pipeline/tasks/{task_id}` 获取进度。
 
 #### 请求
 
@@ -932,6 +935,7 @@ Content-Type: application/json
 
 {
   "source_id": null,
+  "source_ids": ["36kr", "solidot"],
   "force": false,
   "max_items": null
 }
@@ -939,11 +943,14 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段          | 类型      | 必填 | 说明                           |
-|-------------|---------|----|------------------------------|
-| `source_id` | string  | 否  | 指定抓取的源 ID，为 `null` 时抓取所有已启用源 |
-| `force`     | boolean | 否  | 是否强制重新抓取最近已抓取的 URL           |
-| `max_items` | integer | 否  | 每个源的最大处理数量，`null` 表示无限制      |
+| 字段           | 类型        | 必填 | 说明                                                                                           |
+|--------------|-----------|----|----------------------------------------------------------------------------------------------|
+| `source_id`  | string    | 否  | 指定抓取的单个源 ID（legacy 字段），为 `null` 时抓取所有已启用源                                                  |
+| `source_ids` | string[]  | 否  | 指定抓取的多个源 ID 列表（复数优先于 `source_id`）。**空列表 `[]` 返回 400**。不存在则返回 404                       |
+| `force`      | boolean   | 否  | 是否强制重新抓取最近已抓取的 URL                                                                           |
+| `max_items`  | integer   | 否  | 每个源的最大处理数量，`null` 表示无限制                                                                      |
+
+> **优先级规则**：`source_ids` 显式提供 list 时优先于 `source_id`；两者均未提供时触发所有已启用源（向后兼容默认行为）。
 
 #### 响应
 
@@ -957,13 +964,30 @@ Content-Type: application/json
 }
 ```
 
+**响应字段：**
+
+| 字段         | 类型     | 说明                                            |
+|------------|--------|-----------------------------------------------|
+| `task_id`  | string | UUID 任务 ID，用于轮询 `GET /pipeline/tasks/{task_id}` |
+| `status`   | string | 初始状态 `queued`，后台任务启动后变为 `running`              |
+| `queued_at`| string | ISO 8601 入队时间戳                                |
+
 #### 状态码
 
-| 状态码                       | 说明            |
-|---------------------------|---------------|
-| 200 OK                    | 任务已入队         |
-| 401 Unauthorized          | API Key 无效或缺失 |
-| 500 Internal Server Error | Pipeline 触发失败 |
+| 状态码                       | 说明                                                                          |
+|---------------------------|-------------------------------------------------------------------------------|
+| 200 OK                    | 任务已入队（异步执行）                                                                  |
+| 400 Bad Request           | `source_ids` 为空列表 `[]`                                                       |
+| 401 Unauthorized          | API Key 无效或缺失                                                                 |
+| 404 Not Found             | 指定的 `source_id` 或 `source_ids` 中所有源均不存在                                      |
+| 500 Internal Server Error | 数据库 / scheduler 查找故障                                                          |
+
+#### 后台执行行为
+
+- **顺序触发**：所有 source 顺序调用 `scheduler.trigger_now`（避免 DuckDB 写锁竞争），单源超时 300s
+- **GC 防护**：后台任务强引用存入 `_background_tasks: set`，`add_done_callback` 自动清理
+- **状态流转**：`queued` → `running` → `completed` / `failed`（部分失败时 `failed` 含错误摘要）
+- **CancelledError 处理**：单独跟踪取消事件，不混入 failures 列表
 
 ---
 
@@ -1104,6 +1128,113 @@ Content-Type: application/json
 - 阻止回环地址（127.0.0.1, localhost）
 - 阻止云元数据端点（169.254.169.254）
 - 白名单模式：仅允许配置的域名
+
+---
+
+## 日报端点
+
+### GET /api/v1/briefings/daily
+
+按日期 + category 获取已存在的日报。日报由调度器异步生成，未生成时返回 `data: null`（HTTP 200，**非 404**）。
+
+#### 请求
+
+```http
+GET /api/v1/briefings/daily?date=2024-01-15&category=tech HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数         | 类型      | 必填 | 默认值  | 说明                                                       |
+|------------|---------|----|------|----------------------------------------------------------|
+| `date`     | string  | 否  | 今天   | 日报日期 (YYYY-MM-DD)                                       |
+| `category` | string  | 否  | null | 日报类别：`finance`/`tech`/`ai`/`general`。`null` 表示综合（general） |
+
+#### 响应
+
+**成功响应 (200 OK, 已存在)**
+
+```json
+{
+  "data": {
+    "date": "2024-01-15",
+    "category": "tech",
+    "summary": "今日科技领域重点：...",
+    "items": [...],
+    "generated_at": "2024-01-15T08:00:00Z",
+    "narrative_mode": false,
+    "briefing_id": "uuid-xxx"
+  }
+}
+```
+
+**成功响应 (200 OK, 不存在)**
+
+```json
+{
+  "data": null
+}
+```
+
+#### 状态码
+
+| 状态码                       | 说明                              |
+|---------------------------|-----------------------------------|
+| 200 OK                    | 成功返回（`data` 为 `null` 表示日报未生成） |
+| 401 Unauthorized          | API Key 无效或缺失                    |
+| 500 Internal Server Error | 服务层故障                            |
+
+---
+
+### POST /api/v1/briefings/daily/generate
+
+按需生成（或重新生成）日报。**幂等**：相同 `(date, category)` 替换已有日报。当日已有同 category 简报时返回 409 Conflict（F1 修复：避免 DuckDB ConstraintException 被错误映射为 500）。
+
+#### 请求
+
+```http
+POST /api/v1/briefings/daily/generate?date=2024-01-15&category=tech&narrative_mode=false HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数               | 类型       | 必填 | 默认值    | 说明                                                                                       |
+|------------------|----------|----|--------|------------------------------------------------------------------------------------------|
+| `date`           | string   | 否  | 今天     | 日报日期 (YYYY-MM-DD)                                                                       |
+| `category`       | string   | 否  | null   | 日报类别：`finance`/`tech`/`ai`/`general`                                                    |
+| `narrative_mode` | boolean  | 否  | false  | 若为 `true`，使用 NarrativeBriefingGenerator；NarrativeNode < 3 时降级为 template 模式（R-briefing-008） |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "data": {
+    "date": "2024-01-15",
+    "category": "tech",
+    "summary": "...",
+    "items": [...],
+    "generated_at": "2024-01-15T10:30:00Z",
+    "narrative_mode": false,
+    "briefing_id": "uuid-xxx"
+  }
+}
+```
+
+#### 状态码
+
+| 状态码                       | 说明                                                                            |
+|---------------------------|-------------------------------------------------------------------------------|
+| 200 OK                    | 日报生成成功                                                                        |
+| 400 Bad Request           | 请求参数无效（如非法 category）                                                          |
+| 401 Unauthorized          | API Key 无效或缺失                                                                 |
+| 409 Conflict              | 当日 `(date, category)` 简报已存在。**使用不同 date 或等待次日**（briefings 路由无 DELETE 端点） |
+| 500 Internal Server Error | 生成失败                                                                          |
 
 ---
 

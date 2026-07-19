@@ -459,10 +459,12 @@ X-API-Key: your-api-key
 | `/api/v1/sources`                                  | POST   | 添加新源                                                                      |
 | `/api/v1/sources/{source_id}`                      | PUT    | 更新源配置                                                                     |
 | `/api/v1/sources/{source_id}`                      | DELETE | 删除源                                                                       |
-| `/api/v1/pipeline/trigger`                         | POST   | 触发 Pipeline 任务                                                            |
+| `/api/v1/pipeline/trigger`                         | POST   | 触发 Pipeline 任务（异步 fire-and-forget，返回 task_id 用于轮询）                       |
 | `/api/v1/pipeline/tasks/{task_id}`                 | GET    | 获取任务状态                                                                    |
 | `/api/v1/pipeline/queue/stats`                     | GET    | 获取队列统计                                                                    |
+| `/api/v1/pipeline/status`                          | GET    | 获取整体 Pipeline 状态（running/idle + 队列统计）                                    |
 | `/api/v1/pipeline/url`                             | POST   | 处理单个 URL                                                                  |
+| `/api/v1/pipeline/url/stream`                      | POST   | 处理单个 URL（SSE 流式响应，3 并发上限）                                                |
 | `/api/v1/articles`                                 | GET    | 查询文章列表（支持分页、过滤、排序）                                                        |
 | `/api/v1/articles/{id}`                            | GET    | 获取文章详情                                                                    |
 | `/api/v1/search`                                   | GET    | 统一搜索（mode 参数路由：local/global/articles）                                     |
@@ -490,6 +492,20 @@ X-API-Key: your-api-key
 | `/api/v1/admin/communities/health/repair`          | POST   | 社区健康修复                                                                    |
 | `/api/v1/admin/communities/reports/generate`       | POST   | 生成社区报告                                                                    |
 | `/api/v1/admin/communities/{id}/report/regenerate` | POST   | 重新生成社区报告                                                                  |
+| `/api/v1/briefings/daily`                          | GET    | 按日期 + category 获取日报（不存在返回 data=null,非 404）                              |
+| `/api/v1/briefings/daily/generate`                 | POST   | 按需生成日报（narrative_mode 可选,已存在返回 409 Conflict）                            |
+| `/api/v1/analytics/shifts`                         | GET    | 情感时序变化点查询                                                                 |
+| `/api/v1/analytics/briefings`                      | GET    | 历史日报列表查询                                                                  |
+| `/api/v1/trends/sentiment`                         | GET    | 情感趋势分析                                                                    |
+| `/api/v1/trends/detection`                         | GET    | 趋势检测                                                                      |
+| `/api/v1/saga/{saga_id}`                           | GET    | 获取 Saga 状态                                                                |
+| `/api/v1/saga/{saga_id}/compensate`                | POST   | 触发手动补偿                                                                    |
+| `/api/v1/saga/{saga_id}/retry`                     | POST   | 重试失败的 Saga                                                                |
+| `/api/v1/saga/article/{article_id}`                | GET    | 获取文章关联 Saga                                                               |
+| `/api/v1/saga/failed/list`                         | GET    | 列出失败 Saga                                                                 |
+| `/api/v1/monitoring/alerts/rules`                  | GET/POST | 告警规则查询/创建                                                                |
+| `/api/v1/monitoring/alerts/rules/{rule_id}`        | GET/PATCH/DELETE | 告警规则详情/更新/删除（删除事务化级联清理 events,F2）                              |
+| `/api/v1/monitoring/alerts/events`                 | GET    | 告警事件查询                                                                    |
 | `/metrics`                                         | GET    | Prometheus 指标                                                             |
 
 <details style="padding:16px; margin: 16px 0">
