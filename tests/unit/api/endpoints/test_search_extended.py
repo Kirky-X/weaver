@@ -1131,3 +1131,538 @@ class TestErrorHandling:
 
         assert exc_info.value.status_code == expected_status
         assert expected_detail in exc_info.value.detail
+
+
+# ── Boundary & Degradation Tests (T022-T025) ────────────────────────
+
+
+class TestSearchEndpointBoundaryConditions:
+    """Boundary-value and degradation tests for drift/causal/temporal endpoints.
+
+    Covers cases not exercised by the primary test classes above:
+    - DRIFT: primer_k=1 / max_follow_ups=0 boundaries
+    - Causal: max_depth=1/10 / min_confidence=0.0/1.0 / degraded=True with zero scores
+    - Temporal: limit=0/1 boundaries, time_range=invalid-unit returns 400
+    """
+
+    # ── DRIFT boundary tests ──────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_drift_primer_k_minimum_1(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """primer_k=1 is the lower bound accepted by DriftConfig."""
+        from api.endpoints.content.search import DriftSearchRequest, search_drift
+
+        mock_drift_result = MagicMock()
+        mock_drift_result.query = "single primer"
+        mock_drift_result.answer = "DRIFT answer with primer_k=1"
+        mock_drift_result.confidence = 0.7
+        mock_drift_result.hierarchy = MagicMock()
+        mock_drift_result.hierarchy.primer = {"answer": "single primer answer"}
+        mock_drift_result.hierarchy.follow_ups = []
+        mock_drift_result.primer_communities = 1
+        mock_drift_result.follow_up_iterations = 0
+        mock_drift_result.total_llm_calls = 1
+        mock_drift_result.drift_mode = "fast"
+        mock_drift_result.metadata = {}
+
+        mock_drift_engine = MagicMock()
+        mock_drift_engine.search = AsyncMock(return_value=mock_drift_result)
+
+        with patch(
+            "modules.knowledge.search.engines.drift_search.DRIFTSearchEngine",
+            return_value=mock_drift_engine,
+        ):
+            body = DriftSearchRequest(
+                query="single primer",
+                primer_k=1,
+                max_follow_ups=2,
+                confidence_threshold=0.7,
+            )
+
+            result = await search_drift(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+            )
+
+            assert result.data.primer_communities == 1
+            assert result.data.follow_up_iterations == 0
+
+    @pytest.mark.asyncio
+    async def test_drift_max_follow_ups_zero(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """max_follow_ups=0 means no follow-up iterations; primer-only result."""
+        from api.endpoints.content.search import DriftSearchRequest, search_drift
+
+        mock_drift_result = MagicMock()
+        mock_drift_result.query = "primer only"
+        mock_drift_result.answer = "DRIFT primer-only answer"
+        mock_drift_result.confidence = 0.6
+        mock_drift_result.hierarchy = MagicMock()
+        mock_drift_result.hierarchy.primer = {"answer": "primer"}
+        mock_drift_result.hierarchy.follow_ups = []
+        mock_drift_result.primer_communities = 3
+        mock_drift_result.follow_up_iterations = 0
+        mock_drift_result.total_llm_calls = 1
+        mock_drift_result.drift_mode = "fast"
+        mock_drift_result.metadata = {"no_follow_ups": True}
+
+        mock_drift_engine = MagicMock()
+        mock_drift_engine.search = AsyncMock(return_value=mock_drift_result)
+
+        with patch(
+            "modules.knowledge.search.engines.drift_search.DRIFTSearchEngine",
+            return_value=mock_drift_engine,
+        ):
+            body = DriftSearchRequest(
+                query="primer only",
+                primer_k=3,
+                max_follow_ups=0,
+                confidence_threshold=0.7,
+            )
+
+            result = await search_drift(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+            )
+
+            assert result.data.follow_up_iterations == 0
+            assert result.data.hierarchy["follow_ups"] == []
+
+    # ── Causal boundary tests ─────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_causal_max_depth_minimum_1(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """max_depth=1 is the lower bound (ge=1). Single-hop causal chain only."""
+        from api.endpoints.content.search import CausalSearchRequest, search_causal
+
+        mock_results = [
+            {"id": "1", "content": "Direct cause", "score": 0.85},
+        ]
+        mock_adaptive_engine = MagicMock()
+        mock_adaptive_engine.search = AsyncMock(return_value=mock_results)
+        mock_adaptive_engine.last_metadata = {
+            "causal_edges_traversed": 1,
+            "degraded": False,
+        }
+
+        with patch(
+            "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
+            return_value=mock_adaptive_engine,
+        ):
+            body = CausalSearchRequest(
+                query="Why did OpenAI release GPT-5.6?",
+                max_depth=1,
+                min_confidence=0.5,
+            )
+
+            result = await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
+            )
+
+            # metadata exposes max_depth
+            assert result.data.metadata["depth"] == 1
+            # single-hop chain has 1 result
+            assert len(result.data.causal_chain) == 1
+
+    @pytest.mark.asyncio
+    async def test_causal_min_confidence_boundary_0_and_1(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """min_confidence=0.0 (min) and =1.0 (max) accepted (ge=0.0, le=1.0)."""
+        from api.endpoints.content.search import CausalSearchRequest, search_causal
+
+        # min_confidence=0.0
+        mock_adaptive_engine_min = MagicMock()
+        mock_adaptive_engine_min.search = AsyncMock(
+            return_value=[{"id": "1", "content": "low conf", "score": 0.1}]
+        )
+        mock_adaptive_engine_min.last_metadata = {
+            "causal_edges_traversed": 0,
+            "degraded": False,
+        }
+
+        with patch(
+            "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
+            return_value=mock_adaptive_engine_min,
+        ):
+            body_min = CausalSearchRequest(query="Why?", max_depth=2, min_confidence=0.0)
+            result_min = await search_causal(
+                request=mock_request,
+                body=body_min,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
+            )
+            assert len(result_min.data.causal_chain) == 1
+
+        # min_confidence=1.0
+        mock_adaptive_engine_max = MagicMock()
+        mock_adaptive_engine_max.search = AsyncMock(
+            return_value=[{"id": "1", "content": "high conf", "score": 1.0}]
+        )
+        mock_adaptive_engine_max.last_metadata = {
+            "causal_edges_traversed": 1,
+            "degraded": False,
+        }
+
+        with patch(
+            "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
+            return_value=mock_adaptive_engine_max,
+        ):
+            body_max = CausalSearchRequest(query="Why?", max_depth=2, min_confidence=1.0)
+            result_max = await search_causal(
+                request=mock_request,
+                body=body_max,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
+            )
+            assert len(result_max.data.causal_chain) == 1
+
+    @pytest.mark.asyncio
+    async def test_causal_degraded_with_zero_scores_caps_confidence(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """degraded=True + all-zero scores → confidence=min(0.0, 0.3)=0.0.
+
+        Combines D3 (degraded cap) + zero-score average to ensure the cap
+        still binds even when average is already low.
+        """
+        from api.endpoints.content.search import CausalSearchRequest, search_causal
+
+        # 3 results, all score=0.0 → avg=0.0
+        mock_results = [
+            {"id": "1", "content": "zero-A", "score": 0.0},
+            {"id": "2", "content": "zero-B", "score": 0.0},
+            {"id": "3", "content": "zero-C", "score": 0.0},
+        ]
+        mock_adaptive_engine = MagicMock()
+        mock_adaptive_engine.search = AsyncMock(return_value=mock_results)
+        mock_adaptive_engine.last_metadata = {
+            "causal_edges_traversed": 0,
+            "degraded": True,  # score_range==0 with >=2 results
+        }
+
+        with patch(
+            "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
+            return_value=mock_adaptive_engine,
+        ):
+            body = CausalSearchRequest(query="Why?", max_depth=2, min_confidence=0.0)
+
+            result = await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=MagicMock(),
+                intent_classifier=MagicMock(),
+            )
+
+            # confidence = min(avg(0,0,0), 0.3) = min(0.0, 0.3) = 0.0
+            assert result.data.confidence == 0.0
+            # metadata exposes degraded state
+            assert result.data.metadata["degraded"] is True
+            assert result.data.metadata["causal_edges_traversed"] == 0
+            # answer should be the "no causal edges" branch
+            assert "未找到与查询相关的因果链" in result.data.answer
+
+    # ── Temporal boundary tests ────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_temporal_limit_zero_accepted(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """limit=0 is accepted by Pydantic (no ge constraint, default 10).
+
+        Note: TemporalSearchRequest.limit has no ge constraint (unlike search_unified),
+        so limit=0 is technically valid at the model level. The semantic is
+        "return at most 0 events" — engine should return empty list.
+        """
+        from api.endpoints.content.search import TemporalSearchRequest, search_temporal
+
+        mock_temporal_repo = MagicMock()
+        # limit=0 → search_temporal_events returns []
+        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=[])
+
+        with patch(
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
+            return_value=mock_temporal_repo,
+        ):
+            body = TemporalSearchRequest(query="events", time_range="7d", limit=0)
+
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=None,
+            )
+
+            assert len(result.data.events) == 0
+            # limit passed through to repo
+            call_kwargs = mock_temporal_repo.search_temporal_events.call_args.kwargs
+            assert call_kwargs["limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_temporal_limit_one_accepted(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """limit=1 returns at most 1 event (top match)."""
+        from api.endpoints.content.search import TemporalSearchRequest, search_temporal
+
+        mock_events = [
+            {"id": "1", "timestamp": "2024-01-01T00:00:00Z", "content": "single event"},
+        ]
+        mock_temporal_repo = MagicMock()
+        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=mock_events)
+
+        with patch(
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
+            return_value=mock_temporal_repo,
+        ):
+            body = TemporalSearchRequest(query="events", time_range="7d", limit=1)
+
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=None,
+            )
+
+            assert len(result.data.events) == 1
+            assert result.data.events[0]["id"] == "1"
+            # limit=1 propagated to repo
+            call_kwargs = mock_temporal_repo.search_temporal_events.call_args.kwargs
+            assert call_kwargs["limit"] == 1
+
+    @pytest.mark.asyncio
+    async def test_temporal_invalid_unit_7w_returns_400(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """time_range='7w' (week unit not supported) → 400 Invalid time_range format.
+
+        Only d/h/m units are valid (see _TIME_RANGE_RE in search.py).
+        """
+        from api.endpoints.content.search import TemporalSearchRequest, search_temporal
+
+        mock_temporal_repo = MagicMock()
+        with patch(
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
+            return_value=mock_temporal_repo,
+        ):
+            body = TemporalSearchRequest(query="events", time_range="7w")
+
+            with pytest.raises(HTTPException) as exc_info:
+                await search_temporal(
+                    request=mock_request,
+                    body=body,
+                    _=api_key,
+                    graph_pool=mock_graph_pool,
+                    embedding_service=None,
+                )
+
+            assert exc_info.value.status_code == 400
+            assert "Invalid time_range format" in exc_info.value.detail
+            # '7w' explicit in error message
+            assert "7w" in exc_info.value.detail
+
+    # ── Causal service-unavailable tests ──────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_causal_embedding_service_unavailable_returns_503(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """embedding_service=None → 503 Embedding service unavailable (covers L503-504)."""
+        from api.endpoints.content.search import CausalSearchRequest, search_causal
+
+        body = CausalSearchRequest(query="Why?", max_depth=2, min_confidence=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=None,  # unavailable
+                intent_classifier=MagicMock(),
+            )
+
+        assert exc_info.value.status_code == 503
+        assert "Embedding service unavailable" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_causal_intent_classifier_unavailable_returns_503(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """intent_classifier=None → 503 Intent classifier unavailable (covers L508-509)."""
+        from api.endpoints.content.search import CausalSearchRequest, search_causal
+
+        body = CausalSearchRequest(query="Why?", max_depth=2, min_confidence=0.5)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=MagicMock(),
+                intent_classifier=None,  # unavailable
+            )
+
+        assert exc_info.value.status_code == 503
+        assert "Intent classifier unavailable" in exc_info.value.detail
+
+    # ── Temporal semantic-search tests ────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_temporal_semantic_search_with_embedding_service(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """When embedding_service.is_ready()=True, _semantic_temporal_search is used.
+
+        Covers L679-706 of search.py — the cosine-similarity ranking path that
+        is bypassed when embedding service is unavailable.
+        """
+        from api.endpoints.content.search import TemporalSearchRequest, search_temporal
+
+        mock_events = [
+            {
+                "id": "1",
+                "timestamp": 1782400000,
+                "content": "华为发布新芯片",
+            },
+            {
+                "id": "2",
+                "timestamp": 1782400100,
+                "content": "OpenAI 发布新模型",
+            },
+        ]
+        mock_temporal_repo = MagicMock()
+        mock_temporal_repo.get_events_by_timerange = AsyncMock(return_value=mock_events)
+
+        mock_embedding = MagicMock()
+        mock_embedding.is_ready.return_value = True
+        mock_embedding.embed = AsyncMock(return_value=[0.1] * 8)
+        mock_embedding.embed_batch = AsyncMock(return_value=[[0.2] * 8, [0.3] * 8])
+
+        with patch(
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
+            return_value=mock_temporal_repo,
+        ):
+            body = TemporalSearchRequest(query="华为", time_range="7d", limit=5)
+
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=mock_embedding,
+            )
+
+            # semantic path was used
+            mock_temporal_repo.get_events_by_timerange.assert_called_once()
+            assert len(result.data.events) == 2
+            # similarity_score injected by _semantic_temporal_search
+            for event in result.data.events:
+                assert "similarity_score" in event
+
+    @pytest.mark.asyncio
+    async def test_temporal_embedding_failure_falls_back_to_substring(
+        self,
+        mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
+        api_key: str,
+    ) -> None:
+        """Embedding batch failure → falls back to substring search (covers L753-770).
+
+        The embedding service may raise during embed_batch (e.g. timeout). The
+        endpoint MUST degrade gracefully to substring matching instead of 500.
+        """
+        from api.endpoints.content.search import TemporalSearchRequest, search_temporal
+
+        mock_temporal_repo = MagicMock()
+        mock_temporal_repo.search_temporal_events = AsyncMock(
+            return_value=[
+                {"id": "1", "timestamp": 1782400000, "content": "fallback event"},
+            ]
+        )
+
+        mock_embedding = MagicMock()
+        mock_embedding.is_ready.return_value = True
+        mock_embedding.embed = AsyncMock(return_value=[0.1] * 8)
+        # embed_batch raises → triggers fallback
+        mock_embedding.embed_batch = AsyncMock(side_effect=Exception("Embedding timeout"))
+
+        with patch(
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
+            return_value=mock_temporal_repo,
+        ):
+            body = TemporalSearchRequest(query="华为", time_range="7d", limit=5)
+
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=mock_embedding,
+            )
+
+            # Fallback to substring search succeeded
+            assert len(result.data.events) == 1
+            assert result.data.events[0]["id"] == "1"
+            # search_temporal_events called in fallback path
+            mock_temporal_repo.search_temporal_events.assert_called_once()

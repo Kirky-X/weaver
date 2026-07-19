@@ -48,18 +48,70 @@ INTER_TEST_DELAY_SECONDS = 0.5
 LLM_HEAVY_INTER_TEST_DELAY_SECONDS = 2.0
 
 # Real search queries based on database content (replaces generic "test").
-# These are populated at runtime by _fetch_real_data(); fallbacks cover
-# the common article topics (FFmpeg vulnerability, Tecno phone, Xiaomi MiMo).
+# Populated from PG articles_core.title (2026-07-19 snapshot, 210 articles).
 REAL_SEARCH_QUERIES: list[str] = [
-    "FFmpeg",
-    "Tecno",
-    "小米",
-    "AI聊天机器人",
-    "超算",
+    "九识智能",
+    "图灵奖",
+    "中国天眼",
+    "零刻",
+    "12306",
+    "幽灵外卖",
+    "魅族",
+    "人工智能终端",
+    "苹果 OpenAI",
+    "滴滴",
 ]
-REAL_ENTITY_NAME = "FFmpeg"
-REAL_ARTICLE_ID: str | None = None
-REAL_SOURCE_ID = "rss-solidot"
+
+# Real entity names from Neo4j Entity.canonical_name (16 entities).
+REAL_ENTITY_NAMES: list[str] = [
+    "睡眠专家",
+    "共和党",
+    "美国参议院",
+    "美国众议院",
+    "特朗普政府",
+    "刚果民主共和国",
+    "美国",
+    "埃博拉疫情",
+]
+# Backwards-compat single value used by older test cases.
+REAL_ENTITY_NAME = "美国"
+
+# Real article UUIDs from PG articles_core (selected from 210 rows).
+REAL_ARTICLE_IDS: list[str] = [
+    "037699d8-63b7-4f7f-8b2c-0092c0769b2c",  # 九识智能
+    "7a0eca51-8065-464b-84ce-03c5f29a1e20",  # 图灵奖得主
+    "a371ca20-33e7-4f7b-a014-72a507273d93",  # 中国天眼
+    "d3342920-957f-4257-9d56-8db776652d17",  # 零刻发布
+    "cfba3530-2840-4b2a-a279-6ad978235763",  # 12306
+    "b5b59384-3aad-4a63-b4a2-48f47c3dff43",  # 北京鼓励举报
+    "59540dff-5f77-49d9-b654-cc337aff1b5d",  # 魅族售后
+]
+# Backwards-compat single value (populated at runtime if None).
+REAL_ARTICLE_ID: str | None = REAL_ARTICLE_IDS[0]
+
+# Real community IDs from Neo4j Community nodes (4 communities).
+REAL_COMMUNITY_IDS: list[str] = [
+    "89300079-474b-40c8-91be-5cd25a77330d",  # 科技巨头与AI治理
+    "a6bcd524-f9e2-4690-b20d-acd4d76a39d0",  # 科技与社会热点事件
+    "14765c79-3a3e-4bb5-8c49-3669f8c868d4",  # AI技术与安全动态
+    "8b493c8e-02b4-4bd2-b534-e5cb1e4f9196",  # Orphan Entities
+]
+
+# Real entity UUIDs from Neo4j (for graph traversal tests).
+REAL_ENTITY_IDS: list[str] = [
+    "347e626d-9b12-4bd2-8a37-6c0e80a1eccb",  # 睡眠专家
+    "61218e57-2650-4db7-b30f-25d9a9786f81",  # 共和党
+    "5083ce0c-b264-47ee-bfc8-b2890eb85eb2",  # 美国
+]
+
+# Real source IDs from PG articles_core (4 distinct sources).
+REAL_SOURCE_IDS: list[str] = [
+    "rss-solidot",
+    "newsnow-36kr",
+    "newsnow-solidot",
+    "newsnow-hupu",
+]
+REAL_SOURCE_ID = REAL_SOURCE_IDS[0]
 
 # Abnormal strings for security/robustness testing.
 ABNORMAL_SQL_INJECTION = "'; DROP TABLE articles; --"
