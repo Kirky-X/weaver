@@ -242,13 +242,17 @@ class TestNeo4jWriterWrite:
 
     @pytest.mark.asyncio
     async def test_write_with_merged_sources(self, writer):
-        """Test write creates FOLLOWED_BY relations for merged articles."""
+        """Test write creates FOLLOWED_BY relations for merged articles.
+
+        P4 fix: existence check uses batch ``find_articles_by_pg_ids``
+        instead of per-source ``find_article_by_id``.
+        """
         article_id = str(uuid.uuid4())
         source_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._article_repo.find_article_by_id = AsyncMock(
-            return_value={"publish_time": datetime.now(UTC) - timedelta(hours=2)}
+        writer._article_repo.find_articles_by_pg_ids = AsyncMock(
+            return_value={source_id: {"neo4j_id": "src-id", "pg_id": source_id}}
         )
         writer._article_repo.create_followed_by_batch = AsyncMock(
             return_value={
@@ -416,56 +420,74 @@ class TestNeo4jWriterCreateFollowedRelations:
 
     @pytest.mark.asyncio
     async def test_create_followed_relations(self, writer):
-        """Test create FOLLOWED_BY relations."""
-        publish_time = datetime.now(UTC)
-        source_time = publish_time - timedelta(hours=2)
+        """Test create FOLLOWED_BY relations (post-slim-down signature).
 
-        writer._article_repo.find_article_by_id = AsyncMock(
-            return_value={
-                "publish_time": source_time,
-            }
+        After the Article node slim-down, ``_create_followed_relations``
+        no longer accepts ``publish_time``; ``time_gap_hours`` is always 0.0.
+
+        P4 fix: existence check now uses batch ``find_articles_by_pg_ids``
+        instead of per-source ``find_article_by_id``.
+        """
+        writer._article_repo.find_articles_by_pg_ids = AsyncMock(
+            return_value={"source_id": {"neo4j_id": "src-1", "pg_id": "source_id"}}
         )
         writer._article_repo.create_followed_by_batch = AsyncMock(return_value=1)
 
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
-            publish_time=publish_time,
         )
 
         writer._article_repo.create_followed_by_batch.assert_called_once()
+        call_args = writer._article_repo.create_followed_by_batch.call_args
+        relations = call_args.args[0]
+        assert relations[0]["time_gap_hours"] == 0.0
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_no_source_article(self, writer):
-        """Test create FOLLOWED_BY when source article not found."""
-        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
+        """Test create FOLLOWED_BY when source article not found.
+
+        After the slim-down, a missing source article skips the relation
+        (previously it was created with time_gap=0.0; now we skip to avoid
+        creating a relation pointing at a non-existent node).
+
+        P4 fix: missing sources are simply absent from the
+        ``find_articles_by_pg_ids`` result dict.
+        """
+        writer._article_repo.find_articles_by_pg_ids = AsyncMock(return_value={})
         writer._article_repo.create_followed_by_batch = AsyncMock(return_value=1)
 
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
-            publish_time=datetime.now(UTC),
         )
 
-        writer._article_repo.create_followed_by_batch.assert_called_once()
+        writer._article_repo.create_followed_by_batch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_handles_error(self, writer):
-        """Test create FOLLOWED_BY handles errors."""
-        writer._article_repo.find_article_by_id = AsyncMock(side_effect=Exception("Find error"))
+        """Test create FOLLOWED_BY handles batch lookup errors gracefully."""
+        writer._article_repo.find_articles_by_pg_ids = AsyncMock(
+            side_effect=Exception("Find error")
+        )
 
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
-            publish_time=datetime.now(UTC),
         )
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_multiple_sources(self, writer):
-        """Test create FOLLOWED_BY for multiple sources."""
-        writer._article_repo.find_article_by_id = AsyncMock(
+        """Test create FOLLOWED_BY for multiple sources.
+
+        P4 fix: a single ``find_articles_by_pg_ids`` call replaces N
+        per-source ``find_article_by_id`` round-trips.
+        """
+        writer._article_repo.find_articles_by_pg_ids = AsyncMock(
             return_value={
-                "publish_time": datetime.now(UTC) - timedelta(hours=1),
+                "source1": {"neo4j_id": "src-1", "pg_id": "source1"},
+                "source2": {"neo4j_id": "src-2", "pg_id": "source2"},
+                "source3": {"neo4j_id": "src-3", "pg_id": "source3"},
             }
         )
         writer._article_repo.create_followed_by_batch = AsyncMock(return_value=3)
@@ -473,7 +495,6 @@ class TestNeo4jWriterCreateFollowedRelations:
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source1", "source2", "source3"],
-            publish_time=datetime.now(UTC),
         )
 
         writer._article_repo.create_followed_by_batch.assert_called_once()
@@ -501,7 +522,7 @@ class TestNeo4jWriterCleanupOrphanEntities:
 
 
 class TestNeo4jWriterArchiveOldArticles:
-    """Test archive_old_articles method."""
+    """Test archive_old_articles method (post-slim-down signature)."""
 
     @pytest.fixture
     def writer(self):
@@ -514,27 +535,45 @@ class TestNeo4jWriterArchiveOldArticles:
         return writer
 
     @pytest.mark.asyncio
-    async def test_archive_old_articles_default_days(self, writer):
-        """Test archive old articles with default days."""
-        result = await writer.archive_old_articles()
+    async def test_archive_old_articles_with_pg_ids(self, writer):
+        """Test archive old articles with cutoff_pg_ids list."""
+        result = await writer.archive_old_articles(cutoff_pg_ids=["pg-1", "pg-2"])
 
         assert result == 10
-        writer._article_repo.delete_old_articles.assert_called_once_with(90)
+        writer._article_repo.delete_old_articles.assert_called_once_with(["pg-1", "pg-2"])
 
     @pytest.mark.asyncio
-    async def test_archive_old_articles_custom_days(self, writer):
-        """Test archive old articles with custom days."""
-        result = await writer.archive_old_articles(days=30)
+    async def test_archive_old_articles_empty_list_skips_cleanup(self, writer):
+        """Empty cutoff_pg_ids short-circuits at the repo layer.
 
-        assert result == 10
-        writer._article_repo.delete_old_articles.assert_called_once_with(30)
+        LSP alignment (H1 fix): the writer no longer calls
+        cleanup_orphan_entities() — that responsibility moved to the
+        caller (MaintenanceJobs). So even for non-empty input,
+        cleanup_orphan_entities must NOT be invoked here.
+        """
+        # Override delete_old_articles to return 0 for empty input.
+        writer._article_repo.delete_old_articles = AsyncMock(return_value=0)
+        result = await writer.archive_old_articles(cutoff_pg_ids=[])
+
+        assert result == 0
+        writer._article_repo.delete_old_articles.assert_called_once_with([])
+        # LSP: writer never invokes orphan cleanup regardless of input.
+        writer._entity_repo.delete_orphan_entities.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_archive_old_articles_cleans_orphans(self, writer):
-        """Test archive old articles cleans orphan entities."""
-        await writer.archive_old_articles()
+    async def test_archive_old_articles_does_not_cleanup_orphans(self, writer):
+        """LSP alignment (H1 fix): writer does not call cleanup_orphan_entities.
 
-        writer._entity_repo.delete_orphan_entities.assert_called_once()
+        Previously Neo4jWriter.archive_old_articles invoked
+        cleanup_orphan_entities() when cutoff_pg_ids was non-empty, but
+        LadybugWriter.archive_old_articles did not — an LSP violation.
+        Orphan cleanup is now uniformly orchestrated by the caller
+        (MaintenanceJobs.archive_old_neo4j_nodes).
+        """
+        await writer.archive_old_articles(cutoff_pg_ids=["pg-1"])
+
+        writer._article_repo.delete_old_articles.assert_called_once_with(["pg-1"])
+        writer._entity_repo.delete_orphan_entities.assert_not_called()
 
 
 from datetime import timedelta

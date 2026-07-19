@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Neo4j article repository for article graph operations."""
+"""Neo4j article repository for article graph operations.
+
+After the Article node slim-down (design.md §D2), the graph Article node
+stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
+Business fields (title / category / publish_time / score) are batch-fetched
+from PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from core.observability import get_logger
@@ -16,8 +21,8 @@ log = get_logger(__name__)
 class Neo4jArticleRepo:
     """Neo4j article repository.
 
-    Handles article-related graph operations in Neo4j,
-    including article node creation and FOLLOWED_BY relationships.
+    Handles article-related graph operations in Neo4j, including article
+    node creation and FOLLOWED_BY relationships.
 
     Args:
         pool: Graph database pool (Neo4j or LadybugDB).
@@ -29,19 +34,17 @@ class Neo4jArticleRepo:
     async def create_article(
         self,
         article_id: str,
-        title: str,
-        category: str,
-        publish_time: datetime | None,
-        score: float | None = None,
     ) -> str:
         """Create an Article node in Neo4j.
 
+        After the Article node slim-down (design.md §D2), the graph node
+        stores only ``pg_id`` (and ``created_at`` for audit). Title /
+        category / publish_time / score are no longer persisted on the
+        node — callers that need them must batch-fetch from PostgreSQL
+        via ``ArticleRepository.fetch_titles_by_pg_ids``.
+
         Args:
             article_id: PostgreSQL UUID of the article.
-            title: Article title.
-            category: Article category.
-            publish_time: Publication timestamp.
-            score: Optional article score.
 
         Returns:
             The Neo4j internal ID of the created article.
@@ -49,25 +52,10 @@ class Neo4jArticleRepo:
         query = """
         MERGE (a:Article {pg_id: $pg_id})
         ON CREATE SET
-            a.title = $title,
-            a.category = $category,
-            a.publish_time = $publish_time,
-            a.score = $score,
             a.created_at = datetime()
-        ON MATCH SET
-            a.title = $title,
-            a.category = $category,
-            a.publish_time = $publish_time,
-            a.score = COALESCE($score, a.score)
         RETURN elementId(a) AS neo4j_id
         """
-        params = {
-            "pg_id": article_id,
-            "title": title,
-            "category": category,
-            "publish_time": publish_time,
-            "score": score,
-        }
+        params = {"pg_id": article_id}
         result = await self._pool.execute_query(query, params)
         if result:
             return result[0]["neo4j_id"]
@@ -79,8 +67,13 @@ class Neo4jArticleRepo:
     ) -> list[str]:
         """Create multiple Article nodes in batch using UNWIND.
 
+        After the slim-down, only ``pg_id`` is read from each article
+        dict; other keys (title/category/publish_time/score) are
+        silently ignored.
+
         Args:
-            articles: List of dicts with keys: pg_id, title, category, publish_time, score.
+            articles: List of dicts; each must contain ``pg_id``. Other
+                keys are ignored.
 
         Returns:
             List of Neo4j internal IDs for created articles.
@@ -92,24 +85,22 @@ class Neo4jArticleRepo:
         UNWIND $articles AS article
         MERGE (a:Article {pg_id: article.pg_id})
         ON CREATE SET
-            a.title = article.title,
-            a.category = article.category,
-            a.publish_time = article.publish_time,
-            a.score = article.score,
             a.created_at = datetime()
-        ON MATCH SET
-            a.title = article.title,
-            a.category = article.category,
-            a.publish_time = article.publish_time,
-            a.score = COALESCE(article.score, a.score)
         RETURN elementId(a) AS neo4j_id
         """
-        params = {"articles": articles}
+        # Slim params: only pg_id is read by the Cypher.
+        slim_articles = [{"pg_id": a.get("pg_id")} for a in articles]
+        params = {"articles": slim_articles}
         result = await self._pool.execute_query(query, params)
         return [r["neo4j_id"] for r in result if r.get("neo4j_id")]
 
     async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
-        """Find an article node by article ID.
+        """Find an article node by article ID (pg_id).
+
+        After the slim-down, returns only ``{neo4j_id, pg_id, created_at}``.
+        Callers that need title/category/publish_time/score must
+        batch-fetch from PostgreSQL via
+        ``ArticleRepository.fetch_titles_by_pg_ids``.
 
         Args:
             article_id: The article UUID.
@@ -121,10 +112,6 @@ class Neo4jArticleRepo:
         MATCH (a:Article {pg_id: $pg_id})
         RETURN elementId(a) AS neo4j_id,
                a.pg_id AS pg_id,
-               a.title AS title,
-               a.category AS category,
-               a.publish_time AS publish_time,
-               a.score AS score,
                a.created_at AS created_at
         """
         result = await self._pool.execute_query(query, {"pg_id": article_id})
@@ -135,27 +122,49 @@ class Neo4jArticleRepo:
     async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None:
         """Find an article node by graph database internal ID.
 
-        Args:
-            graph_id: The graph database internal element ID.
-
-        Returns:
-            Article dict if found, None otherwise.
+        After the slim-down, returns only ``{neo4j_id, pg_id, created_at}``.
         """
         query = """
         MATCH (a)
         WHERE elementId(a) = $neo4j_id
         RETURN elementId(a) AS neo4j_id,
                a.pg_id AS pg_id,
-               a.title AS title,
-               a.category AS category,
-               a.publish_time AS publish_time,
-               a.score AS score,
                a.created_at AS created_at
         """
         result = await self._pool.execute_query(query, {"neo4j_id": graph_id})
         if result:
             return dict(result[0])
         return None
+
+    async def find_articles_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Batch lookup of Article nodes by pg_id (P4 fix for N+1).
+
+        Uses a single UNWIND + OPTIONAL MATCH query to fetch all
+        existing articles in one round-trip. Missing pg_ids are
+        absent from the result.
+
+        Args:
+            pg_ids: List of PostgreSQL article IDs to look up.
+
+        Returns:
+            Dict mapping each found pg_id to its article dict
+            (``{neo4j_id, pg_id, created_at}``). Empty input is a
+            no-op (no DB call).
+        """
+        if not pg_ids:
+            return {}
+        query = """
+        UNWIND $pg_ids AS pid
+        MATCH (a:Article {pg_id: pid})
+        RETURN elementId(a) AS neo4j_id,
+               a.pg_id AS pg_id,
+               a.created_at AS created_at
+        """
+        result = await self._pool.execute_query(query, {"pg_ids": pg_ids})
+        return {row["pg_id"]: dict(row) for row in result if row.get("pg_id")}
 
     async def create_followed_by_relation(
         self,
@@ -224,6 +233,10 @@ class Neo4jArticleRepo:
     ) -> list[dict[str, Any]]:
         """Get articles that follow or are followed by the given article.
 
+        After the slim-down, returns only ``{neo4j_id, pg_id, time_gap_hours}``.
+        Callers needing title/category/publish_time must batch-fetch
+        from PostgreSQL.
+
         Args:
             article_id: The article's PostgreSQL ID.
             direction: 'outgoing' for articles that follow this one,
@@ -238,9 +251,7 @@ class Neo4jArticleRepo:
             MATCH (a:Article {pg_id: $pg_id})-[:FOLLOWED_BY]->(followed)
             RETURN elementId(followed) AS neo4j_id,
                    followed.pg_id AS pg_id,
-                   followed.title AS title,
-                   followed.category AS category,
-                   followed.publish_time AS publish_time
+                   r.time_gap_hours AS time_gap_hours
             LIMIT $limit
             """
         else:
@@ -248,9 +259,7 @@ class Neo4jArticleRepo:
             MATCH (a:Article {pg_id: $pg_id})<-[:FOLLOWED_BY]-(predecessor)
             RETURN elementId(predecessor) AS neo4j_id,
                    predecessor.pg_id AS pg_id,
-                   predecessor.title AS title,
-                   predecessor.category AS category,
-                   predecessor.publish_time AS publish_time
+                   r.time_gap_hours AS time_gap_hours
             LIMIT $limit
             """
 
@@ -276,35 +285,53 @@ class Neo4jArticleRepo:
         await self._pool.execute_query(query, {"pg_id": article_id})
         return True
 
-    async def delete_old_articles(self, days: int = 90) -> int:
-        """Delete old Article nodes that have no FOLLOWED_BY relationships.
+    async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
+        """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.
 
-        This is part of the data aging strategy. Only deletes articles
-        that are older than the specified days and have no outgoing
-        FOLLOWED_BY relationships (meaning no newer articles reference them).
+        After the slim-down, the Article node no longer carries
+        ``publish_time``, so the cutoff cannot be computed inside the
+        graph. Callers (writers) must query PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'`` and pass the
+        resulting pg_ids here.
+
+        Implementation notes:
+        - Batched in chunks of ``DELETE_BATCH_SIZE`` to avoid a single
+          huge transaction that would block the pipeline write path and
+          risk OOM. Each chunk is its own ``execute_query`` call.
+        - Cypher uses ``collect`` + ``size`` to compute the deleted
+          count *before* DETACH DELETE (counting after DELETE is
+          unreliable in Neo4j).
 
         Args:
-            days: Number of days to retain articles. Must be a positive integer.
+            cutoff_pg_ids: List of pg_ids to delete. Empty list is a
+                no-op (no DB call).
 
         Returns:
-            Number of articles deleted (Note: Neo4j doesn't return count easily).
-
-        Raises:
-            ValueError: If days is not a positive integer.
+            Number of articles deleted.
         """
-        if not isinstance(days, int) or days <= 0:
-            raise ValueError(f"days must be a positive integer, got {days!r}")
+        if not cutoff_pg_ids:
+            return 0
 
+        # P7 fix: chunk to bound transaction size. 500 nodes x ~5 rels
+        # each = ~2500 rels per transaction, well within Neo4j's
+        # transaction state budget. Tuned for the 90-day retention
+        # archive job which can pass tens of thousands of pg_ids.
+        DELETE_BATCH_SIZE = 500
         query = """
-        MATCH (a:Article)
-        WHERE a.publish_time < datetime() - duration({days: $days})
-          AND NOT (a)-[:FOLLOWED_BY]->()
+        UNWIND $pg_ids AS pid
+        MATCH (a:Article {pg_id: pid})
+        WITH collect(a) AS articles
+        UNWIND articles AS a
         DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
-        await self._pool.execute_query(query, {"days": days})
-        # Neo4j doesn't easily return count from DETACH DELETE
-        # In production, you might want to count before deleting
-        return 0
+        total_deleted = 0
+        for i in range(0, len(cutoff_pg_ids), DELETE_BATCH_SIZE):
+            chunk = cutoff_pg_ids[i : i + DELETE_BATCH_SIZE]
+            result = await self._pool.execute_query(query, {"pg_ids": chunk})
+            if result:
+                total_deleted += result[0].get("deleted", 0)
+        return total_deleted
 
     async def get_article_entities(
         self,
@@ -328,23 +355,6 @@ class Neo4jArticleRepo:
         """
         result = await self._pool.execute_query(query, {"pg_id": article_id})
         return [dict(record) for record in result]
-
-    async def update_article_score(
-        self,
-        article_id: str,
-        score: float,
-    ) -> None:
-        """Update the score of an existing article.
-
-        Args:
-            article_id: The article's PostgreSQL ID.
-            score: New score value.
-        """
-        query = """
-        MATCH (a:Article {pg_id: $pg_id})
-        SET a.score = $score
-        """
-        await self._pool.execute_query(query, {"pg_id": article_id, "score": score})
 
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
         """Delete Article nodes whose pg_id is not in the valid list.

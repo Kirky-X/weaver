@@ -27,13 +27,28 @@ SCHEMA_QUERIES = [
     """
     CREATE NODE TABLE IF NOT EXISTS Article (
         id STRING PRIMARY KEY,
-        pg_id STRING,
-        title STRING,
-        category STRING,
-        publish_time INT64,
-        score DOUBLE
+        pg_id STRING
     )
     """,
+    # D2 / Article slim-down: secondary index on Article.pg_id so that
+    # MATCH (a:Article {pg_id: $pg_id}) uses an index lookup instead of
+    # a full table scan. Kùzu (LadybugDB) supports CREATE INDEX via
+    # Cypher since 0.4.0; older deployments skip silently via the
+    # try/except in initialize_ladybug_schema. The PRIMARY KEY on `id`
+    # does not cover pg_id lookups.
+    "CREATE INDEX IF NOT EXISTS article_pg_id_idx FOR (a:Article) ON (a.pg_id)",
+    # D2 / Article node slim-down: backfill existing LadybugDB databases
+    # by dropping the legacy business fields. New databases pick up the
+    # slim schema from CREATE NODE TABLE above; existing databases need
+    # ALTER TABLE DROP COLUMN. Wrapped in try/except by
+    # initialize_ladybug_schema so already-migrated databases skip
+    # silently. Title/category/publish_time/score are now batch-fetched
+    # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids
+    # (design.md §D2).
+    "ALTER TABLE Article DROP COLUMN title",
+    "ALTER TABLE Article DROP COLUMN category",
+    "ALTER TABLE Article DROP COLUMN publish_time",
+    "ALTER TABLE Article DROP COLUMN score",
     """
     CREATE NODE TABLE IF NOT EXISTS Community (
         id STRING PRIMARY KEY,

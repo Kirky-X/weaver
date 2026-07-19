@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from core.db import PersistStatus
@@ -92,18 +91,12 @@ class Neo4jWriter:
 
         neo4j_ids: list[str] = []
 
-        raw = state["raw"]
-        title = state.get("cleaned", {}).get("title", raw.title)
-        category = state.get("category", "unknown")
-        publish_time = raw.publish_time
-        score = state.get("score")
-
+        # After the Article node slim-down (design.md §D2), the graph node
+        # stores only {pg_id, created_at}. Title / category / publish_time /
+        # score are no longer persisted on the node; callers that need them
+        # batch-fetch from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids.
         article_neo4j_id = await self._article_repo.create_article(
             article_id=article_id_str,
-            title=title,
-            category=category.value if hasattr(category, "value") else str(category),
-            publish_time=publish_time,
-            score=score,
         )
         log.debug("neo4j_article_created", article_id=article_id_str)
 
@@ -123,7 +116,6 @@ class Neo4jWriter:
             await self._create_followed_relations(
                 article_id=article_id_str,
                 source_ids=merged_source_ids,
-                publish_time=publish_time,
             )
 
         log.info("neo4j_write_complete", article_id=article_id_str, entity_count=len(neo4j_ids))
@@ -456,47 +448,55 @@ class Neo4jWriter:
         self,
         article_id: str,
         source_ids: list[str],
-        publish_time: datetime | None,
     ) -> None:
         """Create FOLLOWED_BY relationships for merged articles using batch operation.
+
+        After the Article node slim-down (design.md §D2), the graph Article
+        node no longer carries ``publish_time``, so ``time_gap_hours`` can
+        no longer be computed inside the graph layer. The relation is
+        created with ``time_gap_hours=0.0``; callers needing accurate time
+        gaps should compute them from PostgreSQL ``publish_time`` at query
+        time (consistent with LadybugWriter which reads
+        ``state["related_articles"]`` for time gaps).
+
+        P4 fix: replaced the per-source ``find_article_by_id`` loop with
+        a single ``find_articles_by_pg_ids`` batch query to avoid N+1
+        round-trips on the pipeline write hot path. Missing sources are
+        still logged as warnings so operators can spot dangling merges.
 
         Args:
             article_id: The target article's PostgreSQL ID.
             source_ids: List of source article PostgreSQL IDs that were merged.
-            publish_time: Publication time of the target article.
         """
         if not source_ids:
             return
 
+        # Single round-trip: fetch existence for all source_ids at once.
+        try:
+            existing_map = await self._article_repo.find_articles_by_pg_ids(source_ids)
+        except Exception as exc:
+            log.warning(
+                "neo4j_followed_by_batch_lookup_failed",
+                to_id=article_id,
+                error=str(exc),
+            )
+            return
+
         relations_data: list[dict[str, Any]] = []
-
         for source_id in source_ids:
-            time_gap: float | None = None
-
-            try:
-                # Get source article to calculate time gap
-                source_article = await self._article_repo.find_article_by_id(source_id)
-                if source_article and publish_time and source_article.get("publish_time"):
-                    source_time = source_article["publish_time"]
-                    if hasattr(source_time, "timestamp") and hasattr(publish_time, "timestamp"):
-                        time_gap = abs((publish_time.timestamp() - source_time.timestamp()) / 3600)
-
-                # Only add relation if we successfully fetched the source article
-                relations_data.append(
-                    {
-                        "from_pg_id": source_id,
-                        "to_pg_id": article_id,
-                        "time_gap_hours": time_gap or 0.0,
-                    }
-                )
-            except Exception as exc:
+            if source_id not in existing_map:
                 log.warning(
-                    "neo4j_followed_by_source_fetch_failed",
+                    "neo4j_followed_by_source_missing",
                     source_id=source_id,
-                    error=str(exc),
                 )
-                # Skip this source on error - don't add to relations_data
                 continue
+            relations_data.append(
+                {
+                    "from_pg_id": source_id,
+                    "to_pg_id": article_id,
+                    "time_gap_hours": 0.0,
+                }
+            )
 
         # Only create relations if we have valid data
         if not relations_data:
@@ -526,19 +526,31 @@ class Neo4jWriter:
         """
         return await self._entity_repo.delete_orphan_entities()
 
-    async def archive_old_articles(self, days: int = 90) -> int:
+    async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive old articles as part of data lifecycle management.
 
+        After the Article node slim-down (design.md §D2), the graph node no
+        longer carries ``publish_time``, so the caller must compute the
+        cutoff by querying PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'`` and pass the
+        resulting pg_ids here.
+
+        LSP alignment: this method only deletes Article nodes. The caller
+        (MaintenanceJobs.archive_old_neo4j_nodes) is responsible for
+        invoking ``cleanup_orphan_entities()`` afterwards. Previously this
+        method called cleanup_orphan_entities() when cutoff_pg_ids was
+        non-empty, but LadybugWriter.archive_old_articles did not —
+        causing an LSP violation where two interchangeable Writer
+        implementations had different side effects. Cleanup is now
+        uniformly orchestrated by the caller.
+
         Args:
-            days: Number of days to retain articles.
+            cutoff_pg_ids: List of pg_ids to delete. Empty list is a no-op.
 
         Returns:
             Number of articles deleted.
         """
-        count = await self._article_repo.delete_old_articles(days)
-        # After deleting articles, clean up orphan entities
-        await self.cleanup_orphan_entities()
-        return count
+        return await self._article_repo.delete_old_articles(cutoff_pg_ids)
 
     async def merge_narrative(
         self,

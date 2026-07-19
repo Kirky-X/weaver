@@ -300,22 +300,65 @@ class TestUpdateSourceAutoScores:
 
 
 class TestArchiveOldNeo4jNodes:
-    """Test archive_old_neo4j_nodes job."""
+    """Test archive_old_neo4j_nodes job (post-slim-down signature)."""
+
+    def _setup_cutoff_pg_ids(self, scheduler_jobs_service, pg_ids: list[str]) -> None:
+        """Mock relational_pool.session to return cutoff pg_ids from PG.
+
+        After the Article node slim-down (design.md §D2), the cutoff is
+        computed by querying PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$ARCHIVE_RETENTION_DAYS days'``
+        and the resulting pg_ids are passed to ``archive_old_articles``.
+        """
+        result_rows = [(pid,) for pid in pg_ids]
+        mock_result = MagicMock()
+        mock_result.__iter__ = MagicMock(return_value=iter(result_rows))
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
+            return_value=None
+        )
 
     @pytest.mark.asyncio
     async def test_archive_old_nodes_success(self, scheduler_jobs_service):
-        """Test successful archiving of old nodes."""
+        """Test successful archiving of old nodes (with cutoff pg_ids).
+
+        M5 fix: maintenance_jobs invokes the writer's public
+        cleanup_orphan_entities() (Law of Demeter) rather than reaching
+        through to entity_repo.delete_orphan_entities().
+        """
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, ["pg-old-1", "pg-old-2"])
         scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(return_value=10)
-        scheduler_jobs_service._graph_writer.entity_repo.delete_orphan_entities = AsyncMock(
-            return_value=5
-        )
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=5)
 
         result = await scheduler_jobs_service.archive_old_neo4j_nodes()
         assert result == 10
+        scheduler_jobs_service._graph_writer.archive_old_articles.assert_awaited_once_with(
+            ["pg-old-1", "pg-old-2"]
+        )
+        # M5: caller orchestrates orphan cleanup via the writer's public method
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_archive_old_nodes_no_old_articles(self, scheduler_jobs_service):
+        """When PG returns no cutoff pg_ids, archive is a no-op."""
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, [])
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(return_value=10)
+
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
+        assert result == 0
+        scheduler_jobs_service._graph_writer.archive_old_articles.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_archive_old_nodes_failure(self, scheduler_jobs_service):
-        """Test handling of archive failure."""
+        """Test handling of archive failure (e.g. writer raises)."""
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, ["pg-old-1"])
         scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
             side_effect=Exception("Archive error")
         )

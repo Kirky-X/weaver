@@ -329,7 +329,17 @@ class TestNeo4jWriterMergeSources:
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_article = AsyncMock(return_value="article-id")
-            mock_article_repo.find_article_by_id = AsyncMock(return_value=None)
+            # P4 fix: _create_followed_relations now uses batch
+            # find_articles_by_pg_ids instead of per-source
+            # find_article_by_id. Returning a dict that maps every
+            # source pg_id to a slim article signals "all sources exist
+            # in the graph" so the FOLLOWED_BY relations will be created.
+            mock_article_repo.find_articles_by_pg_ids = AsyncMock(
+                return_value={
+                    "merged-1": {"neo4j_id": "src-1", "pg_id": "merged-1"},
+                    "merged-2": {"neo4j_id": "src-2", "pg_id": "merged-2"},
+                }
+            )
             mock_article_repo.create_followed_by_batch = AsyncMock(return_value=2)
 
             mock_entity_repo_cls.return_value = mock_entity_repo
@@ -388,14 +398,21 @@ class TestNeo4jWriterCleanup:
 
     @pytest.mark.asyncio
     async def test_archive_old_articles(self, writer_with_mocks):
-        """Test archive_old_articles method."""
+        """Test archive_old_articles method (post-slim-down signature).
+
+        LSP alignment (H1 fix): writer.archive_old_articles no longer
+        invokes cleanup_orphan_entities() — that responsibility moved
+        to MaintenanceJobs. Both Neo4jWriter and LadybugWriter now
+        have identical side-effect contracts (delete only).
+        """
         writer, mock_entity_repo, mock_article_repo = writer_with_mocks
 
-        result = await writer.archive_old_articles(days=30)
+        result = await writer.archive_old_articles(cutoff_pg_ids=["pg-1", "pg-2"])
 
         assert result == 10
-        mock_article_repo.delete_old_articles.assert_called_once_with(30)
-        mock_entity_repo.delete_orphan_entities.assert_called_once()
+        mock_article_repo.delete_old_articles.assert_called_once_with(["pg-1", "pg-2"])
+        # H1 fix: writer must NOT call cleanup_orphan_entities; caller does.
+        mock_entity_repo.delete_orphan_entities.assert_not_called()
 
 
 class TestNeo4jWriterEdgeCases:
@@ -602,7 +619,7 @@ class TestNeo4jWriterFollowedBy:
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_followed_by_batch = AsyncMock(return_value=1)
-            mock_article_repo.find_article_by_id = AsyncMock(return_value=None)
+            mock_article_repo.find_articles_by_pg_ids = AsyncMock(return_value={})
 
             mock_entity_repo_cls.return_value = MagicMock()
             mock_article_repo_cls.return_value = mock_article_repo
@@ -611,42 +628,53 @@ class TestNeo4jWriterFollowedBy:
             return writer, mock_article_repo
 
     @pytest.mark.asyncio
-    async def test_followed_with_time_gap(self, writer_with_mocks):
-        """Test _create_followed_relations calculates time gap."""
+    async def test_followed_creates_relation_with_zero_time_gap(self, writer_with_mocks):
+        """After slim-down, _create_followed_relations always uses time_gap=0.0.
+
+        The graph Article node no longer carries ``publish_time`` (design.md
+        §D2), so the time gap cannot be computed in the graph layer. Callers
+        needing accurate time gaps must compute them from PostgreSQL at
+        query time. The relation is still created with ``time_gap_hours=0.0``.
+
+        P4 fix: existence check uses batch ``find_articles_by_pg_ids``.
+        """
         writer, mock_article_repo = writer_with_mocks
 
-        source_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        target_time = datetime(2026, 1, 1, 15, 0, 0, tzinfo=UTC)
+        # Source article exists in the graph (only pg_id + graph id after slim-down).
+        mock_article_repo.find_articles_by_pg_ids = AsyncMock(
+            return_value={"source-1": {"neo4j_id": "src-graph-id", "pg_id": "source-1"}}
+        )
 
-        mock_article_repo.find_article_by_id = AsyncMock(return_value={"publish_time": source_time})
-
-        await writer._create_followed_relations("article-1", ["source-1"], target_time)
-
-        mock_article_repo.create_followed_by_batch.assert_called_once()
-        call_args = mock_article_repo.create_followed_by_batch.call_args
-        relations = call_args.args[0]
-        assert len(relations) == 1
-        assert relations[0]["time_gap_hours"] == 3.0
-
-    @pytest.mark.asyncio
-    async def test_followed_with_error(self, writer_with_mocks):
-        """Test _create_followed_relations handles error gracefully."""
-        writer, mock_article_repo = writer_with_mocks
-        mock_article_repo.find_article_by_id = AsyncMock(side_effect=Exception("DB error"))
-
-        # Should not raise
-        await writer._create_followed_relations("article-1", ["source-1"], None)
-        mock_article_repo.create_followed_by_batch.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_followed_no_publish_time(self, writer_with_mocks):
-        """Test _create_followed_relations with no publish time."""
-        writer, mock_article_repo = writer_with_mocks
-
-        await writer._create_followed_relations("article-1", ["source-1"], None)
+        await writer._create_followed_relations("article-1", ["source-1"])
 
         mock_article_repo.create_followed_by_batch.assert_called_once()
         call_args = mock_article_repo.create_followed_by_batch.call_args
         relations = call_args.args[0]
         assert len(relations) == 1
         assert relations[0]["time_gap_hours"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_followed_with_error(self, writer_with_mocks):
+        """Test _create_followed_relations handles batch lookup errors gracefully."""
+        writer, mock_article_repo = writer_with_mocks
+        mock_article_repo.find_articles_by_pg_ids = AsyncMock(side_effect=Exception("DB error"))
+
+        # Should not raise
+        await writer._create_followed_relations("article-1", ["source-1"])
+        mock_article_repo.create_followed_by_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_followed_source_missing_skips_relation(self, writer_with_mocks):
+        """When the source article is missing from the graph, skip the relation.
+
+        P4 fix: missing sources are simply absent from the
+        ``find_articles_by_pg_ids`` result dict (empty dict = all missing).
+        We must not create a FOLLOWED_BY relation pointing at a
+        non-existent source node.
+        """
+        writer, mock_article_repo = writer_with_mocks
+        mock_article_repo.find_articles_by_pg_ids = AsyncMock(return_value={})
+
+        await writer._create_followed_relations("article-1", ["source-1"])
+
+        mock_article_repo.create_followed_by_batch.assert_not_called()

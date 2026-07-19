@@ -11,6 +11,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from config.settings import SchedulerSettings
@@ -23,6 +24,13 @@ if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 log = get_logger(__name__)
+
+# Retention period for graph Article nodes. After the Article node
+# slim-down (design.md §D2), the graph node no longer carries
+# ``publish_time``; the cutoff is computed in Python (UTC now minus this
+# many days) and the resulting cutoff datetime is sent as a bind param
+# to keep the query portable across PostgreSQL and DuckDB.
+ARCHIVE_RETENTION_DAYS = 90
 
 
 class MaintenanceJobs:
@@ -54,8 +62,11 @@ class MaintenanceJobs:
     async def archive_old_neo4j_nodes(self) -> int:
         """Archive old Neo4j article nodes.
 
-        Deletes Article nodes older than 90 days that have no
-        FOLLOWED_BY relationships. Also cleans up orphan entities.
+        Deletes Article nodes whose ``publish_time`` is older than
+        ``ARCHIVE_RETENTION_DAYS`` days. After the Article node slim-down
+        (design.md §D2), the graph node no longer carries ``publish_time``,
+        so the cutoff pg_ids must be fetched from PostgreSQL first and
+        then passed to the writer.
 
         Returns:
             Number of articles archived.
@@ -63,9 +74,38 @@ class MaintenanceJobs:
         log.info("archive_old_neo4j_nodes_start")
 
         try:
-            count = await self._graph_writer.archive_old_articles(days=90)
-            await self._graph_writer.entity_repo.delete_orphan_entities()
-            log.info("archive_old_neo4j_nodes_complete", count=count)
+            from sqlalchemy import text
+
+            # Compute the cutoff datetime in Python so the bind param is
+            # portable across PostgreSQL and DuckDB (which have different
+            # INTERVAL literal syntaxes). Use UTC for consistent behaviour
+            # regardless of host timezone (articles_core.publish_time is
+            # stored timezone-aware UTC).
+            cutoff = datetime.now(UTC) - timedelta(days=ARCHIVE_RETENTION_DAYS)
+
+            async with self._relational_pool.session() as session:
+                result = await session.execute(
+                    text("SELECT id FROM articles_core WHERE publish_time < :cutoff"),
+                    {"cutoff": cutoff},
+                )
+                cutoff_pg_ids = [str(row[0]) for row in result]
+
+            if not cutoff_pg_ids:
+                log.info("archive_old_neo4j_nodes_complete", count=0, reason="no_old_articles")
+                return 0
+
+            count = await self._graph_writer.archive_old_articles(cutoff_pg_ids)
+            # Law of Demeter: invoke the writer's public cleanup method
+            # rather than reaching through to entity_repo. LSP-aligned with
+            # LadybugWriter which exposes the same cleanup_orphan_entities
+            # surface (both writers uniformly orchestrate orphan cleanup
+            # via the caller, MaintenanceJobs).
+            await self._graph_writer.cleanup_orphan_entities()
+            log.info(
+                "archive_old_neo4j_nodes_complete",
+                count=count,
+                cutoff_count=len(cutoff_pg_ids),
+            )
             return count
         except Exception as exc:
             log.error("archive_old_neo4j_nodes_failed", error=str(exc))

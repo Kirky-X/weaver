@@ -4,11 +4,15 @@
 
 LadybugDB-adapted version of Neo4jArticleRepo.
 Uses id property instead of elementId(), and timestamp integers instead of datetime().
+
+After the Article node slim-down (design.md §D2), the graph Article node
+stores only ``{id, pg_id}``. Business fields (title / category /
+publish_time / score) are batch-fetched from PostgreSQL via
+``ArticleRepository.fetch_titles_by_pg_ids``.
 """
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Any
 
@@ -32,63 +36,38 @@ class LadybugArticleRepo:
     async def create_article(
         self,
         article_id: str,
-        title: str,
-        category: str,
-        publish_time: int | None = None,
-        score: float | None = None,
     ) -> str:
         """Create or update an article node.
 
+        After the Article node slim-down (design.md §D2), the graph node
+        stores only ``{id, pg_id}``. Title / category / publish_time /
+        score are no longer persisted on the node — callers that need
+        them must batch-fetch from PostgreSQL via
+        ``ArticleRepository.fetch_titles_by_pg_ids``.
+
+        P5 fix: replaced the find+CREATE two-round-trip pattern with a
+        single MERGE. LadybugDB (Kùzu) does not support ``ON CREATE
+        SET``, so ``CASE WHEN ... IS NULL`` replicates the semantics:
+        the client-generated ``id`` is only written when the node is
+        new. Requires the ``article_pg_id_idx`` index from
+        ``ladybug_schema.py`` to avoid a full table scan.
+
         Args:
-            article_id: PostgreSQL article ID.
-            title: Article title.
-            category: Article category.
-            publish_time: Publish timestamp (int, not datetime).
-            score: Article score.
+            article_id: PostgreSQL article ID (pg_id).
 
         Returns:
-            The article ID.
+            The graph-internal id of the article node.
+
+        Raises:
+            RuntimeError: If the MERGE returns no rows (unexpected
+                failure). LSP-aligned with Neo4jArticleRepo — callers
+                must surface the failure rather than receive a
+                fabricated id (rule 12).
         """
         generated_id = str(uuid.uuid4())
-
-        # Check if article already exists
-        existing = await self.find_article_by_id(article_id)
-        if existing:
-            # Update existing article
-            query = """
-            MATCH (a:Article {pg_id: $pg_id})
-            SET a.title = $title,
-                a.category = $category,
-                a.publish_time = $publish_time,
-                a.score = $score
-            RETURN a.id AS id
-            """
-            result = await self._pool.execute_query(
-                query,
-                {
-                    "pg_id": article_id,
-                    "title": title,
-                    "category": category,
-                    "publish_time": publish_time or 0,
-                    "score": score or 0.0,
-                },
-            )
-            if result:
-                return result[0]["id"]
-            return existing["id"]
-
-        # Create new article — use CREATE since find_article_by_id already
-        # confirmed it doesn't exist. LadybugDB (Kuzu) requires the PRIMARY KEY
-        # `id` to be provided at creation time.
         query = """
-        CREATE (a:Article {
-            id: $id,
-            pg_id: $pg_id,
-            title: $title,
-            category: $category,
-            publish_time: $publish_time,
-            score: $score
-        })
+        MERGE (a:Article {pg_id: $pg_id})
+        SET a.id = CASE WHEN a.id IS NULL THEN $id ELSE a.id END
         RETURN a.id AS id
         """
         result = await self._pool.execute_query(
@@ -96,15 +75,11 @@ class LadybugArticleRepo:
             {
                 "id": generated_id,
                 "pg_id": article_id,
-                "title": title,
-                "category": category,
-                "publish_time": publish_time or 0,
-                "score": score or 0.0,
             },
         )
         if result:
             return result[0]["id"]
-        return generated_id
+        raise RuntimeError("Failed to create article node")
 
     async def create_articles_batch(
         self,
@@ -112,87 +87,79 @@ class LadybugArticleRepo:
     ) -> list[str]:
         """Create multiple Article nodes in batch.
 
-        Note: LadybugDB requires PRIMARY KEY id at creation time.
-        For existing articles, updates them individually.
+        After the slim-down, only ``pg_id`` is read from each article
+        dict; other keys (title/category/publish_time/score) are
+        silently ignored.
+
+        P6 fix: replaced the per-article ``find_article_by_id`` loop
+        (N round-trips) with a single OPTIONAL MATCH that returns the
+        existence map. New articles are then CREATEd in one UNWIND.
+        Reduces N+1 round-trips to 2 round-trips total. Requires the
+        ``article_pg_id_idx`` index from ``ladybug_schema.py``.
 
         Args:
-            articles: List of dicts with pg_id, title, category, publish_time, score.
+            articles: List of dicts; each must contain ``pg_id``. Other
+                keys are ignored.
 
         Returns:
-            List of article IDs for created/updated articles.
+            List of graph-internal article IDs for created/updated articles.
         """
         if not articles:
             return []
 
-        import uuid
+        pg_ids = [a.get("pg_id") for a in articles if a.get("pg_id")]
+        if not pg_ids:
+            return []
 
-        # LadybugDB doesn't support MERGE with ON CREATE/ON MATCH well
-        # Process in batches: first check existing, then create/update
-        existing_ids: dict[str, str] = {}
-        to_create: list[dict[str, Any]] = []
+        # Round 1: fetch existing id mapping in one query.
+        existing_query = """
+        UNWIND $pg_ids AS pid
+        OPTIONAL MATCH (a:Article {pg_id: pid})
+        RETURN pid, a.id AS existing_id
+        """
+        existing_result = await self._pool.execute_query(existing_query, {"pg_ids": pg_ids})
+        existing_map: dict[str, str] = {}
+        missing_pg_ids: list[str] = []
+        for row in existing_result:
+            pid = row.get("pid")
+            existing_id = row.get("existing_id")
+            if pid and existing_id:
+                existing_map[pid] = existing_id
+            elif pid:
+                missing_pg_ids.append(pid)
 
-        for article in articles:
-            pg_id = article.get("pg_id")
-            existing = await self.find_article_by_id(pg_id)
-            if existing:
-                existing_ids[pg_id] = existing["id"]
-            else:
-                article["id"] = str(uuid.uuid4())
-                to_create.append(article)
-
-        # Batch create new articles
+        # Round 2: CREATE the missing articles in one batch.
         created_ids: list[str] = []
-        if to_create:
-            query = """
+        if missing_pg_ids:
+            to_create = [{"id": str(uuid.uuid4()), "pg_id": pid} for pid in missing_pg_ids]
+            create_query = """
             UNWIND $articles AS article
             CREATE (a:Article {
                 id: article.id,
-                pg_id: article.pg_id,
-                title: article.title,
-                category: article.category,
-                publish_time: article.publish_time,
-                score: article.score
+                pg_id: article.pg_id
             })
             RETURN a.id AS id
             """
-            params = {"articles": to_create}
-            result = await self._pool.execute_query(query, params)
-            created_ids = [r["id"] for r in result if r.get("id")]
+            create_result = await self._pool.execute_query(create_query, {"articles": to_create})
+            created_ids = [r["id"] for r in create_result if r.get("id")]
+            # Build pid -> created id mapping by zipping (UNWIND preserves order).
+            for to_create_item, created_id in zip(to_create, created_ids, strict=False):
+                existing_map[to_create_item["pg_id"]] = created_id
 
-        # Update existing articles
-        for pg_id, article_id in existing_ids.items():
-            article = next((a for a in articles if a.get("pg_id") == pg_id), None)
-            if article:
-                query = """
-                MATCH (a:Article {pg_id: $pg_id})
-                SET a.title = $title,
-                    a.category = $category,
-                    a.publish_time = $publish_time,
-                    a.score = $score
-                """
-                await self._pool.execute_query(
-                    query,
-                    {
-                        "pg_id": pg_id,
-                        "title": article.get("title", ""),
-                        "category": article.get("category", "unknown"),
-                        "publish_time": article.get("publish_time") or 0,
-                        "score": article.get("score") or 0.0,
-                    },
-                )
-
-        return created_ids + list(existing_ids.values())
+        # Return in the same order as the input articles list.
+        return [existing_map[pid] for pid in pg_ids if pid in existing_map]
 
     async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
-        """Find an article by its article ID (pg_id)."""
+        """Find an article by its article ID (pg_id).
+
+        After the slim-down, returns only ``{id, pg_id}``. Callers that
+        need title/category/publish_time/score must batch-fetch from
+        PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
+        """
         query = """
         MATCH (a:Article {pg_id: $pg_id})
         RETURN a.id AS id,
-               a.pg_id AS pg_id,
-               a.title AS title,
-               a.category AS category,
-               a.publish_time AS publish_time,
-               a.score AS score
+               a.pg_id AS pg_id
         """
         result = await self._pool.execute_query(query, {"pg_id": article_id})
         if result:
@@ -200,20 +167,48 @@ class LadybugArticleRepo:
         return None
 
     async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None:
-        """Find an article by its graph database internal ID."""
+        """Find an article by its graph database internal ID.
+
+        After the slim-down, returns only ``{id, pg_id}``.
+        """
         query = """
         MATCH (a:Article {id: $id})
         RETURN a.id AS id,
-               a.pg_id AS pg_id,
-               a.title AS title,
-               a.category AS category,
-               a.publish_time AS publish_time,
-               a.score AS score
+               a.pg_id AS pg_id
         """
         result = await self._pool.execute_query(query, {"id": graph_id})
         if result:
             return dict(result[0])
         return None
+
+    async def find_articles_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Batch lookup of Article nodes by pg_id (P4 fix for N+1).
+
+        Uses a single UNWIND + MATCH query to fetch all existing
+        articles in one round-trip. Missing pg_ids are absent from
+        the result. Requires the ``article_pg_id_idx`` index from
+        ``ladybug_schema.py`` to avoid a full table scan.
+
+        Args:
+            pg_ids: List of PostgreSQL article IDs to look up.
+
+        Returns:
+            Dict mapping each found pg_id to its article dict
+            (``{id, pg_id}``). Empty input is a no-op (no DB call).
+        """
+        if not pg_ids:
+            return {}
+        query = """
+        UNWIND $pg_ids AS pid
+        MATCH (a:Article {pg_id: pid})
+        RETURN a.id AS id,
+               a.pg_id AS pg_id
+        """
+        result = await self._pool.execute_query(query, {"pg_ids": pg_ids})
+        return {row["pg_id"]: dict(row) for row in result if row.get("pg_id")}
 
     async def create_followed_by_relation(
         self,
@@ -270,14 +265,15 @@ class LadybugArticleRepo:
         direction: str = "outgoing",
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get articles that follow or are followed by the given article."""
+        """Get articles that follow or are followed by the given article.
+
+        After the slim-down, returns only ``{id, pg_id, time_gap_hours}``.
+        """
         if direction == "outgoing":
             query = """
             MATCH (a:Article {pg_id: $pg_id})-[r:FOLLOWED_BY]->(followed)
             RETURN followed.id AS id,
                    followed.pg_id AS pg_id,
-                   followed.title AS title,
-                   followed.category AS category,
                    r.time_gap_hours AS time_gap_hours
             LIMIT $limit
             """
@@ -286,8 +282,6 @@ class LadybugArticleRepo:
             MATCH (a:Article {pg_id: $pg_id})<-[r:FOLLOWED_BY]-(follower)
             RETURN follower.id AS id,
                    follower.pg_id AS pg_id,
-                   follower.title AS title,
-                   follower.category AS category,
                    r.time_gap_hours AS time_gap_hours
             LIMIT $limit
             """
@@ -305,21 +299,49 @@ class LadybugArticleRepo:
         result = await self._pool.execute_query(query, {"pg_id": article_id})
         return bool(result and result[0].get("count", 0) > 0)
 
-    async def delete_old_articles(self, days: int = 90) -> int:
-        """Delete articles older than specified days."""
-        cutoff = int(time.time()) - (days * 24 * 60 * 60)
-        # Find old articles
-        query = """
-        MATCH (a:Article)
-        WHERE a.publish_time < $cutoff
-        RETURN a.pg_id AS pg_id
+    async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
+        """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.
+
+        After the slim-down, the Article node no longer carries
+        ``publish_time``, so the cutoff cannot be computed inside the
+        graph. Callers (writers) must query PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'`` and pass the
+        resulting pg_ids here.
+
+        Implementation notes:
+        - Cypher uses ``collect`` + ``size`` to compute the deleted
+          count *before* DETACH DELETE (counting after DELETE is
+          unreliable — Kùzu may return 0 or stale values).
+        - Batched in chunks of ``DELETE_BATCH_SIZE`` to bound
+          transaction size and avoid blocking the single-writer
+          LadybugDB lock for too long.
+
+        Args:
+            cutoff_pg_ids: List of pg_ids to delete. Empty list is a
+                no-op (no DB call).
+
+        Returns:
+            Number of articles deleted.
         """
-        result = await self._pool.execute_query(query, {"cutoff": cutoff})
-        count = 0
-        for r in result:
-            await self.delete_article(r["pg_id"])
-            count += 1
-        return count
+        if not cutoff_pg_ids:
+            return 0
+
+        DELETE_BATCH_SIZE = 500
+        query = """
+        UNWIND $pg_ids AS pid
+        MATCH (a:Article {pg_id: pid})
+        WITH collect(a) AS articles
+        UNWIND articles AS a
+        DETACH DELETE a
+        RETURN size(articles) AS deleted
+        """
+        total_deleted = 0
+        for i in range(0, len(cutoff_pg_ids), DELETE_BATCH_SIZE):
+            chunk = cutoff_pg_ids[i : i + DELETE_BATCH_SIZE]
+            result = await self._pool.execute_query(query, {"pg_ids": chunk})
+            if result:
+                total_deleted += result[0].get("deleted", 0)
+        return total_deleted
 
     async def get_article_entities(self, article_id: str) -> list[dict[str, Any]]:
         """Get all entities mentioned by an article."""
@@ -332,14 +354,6 @@ class LadybugArticleRepo:
         """
         result = await self._pool.execute_query(query, {"pg_id": article_id})
         return [dict(r) for r in result]
-
-    async def update_article_score(self, article_id: str, score: float) -> None:
-        """Update an article's score."""
-        query = """
-        MATCH (a:Article {pg_id: $pg_id})
-        SET a.score = $score
-        """
-        await self._pool.execute_query(query, {"pg_id": article_id, "score": score})
 
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
         """Delete articles that don't exist in PostgreSQL."""

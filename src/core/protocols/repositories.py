@@ -351,18 +351,35 @@ class SourceAuthorityRepository(Protocol):
 class GraphArticleRepository(Protocol):
     """Protocol for graph article repository implementations.
 
+    After the Article node slim-down (design.md §D2), the graph Article node
+    stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
+    Business fields (title / category / publish_time / score) are no longer
+    persisted on the node — callers that need them must batch-fetch from
+    PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
+
     Implementations:
-        - GraphArticleRepo: Neo4j/LadybugDB-based graph article repository
+        - Neo4jArticleRepo: Neo4j-based graph article repository
+        - LadybugArticleRepo: LadybugDB-based graph article repository
     """
 
     async def create_article(
         self,
         article_id: str,
-        title: str,
-        category: str,
-        publish_time: Any | None,
-        score: float | None = None,
-    ) -> str: ...
+    ) -> str:
+        """Create an Article node in the graph database.
+
+        After the slim-down, only ``pg_id`` is persisted (plus an audit
+        ``created_at`` for Neo4j). Title / category / publish_time / score
+        are no longer accepted — callers that need them must batch-fetch
+        from PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
+
+        Args:
+            article_id: PostgreSQL UUID of the article.
+
+        Returns:
+            The graph database internal ID of the created article.
+        """
+        ...
 
     async def create_articles_batch(
         self,
@@ -370,8 +387,14 @@ class GraphArticleRepository(Protocol):
     ) -> list[str]:
         """Create multiple Article nodes in batch.
 
+        After the slim-down, only ``pg_id`` is read from each article
+        dict; other keys (title/category/publish_time/score) are silently
+        ignored.
+
         Args:
-            articles: List of dicts with article_id, title, category, publish_time, score.
+            articles: List of dicts; each must contain ``pg_id``. Other
+                keys are ignored for backward compatibility with existing
+                pipeline state dicts.
 
         Returns:
             List of graph database internal IDs.
@@ -392,9 +415,45 @@ class GraphArticleRepository(Protocol):
         """
         ...
 
-    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None: ...
+    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
+        """Find an article node by article ID (pg_id).
 
-    async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None: ...
+        After the slim-down, returns only graph-internal id + ``pg_id``
+        (plus ``created_at`` for Neo4j).
+        """
+        ...
+
+    async def find_articles_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Batch existence lookup for Article nodes by pg_id.
+
+        P4 fix: replaces the per-pg_id ``find_article_by_id`` loop in
+        ``Neo4jWriter._create_followed_relations`` to avoid N+1
+        round-trips on the pipeline write hot path. Returns a mapping
+        of ``pg_id -> article_dict`` for every pg_id that exists in
+        the graph. Missing pg_ids are simply absent from the result
+        (callers treat absence as "source missing" and skip the
+        relation, matching the single-row behaviour).
+
+        Args:
+            pg_ids: List of PostgreSQL article IDs to look up.
+
+        Returns:
+            Dict mapping each *found* pg_id to its article dict (same
+            shape as ``find_article_by_id``). Empty input returns an
+            empty dict without hitting the database.
+        """
+        ...
+
+    async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None:
+        """Find an article node by graph database internal ID.
+
+        After the slim-down, returns only graph-internal id + ``pg_id``
+        (plus ``created_at`` for Neo4j).
+        """
+        ...
 
     async def create_followed_by_relation(
         self, from_article_id: str, to_article_id: str, time_gap_hours: float | None = None
@@ -402,15 +461,35 @@ class GraphArticleRepository(Protocol):
 
     async def get_followed_articles(
         self, article_id: str, direction: str = "outgoing", limit: int = 10
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        """Get articles that follow or are followed by the given article.
+
+        After the slim-down, returns only graph-internal id + ``pg_id`` +
+        ``time_gap_hours``. Callers needing title/category/publish_time
+        must batch-fetch from PostgreSQL.
+        """
+        ...
 
     async def delete_article(self, article_id: str) -> bool: ...
 
-    async def delete_old_articles(self, days: int = 90) -> int: ...
+    async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
+        """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.
+
+        After the slim-down, the Article node no longer carries
+        ``publish_time``, so the cutoff cannot be computed inside the
+        graph. Callers (writers) must query PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'`` and pass the
+        resulting pg_ids here. Empty list is a no-op (no DB call).
+
+        Args:
+            cutoff_pg_ids: List of pg_ids to delete.
+
+        Returns:
+            Number of articles deleted.
+        """
+        ...
 
     async def get_article_entities(self, article_id: str) -> list[dict[str, Any]]: ...
-
-    async def update_article_score(self, article_id: str, score: float) -> None: ...
 
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int: ...
 
@@ -461,7 +540,23 @@ class GraphWriter(Protocol):
 
     async def cleanup_orphan_entities(self) -> int: ...
 
-    async def archive_old_articles(self, days: int = 90) -> int: ...
+    async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
+        """Archive (delete) Article nodes whose pg_id is in ``cutoff_pg_ids``.
+
+        After the Article node slim-down (design.md §D2), the graph node no
+        longer carries ``publish_time``, so the cutoff must be computed by
+        the caller (typically by querying PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'``) and the resulting
+        pg_ids passed in here. The writer delegates to
+        ``GraphArticleRepository.delete_old_articles``.
+
+        Args:
+            cutoff_pg_ids: List of pg_ids to delete. Empty list is a no-op.
+
+        Returns:
+            Number of articles deleted.
+        """
+        ...
 
     async def merge_narrative(
         self,

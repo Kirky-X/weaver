@@ -82,14 +82,19 @@ REQUIRED_NEO4J_CONSTRAINTS = [
         "description": "Unique constraint on Entity canonical_name and type",
     },
     {
-        "name": "article_url_unique",
+        # D2 / Article node slim-down: pg_id is now the only business key
+        # on Article (alongside the Neo4j-internal elementId). Replacing
+        # the stale `article_url_unique` (Article.url never existed in
+        # the slim schema) with `article_pg_id_unique` so MERGE/MATCH
+        # keyed on pg_id use the index instead of full label scans.
+        "name": "article_pg_id_unique",
         "query": (
             """
-            CREATE CONSTRAINT article_url_unique IF NOT EXISTS
-            FOR (a:Article) REQUIRE a.url IS UNIQUE
+            CREATE CONSTRAINT article_pg_id_unique IF NOT EXISTS
+            FOR (a:Article) REQUIRE a.pg_id IS UNIQUE
         """
         ),
-        "description": "Unique constraint on Article url",
+        "description": "Unique constraint on Article pg_id (slim-down §D2)",
     },
 ]
 

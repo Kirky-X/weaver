@@ -106,13 +106,12 @@ class LadybugWriter:
         publish_time = int(raw_publish_time.timestamp()) if raw_publish_time else None
         score = state.get("score")
 
-        # Create article node
+        # After the Article node slim-down (design.md §D2), the Article
+        # node stores only {id, pg_id}. Title / category / publish_time /
+        # score are no longer persisted on the node; the EventNode below
+        # still carries them (EventNode is the business-data carrier).
         await self.article_repo.create_article(
             article_id=article_id,
-            title=title,
-            category=category_str,
-            publish_time=publish_time,
-            score=score,
         )
 
         # Create EventNode linked to Article
@@ -364,9 +363,22 @@ class LadybugWriter:
         """Remove entities with no relationships."""
         return await self.entity_repo.delete_orphan_entities()
 
-    async def archive_old_articles(self, days: int = 90) -> int:
-        """Archive/delete articles older than specified days."""
-        return await self.article_repo.delete_old_articles(days)
+    async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
+        """Archive/delete articles whose pg_id is in ``cutoff_pg_ids``.
+
+        After the Article node slim-down (design.md §D2), the graph node
+        no longer carries ``publish_time``, so the caller must compute the
+        cutoff by querying PostgreSQL for
+        ``publish_time < NOW() - INTERVAL '$days days'`` and pass the
+        resulting pg_ids here.
+
+        Args:
+            cutoff_pg_ids: List of pg_ids to delete. Empty list is a no-op.
+
+        Returns:
+            Number of articles deleted.
+        """
+        return await self.article_repo.delete_old_articles(cutoff_pg_ids)
 
     async def merge_narrative(
         self,

@@ -313,14 +313,19 @@ class TestInitializeNeo4jConstraints:
 
     @pytest.mark.asyncio
     async def test_create_constraints(self):
-        """Test creating Neo4j constraints."""
+        """Test creating Neo4j constraints.
+
+        D2 / Article slim-down: ``article_url_unique`` was replaced with
+        ``article_pg_id_unique`` (pg_id is the only business key on the
+        slim Article node). The mock must return the new constraint name.
+        """
         from core.db.initializer import verify_neo4j_constraints
 
         mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {"name": "entity_name_type_unique"},
-                {"name": "article_url_unique"},
+                {"name": "article_pg_id_unique"},
             ]
         )
 

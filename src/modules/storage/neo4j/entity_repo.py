@@ -49,12 +49,23 @@ class Neo4jEntityRepo(BaseEntityRepo):
         in GraphWriter.merge_narrative (prevents duplicate NarrativeNode
         creation under concurrent calls). SchemaNode.event_type is unique to
         support idempotent MERGE in GraphWriter.merge_schema.
+
+        D2 / Article slim-down: Article.pg_id is now the only business key
+        on the Article node. The unique constraint enables MERGE/MATCH to
+        use an index lookup instead of a full label scan, which is critical
+        for the pipeline write hot path (create_article, find_article_by_id,
+        create_followed_by_batch all MATCH on pg_id).
         """
         constraints = [
             # Entity uniqueness constraint
             """
             CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS
             FOR (e:Entity) REQUIRE (e.canonical_name, e.type) IS UNIQUE
+            """,
+            # Article pg_id uniqueness — added in D2 slim-down
+            """
+            CREATE CONSTRAINT article_pg_id_unique IF NOT EXISTS
+            FOR (a:Article) REQUIRE a.pg_id IS UNIQUE
             """,
             # NarrativeNode uniqueness constraint — supports idempotent MERGE
             # in Neo4jWriter.merge_narrative. Without this, concurrent calls
