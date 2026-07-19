@@ -88,15 +88,17 @@ def _make_mock_narrative_generator(return_value: dict[str, Any]) -> MagicMock:
 
 
 def _make_mock_storage() -> MagicMock:
-    """Build a mock AnalyticsStorage with all 4 Protocol methods."""
+    """Build a mock AnalyticsStorage with all 4 Protocol methods.
+
+    get_briefing 默认返回 None（无已存在简报），让 generate_briefing 的
+    存在性检查通过、继续调用 generator。个别测试需要已存在简报时，
+    覆盖 storage.get_briefing 的返回值即可。
+    """
     storage = MagicMock()
-    for method in (
-        "fetch_articles_for_briefing",
-        "save_briefing",
-        "get_briefing",
-        "list_briefings",
-    ):
-        setattr(storage, method, AsyncMock())
+    storage.fetch_articles_for_briefing = AsyncMock()
+    storage.save_briefing = AsyncMock(return_value=42)
+    storage.get_briefing = AsyncMock(return_value=None)
+    storage.list_briefings = AsyncMock(return_value=[])
     return storage
 
 

@@ -35,6 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
+from modules.briefing.service import BriefingAlreadyExistsError
 
 if TYPE_CHECKING:
     from modules.briefing.models import BriefingResult
@@ -212,6 +213,11 @@ async def generate_daily_briefing(
 
     Idempotent: same (date, category) replaces any existing briefing.
 
+    Existence check (R-briefing-005 fix — Duplicate key 500 → 409 Conflict):
+        当日已有同 category 简报时, service 层抛 BriefingAlreadyExistsError,
+        本 handler 捕获并返回 HTTP 409 Conflict + 错误详情(含 date + category),
+        避免 DuckDB ConstraintException 被错误映射为 500.
+
     narrative_mode forwarding (T022):
         narrative_mode=true transparently forwards to
         DailyBriefingService.generate_briefing(narrative_mode=True). When
@@ -230,8 +236,11 @@ async def generate_daily_briefing(
         APIResponse with generated BriefingResult dict.
 
     Raises:
+        HTTPException: 409 if a briefing for (date, category) already exists
+            (业务层存在性检查 或 race condition IntegrityError 兜底).
         HTTPException: 503 if narrative_mode=true but narrative_generator
             is unavailable (graph_pool not initialized).
+        HTTPException: 400 on invalid request (other ValueError).
         HTTPException: 500 on generation failure (Rule 12: fail loud).
 
     """
@@ -245,6 +254,26 @@ async def generate_daily_briefing(
         )
     except HTTPException:
         raise
+    except BriefingAlreadyExistsError as exc:
+        # 当日 (date, category) 简报已存在 → 409 Conflict.
+        # 业务层存在性检查(storage.get_briefing 返回非 None)或 race condition
+        # 兜底(generator INSERT 触发 IntegrityError)都会抛此异常.
+        # Detail 包含冲突的 date + category, 便于客户端识别冲突资源.
+        # Note: briefings 路由没有 DELETE 端点, 不会自动覆盖已存在的简报,
+        # 所以提示客户端使用不同的 date 或等待次日 (LOW-3: 移除误导性的
+        # "Use DELETE" 建议).
+        log.warning(
+            "briefings_generate_already_exists",
+            date=str(exc.briefing_date),
+            category=exc.category,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Briefing already exists for date={exc.briefing_date}, "
+                f"category={exc.category}. Use a different date or wait for next day."
+            ),
+        ) from exc
     except ValueError as exc:
         # narrative_mode=True without narrative_generator (Rule 12 fail-loud).
         # Map to 503: caller can retry with narrative_mode=false, or admin

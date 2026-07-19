@@ -324,3 +324,100 @@ class TestGenerateDailyBriefing:
 
         body = response.json()
         assert "timestamp" in body
+
+    def test_generate_daily_briefing_already_exists_returns_409(self) -> None:
+        """当日已有简报时返回 409 Conflict（修复 500 错误）。
+
+        场景：当日已经生成过 briefing，再次调用 POST /daily/generate 时，
+        service 层的存在性检查抛出 BriefingAlreadyExistsError，
+        endpoint 层捕获并返回 409 Conflict + 错误详情（含 date + category）。
+
+        修复前：service 调用 generator → storage.save_briefing 的 DELETE+INSERT
+        在 DuckDB 上触发 ConstraintException → endpoint 兜底返回 500。
+        修复后：service 在调用 generator 前先检查存在性 → 抛业务异常 → 409。
+        """
+        from modules.briefing.service import BriefingAlreadyExistsError
+
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(
+            side_effect=BriefingAlreadyExistsError(
+                briefing_date=date(2026, 7, 19),
+                category="general",
+            )
+        )
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post(
+                "/briefings/daily/generate?date=2026-07-19&category=general"
+            )
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "detail" in body
+        detail = body["detail"]
+        # Detail 包含冲突的 date + category，便于客户端识别冲突资源
+        assert "2026-07-19" in detail
+        assert "general" in detail
+
+    def test_generate_daily_briefing_already_exists_for_none_category_returns_409(self) -> None:
+        """category=None（默认 general）已有简报时也返回 409。
+
+        验证归一化路径：endpoint 接收 category=None → service 归一化为 'general'
+        → 已存在 general 简报 → 抛 BriefingAlreadyExistsError → 409。
+        """
+        from modules.briefing.service import BriefingAlreadyExistsError
+
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(
+            side_effect=BriefingAlreadyExistsError(
+                briefing_date=date(2026, 7, 19),
+                category="general",
+            )
+        )
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post("/briefings/daily/generate?date=2026-07-19")
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "detail" in body
+
+    def test_generate_daily_briefing_already_exists_for_finance_returns_409(self) -> None:
+        """finance category 已有简报时返回 409（验证多 category 场景）。"""
+        from modules.briefing.service import BriefingAlreadyExistsError
+
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(
+            side_effect=BriefingAlreadyExistsError(
+                briefing_date=date(2026, 7, 19),
+                category="finance",
+            )
+        )
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post(
+                "/briefings/daily/generate?date=2026-07-19&category=finance"
+            )
+
+        assert response.status_code == 409
+        body = response.json()
+        detail = body["detail"]
+        assert "finance" in detail
+
+    def test_generate_daily_briefing_db_error_still_returns_500(self) -> None:
+        """非 BriefingAlreadyExistsError 的存储错误仍返回 500（保持现有错误处理）。
+
+        验证错误处理边界：BriefingAlreadyExistsError → 409，
+        其他 Exception → 500（Rule 12 fail loud）。
+        """
+        mock_service = MagicMock()
+        mock_service.generate_briefing = AsyncMock(side_effect=RuntimeError("DB connection lost"))
+
+        with patch("api.endpoints.briefings._get_briefing_service", return_value=mock_service):
+            response = self.client.post(
+                "/briefings/daily/generate?date=2026-07-19&category=general"
+            )
+
+        assert response.status_code == 500
+        body = response.json()
+        assert "detail" in body
