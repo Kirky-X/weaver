@@ -67,9 +67,17 @@ from core.protocols.validation import (
     get_protocol_methods,
 )
 
+# Web search protocols
+from core.protocols.web_search import (
+    BingSearchProtocol,
+    BingSearchResult,
+)
+
 __all__ = [
     "AnalyticsStorageProtocol",
     "ArticleRepository",
+    "BingSearchProtocol",
+    "BingSearchResult",
     "CachePool",
     "DailyBriefingProtocol",
     "DeduplicationStrategy",
