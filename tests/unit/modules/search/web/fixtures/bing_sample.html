@@ -1,0 +1,52 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: © 2026 Weaver Contributors -->
+<!--
+    Minimal Bing search result page fixture for unit testing.
+
+    Structure mirrors the real cn.bing.com search result HTML (as of 2024):
+    - Each result is <li class="b_algo">...</li>
+    - Title + URL: <h2><a href="...">title text</a></h2>
+    - Snippet: <div class="b_caption"><p>snippet text</p></div>
+
+    This is a stripped-down fixture — real Bing pages include navigation,
+    sidebars, ads, etc. which the parser must ignore.
+-->
+<html>
+<head><title>test query - 搜索</title></head>
+<body>
+<div id="b_results">
+  <li class="b_algo">
+    <h2><a href="https://example.com/article1">First Test Article Title</a></h2>
+    <div class="b_caption">
+      <p>First snippet text with <strong>highlighted</strong> content.</p>
+    </div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://example.com/article2">Second Test Article Title</a></h2>
+    <div class="b_caption">
+      <p>Second snippet describing the article content.</p>
+    </div>
+  </li>
+  <li class="b_algo">
+    <!-- Missing href — should be skipped -->
+    <h2><a>Title Without Href</a></h2>
+    <div class="b_caption"><p>Snippet for skipped entry.</p></div>
+  </li>
+  <li class="b_algo">
+    <!-- Missing title text — should be skipped -->
+    <h2><a href="https://example.com/empty-title"></a></h2>
+    <div class="b_caption"><p>Snippet for empty title.</p></div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://example.com/article3">Third Article With Whitespace  </a></h2>
+    <div class="b_caption">
+      <p>  Third snippet with leading/trailing whitespace.  </p>
+    </div>
+  </li>
+  <!-- Non-result list items should be ignored -->
+  <li class="b_no_result">No results found message.</li>
+  <li class="b_pag">Pagination controls</li>
+</div>
+<div class="sb_count">约 1,234,567 条结果</div>
+</body>
+</html>

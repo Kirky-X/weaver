@@ -36,6 +36,7 @@ dependencies = [
     "loguru>=0.7.3",
     "tiktoken>=0.12.0",
     "trafilatura>=2.0.0",
+    "beautifulsoup4>=4.12.0",
     "uvicorn[standard]>=0.42.0",
     "opentelemetry-exporter-otlp>=1.40.0",
     "tenacity>=9.1.4",
@@ -476,6 +477,7 @@ module = [
     "feedparser.*",
     "tiktoken.*",
     "trafilatura.*",
+    "bs4.*",
     "crawl4ai.*",
     "prometheus_client.*",
     # Removed: langchain/langgraph unused

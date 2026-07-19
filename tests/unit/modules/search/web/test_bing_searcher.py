@@ -15,6 +15,7 @@ touching the assertions (attribute access is compatible).
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +25,8 @@ import pytest
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.search.web import BingSearchResult
 from modules.search.web.bing_searcher import BingSearcher
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def _make_settings(
@@ -166,6 +169,96 @@ class TestBingSearcherSearch:
         searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
         results = await searcher.search("q")
         assert results == []
+
+
+class TestBingSearcherParserIntegration:
+    """Integration tests for search() + parse_bing_html() wiring (T006).
+
+    These tests use the shared ``bing_sample.html`` fixture to verify that
+    ``search()`` returns real parsed results (not the empty list from T003
+    skeleton) and that ``max_results`` propagates end-to-end to the parser.
+    """
+
+    @pytest.mark.asyncio
+    async def test_search_returns_parsed_results_from_fixture(self) -> None:
+        """search() must return parsed BingSearchResult entries from fixture HTML.
+
+        T006 contract: search() wires parse_bing_html() — given the fixture
+        (3 valid results + 2 skipped + 2 non-result list items), it must
+        return exactly 3 BingSearchResult instances with title/url/snippet
+        populated.
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        results = await searcher.search("test query")
+        assert len(results) == 3
+        for r in results:
+            assert isinstance(r, BingSearchResult)
+            assert r.title
+            assert r.url.startswith("https://example.com/")
+            assert r.snippet  # fixture provides snippet for all valid entries
+
+    @pytest.mark.asyncio
+    async def test_search_max_results_propagates_to_parser(self) -> None:
+        """max_results argument must cap the returned result count.
+
+        Fixture has 3 valid results; asking for 2 must yield exactly 2.
+        This is the end-to-end version of TestParseBingHtmlMaxResults.
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        results = await searcher.search("test query", max_results=2)
+        assert len(results) == 2
+
+    @pytest.mark.asyncio
+    async def test_search_results_preserve_fixture_order(self) -> None:
+        """Result order must match fixture DOM order (no reshuffling)."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        results = await searcher.search("test query")
+        titles = [r.title for r in results]
+        assert titles == [
+            "First Test Article Title",
+            "Second Test Article Title",
+            "Third Article With Whitespace",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_search_max_results_none_falls_back_to_settings(self) -> None:
+        """max_results=None must fall back to settings.max_results (DRY).
+
+        Architecture review M2: when caller omits max_results, the effective
+        cap comes from settings — avoiding dual default-value drift.
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        # Settings says max_results=2; caller passes None.
+        fetcher = _make_fetcher(html=html)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(max_results=2),
+        )
+        results = await searcher.search("test query", max_results=None)
+        # Fixture has 3 valid results; settings cap of 2 must apply.
+        assert len(results) == 2
+        assert results[0].title == "First Test Article Title"
+        assert results[1].title == "Second Test Article Title"
+
+    @pytest.mark.asyncio
+    async def test_search_explicit_max_results_overrides_settings(self) -> None:
+        """Explicit max_results must override settings.max_results."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        # Settings says max_results=2; caller overrides to 1.
+        fetcher = _make_fetcher(html=html)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(max_results=2),
+        )
+        results = await searcher.search("test query", max_results=1)
+        assert len(results) == 1
+        assert results[0].title == "First Test Article Title"
 
 
 class TestBingSearcherClose:

@@ -12,10 +12,12 @@ Architecture:
       and shared with the ingestion pipeline; closing it here would break
       in-flight ingestion requests.
 
-TDD stage (T003 Green):
-    ``search()`` currently calls the fetcher but returns an empty list —
-    HTML parsing is added in T005/T006. This skeleton satisfies the type
-    and call contracts asserted by T002 without coupling to the parser.
+TDD stage (T006 Refactor):
+    ``search()`` now wires ``parse_bing_html`` to the fetched HTML and
+    returns real ``BingSearchResult`` lists. ``max_results`` is propagated
+    to the parser for client-side truncation (Bing's ``first`` param is
+    kept at 1 to fetch the first organic page; deeper paging is out of
+    scope for the fallback path).
 
 Security:
     - No third-party HTTP library is imported. All requests flow through
@@ -35,8 +37,14 @@ Performance notes:
       correctly (e.g., a future Crawl4AIFetcher). The outer timeout should
       be >= the fetcher's internal timeout to avoid preempting legitimate
       retries.
-    - ``max_results`` is accepted but not yet used (T003 skeleton). T006
-      will pass it to ``parse_bing_html`` for result truncation.
+    - ``parse_bing_html`` is a synchronous CPU-bound function (BeautifulSoup
+      with the pure-Python ``html.parser`` backend). Following the project
+      convention used by ``DuckDBPool``, ``gliner_extractor``,
+      ``entity_extractor``, and ``hybrid_search``, it is wrapped in
+      ``asyncio.to_thread`` to avoid blocking the event loop on the user
+      request path (``search_unified`` API). Typical 100KB Bing page parses
+      in 30-80ms; under concurrent fallback triggers this would otherwise
+      serialize all in-flight requests.
 """
 
 from __future__ import annotations
@@ -46,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from core.observability import get_logger
+from modules.search.web.html_parser import parse_bing_html
 from modules.search.web.protocol import BingSearchResult
 
 if TYPE_CHECKING:
@@ -83,29 +92,35 @@ class BingSearcher:
         self._fetcher = fetcher
         self._settings = settings
 
-    async def search(self, query: str, max_results: int = 5) -> list[BingSearchResult]:
+    async def search(
+        self,
+        query: str,
+        max_results: int | None = None,
+    ) -> list[BingSearchResult]:
         """Search Bing for ``query`` and return up to ``max_results`` hits.
-
-        T003 Green skeleton: calls the fetcher and returns an empty list.
-        T006 will wire in ``parse_bing_html`` to produce real results.
 
         Args:
             query: Search query. Empty / whitespace-only queries return ``[]``
                 without an HTTP call (defense-in-depth, even though callers
                 should pre-validate). Queries > 500 chars are truncated.
-            max_results: Upper bound on returned results. Currently unused
-                (T003 skeleton); T006 will pass to ``parse_bing_html``.
+            max_results: Upper bound on returned results. Propagated to
+                ``parse_bing_html`` for client-side truncation. ``None``
+                (default) falls back to ``settings.max_results`` so the
+                effective cap is configured in one place (DRY).
 
         Returns:
-            List of ``BingSearchResult`` (empty until T006 lands the parser;
-            empty on HTTP error or non-200 status to avoid blocking the
-            main search flow — see R-web-search-005).
+            List of ``BingSearchResult``. Empty on HTTP error, non-200
+            status, empty body, or parse failure — see R-web-search-005
+            (Bing must never block the main search flow).
         """
         # Defense-in-depth: validate query before constructing URL.
         if not query or not query.strip():
             return []
         if len(query) > _MAX_QUERY_LEN:
             query = query[:_MAX_QUERY_LEN]
+
+        # DRY: resolve effective max_results from settings when caller omits.
+        effective_max = max_results if max_results is not None else self._settings.max_results
 
         # Build URL: https://cn.bing.com/search?q=<quoted>&first=1
         # ``first`` is 1-indexed offset (Bing convention). safe='' encodes
@@ -141,10 +156,17 @@ class BingSearcher:
             )
             return []
 
-        # T003 Green: return empty list.
-        # TODO(T006): integrate parse_bing_html(html, max_results=max_results)
-        # and return the parsed list[BingSearchResult].
-        return []
+        # CPU-bound HTML parsing off the event loop (project convention:
+        # DuckDBPool / gliner_extractor / entity_extractor / hybrid_search
+        # all wrap sync CPU work in asyncio.to_thread).
+        results = await asyncio.to_thread(parse_bing_html, html, max_results=effective_max)
+        log.info(
+            "bing_search_completed",
+            query_prefix=query[:_DEFAULT_QUERY_LOG_PREFIX],
+            result_count=len(results),
+            max_results=effective_max,
+        )
+        return results
 
     async def close(self) -> None:
         """No-op — the fetcher is container-managed and shared.
