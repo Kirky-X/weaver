@@ -84,9 +84,9 @@ class TestRetryNeo4jWrites:
     @pytest.mark.asyncio
     async def test_retry_neo4j_writes_success(self, scheduler_jobs_service):
         """Test successful retry of Neo4j writes."""
-        from core.db import Article, PersistStatus
+        from core.db import ArticleCore, PersistStatus
 
-        mock_article = MagicMock(spec=Article)
+        mock_article = MagicMock(spec=ArticleCore)
         mock_article.id = MagicMock()
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
@@ -116,9 +116,9 @@ class TestRetryNeo4jWrites:
     @pytest.mark.asyncio
     async def test_retry_neo4j_writes_failure(self, scheduler_jobs_service):
         """Test handling of Neo4j write failure."""
-        from core.db import Article, PersistStatus
+        from core.db import ArticleCore, PersistStatus
 
-        mock_article = MagicMock(spec=Article)
+        mock_article = MagicMock(spec=ArticleCore)
         mock_article.id = MagicMock()
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
@@ -149,9 +149,9 @@ class TestRetryNeo4jWrites:
         import uuid
         from datetime import UTC, datetime
 
-        from core.db import Article, PersistStatus
+        from core.db import ArticleCore, PersistStatus
 
-        mock_article = MagicMock(spec=Article)
+        mock_article = MagicMock(spec=ArticleCore)
         mock_article.id = uuid.uuid4()
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"

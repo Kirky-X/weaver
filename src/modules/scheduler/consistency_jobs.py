@@ -79,15 +79,19 @@ class ConsistencyJobs:
         log.info("retry_neo4j_writes_start")
 
         async with self._relational_pool.session() as session:
-            # Find articles stuck in pg_done state for > 10 minutes
+            # Find articles stuck in pg_done state for > 10 minutes.
+            # Use ArticleCore (base table) instead of Article (VIEW) because
+            # DuckDB does not allow UPDATE on VIEWs; the iteration below
+            # mutates `article.persist_status` which would trigger an
+            # autoflush against the VIEW and raise BinderException.
             threshold = datetime.now(UTC) - timedelta(minutes=10)
 
             stmt = (
-                select(Article)
+                select(ArticleCore)
                 .where(
                     and_(
-                        Article.persist_status == PersistStatus.PG_DONE,
-                        Article.updated_at < threshold,
+                        ArticleCore.persist_status == PersistStatus.PG_DONE,
+                        ArticleCore.updated_at < threshold,
                     )
                 )
                 .limit(self._settings.consistency_check_batch_size)
