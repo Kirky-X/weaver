@@ -25,6 +25,7 @@ specmark/
 # Configuration files with secrets
 temp/
 data/
+data.backup.*/
 llm.md
 .env.weaver
 audit_traces/
