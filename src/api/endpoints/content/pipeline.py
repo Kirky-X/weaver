@@ -10,6 +10,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 import json_repair
@@ -42,11 +43,23 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 class TriggerRequest(BaseModel):
-    """Request model for triggering a pipeline run."""
+    """Request model for triggering a pipeline run.
+
+    Supports both singular ``source_id`` (legacy) and plural ``source_ids``.
+    When both are provided, ``source_ids`` takes precedence. When neither is
+    provided, all enabled sources are triggered.
+    """
 
     source_id: str | None = Field(
         default=None,
         description="Specific source ID to crawl. If not provided, crawls all enabled sources.",
+    )
+    source_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "List of source IDs to crawl. When provided, takes precedence over "
+            "source_id. Must NOT be empty — an empty list returns 400 Bad Request."
+        ),
     )
     force: bool = Field(
         default=False,
@@ -122,6 +135,289 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 # SSE concurrency limiter (default 3 concurrent streams)
 _sse_semaphore = asyncio.Semaphore(3)
 
+# Per-source timeout for background trigger (5 minutes). Keeps one slow
+# source from blocking the entire trigger batch, while still allowing the
+# background task to make progress and update task status.
+_TRIGGER_SOURCE_TIMEOUT_SECONDS = 300.0
+
+# Strong references to fire-and-forget background tasks so they are not
+# garbage-collected before completion (MEDIUM-1: asyncio.create_task GC risk).
+# Tasks remove themselves via ``add_done_callback`` upon completion.
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+# ── Trigger Helpers ─────────────────────────────────────────────
+
+
+def _collect_all_source_ids(scheduler: SourceScheduler) -> set[str]:
+    """Collect the set of enabled source IDs from the scheduler.
+
+    Args:
+        scheduler: Source scheduler instance (Protocol-based).
+
+    Returns:
+        Set of source ID strings. Empty set if scheduler returns no sources.
+
+    Raises:
+        Exception: Re-raises any scheduler error so the caller can translate
+            it into an HTTP 500 (database failure must be visible, not
+            swallowed — see project rule "失败必须显性化").
+
+    """
+    sources = scheduler.list_enabled_sources()
+    return {s.id for s in sources}
+
+
+def _build_trigger_status_payload(
+    task_id: str,
+    status: str,
+    **fields: Any,
+) -> str:
+    """Build a JSON task status payload for ``cache.hset``.
+
+    Centralizes task status construction so RUNNING / COMPLETED / FAILED
+    updates share a consistent shape (``task_id`` + ``status`` + extra
+    fields) without duplicating the ``json.dumps`` boilerplate at every
+    call site (LOW-2 performance: avoid repeating dict construction).
+
+    Args:
+        task_id: Task UUID string.
+        status: ``PipelineTaskStatus`` value (queued/running/completed/failed).
+        **fields: Additional fields to include in the payload (e.g.
+            ``source_id``, ``queued_at``, ``error``).
+
+    Returns:
+        JSON string ready for ``cache.hset(TASK_STATUS_KEY, task_id, ...)``.
+
+    """
+    payload: dict[str, Any] = {"task_id": task_id, "status": status}
+    payload.update(fields)
+    return json.dumps(payload)
+
+
+async def _execute_trigger_background(
+    task_id: str,
+    target_source_ids: list[str] | None,
+    source_id_field: str | None,
+    source_ids_field: list[str] | None,
+    max_items: int | None,
+    force: bool,
+    cache: CachePool,
+    scheduler: SourceScheduler,
+    queued_at: str,
+) -> None:
+    """Background coroutine that actually triggers crawls.
+
+    Designed to run via ``asyncio.create_task`` so the HTTP request returns
+    immediately. All exceptions are caught and logged — the process MUST NOT
+    crash regardless of scheduler / cache / database failures.
+
+    Uses ``cache.hset`` directly (rather than ``_update_task_status``) so the
+    status payload is self-contained and does not require a preceding ``hget``
+    round-trip — this keeps the background task resilient even if the cache
+    entry was evicted between queue time and run time.
+
+    Source triggers are executed **sequentially** rather than via
+    ``asyncio.gather``: each ``scheduler.trigger_now`` call performs
+    ``bulk_insert_raw`` which holds a write lock on DuckDB. Concurrent
+    triggers would contend on the same lock and rely on exponential backoff
+    retries, which is slower than serializing (HIGH-1: DuckDB concurrent
+    write conflict). Per-source timeout still applies so one slow source
+    cannot block the entire batch.
+
+    Args:
+        task_id: UUID task identifier (string form).
+        target_source_ids: Explicit list of source IDs to trigger, or ``None``
+            to trigger all enabled sources (backward-compatible behaviour).
+        source_id_field: Original ``source_id`` from request (for status
+            payload; ``None`` if not provided).
+        source_ids_field: Original ``source_ids`` list from request (for
+            status payload; ``None`` if not provided). Passed in explicitly
+            to avoid recomputing from the request inside the background
+            task (LOW-1: avoid dual data paths).
+        max_items: Per-source item limit (``None`` for unlimited).
+        force: Force re-crawl even for recently fetched URLs.
+        cache: Cache client for task status updates.
+        scheduler: Source scheduler for triggering crawls.
+        queued_at: ISO timestamp captured at queue time.
+
+    """
+    started_at = datetime.now(UTC).isoformat()
+    try:
+        # Update status to RUNNING
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            _build_trigger_status_payload(
+                task_id=task_id,
+                status=PipelineTaskStatus.RUNNING.value,
+                source_id=source_id_field,
+                source_ids=source_ids_field,
+                queued_at=queued_at,
+                started_at=started_at,
+            ),
+        )
+
+        if target_source_ids is None:
+            # Trigger all enabled sources (backward compat)
+            sources = scheduler.list_enabled_sources()
+            ids_to_trigger: list[str] = [source.id for source in sources]
+        else:
+            ids_to_trigger = list(target_source_ids)
+
+        if not ids_to_trigger:
+            # No sources to trigger — complete with a clear status
+            await cache.hset(
+                TASK_STATUS_KEY,
+                task_id,
+                _build_trigger_status_payload(
+                    task_id=task_id,
+                    status=PipelineTaskStatus.COMPLETED.value,
+                    queued_at=queued_at,
+                    started_at=started_at,
+                    completed_at=datetime.now(UTC).isoformat(),
+                    note="no_sources_to_trigger",
+                ),
+            )
+            return
+
+        task_uuid = uuid.UUID(task_id)
+        # Sequential execution: see HIGH-1 docstring note above. Each
+        # ``trigger_now`` performs bulk_insert_raw (DuckDB write lock);
+        # concurrent writes contend and trigger backoff retries that are
+        # slower than serializing. Per-source timeout still applies.
+        #
+        # ``return_exceptions=True`` semantics from the previous gather
+        # are preserved: one failing source does NOT abort the batch —
+        # the exception is recorded and the next source is attempted.
+        results: list[BaseException | None] = []
+        for sid in ids_to_trigger:
+            try:
+                await asyncio.wait_for(
+                    scheduler.trigger_now(
+                        sid,
+                        max_items=max_items,
+                        task_id=task_uuid,
+                        force=force,
+                    ),
+                    timeout=_TRIGGER_SOURCE_TIMEOUT_SECONDS,
+                )
+                results.append(None)
+            except asyncio.CancelledError as exc:
+                # CancelledError inherits BaseException (not Exception), so
+                # the ``failures`` filter below would miss it. Track
+                # separately for accurate shutdown statistics (LOW-2).
+                # Stop further triggering — cancellation typically indicates
+                # shutdown or explicit task cancellation.
+                results.append(exc)
+                break
+            except Exception as exc:
+                # Record and continue so one failing source doesn't abort
+                # the entire batch.
+                results.append(exc)
+
+        # CancelledError is BaseException, not Exception, so the ``failures``
+        # filter naturally excludes it. Keep them in a separate ``cancelled``
+        # list so shutdown statistics are accurate (LOW-2).
+        failures = [r for r in results if isinstance(r, Exception)]
+        cancelled = [r for r in results if isinstance(r, asyncio.CancelledError)]
+        for idx, result in enumerate(results):
+            if isinstance(result, asyncio.CancelledError):
+                cancelled_sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
+                log.warning(
+                    "pipeline_trigger_source_cancelled",
+                    task_id=task_id,
+                    source_id=cancelled_sid,
+                )
+            elif isinstance(result, Exception):
+                failing_sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
+                log.warning(
+                    "pipeline_trigger_source_failed",
+                    task_id=task_id,
+                    source_id=failing_sid,
+                    error=str(result),
+                    error_type=type(result).__name__,
+                )
+
+        completed_at = datetime.now(UTC).isoformat()
+        if failures or cancelled:
+            error_parts: list[str] = []
+            if failures:
+                error_parts.append(
+                    f"{len(failures)}/{len(ids_to_trigger)} source(s) failed; "
+                    f"first error: {failures[0]!s}"
+                )
+            if cancelled:
+                error_parts.append(f"{len(cancelled)}/{len(ids_to_trigger)} source(s) cancelled")
+            error_summary = "; ".join(error_parts)
+            await cache.hset(
+                TASK_STATUS_KEY,
+                task_id,
+                _build_trigger_status_payload(
+                    task_id=task_id,
+                    status=PipelineTaskStatus.FAILED.value,
+                    source_id=source_id_field,
+                    source_ids=source_ids_field,
+                    queued_at=queued_at,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    error=error_summary,
+                ),
+            )
+            log.warning(
+                "pipeline_trigger_partial_failure",
+                task_id=task_id,
+                failure_count=len(failures),
+                cancelled_count=len(cancelled),
+                total_count=len(ids_to_trigger),
+            )
+        else:
+            await cache.hset(
+                TASK_STATUS_KEY,
+                task_id,
+                _build_trigger_status_payload(
+                    task_id=task_id,
+                    status=PipelineTaskStatus.COMPLETED.value,
+                    source_id=source_id_field,
+                    source_ids=source_ids_field,
+                    queued_at=queued_at,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    triggered_count=len(ids_to_trigger),
+                ),
+            )
+    except Exception as exc:
+        # Last-resort safety net: never let the background task propagate an
+        # exception out of asyncio.create_task (which would log "Task exception
+        # was never retrieved" and, in some configurations, tear down the loop).
+        log.error(
+            "pipeline_trigger_background_failed",
+            task_id=task_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
+        try:
+            await cache.hset(
+                TASK_STATUS_KEY,
+                task_id,
+                _build_trigger_status_payload(
+                    task_id=task_id,
+                    status=PipelineTaskStatus.FAILED.value,
+                    source_id=source_id_field,
+                    source_ids=source_ids_field,
+                    queued_at=queued_at,
+                    completed_at=datetime.now(UTC).isoformat(),
+                    error=f"Background task error: {exc!s}",
+                ),
+            )
+        except Exception:
+            log.error(
+                "pipeline_trigger_status_update_failed",
+                task_id=task_id,
+                exc_info=True,
+            )
+
 
 # ── Endpoints ───────────────────────────────────────────────────
 
@@ -136,144 +432,159 @@ async def trigger_pipeline(
     """Trigger a pipeline run to crawl news sources.
 
     Args:
-        request: Pipeline trigger configuration.
+        request: Pipeline trigger configuration. Supports both ``source_id``
+            (singular, legacy) and ``source_ids`` (plural, takes precedence).
+            An empty ``source_ids`` list returns 400 Bad Request.
         _: Verified API key.
         cache: Cache client for task queue.
         scheduler: Source scheduler for triggering crawls.
 
     Returns:
-        Task ID and initial status.
+        Task ID and initial QUEUED status. The actual crawl runs in the
+        background — poll ``GET /pipeline/tasks/{task_id}`` for progress.
+
+    Raises:
+        HTTPException: 400 if ``source_ids`` is an empty list; 404 if the
+            requested source(s) do not exist; 500 on database / scheduler
+            lookup failure.
 
     """
     task_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
-    # Update task status to running
+    # ── Synchronous input validation (fail fast before queueing) ──
+    # Determine the target source IDs to trigger.
+    # ``target_source_ids`` semantics:
+    #   - None  → trigger all enabled sources (backward-compatible default)
+    #   - list  → trigger exactly these source IDs (after validation)
+    target_source_ids: list[str] | None = None
+
+    # source_ids (plural) takes precedence over source_id (singular) when
+    # explicitly provided as a list. The isinstance check keeps this robust
+    # against MagicMock-style test doubles that don't go through pydantic.
+    source_ids_provided = isinstance(request.source_ids, list)
+    if source_ids_provided:
+        if len(request.source_ids) == 0:
+            # CRITICAL: empty source_ids MUST return 400, never silently
+            # fall through to "trigger all" — that previously crashed the
+            # server by concurrently crawling 18 sources.
+            raise HTTPException(
+                status_code=400,
+                detail="source_ids cannot be empty",
+            )
+        try:
+            all_source_ids = _collect_all_source_ids(scheduler)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log.error(
+                "pipeline_trigger_source_lookup_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Pipeline trigger failed during source lookup: {exc!s}",
+            ) from exc
+
+        # Validate each requested source_id; collect missing for diagnostics.
+        # Use dict.fromkeys for order-preserving deduplication.
+        seen: dict[str, None] = {}
+        missing: list[str] = []
+        for sid in request.source_ids:
+            if sid in seen:
+                continue
+            seen[sid] = None
+            if sid in all_source_ids:
+                target_source_ids = (target_source_ids or []) + [sid]
+            else:
+                missing.append(sid)
+                log.warning(
+                    "source_id_not_found_skipping",
+                    source_id=_safe_echo(sid),
+                    task_id=task_id,
+                )
+
+        if not target_source_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "None of the provided source_ids exist"
+                    + (f": missing={missing}" if missing else "")
+                ),
+            )
+    elif request.source_id:
+        # Backward-compatible single source_id path
+        try:
+            all_source_ids = _collect_all_source_ids(scheduler)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log.error(
+                "pipeline_trigger_source_lookup_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Pipeline trigger failed during source lookup: {exc!s}",
+            ) from exc
+
+        if request.source_id not in all_source_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Source '{_safe_echo(request.source_id)}' not found",
+            )
+        target_source_ids = [request.source_id]
+    else:
+        # Neither source_id nor source_ids provided → trigger all enabled
+        # sources (preserves the original "crawl everything" behaviour).
+        target_source_ids = None
+
+    # ── Queue the task (initial status = QUEUED) ──
+    # ``source_ids_field`` is computed once and threaded through to the
+    # background task to avoid recomputing it from ``request`` later
+    # (LOW-1: avoid dual data paths between ``target_source_ids`` and
+    # ``request.source_ids``).
+    source_ids_field: list[str] | None = request.source_ids if source_ids_provided else None
     await cache.hset(
         TASK_STATUS_KEY,
         task_id,
-        json.dumps(
-            {
-                "task_id": task_id,
-                "status": PipelineTaskStatus.RUNNING.value,
-                "source_id": request.source_id,
-                "queued_at": now,
-                "started_at": now,
-            }
+        _build_trigger_status_payload(
+            task_id=task_id,
+            status=PipelineTaskStatus.QUEUED.value,
+            source_id=request.source_id,
+            source_ids=source_ids_field,
+            queued_at=now,
         ),
     )
 
-    # Trigger the source scheduler to crawl
-    try:
-        if request.source_id:
-            # Validate source_id exists before triggering
-            sources = scheduler.list_enabled_sources()
-            all_source_ids = {s.id for s in sources}
-            # Also check disabled sources
-            try:
-                all_sources = (
-                    scheduler.list_all_sources()
-                    if hasattr(scheduler, "list_all_sources")
-                    else sources
-                )
-                all_source_ids = {s.id for s in all_sources}
-            except Exception:
-                pass
-            if request.source_id not in all_source_ids:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Source '{_safe_echo(request.source_id)}' not found",
-                )
-            await asyncio.wait_for(
-                scheduler.trigger_now(
-                    request.source_id,
-                    max_items=request.max_items,
-                    task_id=uuid.UUID(task_id),
-                    force=request.force,
-                ),
-                timeout=300.0,
-            )
-        else:
-            sources = scheduler.list_enabled_sources()
-            tasks = [
-                asyncio.wait_for(
-                    scheduler.trigger_now(
-                        source.id,
-                        max_items=request.max_items,
-                        task_id=uuid.UUID(task_id),
-                        force=request.force,
-                    ),
-                    timeout=300.0,
-                )
-                for source in sources
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Update task status to completed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.COMPLETED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "completed_at": datetime.now(UTC).isoformat(),
-                }
-            ),
-        )
-
-    except TimeoutError as exc:
-        # Update task status to failed due to timeout
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": "Task timed out after 300 seconds",
-                }
-            ),
-        )
-        log.warning(
-            "pipeline_trigger_timeout",
+    # ── Launch background processing (fire-and-forget) ──
+    # The HTTP request returns immediately with the task_id. The actual crawl
+    # happens in the background; all exceptions are caught in
+    # ``_execute_trigger_background`` so the server process cannot crash.
+    #
+    # The task is added to ``_background_tasks`` so the event loop does not
+    # garbage-collect it before completion (MEDIUM-1: asyncio.create_task GC
+    # risk). ``add_done_callback`` removes the entry automatically when the
+    # task finishes, so the set does not grow unboundedly.
+    background_task = asyncio.create_task(
+        _execute_trigger_background(
             task_id=task_id,
-            source_id=request.source_id,
+            target_source_ids=target_source_ids,
+            source_id_field=request.source_id,
+            source_ids_field=source_ids_field,
+            max_items=request.max_items,
+            force=request.force,
+            cache=cache,
+            scheduler=scheduler,
+            queued_at=now,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Pipeline trigger timed out after 300 seconds",
-        ) from exc
-    except HTTPException:
-        # Re-raise HTTPException (e.g., 404 for invalid source_id)
-        # without wrapping it into a 500 error
-        raise
-    except Exception as exc:
-        # Update task status to failed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": str(exc),
-                }
-            ),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Pipeline trigger failed: {exc!s}",
-        )
+    )
+    _background_tasks.add(background_task)
+    background_task.add_done_callback(_background_tasks.discard)
 
     return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 
