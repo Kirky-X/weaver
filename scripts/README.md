@@ -10,6 +10,7 @@
 | `db.py`           | 数据库查询、检查、数据质量检查、修复工具              |
 | `tools.py`        | 性能评估、环境验证、数据库种子、代码检查              |
 | `build_nuitka.py` | Nuitka 编译构建                        |
+| `data_io.py`      | PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移 |
 | `_common.py`      | 共享工具（init_script_container 等，非独立运行） |
 
 ---
@@ -290,3 +291,67 @@ uv run scripts/build_nuitka.py
 ### 输出
 
 编译产物位于 `dist/` 目录。
+
+---
+
+## data_io.py
+
+PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移工具,用于备份、验证和双数据库故障转移架构下的数据一致性检查。
+
+### 用法
+
+```bash
+# PostgreSQL → DuckDB 导出（备份）
+uv run python scripts/data_io.py export --from postgres --to duckdb \
+    --pg-dsn 'postgresql+asyncpg://postgres:weavertest@localhost:5432/weaver' \
+    --duckdb-path data/weaver.duckdb
+
+# DuckDB → PostgreSQL 导入（恢复）
+uv run python scripts/data_io.py import --from duckdb --to postgres \
+    --duckdb-path data/weaver.duckdb \
+    --pg-dsn 'postgresql+asyncpg://postgres:weavertest@localhost:5432/weaver'
+
+# Neo4j → LadybugDB 导出（图数据库备份）
+uv run python scripts/data_io.py export --from neo4j --to ladybug \
+    --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j \
+    --neo4j-password weavertest --ladybug-path data/weaver_graph.ladybug
+```
+
+### 子命令
+
+#### export
+
+主库 → 备库数据导出。
+
+| 参数              | 默认值 | 描述                                       |
+|-----------------|-----|------------------------------------------|
+| `--from`        | -   | 源数据库: postgres / neo4j                   |
+| `--to`          | -   | 目标数据库: duckdb / ladybug                 |
+| `--pg-dsn`      | -   | PostgreSQL DSN（from postgres 时必需）         |
+| `--duckdb-path` | -   | DuckDB 文件路径（to duckdb 时必需）               |
+| `--neo4j-uri`   | -   | Neo4j Bolt URI（from neo4j 时必需）            |
+| `--neo4j-user`  | -   | Neo4j 用户名                                 |
+| `--neo4j-password` | - | Neo4j 密码                                  |
+| `--ladybug-path` | -  | LadybugDB 目录路径（to ladybug 时必需）            |
+
+#### import
+
+备库 → 主库数据导入（恢复）。
+
+| 参数              | 默认值 | 描述                                       |
+|-----------------|-----|------------------------------------------|
+| `--from`        | -   | 源数据库: duckdb                              |
+| `--to`          | -   | 目标数据库: postgres                           |
+| `--duckdb-path` | -   | DuckDB 文件路径（from duckdb 时必需）              |
+| `--pg-dsn`      | -   | PostgreSQL DSN（to postgres 时必需）           |
+
+### 特性
+
+- **27 张 PG/DuckDB 表**: FK 安全的截断/导入顺序,逐表行数验证
+- **8 个 LadybugDB 节点标签 + 13 种关系类型**: 与 `ladybug_schema.py` 保持一致
+- **原子文件替换** (PG→DuckDB): 写入 `.tmp` 文件,验证后 `os.replace()` 原子替换,失败时保留原文件
+- **快照一致性** (Bug 3 修复): PG 导出使用 `REPEATABLE READ` 隔离级别,所有 SELECT 在同一事务快照中执行,避免并发写入导致表间行数漂移
+- **序列重置** (Bug 1+2 修复): PG→DuckDB 导入后调用 `_reset_duckdb_sequences` 将 BIGINT PK 序列重置为 `MAX(id)+1`,通过 `ALTER COLUMN id DROP DEFAULT` → `DROP SEQUENCE` → `CREATE SEQUENCE` → `ALTER COLUMN id SET DEFAULT` 四步避免 DuckDB 不支持 `ALTER SEQUENCE RESTART WITH` 的限制
+- **BIGINT_PK_TABLES 导入** (Bug 1 修复): 从 `core.db.duckdb_schema` 延迟导入,保持 `--help` 快速响应
+- **行数验证**: 每张表导出/导入后断言 PG 与 DuckDB 行数一致,不匹配则 `RuntimeError` 非零退出
+- **Schema 漂移检测**: PK 类型不兼容时(DuckDB UUID vs PG BIGINT)跳过表并警告,而非损坏数据

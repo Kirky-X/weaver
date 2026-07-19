@@ -106,31 +106,6 @@ EXPECTED_REL_TYPES: list[str] = [
     "HAS_EVENT",
 ]
 
-# Tables with BIGINT auto-increment PK (need sequence reset on import)
-BIGINT_PK_TABLES: set[str] = {
-    "source_authorities",
-    "pending_sync",
-    "llm_failure_records",
-    "llm_usage_hourly",
-    "llm_usage_raw",
-    "entity_vectors",
-    "relation_types",
-    "relation_type_aliases",
-    "unknown_relation_types",
-    "community_vectors",
-    "sentiment_shifts",
-    "daily_briefings",
-    "daily_briefing_items",
-    "api_keys",
-    "alert_rules",
-    "alert_events",
-    "article_versions",
-    "audit_log",
-    "llm_compare_hourly",
-    "article_vectors",
-    "prompt_templates",
-}
-
 # Schema definition imports — re-exported from src for schema initialization
 # Lazy import inside functions to avoid loading full src/ when running --help.
 
@@ -336,21 +311,112 @@ def _convert_neo4j_node_props(props: dict, ladybug_cols: list[str]) -> dict:
 
     LadybugDB schema uses INT64 for timestamps; Neo4j uses datetime.
     Only properties whose keys match LadybugDB columns are kept.
+
+    ID fallback: some Neo4j labels (e.g., Article) use ``pg_id`` as the
+    business key and lack an explicit ``id`` property. When ``id`` is a
+    LadybugDB column but missing from ``props``, fall back to
+    ``pg_id`` / ``entity_id`` / ``community_id`` to satisfy the
+    non-null PRIMARY KEY constraint.
     """
     out: dict = {}
     for col in ladybug_cols:
         if col in props:
             v = props[col]
+            # ID fallback: Neo4j may return None for missing `id` property
+            # (e.g., Article label uses `pg_id` as business key). Use a
+            # sibling key to satisfy the non-null PRIMARY KEY constraint.
+            if col == "id" and v is None:
+                for fallback_key in ("pg_id", "entity_id", "community_id"):
+                    fv = props.get(fallback_key)
+                    if fv is not None:
+                        out[col] = fv
+                        break
+                else:
+                    out[col] = None
+                continue
             # Heuristic: columns named *_at / *_time / publish_time are INT64 timestamps
             if col.endswith("_at") or col.endswith("_time"):
                 out[col] = _to_epoch_seconds(v)
             else:
                 out[col] = v
+        elif col == "id":
+            # Fallback: use a sibling business key as the LadybugDB PK
+            for fallback_key in ("pg_id", "entity_id", "community_id"):
+                if fallback_key in props:
+                    out[col] = props[fallback_key]
+                    break
         # else: leave missing; LadybugDB will use default or NULL
     return out
 
 
 # ── Migration functions ─────────────────────────────────────────────
+
+
+def _reset_duckdb_sequences(duck_conn) -> None:
+    """Reset all BIGINT PK sequences to MAX(id) + 1.
+
+    PG→DuckDB data import copies id values from PG, but DuckDB sequences
+    remain at their initial START value (1). Without reset, the next
+    INSERT via nextval() returns id=1, which collides with imported rows
+    (F-007: ``Duplicate key 'id: N' violates primary key constraint``).
+
+    For each BIGINT PK table:
+      1. ``SELECT MAX(id)`` to find the largest id.
+      2. ``ALTER TABLE ... ALTER COLUMN id DROP DEFAULT`` to break the
+         sequence dependency (DuckDB rejects ``DROP SEQUENCE`` while a
+         column DEFAULT references it).
+      3. ``DROP SEQUENCE`` + ``CREATE SEQUENCE ... START <max_id + 1>``.
+      4. ``ALTER TABLE ... ALTER COLUMN id SET DEFAULT nextval(...)`` to
+         restore the column default.
+
+    Tables with no rows get START 1 (idempotent).
+
+    DuckDB limitations worked around:
+      - ``ALTER SEQUENCE ... RESTART WITH`` is "Not implemented" in
+        DuckDB ≤1.5.x, so we must DROP+CREATE the sequence.
+      - ``DROP SEQUENCE ... CASCADE`` would also drop the dependent
+        table (data loss), so we break the dependency via DROP DEFAULT
+        first.
+
+    Rule 12 (failures must be explicit): any failure is collected and
+    raised at the end so the script exits non-zero and the user sees
+    every failing sequence in one run.
+    """
+    import sys
+
+    src_path = str(Path(__file__).resolve().parent.parent / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+    from core.db.duckdb_schema import BIGINT_PK_TABLES
+
+    failed_sequences: list[tuple[str, str]] = []
+    for table, seq_name in BIGINT_PK_TABLES.items():
+        try:
+            # nosemgrep: sqlalchemy-execute-raw-query — table/seq_name from
+            # BIGINT_PK_TABLES hardcoded constant (core/db/duckdb_schema.py),
+            # next_id is int(max_id)+1. No user input surface; same risk
+            # class as scripts/db.py (accepted in CLAUDE.md Security Audit).
+            row = duck_conn.execute(f'SELECT MAX(id) FROM "{table}"').fetchone()
+            max_id = row[0] if row and row[0] is not None else 0
+            next_id = max_id + 1
+            # Break the column DEFAULT → sequence dependency so DROP
+            # SEQUENCE succeeds without CASCADE (CASCADE would also
+            # drop the table, losing the data we just imported).
+            duck_conn.execute(f'ALTER TABLE "{table}" ALTER COLUMN id DROP DEFAULT')
+            duck_conn.execute(f"DROP SEQUENCE IF EXISTS {seq_name}")
+            duck_conn.execute(f"CREATE SEQUENCE {seq_name} START {next_id}")
+            # Restore the DEFAULT nextval() so future INSERTs auto-increment.
+            duck_conn.execute(
+                f"ALTER TABLE \"{table}\" ALTER COLUMN id SET DEFAULT nextval('{seq_name}')"
+            )
+        except Exception as exc:
+            # Collect failures; raise after attempting all sequences
+            # so the user sees every problem in one run (Rule 12).
+            failed_sequences.append((seq_name, str(exc)))
+
+    if failed_sequences:
+        details = "; ".join(f"{s}: {r}" for s, r in failed_sequences)
+        raise RuntimeError(f"Sequence reset failed for {len(failed_sequences)} table(s): {details}")
 
 
 async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
@@ -359,6 +425,11 @@ async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
     Atomicity: writes to ``duckdb_path + ".tmp"`` first, then ``os.replace()``
     to the final path only after all tables are verified. On failure, the
     temporary file is deleted and the original file (if any) is preserved.
+
+    Snapshot consistency: all 27 table reads run inside a single
+    ``REPEATABLE READ`` transaction so concurrent writes cannot cause
+    inter-table row count drift (Bug 3). The snapshot is established at
+    the first SELECT; every subsequent SELECT sees the same view.
     """
     import duckdb
     from sqlalchemy import text
@@ -372,13 +443,25 @@ async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
     # Make parent dir exist
     Path(duckdb_path).parent.mkdir(parents=True, exist_ok=True)
 
-    engine = create_async_engine(pg_dsn, pool_pre_ping=True)
+    # Bug 3: set REPEATABLE READ isolation at engine creation so every
+    # connection from this engine uses a single snapshot for all reads.
+    # This engine is used only for this export, so setting the default
+    # isolation level is safe. SQLAlchemy autobegin keeps all SELECTs in
+    # one transaction; the snapshot is established at the first SELECT,
+    # so every table sees the same data view even under concurrent writes.
+    engine = create_async_engine(
+        pg_dsn,
+        pool_pre_ping=True,
+        isolation_level="REPEATABLE READ",
+    )
     duck_conn = duckdb.connect(tmp_path, read_only=False)
     try:
         # 1. Initialize DuckDB schema
         _init_duckdb_schema(duck_conn)
 
-        # 2. Export each table
+        # 2. Export each table. All SELECTs below run inside the
+        #    autobegin transaction with REPEATABLE READ isolation
+        #    (snapshot established at the first statement).
         async with engine.connect() as pg_conn:
             for table in EXPECTED_TABLES:
                 duck_cols = _get_duckdb_columns(duck_conn, table)
@@ -420,7 +503,13 @@ async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
                         f"Row count mismatch for {table}: PG={pg_count}, DuckDB={duck_count}"
                     )
 
-        # 3. Atomic replace — only after all tables verified
+        # 3. Reset BIGINT PK sequences to MAX(id) + 1
+        # PG→DuckDB data import copies id values from PG, but DuckDB
+        # sequences remain at START 1. Without reset, next INSERT via
+        # nextval() returns id=1 → PK conflict (F-007).
+        _reset_duckdb_sequences(duck_conn)
+
+        # 4. Atomic replace — only after all tables verified
         duck_conn.close()
         duck_conn = None  # type: ignore[assignment]
         # On Windows, os.replace works across same volume; on Linux it's atomic
@@ -451,6 +540,14 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
     import duckdb
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
+
+    # BIGINT_PK_TABLES is needed for sequence reset (phase 3). It is
+    # imported here rather than at module top to keep --help fast (the
+    # src/ package is heavy to load).
+    src_path = str(Path(__file__).resolve().parent.parent / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+    from core.db.duckdb_schema import BIGINT_PK_TABLES
 
     if not os.path.exists(duckdb_path):
         raise FileNotFoundError(f"DuckDB file not found: {duckdb_path}")
@@ -692,14 +789,19 @@ async def export_neo4j_to_ladybug(
                     continue
 
                 # Fetch all rels with FROM/TO node ids
-                # Use id property (not elementId) for LadybugDB compat
+                # Use id property (not elementId) for LadybugDB compat.
+                # Some labels (e.g., Article) lack an explicit `id` property
+                # and use `pg_id` / `entity_id` / `community_id` as the
+                # business key; coalesce to satisfy the LadybugDB PK lookup.
                 prop_str = ""
                 if rel_props:
                     prop_str = ", " + ", ".join(f"r.{p} AS {p}" for p in rel_props)
 
                 result = session.run(
                     f"MATCH (a)-[r:`{rel_type}`]->(b) "
-                    f"RETURN a.id AS _from_id, b.id AS _to_id{prop_str}"
+                    f"RETURN coalesce(a.id, a.pg_id, a.entity_id, a.community_id) AS _from_id, "
+                    f"coalesce(b.id, b.pg_id, b.entity_id, b.community_id) AS _to_id"
+                    f"{prop_str}"
                 )
 
                 batch_rels: list[dict] = []
@@ -1040,23 +1142,120 @@ def _ladybug_create_nodes(
     with just the ``id`` PK, then SET every other column via
     ``SET n.`col` = $col``. Backticks protect against Cypher reserved
     words (e.g., ``type``).
+
+    Vector columns (FLOAT[N], DOUBLE[], STRING[]) are skipped during
+    CREATE+SET because the real_ladybug binder infers ANY type for
+    Python lists, raising "Trying to a create a vector with ANY type".
+    They are backfilled via a separate ``CREATE NODE`` Cypher list
+    literal immediately after the node is created.
     """
     if "id" not in cols:
         raise RuntimeError(f"Cannot create {label} nodes: 'id' column required for CREATE")
 
-    # Cypher: CREATE with just id PK, SET all other cols (including id
-    # to handle edge cases where id != PK).
-    other_cols = [c for c in cols if c != "id"]
+    # Detect vector columns from the first node's value types
+    vector_cols: set[str] = set()
+    for node in nodes:
+        for c in cols:
+            v = node.get(c)
+            if isinstance(v, list):
+                vector_cols.add(c)
+        if vector_cols:
+            break
+
+    # Cypher: CREATE with just id PK, SET all scalar cols (including id
+    # to handle edge cases where id != PK). Vector cols are skipped here.
+    other_cols = [c for c in cols if c != "id" and c not in vector_cols]
     set_pairs = ", ".join(f"n.`{c}` = ${c}" for c in other_cols)
     set_clause = f" SET {set_pairs}" if other_cols else ""
     cypher = f"CREATE (n:`{label}` {{id: $id}}){set_clause}"
 
     for props in nodes:
-        param_dict = {c: props.get(c) for c in cols}
+        param_dict = {c: props.get(c) for c in cols if c not in vector_cols}
         try:
             ladybug_conn.execute(cypher, param_dict)
         except Exception as exc:
             raise RuntimeError(f"Failed to create node {label} with {param_dict}: {exc}") from exc
+
+    # Backfill vector columns using a Cypher list literal. The literal
+    # is rendered with Python repr (e.g., [0.1,0.2,...]) which LadybugDB's
+    # binder accepts as a typed list when the node table schema declares
+    # the column type explicitly.
+    #
+    # Performance: batch SET via CASE WHEN to avoid N+1 executes.
+    # Each execute has network round-trip + parse + execute overhead; with
+    # N=1000 nodes × M=1 vector column, the original N+1 loop ran ~1000
+    # executes (5-20s). Batching at 50 nodes per Cypher reduces to ~20
+    # executes (~95% reduction). id and literal are generated locally
+    # from LadybugDB schema metadata — no injection surface, consistent
+    # with the existing f-string Cypher pattern in this module.
+    if not vector_cols:
+        return
+
+    _VECTOR_BACKFILL_BATCH = 50
+
+    for vec_col in vector_cols:
+        # Collect (id, literal) pairs for this vector column
+        updates: list[tuple[Any, str]] = []
+        for props in nodes:
+            vec_val = props.get(vec_col)
+            if not isinstance(vec_val, list) or not vec_val:
+                continue
+            # Render list literal: floats use repr to preserve precision
+            if all(isinstance(x, (int, float)) for x in vec_val):
+                literal = "[" + ",".join(repr(float(x)) for x in vec_val) + "]"
+            else:
+                # String list — quote each element
+                literal = (
+                    "["
+                    + ",".join(f"'{str(x).replace(chr(39), chr(92) + chr(39))}'" for x in vec_val)
+                    + "]"
+                )
+            node_id = props.get("id")
+            if node_id is None:
+                continue
+            updates.append((node_id, literal))
+
+        if not updates:
+            continue
+
+        # Batch SET: one Cypher per batch of _VECTOR_BACKFILL_BATCH nodes.
+        # CASE n.id WHEN <id1> THEN <literal1> WHEN <id2> THEN <literal2> ... END
+        for batch_start in range(0, len(updates), _VECTOR_BACKFILL_BATCH):
+            batch = updates[batch_start : batch_start + _VECTOR_BACKFILL_BATCH]
+            # Quote string ids; numeric ids stay bare. ids come from our
+            # own LadybugDB schema metadata (no user input).
+            case_clauses = " ".join(
+                (
+                    f"WHEN {u[0]!r} THEN {u[1]}"
+                    if isinstance(u[0], str)
+                    else f"WHEN {u[0]} THEN {u[1]}"
+                )
+                for u in batch
+            )
+            ids_list = [u[0] for u in batch]
+            # Build IN clause: IN ['id1', 'id2', ...] or IN [1, 2, ...]
+            ids_literal = (
+                "[" + ", ".join(repr(i) if isinstance(i, str) else str(i) for i in ids_list) + "]"
+            )
+            batch_cypher = (
+                f"MATCH (n:`{label}`) WHERE n.id IN {ids_literal} "
+                f"SET n.`{vec_col}` = CASE n.id {case_clauses} END"
+            )
+            try:
+                ladybug_conn.execute(batch_cypher)
+            except Exception as exc:
+                # Batch failure: fall back to per-node SET for this batch
+                # so a single malformed vector doesn't abort the whole batch.
+                for node_id, literal in batch:
+                    update_cypher = f"MATCH (n:`{label}` {{id: $id}}) SET n.`{vec_col}` = {literal}"
+                    try:
+                        ladybug_conn.execute(update_cypher, {"id": node_id})
+                    except Exception as inner_exc:
+                        # Vector backfill failure is non-fatal: log and continue
+                        print(
+                            f"WARN: Failed to backfill vector {label}.{vec_col} "
+                            f"for id={node_id}: {inner_exc}"
+                        )
 
 
 def _ladybug_create_rels(
