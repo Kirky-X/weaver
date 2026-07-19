@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from core.db.query_builders import VectorQueryBuilder
+from core.db.query_builders import DatabaseType, VectorQueryBuilder
 from core.mappers.community_search_result_mapper import CommunitySearchResultMapper
 from core.models.shared import CommunitySearchResultView
 from core.observability import get_logger

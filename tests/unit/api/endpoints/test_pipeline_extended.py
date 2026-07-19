@@ -10,7 +10,9 @@ This module tests previously uncovered code paths in pipeline.py:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -602,3 +604,613 @@ class TestSafeEchoAndReflectedXSS:
         assert "<script>" not in detail, "Raw XSS payload leaked into detail"
         assert "&lt;script&gt;" in detail, "Payload should be HTML-escaped"
         assert exc_info.value.status_code == 404
+
+
+class TestTriggerPipelineSourceIds:
+    """Regression tests for CRITICAL bug: ``POST /api/v1/pipeline/trigger``
+    with body ``{"source_ids": []}`` caused server crash.
+
+    Root cause: ``TriggerRequest`` only had ``source_id`` (singular). The
+    unknown ``source_ids`` field was silently ignored, ``source_id`` defaulted
+    to ``None``, and the handler triggered *all* enabled sources concurrently
+    (up to 18), causing memory exhaustion / process crash.
+
+    Required behaviour after fix:
+    - Empty ``source_ids`` → 400 Bad Request ("source_ids cannot be empty")
+    - All non-existent ``source_ids`` → 404
+    - Partially existing → trigger existing, skip missing (with warning log)
+    - ``source_ids`` (plural) takes precedence over ``source_id`` (singular)
+    - Trigger executes asynchronously; HTTP request returns immediately
+    - Background task exceptions MUST be caught — process must not crash
+    - Compatible with PostgreSQL and DuckDB (uses scheduler protocol)
+    """
+
+    @pytest.mark.asyncio
+    async def test_empty_source_ids_returns_400_bad_request(self) -> None:
+        """Body ``{"source_ids": []}`` SHALL return 400 Bad Request.
+
+        Regression for the critical crash bug: previously empty source_ids
+        was silently ignored and triggered all sources.
+        """
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=[])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "source_ids cannot be empty" in exc_info.value.detail
+        # Critical: scheduler.trigger_now must NOT be called when validation fails
+        mock_scheduler.trigger_now.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_source_ids_does_not_trigger_any_source(self) -> None:
+        """Empty source_ids MUST NOT trigger any source — not even one."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=[])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        # Simulate 18 enabled sources (the bug scenario)
+        mock_sources = []
+        for i in range(18):
+            mock_src = MagicMock()
+            mock_src.id = f"source-{i}"
+            mock_sources.append(mock_src)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=mock_sources)
+        mock_scheduler.list_all_sources = MagicMock(return_value=mock_sources)
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert exc_info.value.status_code == 400
+        # Critical regression check: NO source should be triggered
+        mock_scheduler.trigger_now.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_all_nonexistent_source_ids_returns_404(self) -> None:
+        """When all source_ids are nonexistent, SHALL return 404."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["ghost-1", "ghost-2"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert exc_info.value.status_code == 404
+        mock_scheduler.trigger_now.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_partial_source_ids_triggers_existing_skips_missing(self) -> None:
+        """Partially existing source_ids: trigger existing, skip missing."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["existing-1", "missing-1", "existing-2"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src_1 = MagicMock()
+        mock_src_1.id = "existing-1"
+        mock_src_2 = MagicMock()
+        mock_src_2.id = "existing-2"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src_1, mock_src_2])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src_1, mock_src_2])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        task_uuid = uuid.uuid4()
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+            result = await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert result.data.task_id == str(task_uuid)
+
+        # Yield to event loop so background task runs
+        await asyncio.sleep(0.05)
+
+        # trigger_now should be called only for existing sources
+        assert mock_scheduler.trigger_now.call_count == 2
+        called_source_ids = [
+            call.args[0] if call.args else call.kwargs.get("source_id")
+            for call in mock_scheduler.trigger_now.call_args_list
+        ]
+        assert "existing-1" in called_source_ids
+        assert "existing-2" in called_source_ids
+        assert "missing-1" not in called_source_ids
+
+    @pytest.mark.asyncio
+    async def test_all_valid_source_ids_triggers_each(self) -> None:
+        """All valid source_ids SHALL each be triggered."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-a", "source-b"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src_a = MagicMock()
+        mock_src_a.id = "source-a"
+        mock_src_b = MagicMock()
+        mock_src_b.id = "source-b"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src_a, mock_src_b])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src_a, mock_src_b])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        task_uuid = uuid.uuid4()
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+            result = await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert result.data.task_id == str(task_uuid)
+        await asyncio.sleep(0.05)
+        assert mock_scheduler.trigger_now.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_source_ids_takes_precedence_over_source_id(self) -> None:
+        """When both source_id and source_ids provided, source_ids wins."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(
+            source_id="legacy-source",
+            source_ids=["new-source-1", "new-source-2"],
+        )
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_legacy = MagicMock()
+        mock_legacy.id = "legacy-source"
+        mock_new_1 = MagicMock()
+        mock_new_1.id = "new-source-1"
+        mock_new_2 = MagicMock()
+        mock_new_2.id = "new-source-2"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(
+            return_value=[mock_legacy, mock_new_1, mock_new_2]
+        )
+        mock_scheduler.list_all_sources = MagicMock(
+            return_value=[mock_legacy, mock_new_1, mock_new_2]
+        )
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=uuid.uuid4()):
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        await asyncio.sleep(0.05)
+
+        # legacy-source MUST NOT be triggered (source_ids takes precedence)
+        called_source_ids = [
+            call.args[0] if call.args else call.kwargs.get("source_id")
+            for call in mock_scheduler.trigger_now.call_args_list
+        ]
+        assert "legacy-source" not in called_source_ids
+        assert "new-source-1" in called_source_ids
+        assert "new-source-2" in called_source_ids
+
+    @pytest.mark.asyncio
+    async def test_no_source_ids_triggers_all_enabled_backward_compat(self) -> None:
+        """Neither source_id nor source_ids provided → trigger all enabled (backward compat)."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest()  # All defaults
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src_1 = MagicMock()
+        mock_src_1.id = "source-1"
+        mock_src_2 = MagicMock()
+        mock_src_2.id = "source-2"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src_1, mock_src_2])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=uuid.uuid4()):
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        await asyncio.sleep(0.05)
+        assert mock_scheduler.trigger_now.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_trigger_returns_immediately_without_blocking(self) -> None:
+        """HTTP request SHALL return immediately with task_id, not block on crawl.
+
+        Regression for the 30-second curl timeout / server crash: trigger_pipeline
+        must not ``await`` the slow crawl directly — it must run in background.
+        """
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-1"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src = MagicMock()
+        mock_src.id = "source-1"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src])
+
+        # Simulate slow crawl — if trigger_pipeline awaits directly, we'd block
+        async def slow_trigger(*args, **kwargs):
+            await asyncio.sleep(2.0)
+
+        mock_scheduler.trigger_now = slow_trigger
+
+        task_uuid = uuid.uuid4()
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+            start = time.monotonic()
+            result = await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+            elapsed = time.monotonic() - start
+
+        # Should return well under 2 seconds (background task takes 2s)
+        assert elapsed < 1.0, f"trigger_pipeline blocked for {elapsed:.2f}s"
+        assert result.data.task_id == str(task_uuid)
+
+    @pytest.mark.asyncio
+    async def test_background_exception_does_not_crash_process(self) -> None:
+        """Exception in scheduler.trigger_now SHALL be caught, not crash the process.
+
+        Regression for the "process disappears" symptom: a single source's
+        failure must not propagate out of the background task.
+        """
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-1"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src = MagicMock()
+        mock_src.id = "source-1"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.trigger_now = AsyncMock(
+            side_effect=RuntimeError("Simulated catastrophic LLM failure")
+        )
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=uuid.uuid4()):
+            # MUST NOT raise — exception is contained in background task
+            result = await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert result.data.task_id  # Got a task_id immediately
+
+        # Wait for background task to finish failing
+        await asyncio.sleep(0.1)
+
+        # Verify status was updated to failed (or completed via gather's
+        # return_exceptions=True). Either way, no crash.
+        calls = [call.args for call in mock_cache.hset.call_args_list]
+        assert len(calls) >= 1
+        last_call_data = json.loads(calls[-1][2])
+        assert last_call_data["status"] in (
+            "failed",
+            "completed",
+        ), f"Unexpected status: {last_call_data['status']}"
+
+    @pytest.mark.asyncio
+    async def test_database_exception_returns_500(self) -> None:
+        """Database exception during source lookup SHALL return 500, not crash."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-1"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_scheduler = MagicMock()
+        # Simulate DB error (PostgreSQL or DuckDB failure)
+        mock_scheduler.list_enabled_sources = MagicMock(
+            side_effect=RuntimeError("DB connection lost")
+        )
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert exc_info.value.status_code == 500
+        mock_scheduler.trigger_now.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_source_ids_deduplicated(self) -> None:
+        """Duplicate source_ids SHALL be deduplicated — each source triggered once."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-1", "source-1", "source-2"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src_1 = MagicMock()
+        mock_src_1.id = "source-1"
+        mock_src_2 = MagicMock()
+        mock_src_2.id = "source-2"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src_1, mock_src_2])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src_1, mock_src_2])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=uuid.uuid4()):
+            await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        await asyncio.sleep(0.05)
+        # source-1 must only be triggered once (deduplicated)
+        assert mock_scheduler.trigger_now.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_scheduler_without_list_all_sources_still_works(self) -> None:
+        """Scheduler without list_all_sources method SHALL fall back to enabled sources.
+
+        This ensures compatibility with simplified scheduler mocks and any
+        scheduler implementation that only exposes list_enabled_sources.
+        """
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        request = TriggerRequest(source_ids=["source-1"])
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+
+        mock_src = MagicMock()
+        mock_src.id = "source-1"
+        mock_scheduler = MagicMock(spec=["list_enabled_sources", "trigger_now"])
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=uuid.uuid4()):
+            result = await trigger_pipeline(
+                request=request,
+                _="test-api-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert result.data.task_id
+        await asyncio.sleep(0.05)
+        assert mock_scheduler.trigger_now.call_count == 1
+
+
+class TestTriggerPipelineHTTPIntegration:
+    """HTTP-level integration tests using FastAPI TestClient.
+
+    These tests verify the full HTTP request → response cycle, including
+    pydantic validation, dependency injection, and HTTP status codes.
+    They reproduce the exact bug scenario: ``POST /api/v1/pipeline/trigger``
+    with body ``{"source_ids": []}``.
+    """
+
+    def test_post_trigger_empty_source_ids_returns_http_400(self) -> None:
+        """HTTP POST with body ``{"source_ids": []}`` SHALL return 400.
+
+        This is the regression test for the original critical bug — it
+        exercises the full FastAPI stack (pydantic validation + handler)
+        and asserts the server returns 400, not 200/500/crash.
+        """
+        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.endpoints.content.pipeline import router
+        from tests.helpers import create_test_client
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.hget = AsyncMock(return_value=None)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        client = create_test_client(
+            router,
+            dependency_overrides={
+                get_cache_client: lambda: mock_cache,
+                get_source_scheduler: lambda: mock_scheduler,
+            },
+        )
+
+        # The critical regression scenario: empty source_ids
+        response = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": []},
+            headers={"X-API-Key": "test-api-key"},
+        )
+
+        assert response.status_code == 400, (
+            f"Expected 400 for empty source_ids, got {response.status_code}: " f"{response.text}"
+        )
+        body = response.json()
+        # APIResponse envelope: {"data": {...}, "meta": {...}}
+        detail = body.get("detail") or body.get("message") or str(body)
+        assert (
+            "source_ids cannot be empty" in detail
+        ), f"Expected 'source_ids cannot be empty' in response, got: {body}"
+        # Critical: scheduler.trigger_now MUST NOT have been called
+        mock_scheduler.trigger_now.assert_not_called()
+
+    def test_post_trigger_empty_source_ids_does_not_crash_server(self) -> None:
+        """After a 400 response, the server SHALL remain responsive.
+
+        Regression for the "process disappears" symptom — the TestClient
+        must still serve subsequent requests after the empty source_ids call.
+        """
+        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.endpoints.content.pipeline import router
+        from tests.helpers import create_test_client
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.hget = AsyncMock(return_value=None)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        client = create_test_client(
+            router,
+            dependency_overrides={
+                get_cache_client: lambda: mock_cache,
+                get_source_scheduler: lambda: mock_scheduler,
+            },
+        )
+
+        # First request: empty source_ids → 400
+        r1 = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": []},
+            headers={"X-API-Key": "test-api-key"},
+        )
+        assert r1.status_code == 400
+
+        # Second request: server should still be alive and respond
+        r2 = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": []},
+            headers={"X-API-Key": "test-api-key"},
+        )
+        assert r2.status_code == 400
+
+        # Third request with valid source_ids should also work
+        mock_src = MagicMock()
+        mock_src.id = "valid-source"
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src])
+        r3 = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": ["valid-source"]},
+            headers={"X-API-Key": "test-api-key"},
+        )
+        assert r3.status_code == 200
+        # The server is alive and serving — no crash.
+
+    def test_post_trigger_valid_source_ids_returns_200_with_task_id(self) -> None:
+        """HTTP POST with valid source_ids SHALL return 200 with task_id."""
+        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.endpoints.content.pipeline import router
+        from tests.helpers import create_test_client
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.hget = AsyncMock(return_value=None)
+
+        mock_src = MagicMock()
+        mock_src.id = "reuters"
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[mock_src])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        client = create_test_client(
+            router,
+            dependency_overrides={
+                get_cache_client: lambda: mock_cache,
+                get_source_scheduler: lambda: mock_scheduler,
+            },
+        )
+
+        response = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": ["reuters"]},
+            headers={"X-API-Key": "test-api-key"},
+        )
+
+        assert (
+            response.status_code == 200
+        ), f"Expected 200, got {response.status_code}: {response.text}"
+        body = response.json()
+        assert "data" in body
+        assert "task_id" in body["data"]
+        assert body["data"]["task_id"]  # non-empty
+
+    def test_post_trigger_all_nonexistent_returns_http_404(self) -> None:
+        """HTTP POST with all nonexistent source_ids SHALL return 404."""
+        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.endpoints.content.pipeline import router
+        from tests.helpers import create_test_client
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.hget = AsyncMock(return_value=None)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
+        mock_scheduler.list_all_sources = MagicMock(return_value=[])
+        mock_scheduler.trigger_now = AsyncMock()
+
+        client = create_test_client(
+            router,
+            dependency_overrides={
+                get_cache_client: lambda: mock_cache,
+                get_source_scheduler: lambda: mock_scheduler,
+            },
+        )
+
+        response = client.post(
+            "/pipeline/trigger",
+            json={"source_ids": ["ghost-1", "ghost-2"]},
+            headers={"X-API-Key": "test-api-key"},
+        )
+
+        assert response.status_code == 404
+        mock_scheduler.trigger_now.assert_not_called()

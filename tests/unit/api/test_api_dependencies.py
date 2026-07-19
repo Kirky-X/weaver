@@ -453,3 +453,409 @@ class TestPipelineServiceDependency:
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_pipeline_service()
         assert exc_info.value.status_code == 503
+
+
+# ── P0-4: API Dependencies 故障转移补全 (T025-T030) ────────────────────
+
+
+@pytest.mark.xdist_group(name="endpoints_deps")
+class TestMissingFailoverBranches:
+    """Cover the 8 missing 503 branches in api/dependencies.py (R-api-deps-001).
+
+    Each getter must raise HTTPException(503) when its container accessor
+    returns None or raises RuntimeError. Previously these branches were
+    uncovered, masking failover regressions.
+    """
+
+    def _make_container(self, **kwargs):
+        """Build a MagicMock container with custom attribute behavior.
+
+        Keyword args map to container attributes/methods. Values are set
+        via MagicMock attribute assignment (works for both methods and
+        plain attributes).
+        """
+        mock_container = MagicMock()
+        for name, value in kwargs.items():
+            if callable(value) or isinstance(value, Exception):
+                # Set as method side_effect
+                getattr(mock_container, name).side_effect = value
+            else:
+                # Set as method return value or attribute
+                if name.startswith("_"):
+                    setattr(mock_container, name, value)
+                else:
+                    getattr(mock_container, name).return_value = value
+        return mock_container
+
+    # ── 8 getters with 503 branches ───────────────────────────────
+
+    def test_get_graph_pool_type_raises_503_when_pool_type_is_none(self):
+        """get_graph_pool_type must raise 503 when container.graph_pool_type is None."""
+        from api.dependencies import get_graph_pool_type
+
+        mock_container = self._make_container(graph_pool_type=None)
+        # graph_pool_type is a property/attribute, not a method; force it to None
+        type(mock_container).graph_pool_type = property(lambda self: None)
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_graph_pool_type(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Graph pool type" in exc_info.value.detail
+
+    def test_get_smart_fetcher_raises_503_on_runtime_error(self):
+        """get_smart_fetcher must raise 503 when container.smart_fetcher raises RuntimeError."""
+        from api.dependencies import get_smart_fetcher
+
+        mock_container = self._make_container(smart_fetcher=RuntimeError("smart fetcher offline"))
+        with pytest.raises(HTTPException) as exc_info:
+            get_smart_fetcher(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Smart fetcher" in exc_info.value.detail
+
+    def test_get_llm_failure_repo_raises_503_on_runtime_error(self):
+        """get_llm_failure_repo must raise 503 when container.llm_failure_repo raises."""
+        from api.dependencies import get_llm_failure_repo
+
+        mock_container = self._make_container(
+            llm_failure_repo=RuntimeError("llm failure repo unavailable")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_llm_failure_repo(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "LLM failure repo" in exc_info.value.detail
+
+    def test_get_llm_usage_repo_raises_503_on_runtime_error(self):
+        """get_llm_usage_repo must raise 503 when container.llm_usage_repo raises."""
+        from api.dependencies import get_llm_usage_repo
+
+        mock_container = self._make_container(
+            llm_usage_repo=RuntimeError("llm usage repo unavailable")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_llm_usage_repo(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "LLM usage repo" in exc_info.value.detail
+
+    def test_get_saga_orchestrator_raises_503_on_runtime_error(self):
+        """get_saga_orchestrator must raise 503 when container.saga_orchestrator raises."""
+        from api.dependencies import get_saga_orchestrator
+
+        mock_container = self._make_container(
+            saga_orchestrator=RuntimeError("saga orchestrator unavailable")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_saga_orchestrator(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Saga orchestrator" in exc_info.value.detail
+
+    def test_get_task_registry_raises_503_on_runtime_error(self):
+        """get_task_registry must raise 503 when container.task_registry raises."""
+        from api.dependencies import get_task_registry
+
+        mock_container = self._make_container(
+            task_registry=RuntimeError("task registry unavailable")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_task_registry(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Task registry" in exc_info.value.detail
+
+    def test_get_embedding_service_raises_503_when_attr_is_none(self):
+        """get_embedding_service must raise 503 when container._embedding_service is None."""
+        from api.dependencies import get_embedding_service
+
+        mock_container = MagicMock()
+        mock_container._embedding_service = None
+        with pytest.raises(HTTPException) as exc_info:
+            get_embedding_service(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Embedding service" in exc_info.value.detail
+
+    def test_get_intent_classifier_raises_503_when_attr_is_none(self):
+        """get_intent_classifier must raise 503 when container._intent_classifier is None."""
+        from api.dependencies import get_intent_classifier
+
+        mock_container = MagicMock()
+        mock_container._intent_classifier = None
+        with pytest.raises(HTTPException) as exc_info:
+            get_intent_classifier(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert "Intent classifier" in exc_info.value.detail
+
+
+@pytest.mark.xdist_group(name="endpoints_deps")
+class TestOptionalGettersReturnNone:
+    """Cover the 7 optional getter None paths + community_vector_repo branches (R-api-deps-002/003).
+
+    Optional getters must return None (not raise) when their container
+    accessor fails. This allows endpoints to gracefully degrade when
+    optional services are unavailable.
+    """
+
+    def test_get_relational_pool_optional_returns_none_on_runtime_error(self):
+        """get_relational_pool_optional returns None on RuntimeError (not raise)."""
+        from api.dependencies import get_relational_pool_optional
+
+        mock_container = MagicMock()
+        mock_container.relational_pool.side_effect = RuntimeError("pool offline")
+        result = get_relational_pool_optional(container=mock_container)
+        assert result is None, f"Expected None on RuntimeError, got {type(result).__name__}"
+
+    def test_get_graph_pool_optional_returns_none_when_pool_is_none(self):
+        """get_graph_pool_optional returns None when container.graph_pool() returns None."""
+        from api.dependencies import get_graph_pool_optional
+
+        mock_container = MagicMock()
+        mock_container.graph_pool.return_value = None
+        result = get_graph_pool_optional(container=mock_container)
+        assert result is None
+
+    def test_get_cache_client_optional_returns_none_on_runtime_error(self):
+        """get_cache_client_optional returns None on RuntimeError."""
+        from api.dependencies import get_cache_client_optional
+
+        mock_container = MagicMock()
+        mock_container.cache_client.side_effect = RuntimeError("cache offline")
+        result = get_cache_client_optional(container=mock_container)
+        assert result is None
+
+    def test_get_llm_client_optional_returns_none_when_client_is_none(self):
+        """get_llm_client_optional returns None when container.llm_client() returns None."""
+        from api.dependencies import get_llm_client_optional
+
+        mock_container = MagicMock()
+        mock_container.llm_client.return_value = None
+        result = get_llm_client_optional(container=mock_container)
+        assert result is None
+
+    def test_get_embedding_service_optional_returns_none_when_attr_missing(self):
+        """get_embedding_service_optional returns None when _embedding_service attr missing."""
+        from api.dependencies import get_embedding_service_optional
+
+        mock_container = MagicMock()
+        # MagicMock auto-creates attributes; delete to simulate missing
+        if hasattr(mock_container, "_embedding_service"):
+            del mock_container._embedding_service
+        # Spec-based mock that doesn't auto-create attributes
+        mock_container = MagicMock(spec=[])
+        result = get_embedding_service_optional(container=mock_container)
+        assert result is None
+
+    def test_get_intent_classifier_optional_returns_none_when_attr_missing(self):
+        """get_intent_classifier_optional returns None when _intent_classifier attr missing."""
+        from api.dependencies import get_intent_classifier_optional
+
+        mock_container = MagicMock(spec=[])
+        result = get_intent_classifier_optional(container=mock_container)
+        assert result is None
+
+    def test_get_community_vector_repo_returns_none_for_duckdb_backend(self):
+        """get_community_vector_repo returns None when relational_pool_type != 'postgres'."""
+        from api.dependencies import get_community_vector_repo
+
+        mock_container = MagicMock()
+        # DuckDB backend — community_vectors is PG-only
+        type(mock_container).relational_pool_type = property(lambda self: "duckdb")
+        result = get_community_vector_repo(container=mock_container)
+        assert result is None, f"DuckDB backend should return None, got {type(result).__name__}"
+
+    def test_get_community_vector_repo_returns_instance_for_postgres_backend(self):
+        """get_community_vector_repo returns CommunityVectorRepo instance for PG backend."""
+        from unittest.mock import patch
+
+        from api.dependencies import get_community_vector_repo
+
+        mock_container = MagicMock()
+        type(mock_container).relational_pool_type = property(lambda self: "postgres")
+
+        mock_pool = MagicMock()
+        mock_container.relational_pool.return_value = mock_pool
+
+        mock_qb = MagicMock()
+        mock_repo = MagicMock()
+
+        with (
+            patch(
+                "core.db.query_builders.create_vector_query_builder",
+                return_value=mock_qb,
+            ) as mock_create_qb,
+            patch(
+                "modules.storage.postgres.community_vector_repo.CommunityVectorRepo",
+                return_value=mock_repo,
+            ) as mock_repo_cls,
+        ):
+            result = get_community_vector_repo(container=mock_container)
+
+        assert result is mock_repo, "Expected CommunityVectorRepo instance for PG backend"
+        mock_create_qb.assert_called_once_with("postgres")
+        mock_repo_cls.assert_called_once_with(pool=mock_pool, query_builder=mock_qb)
+
+
+@pytest.mark.xdist_group(name="endpoints_deps")
+class TestTypeFallbackGetters:
+    """Cover the 3 type-fallback getters (R-api-deps-004).
+
+    These getters return a type string with graceful fallbacks:
+      - get_relational_type: 'postgres' | 'duckdb' | 'unknown'
+      - get_graph_type: 'neo4j' | 'ladybug' | 'unknown'
+      - get_cache_type: 'redis' | 'cashews' | <class_name> | 'none'
+    """
+
+    def test_get_relational_type_returns_unknown_on_runtime_error(self):
+        """get_relational_type returns 'unknown' when pool_type accessor raises."""
+        from api.dependencies import get_relational_type
+
+        mock_container = MagicMock()
+        type(mock_container).relational_pool_type = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("unavailable"))
+        )
+        result = get_relational_type(container=mock_container)
+        assert result == "unknown", f"Expected 'unknown' on RuntimeError, got '{result}'"
+
+    def test_get_graph_type_returns_unknown_when_pool_type_is_none(self):
+        """get_graph_type returns 'unknown' when graph_pool_type is None."""
+        from api.dependencies import get_graph_type
+
+        mock_container = MagicMock()
+        type(mock_container).graph_pool_type = property(lambda self: None)
+        result = get_graph_type(container=mock_container)
+        assert result == "unknown", f"Expected 'unknown' for None pool_type, got '{result}'"
+
+    def test_get_cache_type_returns_none_on_runtime_error(self):
+        """get_cache_type returns 'none' when cache_client() raises RuntimeError."""
+        from api.dependencies import get_cache_type
+
+        mock_container = MagicMock()
+        mock_container.cache_client.side_effect = RuntimeError("cache offline")
+        result = get_cache_type(container=mock_container)
+        assert result == "none", f"Expected 'none' on RuntimeError, got '{result}'"
+
+    def test_get_cache_type_returns_cache_type_attr_when_present(self):
+        """get_cache_type returns cache.cache_type when the attribute exists (e.g. 'redis')."""
+        from api.dependencies import get_cache_type
+
+        mock_container = MagicMock()
+        mock_cache = MagicMock()
+        mock_cache.cache_type = "redis"
+        mock_container.cache_client.return_value = mock_cache
+
+        result = get_cache_type(container=mock_container)
+        assert result == "redis", f"Expected 'redis', got '{result}'"
+
+    def test_get_cache_type_returns_class_name_when_attr_missing(self):
+        """get_cache_type returns type(cache).__name__ when cache_type attribute is missing."""
+        from api.dependencies import get_cache_type
+
+        mock_container = MagicMock()
+        # Use a spec-restricted mock that lacks cache_type attribute
+        mock_cache = MagicMock(spec=["ping"])  # only 'ping' method, no cache_type
+        mock_container.cache_client.return_value = mock_cache
+
+        result = get_cache_type(container=mock_container)
+        assert (
+            result == type(mock_cache).__name__
+        ), f"Expected class name '{type(mock_cache).__name__}', got '{result}'"
+
+
+@pytest.mark.xdist_group(name="endpoints_deps")
+class TestRemainingFailoverBranches:
+    """Cover the remaining 503 branches to push api/dependencies.py coverage above 95%.
+
+    These branches mirror TestDependencyErrorHandling but test api.dependencies
+    functions directly (bypassing the Endpoints wrapper) to ensure each getter
+    raises HTTPException(503) on RuntimeError.
+    """
+
+    @pytest.mark.parametrize(
+        "import_name,container_method,detail_substring",
+        [
+            ("get_relational_pool", "relational_pool", "Relational pool"),
+            ("get_cache_client", "cache_client", "Cache pool"),
+            ("get_vector_repo", "vector_repo", "Vector store"),
+            ("get_graph_repo", "graph_repo", "Graph repository"),
+            ("get_source_scheduler", "source_scheduler", "Source scheduler"),
+            ("get_source_config_repo", "source_config_repo", "Source config repository"),
+            ("get_source_authority_repo", "source_authority_repo", "Source authority repo"),
+            ("get_pipeline_service", "pipeline_service", "Pipeline service"),
+        ],
+    )
+    def test_getter_raises_503_on_runtime_error(
+        self, import_name, container_method, detail_substring
+    ):
+        """Each getter must raise HTTPException(503) on RuntimeError from container."""
+        import api.dependencies as deps
+
+        getter = getattr(deps, import_name)
+        mock_container = MagicMock()
+        getattr(mock_container, container_method).side_effect = RuntimeError("offline")
+
+        with pytest.raises(HTTPException) as exc_info:
+            getter(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert (
+            detail_substring in exc_info.value.detail
+        ), f"Expected '{detail_substring}' in detail, got '{exc_info.value.detail}'"
+
+    @pytest.mark.parametrize(
+        "import_name,container_method,detail_substring",
+        [
+            ("get_local_search_engine", "local_search_engine", "Search service"),
+            ("get_global_search_engine", "global_search_engine", "Search service"),
+            ("get_hybrid_engine", "hybrid_search_engine", "Hybrid search service"),
+        ],
+    )
+    def test_search_engine_getter_raises_503_when_engine_is_none(
+        self, import_name, container_method, detail_substring
+    ):
+        """Each search engine getter must raise 503 when container returns None."""
+        import api.dependencies as deps
+
+        getter = getattr(deps, import_name)
+        mock_container = MagicMock()
+        getattr(mock_container, container_method).return_value = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            getter(container=mock_container)
+        assert exc_info.value.status_code == 503
+        assert detail_substring in exc_info.value.detail
+
+    def test_get_graph_pool_type_returns_pool_type_when_set(self):
+        """get_graph_pool_type happy path: returns the pool type string."""
+        from api.dependencies import get_graph_pool_type
+
+        mock_container = MagicMock()
+        type(mock_container).graph_pool_type = property(lambda self: "neo4j")
+        result = get_graph_pool_type(container=mock_container)
+        assert result == "neo4j"
+
+    def test_get_embedding_service_returns_service_when_set(self):
+        """get_embedding_service happy path: returns the service instance."""
+        from api.dependencies import get_embedding_service
+
+        mock_container = MagicMock()
+        mock_service = MagicMock()
+        mock_container._embedding_service = mock_service
+        result = get_embedding_service(container=mock_container)
+        assert result is mock_service
+
+    def test_get_intent_classifier_returns_classifier_when_set(self):
+        """get_intent_classifier happy path: returns the classifier instance."""
+        from api.dependencies import get_intent_classifier
+
+        mock_container = MagicMock()
+        mock_classifier = MagicMock()
+        mock_container._intent_classifier = mock_classifier
+        result = get_intent_classifier(container=mock_container)
+        assert result is mock_classifier
+
+    def test_get_community_vector_repo_returns_none_on_runtime_error(self):
+        """get_community_vector_repo returns None on RuntimeError (not raise)."""
+        from api.dependencies import get_community_vector_repo
+
+        mock_container = MagicMock()
+        # relational_pool_type raises RuntimeError → caught → returns None
+        type(mock_container).relational_pool_type = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("pool unavailable"))
+        )
+        result = get_community_vector_repo(container=mock_container)
+        assert result is None

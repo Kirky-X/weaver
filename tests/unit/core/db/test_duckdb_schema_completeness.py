@@ -8,8 +8,13 @@ that every expected table exists with the correct column set.  They are
 meant to FAIL until the DuckDB schema is brought up to date.
 """
 
+# ruff: noqa: S608 — All f-string SQL in this file uses table/view names from
+# EXPECTED_DUCKDB_TABLES / VIEW_QUERIES module-level constants; no user-input
+# pollution path.
+
 from __future__ import annotations
 
+import functools
 import re
 
 import pytest
@@ -19,8 +24,13 @@ from core.db.duckdb_schema import SCHEMA_QUERIES, SEQUENCE_QUERIES
 # ── Helpers ──────────────────────────────────────────────────
 
 
+@functools.lru_cache(maxsize=1)
 def parse_tables_from_schema() -> dict[str, set[str]]:
-    """Parse SCHEMA_QUERIES to extract {table_name: {col1, col2, ...}}."""
+    """Parse SCHEMA_QUERIES to extract {table_name: {col1, col2, ...}}.
+
+    Cached because SCHEMA_QUERIES is a module-level constant and 250+ parameterized
+    test cases call this function (performance M-1 fix).
+    """
     tables: dict[str, set[str]] = {}
     for query in SCHEMA_QUERIES:
         match = re.search(
@@ -142,12 +152,6 @@ class TestArticlesCoreTable:
             f"Extra: {sorted(actual - self.EXPECTED_COLUMNS)}, "
             f"Missing: {sorted(self.EXPECTED_COLUMNS - actual)}"
         )
-
-
-class TestArticleBodiesTable:
-    """article_bodies must have exactly 3 columns."""
-
-    EXPECTED_COLUMNS = {"article_id", "body", "summary"}
 
 
 class TestArticleProcessingTable:
@@ -635,10 +639,9 @@ class TestArticleVectorsTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "article_vectors"), "article_vectors table missing"
-        assert col in tables["article_vectors"], (
-            f"Column '{col}' missing from article_vectors. "
-            f"Got: {sorted(tables['article_vectors'])}"
-        )
+        assert (
+            col in tables["article_vectors"]
+        ), f"Column '{col}' missing from article_vectors. Got: {sorted(tables['article_vectors'])}"
 
     def test_uses_id_primary_key(self):
         """DDL must declare id as PRIMARY KEY (not composite PK)."""
@@ -948,3 +951,146 @@ class TestArticlesViewDDL:
 
     def test_uses_left_join(self):
         assert "LEFT JOIN" in self.view_ddl
+
+
+# ── P0-1: In-memory DuckDB execution tests (T002-T003, T004-T005, T012) ─────
+
+
+# 27 tables that must exist in DuckDB schema (matches scripts/data_io.py EXPECTED_TABLES)
+EXPECTED_DUCKDB_TABLES: list[str] = [
+    "source_configs",
+    "source_authorities",
+    "relation_types",
+    "relation_type_aliases",
+    "unknown_relation_types",
+    "api_keys",
+    "prompt_templates",
+    "alert_rules",
+    "audit_log",
+    "articles_core",
+    "article_bodies",
+    "article_analysis",
+    "article_processing",
+    "article_versions",
+    "article_vectors",
+    "entity_vectors",
+    "community_vectors",
+    "sentiment_shifts",
+    "daily_briefings",
+    "daily_briefing_items",
+    "alert_events",
+    "pending_sync",
+    "saga_logs",
+    "llm_failure_records",
+    "llm_usage_raw",
+    "llm_usage_hourly",
+    "llm_compare_hourly",
+]
+
+
+@pytest.fixture
+async def in_memory_duckdb_pool():
+    """Create an in-memory DuckDBPool with schema initialized.
+
+    Yields a started DuckDBPool instance. Schema is initialized via
+    initialize_duckdb_schema(). Pool is shut down after test.
+    """
+    from core.db.duckdb_pool import DuckDBPool
+    from core.db.duckdb_schema import initialize_duckdb_schema
+
+    pool = DuckDBPool(db_path=":memory:")
+    await pool.startup()
+    try:
+        await initialize_duckdb_schema(pool)
+        yield pool
+    finally:
+        await pool.shutdown()
+
+
+class TestDuckDBSchemaTables:
+    """Verify all 27 tables can be SELECTed in an in-memory DuckDB.
+
+    Unlike the regex-based tests above, this class actually executes
+    SCHEMA_QUERIES against a real in-memory DuckDB to catch SQL syntax
+    errors and DuckDB-incompatible DDL that regex parsing cannot detect.
+    """
+
+    @pytest.mark.parametrize("table", EXPECTED_DUCKDB_TABLES)
+    @pytest.mark.asyncio
+    async def test_table_selectable_in_memory(self, table, in_memory_duckdb_pool):
+        """Each table must be created and SELECTable in in-memory DuckDB."""
+        from sqlalchemy import text
+
+        async with in_memory_duckdb_pool.session() as session:
+            result = await session.execute(text(f'SELECT * FROM "{table}" LIMIT 0'))
+            # Should not raise; result.fetchall() returns []
+            assert result.fetchall() == []
+
+    @pytest.mark.asyncio
+    async def test_all_expected_tables_present(self, in_memory_duckdb_pool):
+        """All 27 expected tables must exist in information_schema."""
+        from sqlalchemy import text
+
+        async with in_memory_duckdb_pool.session() as session:
+            result = await session.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'main' ORDER BY table_name"
+                )
+            )
+            actual_tables = {row[0] for row in result.fetchall()}
+
+        missing = set(EXPECTED_DUCKDB_TABLES) - actual_tables
+        assert not missing, f"Missing tables in DuckDB schema: {sorted(missing)}"
+
+
+class TestDuckDBSchemaSequences:
+    """Verify SEQUENCE_QUERIES creates sequences that return non-NULL nextval."""
+
+    @pytest.mark.parametrize(
+        "seq_query",
+        SEQUENCE_QUERIES,
+        ids=[q.split()[-2] for q in SEQUENCE_QUERIES],  # seq name as id
+    )
+    @pytest.mark.asyncio
+    async def test_sequence_nextval_returns_non_null(self, seq_query, in_memory_duckdb_pool):
+        """Each sequence must be created and nextval returns a non-NULL integer."""
+        import re
+
+        from sqlalchemy import text
+
+        # Extract sequence name from CREATE SEQUENCE IF NOT EXISTS <name> START 1
+        match = re.search(
+            r"CREATE\s+SEQUENCE\s+IF\s+NOT\s+EXISTS\s+(\w+)", seq_query, re.IGNORECASE
+        )
+        assert match, f"Cannot parse sequence name from: {seq_query}"
+        seq_name = match.group(1)
+
+        async with in_memory_duckdb_pool.session() as session:
+            result = await session.execute(text(f"SELECT nextval('{seq_name}')"))
+            value = result.scalar()
+            assert value is not None, f"nextval('{seq_name}') returned None"
+            assert isinstance(value, int), f"nextval returned non-int: {type(value)}"
+
+
+class TestInitializeDuckDBSchemaIdempotency:
+    """Verify initialize_duckdb_schema is idempotent (can be called twice)."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_schema_called_twice_does_not_raise(self, in_memory_duckdb_pool):
+        """Second call to initialize_duckdb_schema must not raise."""
+        from core.db.duckdb_schema import initialize_duckdb_schema
+
+        # in_memory_duckdb_pool fixture already called initialize once.
+        # Calling again must not raise (CREATE TABLE IF NOT EXISTS is idempotent).
+        await initialize_duckdb_schema(in_memory_duckdb_pool)
+
+        # Verify tables still exist
+        from sqlalchemy import text
+
+        async with in_memory_duckdb_pool.session() as session:
+            result = await session.execute(
+                text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'")
+            )
+            table_count = result.scalar()
+            assert table_count >= 27, f"Expected >= 27 tables after re-init, got {table_count}"

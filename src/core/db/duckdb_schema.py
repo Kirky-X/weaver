@@ -14,6 +14,33 @@ from core.observability import get_logger
 
 log = get_logger(__name__)
 
+# BIGINT PK tables and their associated sequence names.
+# Used by _upgrade_schema() to reset sequences to MAX(id) + 1 after
+# PG→DuckDB data import (F-007 fix). Keep in sync with SEQUENCE_QUERIES.
+BIGINT_PK_TABLES: dict[str, str] = {
+    "source_authorities": "source_authorities_seq",
+    "pending_sync": "pending_sync_seq",
+    "llm_failure_records": "llm_failure_records_seq",
+    "llm_usage_hourly": "llm_usage_hourly_seq",
+    "llm_usage_raw": "llm_usage_raw_seq",
+    "entity_vectors": "entity_vectors_seq",
+    "relation_types": "relation_types_seq",
+    "relation_type_aliases": "relation_type_aliases_seq",
+    "unknown_relation_types": "unknown_relation_types_seq",
+    "community_vectors": "community_vectors_seq",
+    "sentiment_shifts": "sentiment_shifts_seq",
+    "daily_briefings": "daily_briefings_seq",
+    "daily_briefing_items": "daily_briefing_items_seq",
+    "api_keys": "api_keys_seq",
+    "alert_rules": "alert_rules_seq",
+    "alert_events": "alert_events_seq",
+    "article_versions": "article_versions_seq",
+    "audit_log": "audit_log_seq",
+    "llm_compare_hourly": "llm_compare_hourly_seq",
+    "article_vectors": "article_vectors_seq",
+    "prompt_templates": "prompt_templates_seq",
+}
+
 # Schema queries ordered by dependency (no FK in DuckDB, but logical order)
 SCHEMA_QUERIES = [
     # ── Sources ────────────────────────────────────────────────
@@ -368,7 +395,8 @@ SCHEMA_QUERIES = [
         metric_value DECIMAL(10, 2),
         triggered_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         acknowledged_at TIMESTAMP WITH TIME ZONE,
-        detail JSON
+        detail JSON,
+        payload_hash VARCHAR(64)
     )""",
     # ── Article Versions ────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS article_versions
@@ -676,6 +704,103 @@ async def _upgrade_schema(session) -> None:
     # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.
     await _upgrade_article_vectors_schema(session)
+
+    # Migration 33: Add payload_hash column to alert_events for 24h dedup
+    # (mirrors alembic 33_add_alert_events_payload_hash.py on PG).
+    # Pre-existing DuckDB files won't get the column via CREATE TABLE IF
+    # NOT EXISTS. Idempotent ALTER TABLE + composite index.
+    result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'alert_events' AND column_name = 'payload_hash'"
+        )
+    )
+    if not result.scalar():
+        try:
+            await session.execute(
+                text("ALTER TABLE alert_events ADD COLUMN payload_hash VARCHAR(64)")
+            )
+            log.info("duckdb_schema_upgrade_added_alert_events_payload_hash")
+        except Exception as exc:
+            log.warning(
+                "duckdb_schema_upgrade_alert_events_payload_hash_failed",
+                error=str(exc),
+            )
+    # Composite index for TrendAlertEvaluator's 24h dedup query:
+    #   WHERE rule_id=? AND payload_hash=? AND triggered_at > now()-24h
+    # Idempotent CREATE INDEX IF NOT EXISTS (DuckDB >=0.6 supports it).
+    try:
+        await session.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_alert_events_payload_hash "
+                "ON alert_events(rule_id, payload_hash, triggered_at)"
+            )
+        )
+        log.info("duckdb_schema_upgrade_added_alert_events_payload_hash_index")
+    except Exception as exc:
+        log.warning(
+            "duckdb_schema_upgrade_alert_events_payload_hash_index_failed",
+            error=str(exc),
+        )
+
+    # F-007 defensive: Reset BIGINT PK sequences to MAX(id) + 1.
+    # Pre-existing DuckDB files created via PG→DuckDB data import may
+    # have sequences still at START 1 while the table contains rows with
+    # id=1,2,3,…,N. Without reset, next INSERT via nextval() returns
+    # id=1 → PK conflict. This is idempotent and safe for empty tables
+    # (MAX(id) returns NULL → no-op).
+    #
+    # Logic lives in _reset_duckdb_sequences (SRP); see that function for
+    # DuckDB DDL limitations worked around.
+    await _reset_duckdb_sequences(session)
+
+
+async def _reset_duckdb_sequences(session) -> None:
+    """Reset all BIGINT PK sequences to MAX(id) + 1 (F-007 fix).
+
+    PG→DuckDB data import copies id values from PG, but DuckDB sequences
+    remain at their initial START value (1). Without reset, the next
+    INSERT via nextval() returns id=1, which collides with imported rows
+    (F-007: ``Duplicate key 'id: N' violates primary key constraint``).
+
+    For each BIGINT PK table:
+      1. ``SELECT MAX(id)`` to find the largest id. Empty table → no-op.
+      2. ``ALTER TABLE ... ALTER COLUMN id DROP DEFAULT`` to break the
+         sequence dependency (DuckDB rejects ``DROP SEQUENCE`` while a
+         column DEFAULT references it).
+      3. ``DROP SEQUENCE`` + ``CREATE SEQUENCE ... START <max_id + 1>``.
+      4. ``ALTER TABLE ... ALTER COLUMN id SET DEFAULT nextval(...)`` to
+         restore the column default.
+
+    DuckDB limitations worked around (mirrors scripts/data_io.py logic):
+      - ``ALTER SEQUENCE ... RESTART WITH`` is "Not implemented" in
+        DuckDB ≤1.5.x, so we DROP+CREATE the sequence.
+      - ``DROP SEQUENCE ... CASCADE`` would also drop the dependent
+        table (data loss), so we break the dependency via DROP DEFAULT
+        first.
+
+    Failures are logged as warnings (not raised) so that one bad table
+    does not abort schema initialization for the other 20 tables.
+    """
+    for table, seq_name in BIGINT_PK_TABLES.items():
+        try:
+            max_result = await session.execute(text(f'SELECT MAX(id) FROM "{table}"'))  # noqa: S608  # fmt: skip
+            max_id = max_result.scalar()
+            if max_id is None:
+                continue  # Empty table — sequence at START 1 is correct
+            next_id = int(max_id) + 1
+            # Break column DEFAULT → sequence dependency so DROP SEQUENCE
+            # succeeds without CASCADE (CASCADE would drop the table too).
+            await session.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN id DROP DEFAULT'))
+            await session.execute(text(f"DROP SEQUENCE IF EXISTS {seq_name}"))
+            await session.execute(text(f"CREATE SEQUENCE {seq_name} START {next_id}"))
+            # Restore DEFAULT nextval() so future INSERTs auto-increment.
+            await session.execute(
+                text(f"ALTER TABLE \"{table}\" ALTER COLUMN id SET DEFAULT nextval('{seq_name}')")
+            )
+            log.info("duckdb_schema_sequence_reset", sequence=seq_name, next_value=next_id)
+        except Exception as exc:
+            log.warning("duckdb_schema_sequence_reset_failed", sequence=seq_name, error=str(exc))
 
 
 async def _upgrade_article_vectors_schema(session) -> None:
