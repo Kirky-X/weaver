@@ -239,6 +239,95 @@ class TestGraphQualityMetricsCalculateAll:
         assert result.total_mentions == 300
         assert result.orphan_entities == 5
 
+    @pytest.mark.asyncio
+    async def test_ladybug_counts_all_relationship_types(self):
+        """LadybugDB should count RELATED_TO + MENTIONS + HAS_ENTITY together.
+
+        Regression test for the bug where LadybugDB's relationships_query
+        only counted RELATED_TO (missing MENTIONS and HAS_ENTITY), causing
+        ``/api/v1/graph/metrics`` to report relationship_count=0 while
+        Neo4j reported 143 for the same data.
+
+        Data setup (mirrors production 2026-07-21):
+            - RELATED_TO: 0
+            - MENTIONS: 79
+            - HAS_ENTITY: 64
+            - Expected total_relationships: 143
+        """
+        from core.constants import DatabaseType
+
+        def mock_query(query, params=None):
+            q = query.lower()
+            if "count(e)" in q and "entity" in q:
+                return [{"count": 82}]  # entities
+            if "count(a)" in q:
+                return [{"count": 10}]  # articles
+            if "count(r)" in q:
+                # Distinguish multi-type (fixed) vs single-type (buggy) query
+                if "related_to" in q and "mentions" in q and "has_entity" in q:
+                    # Multi-type pattern (AFTER fix):
+                    # MATCH ()-[r:RELATED_TO|MENTIONS|HAS_ENTITY]->()
+                    return [{"count": 143}]
+                if "related_to" in q and "mentions" not in q:
+                    # Single RELATED_TO pattern (BEFORE fix, the bug):
+                    # MATCH ()-[r:RELATED_TO]->()
+                    return [{"count": 0}]  # 0 RELATED_TO edges in production
+                if "mentions" in q and "related_to" not in q:
+                    # MENTIONS-only query: MATCH ()-[r:MENTIONS]->()
+                    return [{"count": 79}]
+            if "not" in q and "mentions" in q:
+                return [{"count": 4}]  # orphans
+            return [{"count": 0}]
+
+        mock_pool = MagicMock()
+        mock_pool.database_type = DatabaseType.LADYBUG.value
+        mock_pool.execute_query = AsyncMock(side_effect=mock_query)
+
+        calculator = GraphQualityMetrics(mock_pool, db_type=DatabaseType.LADYBUG.value)
+        metrics_obj = GraphMetrics()
+        await calculator._calculate_counts(metrics_obj, include_orphans=True)
+
+        # The fix: LadybugDB should count RELATED_TO + MENTIONS + HAS_ENTITY
+        # (79 + 64 + 0 = 143), matching Neo4j behavior.
+        # Before the fix, this would be 0 (only RELATED_TO counted).
+        assert metrics_obj.total_relationships == 143, (
+            "LadybugDB relationships_query must count RELATED_TO + MENTIONS + "
+            "HAS_ENTITY together (same as Neo4j). Bug: only RELATED_TO was counted."
+        )
+        assert metrics_obj.total_mentions == 79
+
+    @pytest.mark.asyncio
+    async def test_neo4j_counts_all_relationship_types(self):
+        """Neo4j baseline: counts RELATED_TO + MENTIONS + HAS_ENTITY together."""
+        from core.constants import DatabaseType
+
+        def mock_query(query, params=None):
+            q = query.lower()
+            if "count(e)" in q and "entity" in q:
+                return [{"count": 82}]  # entities
+            if "count(a)" in q:
+                return [{"count": 10}]  # articles
+            if "count(r)" in q:
+                # Neo4j uses type(r) IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
+                if "related_to" in q and "mentions" in q and "has_entity" in q:
+                    return [{"count": 143}]  # all 3 types
+                if "mentions" in q and "related_to" not in q:
+                    return [{"count": 79}]  # mentions only
+            if "not" in q and "mentions" in q:
+                return [{"count": 4}]  # orphans
+            return [{"count": 0}]
+
+        mock_pool = MagicMock()
+        mock_pool.database_type = DatabaseType.NEO4J.value
+        mock_pool.execute_query = AsyncMock(side_effect=mock_query)
+
+        calculator = GraphQualityMetrics(mock_pool, db_type=DatabaseType.NEO4J.value)
+        metrics_obj = GraphMetrics()
+        await calculator._calculate_counts(metrics_obj, include_orphans=True)
+
+        assert metrics_obj.total_relationships == 143
+        assert metrics_obj.total_mentions == 79
+
 
 class TestGraphQualityMetricsConnectedComponents:
     """Test connected components methods."""

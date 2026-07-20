@@ -23,6 +23,13 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# Relationship types counted in ``total_relationships``. Kept narrow
+# (core structural edges only) so the metric stays stable when new
+# semantic relation types are added. See design.md §M2 for the
+# distinction between ``total_relationships`` and the broader
+# ``relationship_type_distribution`` which counts ALL types.
+_COUNTED_RELATION_TYPES: tuple[str, ...] = ("RELATED_TO", "MENTIONS", "HAS_ENTITY")
+
 
 @dataclass
 class GraphMetrics:
@@ -30,6 +37,11 @@ class GraphMetrics:
 
     total_entities: int = 0
     total_articles: int = 0
+    # Counts only core structural relation types (RELATED_TO + MENTIONS +
+    # HAS_ENTITY, see ``_COUNTED_RELATION_TYPES``). Broader per-type counts
+    # (including CAUSES/ENABLES/PREVENTS/…) are in
+    # ``relationship_type_distribution``. The two fields are intentionally
+    # scoped differently — see design.md §M2.
     total_relationships: int = 0
     total_mentions: int = 0
     connected_components: int = 0
@@ -188,21 +200,23 @@ class GraphQualityMetrics:
         include_orphans: bool = True,
     ) -> None:
         """Calculate basic entity and relationship counts."""
-        # LadybugDB stores relationship types differently than Neo4j:
-        # - Neo4j: type(r) returns the actual relationship type name (RELATED_TO, MENTIONS, etc.)
-        # - LadybugDB: r.edge_type returns the semantic type (WORKS_AT, PUBLISHES, etc.)
-        #   but the relationship table name is RELATED_TO or MENTIONS
-        # For LadybugDB, use direct table matching instead of type expression filtering
+        # Both backends count the same set of core structural relation types
+        # (see ``_COUNTED_RELATION_TYPES``). LadybugDB uses Kùzu's
+        # ``:TYPE1|TYPE2|TYPE3`` multi-type syntax (see graph_query_builders.py
+        # line 1340 for prior art). Neo4j uses ``type(r) IN [...]`` filtering
+        # to stay consistent with the codebase convention (see design.md §L1).
+        types_pattern = "|".join(_COUNTED_RELATION_TYPES)
+        types_list = ", ".join(f"'{t}'" for t in _COUNTED_RELATION_TYPES)
         if self._db_type == DatabaseType.LADYBUG.value:
-            relationships_query = """
-            MATCH ()-[r:RELATED_TO]->()
+            relationships_query = f"""
+            MATCH ()-[r:{types_pattern}]->()
             RETURN count(r) AS count
             """
         else:
             type_expr = self._get_type_expr("r")
             relationships_query = f"""
                 MATCH ()-[r]->()
-                WHERE {type_expr} IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
+                WHERE {type_expr} IN [{types_list}]
                 RETURN count(r) AS count
             """
 
