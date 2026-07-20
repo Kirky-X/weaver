@@ -118,7 +118,6 @@ async def _stats_postgres(settings) -> None:
 
         conn = await asyncpg.connect(dsn)
 
-        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
         # Table names from information_schema - internal metadata, not user input
         tables = await conn.fetch("""
             SELECT table_name
@@ -135,9 +134,10 @@ async def _stats_postgres(settings) -> None:
             if table_name.startswith("alembic_"):
                 continue
             try:
-                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
                 # Table name validated by _validate_table_name() - identifier pattern only
-                count = await conn.fetchval(f"SELECT COUNT(*) FROM public.{table_name}")
+                count = await conn.fetchval(  # nosemgrep: asyncpg-sqli
+                    f"SELECT COUNT(*) FROM public.{table_name}"
+                )
                 results.append({"table": table_name, "count": count, "has_data": count > 0})
             except Exception as exc:
                 results.append({"table": table_name, "count": None, "error": str(exc)})
@@ -189,7 +189,11 @@ async def _stats_duckdb(settings) -> None:
 
             for table_name in tables_to_check:
                 try:
-                    result = await session.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                    result = await session.execute(
+                        text(
+                            f"SELECT COUNT(*) FROM {table_name}"
+                        )  # nosemgrep: avoid-sqlalchemy-text
+                    )
                     count = result.scalar() or 0
                     results.append({"table": table_name, "count": count, "has_data": count > 0})
                 except Exception as exc:
@@ -416,7 +420,7 @@ async def _article_postgres(article_id: str, settings) -> dict:
                 if not exists:
                     results["related_tables"][table] = {"exists": False}
                     continue
-                rows = await conn.fetch(
+                rows = await conn.fetch(  # nosemgrep: asyncpg-sqli
                     f"SELECT * FROM public.{table} WHERE article_id = $1 LIMIT 10",
                     article_id,
                 )
@@ -1041,10 +1045,9 @@ async def _rows_postgres(
             order_clause = f" ORDER BY {', '.join(order_parts)}"
 
         # Build and execute query
-        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
         # CLI tool: col_str from explicit columns, order_clause from validated order_by
         query = f"SELECT {col_str} FROM public.{table}{order_clause} LIMIT $1 OFFSET $2"
-        result = await conn.fetch(query, limit, offset)
+        result = await conn.fetch(query, limit, offset)  # nosemgrep: asyncpg-sqli
 
         rows = [dict(r) for r in result]
         await conn.close()
@@ -1088,7 +1091,9 @@ async def _rows_duckdb(
                 order_clause = f" ORDER BY {', '.join(order_parts)}"
 
             # Build and execute query
-            query = text(f"SELECT {col_str} FROM {table}{order_clause} LIMIT :limit OFFSET :offset")
+            query = text(  # nosemgrep: avoid-sqlalchemy-text
+                f"SELECT {col_str} FROM {table}{order_clause} LIMIT :limit OFFSET :offset"
+            )
             result = await session.execute(query, {"limit": limit, "offset": offset})
 
             # Get column names
@@ -1443,7 +1448,9 @@ async def _null_fields_postgres(settings, table: str | None, threshold: float) -
             if not col_rows:
                 continue
 
-            count = await conn.fetchval(f"SELECT COUNT(*) FROM public.{tbl}")
+            count = await conn.fetchval(  # nosemgrep: asyncpg-sqli
+                f"SELECT COUNT(*) FROM public.{tbl}"
+            )
             if count == 0:
                 print(f"\n表 {tbl}：空表，跳过")
                 continue
@@ -1451,9 +1458,8 @@ async def _null_fields_postgres(settings, table: str | None, threshold: float) -
             null_info = []
             for col in col_rows:
                 col_name = col["column_name"]
-                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
                 # Column/table names validated by _validate_table_name
-                null_count = await conn.fetchval(
+                null_count = await conn.fetchval(  # nosemgrep: asyncpg-sqli
                     f'SELECT COUNT(*) FROM public.{tbl} WHERE "{col_name}" IS NULL'
                 )
                 if null_count == 0:
@@ -1517,18 +1523,21 @@ async def _null_fields_duckdb(settings, table: str | None, threshold: float) -> 
             if not col_rows:
                 continue
 
-            count = conn.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
+            count = conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f'SELECT COUNT(*) FROM "{tbl}"'
+            ).fetchone()[0]
             if count == 0:
                 print(f"\n表 {tbl}：空表，跳过")
                 continue
 
             null_info = []
             for col_name, data_type in col_rows:
-                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
                 # Column/table names validated by _validate_table_name
-                null_count = conn.execute(
-                    f'SELECT COUNT(*) FROM "{tbl}" WHERE "{col_name}" IS NULL'
-                ).fetchone()[0]
+                null_count = (
+                    conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                        f'SELECT COUNT(*) FROM "{tbl}" WHERE "{col_name}" IS NULL'
+                    ).fetchone()[0]
+                )
                 if null_count == 0:
                     continue
                 null_pct = null_count / count * 100

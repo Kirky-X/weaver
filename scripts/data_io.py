@@ -392,21 +392,29 @@ def _reset_duckdb_sequences(duck_conn) -> None:
     failed_sequences: list[tuple[str, str]] = []
     for table, seq_name in BIGINT_PK_TABLES.items():
         try:
-            # nosemgrep: sqlalchemy-execute-raw-query — table/seq_name from
-            # BIGINT_PK_TABLES hardcoded constant (core/db/duckdb_schema.py),
-            # next_id is int(max_id)+1. No user input surface; same risk
-            # class as scripts/db.py (accepted in CLAUDE.md Security Audit).
-            row = duck_conn.execute(f'SELECT MAX(id) FROM "{table}"').fetchone()
+            # table/seq_name from BIGINT_PK_TABLES hardcoded constant
+            # (core/db/duckdb_schema.py), next_id is int(max_id)+1. No user
+            # input surface; same risk class as scripts/db.py (accepted in
+            # CLAUDE.md Security Audit).
+            row = duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f'SELECT MAX(id) FROM "{table}"'
+            ).fetchone()
             max_id = row[0] if row and row[0] is not None else 0
             next_id = max_id + 1
             # Break the column DEFAULT → sequence dependency so DROP
             # SEQUENCE succeeds without CASCADE (CASCADE would also
             # drop the table, losing the data we just imported).
-            duck_conn.execute(f'ALTER TABLE "{table}" ALTER COLUMN id DROP DEFAULT')
-            duck_conn.execute(f"DROP SEQUENCE IF EXISTS {seq_name}")
-            duck_conn.execute(f"CREATE SEQUENCE {seq_name} START {next_id}")
+            duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f'ALTER TABLE "{table}" ALTER COLUMN id DROP DEFAULT'
+            )
+            duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"DROP SEQUENCE IF EXISTS {seq_name}"
+            )
+            duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"CREATE SEQUENCE {seq_name} START {next_id}"
+            )
             # Restore the DEFAULT nextval() so future INSERTs auto-increment.
-            duck_conn.execute(
+            duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
                 f"ALTER TABLE \"{table}\" ALTER COLUMN id SET DEFAULT nextval('{seq_name}')"
             )
         except Exception as exc:
@@ -477,7 +485,9 @@ async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
                     raise RuntimeError(f"No common columns for table {table}")
 
                 col_str = ",".join(f'"{c}"' for c in common_cols)
-                result = await pg_conn.execute(text(f'SELECT {col_str} FROM "{table}"'))
+                result = await pg_conn.execute(
+                    text(f'SELECT {col_str} FROM "{table}"')  # nosemgrep: avoid-sqlalchemy-text
+                )
                 # SQLAlchemy AsyncConnection.execute() returns CursorResult;
                 # fetchall() is synchronous.
                 rows = result.fetchall()
@@ -495,7 +505,9 @@ async def export_postgres_to_duckdb(pg_dsn: str, duckdb_path: str) -> None:
 
                 # Verify row count
                 pg_count = len(rows)
-                count_row = duck_conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+                count_row = duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()
                 assert count_row is not None, f"DuckDB COUNT returned None for {table}"
                 duck_count = count_row[0]
                 if pg_count != duck_count:
@@ -561,7 +573,11 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
         # iterate in reverse to be safe with any non-CASCADE FKs.
         async with engine.begin() as pg_conn:
             for table in reversed(EXPECTED_TABLES):
-                await pg_conn.execute(text(f'TRUNCATE TABLE "{table}" RESTART IDENTITY CASCADE'))
+                await pg_conn.execute(
+                    text(
+                        f'TRUNCATE TABLE "{table}" RESTART IDENTITY CASCADE'
+                    )  # nosemgrep: avoid-sqlalchemy-text
+                )
 
         # Track skipped tables due to incompatible schema drift
         skipped_tables: list[tuple[str, str]] = []
@@ -604,7 +620,9 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
 
                 # Read all rows from DuckDB (only common columns)
                 col_str = ",".join(f'"{c}"' for c in common_cols)
-                rows = duck_conn.execute(f'SELECT {col_str} FROM "{table}"').fetchall()
+                rows = duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                    f'SELECT {col_str} FROM "{table}"'
+                ).fetchall()
 
                 if not rows:
                     continue
@@ -634,11 +652,18 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
                     params_batch = [
                         {f"p{i}": row[i] for i in range(len(common_cols))} for row in batch
                     ]
-                    await pg_conn.execute(text(insert_sql), params_batch)
+                    await pg_conn.execute(
+                        text(insert_sql),  # nosemgrep: avoid-sqlalchemy-text
+                        params_batch,
+                    )
 
                 # Verify row count
                 duck_count = len(rows)
-                pg_count = (await pg_conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))).scalar()
+                pg_count = (
+                    await pg_conn.execute(
+                        text(f'SELECT COUNT(*) FROM "{table}"')  # nosemgrep: avoid-sqlalchemy-text
+                    )
+                ).scalar()
                 if pg_count != duck_count:
                     raise RuntimeError(
                         f"Row count mismatch for {table}: DuckDB={duck_count}, PG={pg_count}"
@@ -660,10 +685,16 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
                 if not seq_exists:
                     continue
                 max_id = (
-                    await pg_conn.execute(text(f'SELECT COALESCE(MAX(id), 0) FROM "{table}"'))
+                    await pg_conn.execute(
+                        text(
+                            f'SELECT COALESCE(MAX(id), 0) FROM "{table}"'
+                        )  # nosemgrep: avoid-sqlalchemy-text
+                    )
                 ).scalar()
                 await pg_conn.execute(
-                    text(f"SELECT setval('{seq_name}', :max, true)"),
+                    text(
+                        f"SELECT setval('{seq_name}', :max, true)"
+                    ),  # nosemgrep: avoid-sqlalchemy-text
                     {"max": max_id if (max_id or 0) > 0 else 1},
                 )
 
@@ -761,6 +792,7 @@ async def export_neo4j_to_ladybug(
                     _ladybug_create_nodes(ladybug_conn, label, ladybug_cols, batch_nodes)
 
                 # Verify count
+                # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
                 ladybug_count_result = ladybug_conn.execute(  # type: ignore[union-attr]
                     f"MATCH (n:`{label}`) RETURN count(n) AS cnt"
                 ).get_next()
@@ -831,6 +863,7 @@ async def export_neo4j_to_ladybug(
                     )
 
                 # Verify count
+                # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
                 ladybug_count_result = ladybug_conn.execute(  # type: ignore[union-attr]
                     f"MATCH ()-[r:`{rel_type}`]->() RETURN count(r) AS cnt"
                 ).get_next()
@@ -927,7 +960,9 @@ async def _get_table_counts(
             counts: dict[str, int] = {}
             async with engine.connect() as conn:
                 for table in EXPECTED_TABLES:
-                    result = await conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
+                    result = await conn.execute(
+                        text(f'SELECT COUNT(*) FROM "{table}"')  # nosemgrep: avoid-sqlalchemy-text
+                    )
                     counts[table] = result.scalar() or 0
             return counts
         finally:
@@ -942,7 +977,9 @@ async def _get_table_counts(
             counts = {}
             for table in EXPECTED_TABLES:
                 try:
-                    cnt_row = duck_conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+                    cnt_row = duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()
                     cnt = cnt_row[0] if cnt_row else 0
                     counts[table] = cnt
                 except Exception:
@@ -968,7 +1005,11 @@ def _get_ladybug_node_columns(ladybug_conn, label: str) -> list[str]:
     Falls back to ``_FALLBACK_NODE_COLUMNS`` if introspection fails.
     """
     try:
-        result = ladybug_conn.execute(f"CALL TABLE_INFO('{label}') RETURN *")
+        result = (
+            ladybug_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"CALL TABLE_INFO('{label}') RETURN *"
+            )
+        )
         cols: list[str] = []
         while result.has_next():
             row = result.get_next()
@@ -991,7 +1032,11 @@ def _get_ladybug_rel_properties(ladybug_conn, rel_type: str) -> list[str]:
     Falls back to ``_FALLBACK_REL_PROPS`` if introspection fails.
     """
     try:
-        result = ladybug_conn.execute(f"CALL TABLE_INFO('{rel_type}') RETURN *")
+        result = (
+            ladybug_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"CALL TABLE_INFO('{rel_type}') RETURN *"
+            )
+        )
         props: list[str] = []
         while result.has_next():
             row = result.get_next()
@@ -1172,7 +1217,7 @@ def _ladybug_create_nodes(
     for props in nodes:
         param_dict = {c: props.get(c) for c in cols if c not in vector_cols}
         try:
-            ladybug_conn.execute(cypher, param_dict)
+            ladybug_conn.execute(cypher, param_dict)  # nosemgrep: sqlalchemy-execute-raw-query
         except Exception as exc:
             raise RuntimeError(f"Failed to create node {label} with {param_dict}: {exc}") from exc
 
@@ -1249,7 +1294,9 @@ def _ladybug_create_nodes(
                 for node_id, literal in batch:
                     update_cypher = f"MATCH (n:`{label}` {{id: $id}}) SET n.`{vec_col}` = {literal}"
                     try:
-                        ladybug_conn.execute(update_cypher, {"id": node_id})
+                        ladybug_conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+                            update_cypher, {"id": node_id}
+                        )
                     except Exception as inner_exc:
                         # Vector backfill failure is non-fatal: log and continue
                         print(
@@ -1293,7 +1340,7 @@ def _ladybug_create_rels(
                 v = _to_epoch_seconds(v)
             param_dict[p] = v
         try:
-            ladybug_conn.execute(cypher, param_dict)
+            ladybug_conn.execute(cypher, param_dict)  # nosemgrep: sqlalchemy-execute-raw-query
         except Exception as exc:
             raise RuntimeError(f"Failed to create rel {rel_type} with {param_dict}: {exc}") from exc
 

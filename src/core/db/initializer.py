@@ -179,9 +179,8 @@ async def create_database(parsed: ParsedDSN) -> None:
         database="postgres",
     )
     try:
-        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
         # Database name from parsed DSN config - settings controlled, not user input
-        await conn.execute(
+        await conn.execute(  # nosemgrep: formatted-sql-query, asyncpg-sqli, sqlalchemy-execute-raw-query
             f"CREATE DATABASE \"{parsed.database}\" OWNER {parsed.user} ENCODING 'UTF8'"
         )
         log.info("database_created", database=parsed.database)

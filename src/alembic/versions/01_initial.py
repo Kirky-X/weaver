@@ -247,13 +247,13 @@ def upgrade() -> None:
     )
     op.create_index("idx_av_unique", "article_vectors", ["article_id", "vector_type"], unique=True)
 
-    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use.dangerous-subprocess-use
+    # nosemgrep: dangerous-subprocess-use
     # HNSW parameters from env vars with safe integer defaults - deployment controlled
     m = int(os.getenv("HNSW_M", "16"))
     ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "64"))
 
-    # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
     # Migration: HNSW index params from env vars (deployment controlled)
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     op.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_article_vectors_hnsw
         ON article_vectors USING hnsw (embedding vector_cosine_ops)
@@ -277,8 +277,8 @@ def upgrade() -> None:
         ),
     )
 
-    # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
     # Migration: HNSW index params from env vars (deployment controlled)
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     op.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_entity_vectors_hnsw
         ON entity_vectors USING hnsw (embedding vector_cosine_ops)

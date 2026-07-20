@@ -70,10 +70,10 @@ def upgrade() -> None:
         ),
     )
 
-    # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
     # Migration: HNSW index params from env vars (deployment controlled)
     m = int(os.getenv("HNSW_M", "16"))
     ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "200"))
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     op.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_community_vectors_hnsw
         ON community_vectors USING hnsw (embedding vector_cosine_ops)
