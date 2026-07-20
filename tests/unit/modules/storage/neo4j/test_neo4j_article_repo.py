@@ -159,9 +159,11 @@ class TestFindArticleByNeo4jId:
         result = await repo.find_article_by_graph_id("neo4j-internal-123")
 
         assert result is not None
-        assert set(result.keys()) == {"neo4j_id", "pg_id", "created_at"}, (
-            f"find_article_by_graph_id must return only slim fields, " f"got {set(result.keys())}"
-        )
+        assert set(result.keys()) == {
+            "neo4j_id",
+            "pg_id",
+            "created_at",
+        }, f"find_article_by_graph_id must return only slim fields, got {set(result.keys())}"
         assert result["neo4j_id"] == "neo4j-internal-123"
 
     @pytest.mark.asyncio
@@ -242,9 +244,11 @@ class TestGetFollowedArticles:
         )
 
         assert len(result) == 2
-        assert set(result[0].keys()) == {"neo4j_id", "pg_id", "time_gap_hours"}, (
-            f"get_followed_articles must return only slim fields, " f"got {set(result[0].keys())}"
-        )
+        assert set(result[0].keys()) == {
+            "neo4j_id",
+            "pg_id",
+            "time_gap_hours",
+        }, f"get_followed_articles must return only slim fields, got {set(result[0].keys())}"
         assert result[0]["pg_id"] == "pg-1"
 
     @pytest.mark.asyncio
@@ -288,18 +292,55 @@ class TestGetFollowedArticles:
 
 
 class TestDeleteArticle:
-    """Tests for delete_article method."""
+    """Tests for delete_article method.
+
+    T051 LOW-1: return type unified to ``int`` (count of nodes actually
+    deleted) for LSP consistency with LadybugArticleRepo.
+    """
 
     @pytest.mark.asyncio
     async def test_delete_article_success(self):
-        """Test successful article deletion."""
+        """Test successful article deletion returns int count of 1."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(return_value=[])
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 1}])
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.delete_article("pg-to-delete")
 
-        assert result is True
+        assert isinstance(result, int)
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_delete_article_not_found_returns_zero(self):
+        """Test that deleting a non-existent article returns 0 (not True).
+
+        Previous ``bool`` return always returned True even when no node
+        matched — masked silent no-ops. The int contract surfaces the
+        nothing-deleted case (rule 12).
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = Neo4jArticleRepo(mock_pool)
+        result = await repo.delete_article("nonexistent-pg")
+
+        assert isinstance(result, int)
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_article_uses_detach_delete(self):
+        """delete_article must DETACH DELETE to also remove relationships."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 1}])
+
+        repo = Neo4jArticleRepo(mock_pool)
+        await repo.delete_article("pg-to-delete")
+
+        call_args = mock_pool.execute_query.await_args
+        cypher = call_args[0][0] if call_args[0] else ""
+        assert (
+            "DETACH DELETE" in cypher
+        ), f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
 
 
 class TestDeleteOldArticles:
@@ -456,7 +497,13 @@ class TestListAllArticlePgIds:
 
 
 class TestDeleteArticlesWithoutMentions:
-    """Tests for delete_articles_without_mentions method."""
+    """Tests for delete_articles_without_mentions method.
+
+    LOW-2 (T051): Neo4j version previously hardcoded ``return 0``, hiding
+    successful deletions from callers (Rule 12 violation — silent failure).
+    Now mirrors the LadybugDB implementation pattern: ``collect + size +
+    DETACH DELETE`` returns the actual count via a single Cypher query.
+    """
 
     @pytest.mark.asyncio
     async def test_delete_without_mentions(self):
@@ -468,6 +515,48 @@ class TestDeleteArticlesWithoutMentions:
         result = await repo.delete_articles_without_mentions()
 
         mock_pool.execute_query.assert_called_once()
+        # Empty result → 0 deleted (defensive: caller sees explicit zero).
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_articles_without_mentions_returns_real_count_neo4j(self):
+        """LOW-2: returns actual deleted count (not hardcoded 0).
+
+        When 3 orphan Article nodes are deleted, the return value must
+        equal 3 — mirroring the LadybugDB implementation that uses
+        ``collect + size + DETACH DELETE`` to compute the count BEFORE
+        the delete (counting after DELETE is unreliable in Neo4j).
+
+        Previously the Neo4j version executed the DETACH DELETE then
+        hardcoded ``return 0``, leaving callers unable to distinguish
+        "0 deleted" from "error swallowed" (Rule 12 violation).
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 3}])
+
+        repo = Neo4jArticleRepo(mock_pool)
+        result = await repo.delete_articles_without_mentions()
+
+        assert result == 3, (
+            f"Must return actual deleted count (3), got {result} — "
+            f"hardcoded 0 hides successful deletions (Rule 12 violation)"
+        )
+        mock_pool.execute_query.assert_called_once()
+
+        # Verify Cypher uses the collect + size + DETACH DELETE pattern
+        # (same as LadybugDB impl and Neo4j delete_old_articles).
+        call_args = mock_pool.execute_query.call_args
+        cypher = call_args[0][0] if call_args[0] else ""
+        assert "DETACH DELETE" in cypher, f"Cypher must contain DETACH DELETE, got: {cypher}"
+        assert (
+            "collect" in cypher.lower()
+        ), f"Cypher must use collect() to gather nodes before delete, got: {cypher}"
+        assert (
+            "size(" in cypher.lower() and "deleted" in cypher.lower()
+        ), f"Cypher must RETURN size(articles) AS deleted, got: {cypher}"
+        # Preserve existing semantic: incoming MENTIONS + outgoing FOLLOWED_BY.
+        assert "MENTIONS" in cypher
+        assert "FOLLOWED_BY" in cypher
 
 
 class TestCountArticlesWithoutMentions:

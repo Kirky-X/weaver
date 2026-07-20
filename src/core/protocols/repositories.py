@@ -323,6 +323,36 @@ class ArticleRepository(Protocol):
         """
         ...
 
+    async def fetch_bodies_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, str]:
+        """Batch fetch article body content by PostgreSQL IDs.
+
+        Used by ``ContextBuilder.fetch_article_bodies`` to replace the
+        N+1 per-id ``repo.get`` loop with a single batched SELECT against
+        ``article_bodies``. Pairs with ``fetch_titles_by_pg_ids`` to
+        rebuild full article context after the Article node slim-down
+        (design.md §D2).
+
+        .. warning::
+            Do NOT call this method inside a per-article loop — that
+            defeats the N+1 avoidance. Pass the full ``pg_ids`` list in
+            one shot.
+
+        Args:
+            pg_ids: List of article UUID strings. Empty list short-circuits
+                without opening a session. Invalid UUID strings are skipped
+                with a warning log (not raised). Mapping keys are lowercase
+                UUID strings — callers querying the result must use
+                ``pg_id.lower()`` to look up entries.
+
+        Returns:
+            Mapping of ``pg_id`` (lowercase UUID string) -> body text.
+            Missing IDs are omitted from the result (not empty string).
+        """
+        ...
+
 
 @runtime_checkable
 class SourceAuthorityRepository(Protocol):
@@ -470,7 +500,16 @@ class GraphArticleRepository(Protocol):
         """
         ...
 
-    async def delete_article(self, article_id: str) -> bool: ...
+    async def delete_article(self, article_id: str) -> int:
+        """Delete an Article node by PostgreSQL ID.
+
+        T051 LOW-1: return type unified to ``int`` (count of nodes
+        actually deleted). Both Neo4j and LadybugDB implementations
+        return the number of nodes actually deleted (0 if no match,
+        1 if a node was deleted) — callers can distinguish the no-op
+        case (rule 12: failures must be explicit).
+        """
+        ...
 
     async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.

@@ -288,16 +288,31 @@ class LadybugArticleRepo:
         result = await self._pool.execute_query(query, {"pg_id": article_id, "limit": limit})
         return [dict(r) for r in result]
 
-    async def delete_article(self, article_id: str) -> bool:
-        """Delete an article and its relationships."""
+    async def delete_article(self, article_id: str) -> int:
+        """Delete an article and its relationships.
+
+        T051 LOW-1: return type unified to ``int`` (count of nodes
+        actually deleted) to match Neo4jArticleRepo. The previous
+        ``bool`` return masked the no-op case (Neo4j returned
+        ``True`` unconditionally even when no node matched) — callers
+        can now distinguish "deleted 1" from "deleted 0" (rule 12).
+
+        Uses ``collect`` + ``size`` to compute the deleted count
+        *before* DETACH DELETE — counting after DELETE is unreliable
+        in Kùzu (may return 0 or stale values). Same pattern as
+        ``delete_old_articles``.
+        """
         query = """
         MATCH (a:Article {pg_id: $pg_id})
-        WITH a, COUNT(a) AS count
-        DELETE a
-        RETURN count
+        WITH collect(a) AS articles
+        UNWIND articles AS a
+        DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
         result = await self._pool.execute_query(query, {"pg_id": article_id})
-        return bool(result and result[0].get("count", 0) > 0)
+        if not result:
+            return 0
+        return int(result[0].get("deleted", 0))
 
     async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.
@@ -356,19 +371,32 @@ class LadybugArticleRepo:
         return [dict(r) for r in result]
 
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
-        """Delete articles that don't exist in PostgreSQL."""
-        # Find orphan articles
+        """Delete articles that don't exist in PostgreSQL.
+
+        T051 MEDIUM-1: replaced the per-id ``delete_article`` loop
+        (N round-trips — classic N+1) with a single batch Cypher that
+        filters via ``NOT a.pg_id IN $valid_pg_ids`` and DETACH
+        DELETEs all orphans in one transaction. Uses ``collect`` +
+        ``size`` to compute the count *before* DELETE (counting after
+        DELETE is unreliable in Kùzu). Same pattern as
+        ``delete_old_articles``.
+
+        An empty ``valid_article_ids`` list deletes every Article
+        node (no pg_id is in the empty valid set) — matches the
+        previous semantic and Neo4j's empty-list branch.
+        """
         query = """
         MATCH (a:Article)
-        RETURN a.pg_id AS pg_id
+        WHERE NOT a.pg_id IN $valid_pg_ids
+        WITH collect(a) AS articles
+        UNWIND articles AS a
+        DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
-        result = await self._pool.execute_query(query)
-        orphan_pg_ids = [r["pg_id"] for r in result if r["pg_id"] not in valid_article_ids]
-        count = 0
-        for pg_id in orphan_pg_ids:
-            await self.delete_article(pg_id)
-            count += 1
-        return count
+        result = await self._pool.execute_query(query, {"valid_pg_ids": valid_article_ids})
+        if not result:
+            return 0
+        return int(result[0].get("deleted", 0))
 
     async def list_all_article_ids(self) -> list[str]:
         """List all article IDs."""
@@ -380,18 +408,33 @@ class LadybugArticleRepo:
         return [r["pg_id"] for r in result]
 
     async def delete_articles_without_mentions(self) -> int:
-        """Delete articles that have no MENTIONS relationships."""
+        """Delete articles that have no MENTIONS relationships.
+
+        T051 LOW-3: replaced the per-id ``delete_article`` loop
+        (1 + N round-trips — N+1) with a single batch Cypher that
+        collects matching articles and DETACH DELETEs them in one
+        transaction. Uses ``collect`` + ``size`` to compute the
+        count *before* DELETE (counting after DELETE is unreliable
+        in Kùzu).
+
+        Note: LadybugDB uses the outgoing-MENTIONS definition
+        (``NOT (a)-[:MENTIONS]->()``). Neo4j uses a different
+        definition (incoming MENTIONS + outgoing FOLLOWED_BY) —
+        that divergence is pre-existing and out of scope for T051
+        (rule 3: surgical changes only).
+        """
         query = """
         MATCH (a:Article)
         WHERE NOT (a)-[:MENTIONS]->()
-        RETURN a.pg_id AS pg_id
+        WITH collect(a) AS articles
+        UNWIND articles AS a
+        DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
         result = await self._pool.execute_query(query)
-        count = 0
-        for r in result:
-            await self.delete_article(r["pg_id"])
-            count += 1
-        return count
+        if not result:
+            return 0
+        return int(result[0].get("deleted", 0))
 
     async def count_articles_without_mentions(self) -> int:
         """Count articles without MENTIONS relationships."""

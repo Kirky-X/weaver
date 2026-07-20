@@ -269,3 +269,228 @@ class TestLadybugArticleRepoUpdateArticleScoreRemoved:
             "LadybugArticleRepo.update_article_score must be removed after "
             "the Article node slim-down (graph no longer stores score)."
         )
+
+
+class TestLadybugArticleRepoDeleteArticle:
+    """T051: delete_article returns int (count of nodes actually deleted).
+
+    LOW-1 fix: unify return semantic with Neo4jArticleRepo.delete_article.
+    Both backends now return ``int`` (number of nodes actually deleted)
+    rather than ``bool``. The previous LadybugDB implementation returned
+    ``bool`` while Neo4j returned ``True`` unconditionally even when no
+    node matched — an LSP inconsistency that hid silent no-ops (rule 12).
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_article_returns_int_count_when_deleted(self):
+        """delete_article must return an int count (1 when a node matched)."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 1}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_article("pg-to-delete")
+
+        assert isinstance(result, int)
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_delete_article_returns_zero_when_not_found(self):
+        """delete_article must return 0 when no node matched the pg_id.
+
+        This is the silent-no-op case the previous bool return masked:
+        Neo4j always returned True. The int contract surfaces the
+        nothing-deleted case so callers can detect it (rule 12).
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_article("nonexistent-pg")
+
+        assert isinstance(result, int)
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_article_uses_detach_delete(self):
+        """delete_article must DETACH DELETE to also remove relationships.
+
+        Matches Neo4j behaviour: deleting an Article also removes its
+        MENTIONS and FOLLOWED_BY relationships rather than failing on
+        dangling edges.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 1}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        await repo.delete_article("pg-to-delete")
+
+        call_args = mock_pool.execute_query.await_args
+        cypher = call_args[0][0] if call_args[0] else ""
+        assert (
+            "DETACH DELETE" in cypher
+        ), f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
+
+
+class TestLadybugArticleRepoDeleteOrphanArticles:
+    """T051: delete_orphan_articles uses a single UNWIND batch Cypher.
+
+    MEDIUM-1 fix: previous implementation looped over orphan pg_ids and
+    issued one DELETE per id — classic N+1 (N round-trips). The batched
+    implementation issues exactly ONE execute_query call regardless of
+    orphan count, matching the pattern already used by
+    ``delete_old_articles``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_orphans_issues_single_batch_query(self):
+        """delete_orphan_articles must call execute_query exactly once.
+
+        The previous N+1 loop called execute_query once per orphan id.
+        The batched implementation must collapse to a single call
+        regardless of orphan count.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 3}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        # Simulate three orphan pg_ids — under the old N+1 pattern this
+        # would have triggered 3+N execute_query calls (1 to fetch all
+        # + 3 per-id deletes). The batched implementation must use 1.
+        result = await repo.delete_orphan_articles(["valid-1", "valid-2", "valid-3", "valid-4"])
+
+        assert result == 3
+        assert mock_pool.execute_query.await_count == 1, (
+            f"delete_orphan_articles must be a single batch Cypher, "
+            f"got {mock_pool.execute_query.await_count} calls"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_orphans_cypher_uses_in_filter_not_per_id_loop(self):
+        """Cypher must filter with ``NOT a.pg_id IN $valid_pg_ids`` in one query.
+
+        Asserts the batched Cypher shape: a single MATCH with a list
+        membership filter, then collect+DETACH DELETE returning the
+        deleted count. This is what eliminates the N+1.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        await repo.delete_orphan_articles(["valid-1", "valid-2"])
+
+        call_args = mock_pool.execute_query.await_args
+        cypher = call_args[0][0] if call_args[0] else ""
+        assert "NOT a.pg_id IN $valid_pg_ids" in cypher, (
+            f"delete_orphan_articles Cypher must use NOT a.pg_id IN $valid_pg_ids "
+            f"for batch filtering, got: {cypher}"
+        )
+        assert "DETACH DELETE" in cypher
+        assert "RETURN" in cypher and "deleted" in cypher
+
+    @pytest.mark.asyncio
+    async def test_delete_orphans_passes_valid_pg_ids_param(self):
+        """The batched Cypher must receive valid_pg_ids as a parameter."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        await repo.delete_orphan_articles(["v1", "v2", "v3"])
+
+        call_args = mock_pool.execute_query.await_args
+        params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
+        assert params == {
+            "valid_pg_ids": ["v1", "v2", "v3"]
+        }, f"delete_orphan_articles must pass valid_pg_ids param, got {params}"
+
+    @pytest.mark.asyncio
+    async def test_delete_orphans_empty_valid_list_deletes_all(self):
+        """Empty valid_article_ids must delete every Article node.
+
+        Preserves the existing semantic (also matches Neo4j's empty-list
+        branch): an empty valid list means every graph article is an
+        orphan. The batched Cypher handles this naturally because
+        ``NOT a.pg_id IN []`` is true for all rows.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 10}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_orphan_articles([])
+
+        assert result == 10
+        assert mock_pool.execute_query.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_delete_orphans_zero_deleted_when_all_valid(self):
+        """If every graph article is in valid_article_ids, deleted count is 0."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_orphan_articles(["v1", "v2", "v3"])
+
+        assert result == 0
+
+
+class TestLadybugArticleRepoDeleteArticlesWithoutMentions:
+    """T051: delete_articles_without_mentions uses a single batch Cypher.
+
+    LOW-3 fix: same N+1 pattern as delete_orphan_articles. Batched into
+    a single Cypher that collects matching articles and DETACH DELETEs
+    them in one transaction.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_without_mentions_issues_single_batch_query(self):
+        """delete_articles_without_mentions must call execute_query exactly once.
+
+        The previous implementation issued 1 (find) + N (per-id delete)
+        calls. The batched implementation must collapse to 1.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 5}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_articles_without_mentions()
+
+        assert result == 5
+        assert mock_pool.execute_query.await_count == 1, (
+            f"delete_articles_without_mentions must be a single batch Cypher, "
+            f"got {mock_pool.execute_query.await_count} calls"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_without_mentions_cypher_preserves_semantic(self):
+        """Cypher must keep the existing LadybugDB ``NOT (a)-[:MENTIONS]->()``
+        filter (outgoing MENTIONS).
+
+        The task is to fix N+1, NOT to change business semantics. The
+        LadybugDB backend uses the outgoing-MENTIONS definition while
+        Neo4j uses incoming-MENTIONS + outgoing-FOLLOWED_BY — that
+        divergence is pre-existing and out of scope for T051.
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        await repo.delete_articles_without_mentions()
+
+        call_args = mock_pool.execute_query.await_args
+        cypher = call_args[0][0] if call_args[0] else ""
+        assert "NOT (a)-[:MENTIONS]->()" in cypher, (
+            f"delete_articles_without_mentions Cypher must preserve the "
+            f"existing outgoing-MENTIONS filter, got: {cypher}"
+        )
+        assert "DETACH DELETE" in cypher
+        assert "RETURN" in cypher and "deleted" in cypher
+
+    @pytest.mark.asyncio
+    async def test_delete_without_mentions_zero_deleted(self):
+        """If no orphan articles exist, deleted count is 0."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+
+        repo = LadybugArticleRepo(mock_pool)
+        result = await repo.delete_articles_without_mentions()
+
+        assert result == 0

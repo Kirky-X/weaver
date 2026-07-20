@@ -267,23 +267,37 @@ class Neo4jArticleRepo:
         result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
 
-    async def delete_article(self, article_id: str) -> bool:
+    async def delete_article(self, article_id: str) -> int:
         """Delete an Article node by PostgreSQL ID.
 
         This will also remove all MENTIONS and FOLLOWED_BY relationships.
+
+        T051 LOW-1: return type unified to ``int`` (count of nodes
+        actually deleted) to match LadybugArticleRepo. The previous
+        ``bool`` return always returned ``True`` even when no node
+        matched — an LSP inconsistency that hid silent no-ops (rule 12).
+        Uses ``collect`` + ``size`` to compute the count *before*
+        DETACH DELETE (counting after DELETE is unreliable in Neo4j).
+        Same pattern as ``delete_old_articles``.
 
         Args:
             article_id: The article's PostgreSQL ID.
 
         Returns:
-            True if deleted, False if not found.
+            Number of nodes actually deleted (0 if no match, 1 if a
+            node was deleted).
         """
         query = """
         MATCH (a:Article {pg_id: $pg_id})
+        WITH collect(a) AS articles
+        UNWIND articles AS a
         DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
-        await self._pool.execute_query(query, {"pg_id": article_id})
-        return True
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
+        if not result:
+            return 0
+        return int(result[0].get("deleted", 0))
 
     async def delete_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Delete Article nodes whose pg_id is in ``cutoff_pg_ids``.
@@ -410,6 +424,14 @@ class Neo4jArticleRepo:
         These articles are considered orphaned because they have no meaningful
         connections in the knowledge graph.
 
+        LOW-2 (T051): previously this method executed the DETACH DELETE
+        then hardcoded ``return 0``, leaving callers unable to distinguish
+        "0 deleted" from "error swallowed" (Rule 12 violation). Now uses
+        the same ``collect + size + DETACH DELETE`` pattern as
+        ``delete_old_articles`` and the LadybugDB counterpart — the count
+        is computed BEFORE the delete (counting after DELETE is unreliable
+        in Neo4j).
+
         Returns:
             Number of articles deleted.
         """
@@ -417,12 +439,15 @@ class Neo4jArticleRepo:
         MATCH (a:Article)
         WHERE NOT ()-[:MENTIONS]->(a)
           AND NOT (a)-[:FOLLOWED_BY]->()
+        WITH collect(a) AS articles
+        UNWIND articles AS a
         DETACH DELETE a
+        RETURN size(articles) AS deleted
         """
-        await self._pool.execute_query(query)
-        # Neo4j doesn't easily return count from DETACH DELETE
-        # For accurate counting, use a separate count query
-        return 0
+        result = await self._pool.execute_query(query)
+        if not result:
+            return 0
+        return int(result[0].get("deleted", 0))
 
     async def count_articles_without_mentions(self) -> int:
         """Count Article nodes that have no MENTIONS relationships and no FOLLOWED_BY outgoing relationships.

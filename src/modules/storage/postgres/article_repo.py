@@ -1176,6 +1176,85 @@ class ArticleRepo:
         )
         return mapping
 
+    async def fetch_bodies_by_pg_ids(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, str]:
+        """Batch fetch article body content by PostgreSQL IDs.
+
+        Mirrors ``fetch_titles_by_pg_ids`` but selects ``body`` from
+        ``article_bodies`` instead of metadata columns. Used by
+        ``ContextBuilder.fetch_article_bodies`` to replace the per-id
+        ``repo.get`` N+1 loop with a single batched SELECT.
+
+        Implements:
+            - ArticleRepository.fetch_bodies_by_pg_ids
+
+        .. warning::
+            Do NOT call this method inside a per-article loop — that
+            defeats the N+1 avoidance. Pass the full ``pg_ids`` list in
+            one shot.
+
+        Args:
+            pg_ids: List of article UUID strings. Empty list short-circuits
+                without opening a session. Invalid UUID strings are skipped
+                with a warning log (not raised). Mapping keys are lowercase
+                UUID strings — callers querying the result must use
+                ``pg_id.lower()`` to look up entries.
+
+        Returns:
+            Mapping of ``pg_id`` (lowercase UUID string) -> body text.
+            Missing IDs are omitted from the result (not empty string).
+        """
+        if not pg_ids:
+            return {}
+
+        # Filter out invalid UUIDs (graph DB may carry historical dirty data;
+        # one bad pg_id must not abort the entire batch — rule 12). Aggregate
+        # to a single warning log with a 5-item sample to avoid log spam.
+        uuid_ids: list[uuid.UUID] = []
+        skipped: list[str] = []
+        for pid in pg_ids:
+            try:
+                uuid_ids.append(uuid.UUID(pid))
+            except (ValueError, AttributeError, TypeError):
+                skipped.append(pid)
+        if skipped:
+            log.warning(
+                "fetch_bodies_by_pg_ids_invalid_skipped",
+                skipped_count=len(skipped),
+                total_count=len(pg_ids),
+                sample=skipped[:5],
+            )
+        if not uuid_ids:
+            return {}
+
+        # Chunk to avoid PG parameter limits (soft limit 65535) and DuckDB
+        # plan-cache bloat. 500 keeps parse time <10ms while limiting round
+        # trips. Reads can use a larger chunk than writes (no transaction
+        # lock held).
+        CHUNK_SIZE = 500
+        mapping: dict[str, str] = {}
+        # Single shared session for all chunks — read-only queries have no
+        # transaction isolation needs. Avoids N session-construction overheads.
+        async with self._pool.session() as session:
+            for i in range(0, len(uuid_ids), CHUNK_SIZE):
+                chunk = uuid_ids[i : i + CHUNK_SIZE]
+                stmt = select(ArticleBody.article_id, ArticleBody.body).where(
+                    ArticleBody.article_id.in_(bindparam("ids", chunk, expanding=True))
+                )
+                result = await session.execute(stmt)
+                # row[0] is article_id (UUID); row[1] is body (Text).
+                for row in list(result):
+                    mapping[str(row[0])] = row[1]
+        log.debug(
+            "fetch_bodies_by_pg_ids_complete",
+            requested=len(pg_ids),
+            returned=len(mapping),
+            skipped=len(skipped),
+        )
+        return mapping
+
     async def get_stuck_articles(self, timeout_minutes: int = 30) -> list[Article]:
         """Get articles stuck in PROCESSING state beyond timeout.
 
