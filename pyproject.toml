@@ -56,7 +56,7 @@ dependencies = [
     "pandas>=3.0.2",
     # ── Knowledge Cache ──────────────────────────────────────
     "rapidfuzz>=3.0.0",
-    "pycountry>=24.6.1",
+    "pycountry>=26.2.16",
     "geonamescache>=2.0.0",
     "cachetools>=7.1.0",
     "ruptures>=1.1.10",
