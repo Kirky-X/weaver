@@ -1,0 +1,101 @@
+# Weaver Hybrid DB Test Stack (Phase 3 + Phase 4)
+# Usage:
+#   Phase 3 (PG + LadybugDB):  docker compose -f docker/docker-compose.hybrid-test.yml --profile phase3 up -d
+#   Phase 4 (DuckDB + Neo4j):  docker compose -f docker/docker-compose.hybrid-test.yml --profile phase4 up -d
+# Stop:  docker compose -f docker/docker-compose.hybrid-test.yml down
+# Clean: docker compose -f docker/docker-compose.hybrid-test.yml down -v
+#
+# LadybugDB and DuckDB are file-backed (no container needed); only the
+# primary backend (PG or Neo4j) runs in Docker. Configure .env per phase
+# as documented in .env.example (Phase 3 / Phase 4 sections).
+
+services:
+  # ── Phase 3: PG + LadybugDB ─────────────────────────────────
+  # Only PG runs here; LadybugDB persists to data/weaver_graph.ladybug.
+  postgres_phase3:
+    image: pgvector/pgvector:pg16
+    container_name: weaver_hybrid_pg
+    profiles: ["phase3"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: weavertest
+      POSTGRES_DB: weaver
+    ports:
+      - "5432:5432"
+    volumes:
+      - weaver_hybrid_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weaver"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weaver_hybrid
+
+  redis_phase3:
+    image: redis:7-alpine
+    container_name: weaver_hybrid_redis_p3
+    profiles: ["phase3"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - weaver_hybrid_redis_p3_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - weaver_hybrid
+
+  # ── Phase 4: DuckDB + Neo4j ─────────────────────────────────
+  # Only Neo4j runs here; DuckDB persists to data/weaver.duckdb.
+  neo4j_phase4:
+    image: neo4j:5.25
+    container_name: weaver_hybrid_neo4j
+    profiles: ["phase4"]
+    environment:
+      NEO4J_AUTH: neo4j/weavertest
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 1g
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - weaver_hybrid_neo4j_data:/data
+      - weaver_hybrid_neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - weaver_hybrid
+
+  redis_phase4:
+    image: redis:7-alpine
+    container_name: weaver_hybrid_redis_p4
+    profiles: ["phase4"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - weaver_hybrid_redis_p4_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - weaver_hybrid
+
+volumes:
+  weaver_hybrid_pg_data:
+  weaver_hybrid_redis_p3_data:
+  weaver_hybrid_neo4j_data:
+  weaver_hybrid_neo4j_logs:
+  weaver_hybrid_redis_p4_data:
+
+networks:
+  weaver_hybrid:
+    driver: bridge
