@@ -61,7 +61,7 @@ dependencies = [
     "cachetools>=7.1.0",
     "ruptures>=1.1.10",
     # ── Fake News Detection ──────────────────────────────
-    "lightgbm>=4.0.0",
+    "lightgbm>=4.7.0",
     # ── Zero-shot Entity Extraction ──────────────────────────────
     "gliner>=0.2.0",
     # ── Cascade Classification ──────────────────────────────
