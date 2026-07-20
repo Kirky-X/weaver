@@ -33,6 +33,15 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     - MENTIONS edges for article-entity linking
     - Direction indicators in relationship display
 
+    Cross-database divergence (intentional, see design.md §H1):
+    This class does NOT override ``_handle_no_entities`` and uses the base
+    behavior (relational DB text search, matching title + body) directly.
+    LadybugDB ``LadybugLocalContextBuilder`` overrides it to add a graph
+    Article node search path (title-only match) before the relational
+    fallback. The two backends are NOT semantically equivalent in the
+    no-entities path — accepted trade-off, see H1 in
+    ``specmark/changes/db-consistency-verify/design.md``.
+
     Implements: ContextBuilder (via BaseLocalContextBuilder)
     """
 

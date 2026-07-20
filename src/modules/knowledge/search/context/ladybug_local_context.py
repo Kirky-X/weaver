@@ -77,6 +77,16 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
 
         Tries graph-based Article node search first, then falls back to
         relational DB (DuckDB/PostgreSQL) text search.
+
+        Cross-database divergence (intentional, see design.md §H1):
+        This override exists to exercise LadybugDB's Cypher dialect for
+        Article node queries. The graph path matches title only (Python-side
+        filter after PG enrichment); the relational fallback matches title
+        and body. Neo4j ``LocalContextBuilder`` does NOT override this
+        method and uses the base behavior (relational DB search) directly.
+        The two backends are therefore NOT semantically equivalent in the
+        no-entities path — accepted trade-off, see H1 in
+        ``specmark/changes/db-consistency-verify/design.md``.
         """
         context.add_content(
             name="Search Note",
@@ -258,9 +268,14 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         Uses parameterized query via GraphQueryBuilder.
 
         After the Article node slim-down (design.md §D2), the graph query
-        returns only ``a.pg_id AS id``. Title is batch-fetched from
-        PostgreSQL via ``enrich_articles_with_titles`` when
-        ``self._article_repo`` is available.
+        returns only ``a.pg_id AS id`` and does NOT filter by query text
+        (Article nodes no longer store titles). Titles are batch-fetched
+        from PostgreSQL via ``enrich_articles_with_titles`` when
+        ``self._article_repo`` is available, then used to filter articles
+        by case-insensitive substring match against the query. When no
+        titles match, an empty list is returned so the caller
+        (``_handle_no_entities``) can fall back to
+        ``_search_articles_in_relational_db`` for a body-text search.
         """
         cypher = self._query_builder.build_articles_by_text_query(limit)
 
@@ -279,6 +294,18 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
                 article_repo=self._article_repo,
                 id_fields=["id"],
             )
+
+            # Filter by query text (case-insensitive substring match on
+            # title). The graph query returns ALL Article pg_ids because
+            # titles are no longer stored on Article nodes after the
+            # slim-down — the filter must happen here, after PG titles
+            # are enriched. When ``query`` is empty, no filtering is
+            # applied (preserve prior behaviour for empty queries).
+            if query:
+                query_lower = query.lower()
+                articles = [
+                    a for a in articles if a.get("title") and query_lower in a["title"].lower()
+                ]
 
             if articles:
                 log.info("articles_found_by_text", count=len(articles), query=query)

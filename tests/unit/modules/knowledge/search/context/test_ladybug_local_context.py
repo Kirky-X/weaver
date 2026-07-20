@@ -637,6 +637,115 @@ class TestGetRelatedArticles:
         mock_pool.execute_query.assert_called_once()
 
 
+class TestGetRelatedArticlesByText:
+    """Test _get_related_articles_by_text() method.
+
+    Regression tests for the bug where LadybugDB's
+    ``_get_related_articles_by_text`` returned ALL articles (no text
+    filter), causing ``search_local:LibreOffice`` to return 10 articles
+    (all articles) instead of 1 (the matching article).
+
+    Root cause: ``build_articles_by_text_query`` returns
+    ``MATCH (a:Article) RETURN a.pg_id AS id LIMIT $limit`` (no title
+    filter — Article nodes don't store titles after the slim-down).
+    The method must filter the returned pg_ids by query text against
+    the enriched titles from PostgreSQL.
+    """
+
+    @pytest.mark.asyncio
+    async def test_should_filter_articles_by_query_text(self, mock_pool) -> None:
+        """Articles returned by graph query must be filtered by query text.
+
+        Setup: graph returns 3 article pg_ids (no text filter — that's
+        the bug being fixed). After enriching with titles from PG, only
+        articles whose title contains the query text should be returned.
+        """
+        # Graph query returns all 3 article pg_ids (no filter)
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {"id": "pg-id-firefox"},
+                {"id": "pg-id-libreoffice"},
+                {"id": "pg-id-windows"},
+            ]
+        )
+
+        # Mock article_repo to provide titles for enrichment
+        mock_article_repo = Mock()
+
+        async def mock_fetch_titles(pg_ids):
+            return {
+                "pg-id-firefox": {"title": "Firefox 153.0 释出"},
+                "pg-id-libreoffice": {"title": "LibreOffice 再次谴责微软文档使用的私有格式"},
+                "pg-id-windows": {"title": "六分之一的 Windows 设备仍然运行 Windows 10"},
+            }
+
+        mock_article_repo.fetch_titles_by_pg_ids = mock_fetch_titles
+
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool, article_repo=mock_article_repo)
+        result = await builder._get_related_articles_by_text("LibreOffice", limit=10)
+
+        # Should be filtered to only the LibreOffice article
+        assert len(result) == 1, (
+            "_get_related_articles_by_text must filter by query text. "
+            "Bug: returned all 3 articles without filtering."
+        )
+        assert "LibreOffice" in result[0]["title"]
+
+    @pytest.mark.asyncio
+    async def test_should_return_empty_when_no_title_matches(self, mock_pool) -> None:
+        """When no article title matches query text, return empty list.
+
+        This allows the caller (``_handle_no_entities``) to fall back to
+        ``_search_articles_in_relational_db`` for a body-text search.
+        """
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {"id": "pg-id-firefox"},
+                {"id": "pg-id-windows"},
+            ]
+        )
+
+        mock_article_repo = Mock()
+
+        async def mock_fetch_titles(pg_ids):
+            return {
+                "pg-id-firefox": {"title": "Firefox 153.0 释出"},
+                "pg-id-windows": {"title": "六分之一的 Windows 设备仍然运行 Windows 10"},
+            }
+
+        mock_article_repo.fetch_titles_by_pg_ids = mock_fetch_titles
+
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool, article_repo=mock_article_repo)
+        # Query "xyznonexistent" doesn't match any title
+        result = await builder._get_related_articles_by_text("xyznonexistent", limit=10)
+
+        assert result == [], (
+            "When no article titles match the query text, must return [] so "
+            "caller can fall back to relational DB body-text search."
+        )
+
+    @pytest.mark.asyncio
+    async def test_should_be_case_insensitive(self, mock_pool) -> None:
+        """Title filtering should be case-insensitive."""
+        mock_pool.execute_query = AsyncMock(return_value=[{"id": "pg-id-libreoffice"}])
+
+        mock_article_repo = Mock()
+
+        async def mock_fetch_titles(pg_ids):
+            return {
+                "pg-id-libreoffice": {"title": "LibreOffice 再次谴责微软文档使用的私有格式"},
+            }
+
+        mock_article_repo.fetch_titles_by_pg_ids = mock_fetch_titles
+
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool, article_repo=mock_article_repo)
+        # lowercase query should match mixed-case title
+        result = await builder._get_related_articles_by_text("libreoffice", limit=10)
+
+        assert len(result) == 1
+        assert "LibreOffice" in result[0]["title"]
+
+
 class TestFormatEntitiesSection:
     """Test _format_entities_section() method."""
 

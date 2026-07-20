@@ -172,8 +172,20 @@ class BaseLocalContextBuilder(ContextBuilder):
     ) -> SearchContext:
         """Handle the case when no entities are found.
 
-        Default behavior: try relational DB text search as fallback.
-        LadybugDB overrides to also try graph-based Article node search first.
+        Default behavior: try relational DB text search as fallback
+        (searches both title and body via ``ArticleRepo.search_by_text``).
+
+        Cross-database divergence (intentional, see design.md §H1):
+        - Neo4j ``LocalContextBuilder`` uses this default behavior directly.
+        - LadybugDB ``LadybugLocalContextBuilder`` overrides to first try
+          graph-based Article node search (``_get_related_articles_by_text``)
+          with Python-side title filtering, then falls back to the relational
+          DB search. The LadybugDB path matches title only; the Neo4j path
+          matches title + body. The two backends are NOT semantically
+          equivalent in the no-entities fallback path — this is accepted as
+          a trade-off because the LadybugDB path exists primarily to exercise
+          its Cypher dialect's Article node query. See H1 in
+          ``specmark/changes/db-consistency-verify/design.md`` for details.
         """
         context.add_content(
             name="Search Note",
