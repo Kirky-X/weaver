@@ -131,6 +131,77 @@ class TestCreateStrategy:
         mock_init_duckdb.assert_called_once_with(mock_duckdb_pool)
 
     @pytest.mark.asyncio
+    async def test_fallback_to_duckdb_when_postgres_disabled(self, monkeypatch) -> None:
+        """Should fallback to DuckDB without trying PostgreSQL when pg_settings.enabled=False.
+
+        This mirrors the Neo4jSettings.enabled=False behavior: a clean,
+        explicit opt-out that skips the primary entirely rather than
+        relying on connection failure. Required for 4-DB combination
+        testing where DuckDB must be selected deterministically.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from config.settings import DuckDBSettings, LadybugSettings, Neo4jSettings, PostgresSettings
+
+        # Mock PostgresPool — must NOT be called when pg_settings.enabled=False
+        mock_pg_pool = MagicMock()
+        mock_pg_pool.startup = AsyncMock()
+        monkeypatch.setattr("core.db.postgres.PostgresPool", lambda **kwargs: mock_pg_pool)
+
+        # Mock DuckDBPool
+        mock_duckdb_pool = MagicMock()
+        mock_duckdb_pool.startup = AsyncMock()
+        monkeypatch.setattr("core.db.duckdb_pool.DuckDBPool", lambda **kwargs: mock_duckdb_pool)
+
+        mock_init_duckdb = AsyncMock()
+        monkeypatch.setattr("core.db.duckdb_schema.initialize_duckdb_schema", mock_init_duckdb)
+
+        from core.db.strategy import create_strategy
+
+        pg_settings = PostgresSettings(host="localhost", password="test", enabled=False)
+        neo4j_settings = Neo4jSettings(enabled=False)
+        duckdb_settings = DuckDBSettings(enabled=True)
+        ladybug_settings = LadybugSettings(enabled=False)
+
+        strategy = await create_strategy(
+            pg_settings=pg_settings,
+            neo4j_settings=neo4j_settings,
+            duckdb_settings=duckdb_settings,
+            ladybug_settings=ladybug_settings,
+        )
+
+        assert strategy.relational_type == DatabaseType.DUCKDB
+        # PostgreSQL must NOT be attempted when explicitly disabled
+        mock_pg_pool.startup.assert_not_called()
+        mock_duckdb_pool.startup.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_postgres_disabled_and_duckdb_disabled(self, monkeypatch) -> None:
+        """Should raise RuntimeError when pg_settings.enabled=False and DuckDB also disabled."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from config.settings import DuckDBSettings, Neo4jSettings, PostgresSettings
+
+        mock_pg_pool = MagicMock()
+        mock_pg_pool.startup = AsyncMock()
+        monkeypatch.setattr("core.db.postgres.PostgresPool", lambda **kwargs: mock_pg_pool)
+
+        from core.db.strategy import create_strategy
+
+        pg_settings = PostgresSettings(host="localhost", password="test", enabled=False)
+        neo4j_settings = Neo4jSettings(enabled=False)
+        duckdb_settings = DuckDBSettings(enabled=False)
+
+        with pytest.raises(RuntimeError, match="PostgreSQL disabled and DuckDB fallback disabled"):
+            await create_strategy(
+                pg_settings=pg_settings,
+                neo4j_settings=neo4j_settings,
+                duckdb_settings=duckdb_settings,
+            )
+
+        mock_pg_pool.startup.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_raises_when_both_postgres_and_duckdb_unavailable(self, monkeypatch) -> None:
         """Should raise when PostgreSQL unavailable and DuckDB disabled."""
         from unittest.mock import AsyncMock, MagicMock

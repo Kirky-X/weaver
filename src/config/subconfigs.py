@@ -28,6 +28,7 @@ class PostgresSettings(BaseModel):
     Environment variables: WEAVER_POSTGRES__HOST, WEAVER_POSTGRES__PASSWORD, etc.
     """
 
+    enabled: bool = True  # Set WEAVER_POSTGRES__ENABLED=false to force DuckDB fallback
     host: str = "localhost"
     port: int = 5432
     database: str = "weaver"

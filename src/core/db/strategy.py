@@ -91,35 +91,58 @@ async def create_strategy(
             pool_mode=pgbouncer_settings.pool_mode,
         )
 
-    # 1. Try PostgreSQL
+    # 1. Try PostgreSQL (skipped when explicitly disabled via WEAVER_POSTGRES__ENABLED=false)
     relational_pool: RelationalPool
     relational_type: DatabaseType
 
-    try:
-        pg_pool = PostgresPool(
-            dsn=dsn,
-            pool_size=pg_settings.pool_size,
-            max_overflow=pg_settings.max_overflow,
-            pool_timeout=pg_settings.pool_timeout,
-        )
-        await pg_pool.startup()
-        relational_pool = pg_pool
-        relational_type = DatabaseType.POSTGRES
-        log.info("postgres_connected")
-    except Exception as exc:
-        log.warning("postgres_unavailable_fallback_to_duckdb", error=str(exc))
+    if not pg_settings.enabled:
+        # PostgreSQL explicitly disabled — go straight to DuckDB fallback.
+        # Mirrors the Neo4jSettings.enabled=False behavior for symmetric
+        # primary-skip semantics. Required for deterministic 4-DB combination
+        # testing where DuckDB must be selected without relying on connection
+        # failure (which would log misleading warnings and waste startup time).
         if not duckdb_settings.enabled:
-            raise RuntimeError("PostgreSQL unavailable and DuckDB fallback disabled") from exc
+            raise RuntimeError("PostgreSQL disabled and DuckDB fallback disabled")
 
-        # Fallback to DuckDB
         from core.db.duckdb_schema import initialize_duckdb_schema
 
+        # WARNING level (not INFO) because explicit PG disable in production
+        # is a silent degradation — DuckDB lacks PG's RLS, fine-grained
+        # permissions, and audit capabilities. Mirrors the log level of the
+        # connection-failure fallback path below for operational consistency.
+        log.warning("postgres_disabled_using_duckdb_fallback")
         duckdb_pool = DuckDBPool(db_path=duckdb_settings.db_path)
         await duckdb_pool.startup()
         await initialize_duckdb_schema(duckdb_pool)
         relational_pool = duckdb_pool
         relational_type = DatabaseType.DUCKDB
-        log.info("duckdb_connected", db_path=duckdb_settings.db_path)
+        log.info("duckdb_connected_as_primary", db_path=duckdb_settings.db_path)
+    else:
+        try:
+            pg_pool = PostgresPool(
+                dsn=dsn,
+                pool_size=pg_settings.pool_size,
+                max_overflow=pg_settings.max_overflow,
+                pool_timeout=pg_settings.pool_timeout,
+            )
+            await pg_pool.startup()
+            relational_pool = pg_pool
+            relational_type = DatabaseType.POSTGRES
+            log.info("postgres_connected")
+        except Exception as exc:
+            log.warning("postgres_unavailable_fallback_to_duckdb", error=str(exc))
+            if not duckdb_settings.enabled:
+                raise RuntimeError("PostgreSQL unavailable and DuckDB fallback disabled") from exc
+
+            # Fallback to DuckDB
+            from core.db.duckdb_schema import initialize_duckdb_schema
+
+            duckdb_pool = DuckDBPool(db_path=duckdb_settings.db_path)
+            await duckdb_pool.startup()
+            await initialize_duckdb_schema(duckdb_pool)
+            relational_pool = duckdb_pool
+            relational_type = DatabaseType.DUCKDB
+            log.info("duckdb_connected", db_path=duckdb_settings.db_path)
 
     # 2. Try Neo4j or LadybugDB
     graph_pool: GraphPool | None = None
