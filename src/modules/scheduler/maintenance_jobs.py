@@ -32,6 +32,13 @@ log = get_logger(__name__)
 # to keep the query portable across PostgreSQL and DuckDB.
 ARCHIVE_RETENTION_DAYS = 90
 
+# Page size for streaming cutoff pg_ids out of PostgreSQL. Loading all
+# stale article IDs into memory at once can OOM on large archives
+# (LOW-1 perf fix from T050 review). 1000 is small enough to keep peak
+# memory bounded (~80KB per batch of UUID strings) yet large enough to
+# avoid excessive round-trips on a 90-day retention window.
+ARCHIVE_BATCH_SIZE = 1000
+
 
 class MaintenanceJobs:
     """Scheduler jobs for routine maintenance: cleanup and archival.
@@ -68,8 +75,32 @@ class MaintenanceJobs:
         so the cutoff pg_ids must be fetched from PostgreSQL first and
         then passed to the writer.
 
+        Streaming (LOW-1 perf fix from T050 review):
+            Previously this method loaded all cutoff pg_ids into memory at
+            once and passed the full list to a single Cypher query. For
+            large archives this can OOM. Now pg_ids are streamed in batches
+            of ``ARCHIVE_BATCH_SIZE`` (1000) using keyset pagination
+            (``WHERE id > :last_id ORDER BY id LIMIT :batch_size``) with
+            ``last_id`` tracked across batches. Each batch is archived via
+            a separate ``archive_old_articles`` call. Per-batch failures
+            are logged and the loop continues (best-effort) so a transient
+            error on one batch does not skip the remaining batches.
+            ``cleanup_orphan_entities`` runs once at the end regardless of
+            per-batch outcomes.
+
+        Keyset vs OFFSET (MEDIUM-2 fix from T051 review):
+            LIMIT/OFFSET scans+discards rows for high offsets (O(N²) for
+            N batches) and is vulnerable to row drift when
+            ``articles_core`` is mutated by concurrent ``deduplicate_articles``
+            or backfill inserts. Keyset pagination on ``id`` (UUID string
+            sort, stable across queries) is immune to drift: rows that
+            sort before ``last_id`` are never re-fetched (no duplicates),
+            and rows that sort after ``last_id`` are always fetched (no
+            skips). The ``id`` column is UUID in PostgreSQL / VARCHAR in
+            DuckDB — both sort lexicographically by string representation.
+
         Returns:
-            Number of articles archived.
+            Total number of articles archived across all batches.
         """
         log.info("archive_old_neo4j_nodes_start")
 
@@ -83,30 +114,101 @@ class MaintenanceJobs:
             # stored timezone-aware UTC).
             cutoff = datetime.now(UTC) - timedelta(days=ARCHIVE_RETENTION_DAYS)
 
-            async with self._relational_pool.session() as session:
-                result = await session.execute(
-                    text("SELECT id FROM articles_core WHERE publish_time < :cutoff"),
-                    {"cutoff": cutoff},
-                )
-                cutoff_pg_ids = [str(row[0]) for row in result]
+            total_archived = 0
+            total_seen = 0
+            batch_num = 0
+            had_batch_failure = False
+            # Keyset cursor: None on first batch, then the last id fetched
+            # in the previous batch. Tracked across batches so the next
+            # query resumes strictly AFTER the previous batch's last id.
+            last_id: str | None = None
 
-            if not cutoff_pg_ids:
+            # Stream pg_ids via keyset pagination. Underlying articles_core
+            # rows are not deleted here (only Article *graph* nodes are),
+            # but concurrent inserts/deletes on articles_core can shift
+            # OFFSET windows — keyset on ``id`` is immune to that drift.
+            while True:
+                batch_num += 1
+                async with self._relational_pool.session() as session:
+                    result = await session.execute(
+                        text(
+                            "SELECT id FROM articles_core "
+                            "WHERE publish_time < :cutoff "
+                            "AND (:last_id IS NULL OR id > :last_id) "
+                            "ORDER BY id "
+                            "LIMIT :limit"
+                        ),
+                        {
+                            "cutoff": cutoff,
+                            "last_id": last_id,
+                            "limit": ARCHIVE_BATCH_SIZE,
+                        },
+                    )
+                    batch_ids = [str(row[0]) for row in result]
+
+                if not batch_ids:
+                    # Empty result signals end of stream.
+                    break
+
+                total_seen += len(batch_ids)
+
+                # Advance the keyset cursor BEFORE the per-batch archive
+                # attempt — even if the archive call raises, the cursor
+                # must move forward so the next batch is fetched (Rule 12:
+                # a failed batch must not cause an infinite loop on the
+                # same rows).
+                last_id = batch_ids[-1]
+
+                # Per-batch try/except: a single batch failure must NOT
+                # abort the whole job (Rule 12 + Rule 24 — cover partial-
+                # failure scenario). Log + continue so remaining batches
+                # still get archived.
+                try:
+                    count = await self._graph_writer.archive_old_articles(batch_ids)
+                    total_archived += count
+                except Exception as batch_exc:
+                    had_batch_failure = True
+                    log.warning(
+                        "archive_old_neo4j_nodes_batch_failed",
+                        batch_num=batch_num,
+                        batch_size=len(batch_ids),
+                        error=str(batch_exc),
+                    )
+
+                # If batch was smaller than the page size, this was the
+                # last batch — stop after cleanup.
+                if len(batch_ids) < ARCHIVE_BATCH_SIZE:
+                    break
+
+            if total_seen == 0:
                 log.info("archive_old_neo4j_nodes_complete", count=0, reason="no_old_articles")
                 return 0
 
-            count = await self._graph_writer.archive_old_articles(cutoff_pg_ids)
-            # Law of Demeter: invoke the writer's public cleanup method
-            # rather than reaching through to entity_repo. LSP-aligned with
-            # LadybugWriter which exposes the same cleanup_orphan_entities
-            # surface (both writers uniformly orchestrate orphan cleanup
-            # via the caller, MaintenanceJobs).
-            await self._graph_writer.cleanup_orphan_entities()
+            # Orphan cleanup runs once after all batches — Law of Demeter:
+            # invoke the writer's public cleanup method rather than reaching
+            # through to entity_repo. LSP-aligned with LadybugWriter which
+            # exposes the same cleanup_orphan_entities surface (both
+            # writers uniformly orchestrate orphan cleanup via the caller,
+            # MaintenanceJobs).
+            try:
+                await self._graph_writer.cleanup_orphan_entities()
+            except Exception as cleanup_exc:
+                # Cleanup failure is non-fatal to the archive count — log
+                # and surface via the had_batch_failure flag.
+                had_batch_failure = True
+                log.warning(
+                    "archive_old_neo4j_nodes_cleanup_failed",
+                    error=str(cleanup_exc),
+                )
+
             log.info(
                 "archive_old_neo4j_nodes_complete",
-                count=count,
-                cutoff_count=len(cutoff_pg_ids),
+                count=total_archived,
+                cutoff_count=total_seen,
+                batches=batch_num,
+                had_batch_failure=had_batch_failure,
             )
-            return count
+            return total_archived
         except Exception as exc:
             log.error("archive_old_neo4j_nodes_failed", error=str(exc))
             return 0

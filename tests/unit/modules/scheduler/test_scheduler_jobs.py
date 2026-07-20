@@ -300,22 +300,57 @@ class TestUpdateSourceAutoScores:
 
 
 class TestArchiveOldNeo4jNodes:
-    """Test archive_old_neo4j_nodes job (post-slim-down signature)."""
+    """Test archive_old_neo4j_nodes job (post-slim-down signature).
 
-    def _setup_cutoff_pg_ids(self, scheduler_jobs_service, pg_ids: list[str]) -> None:
-        """Mock relational_pool.session to return cutoff pg_ids from PG.
+    Streaming variant (LOW-1 perf fix from T050 review):
+    The job now reads cutoff pg_ids in batches of ``ARCHIVE_BATCH_SIZE``
+    (1000) instead of loading all IDs at once. The mock helper below
+    transparently splits the input list into batches and serves each
+    batch as a separate ``session.execute`` result via ``side_effect``,
+    so callers can pass either a small list (1 batch) or a large list
+    (multiple batches) without changing the call site.
+    """
+
+    def _setup_cutoff_pg_ids(
+        self,
+        scheduler_jobs_service,
+        pg_ids: list[str],
+        batch_size: int = 1000,
+    ) -> None:
+        """Mock relational_pool.session to return cutoff pg_ids in batches.
+
+        Splits ``pg_ids`` into chunks of ``batch_size`` and returns each
+        chunk as a separate ``session.execute`` result. A trailing empty
+        result is appended so the streaming loop sees a terminal empty
+        batch (signals end of stream).
 
         After the Article node slim-down (design.md §D2), the cutoff is
         computed by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$ARCHIVE_RETENTION_DAYS days'``
         and the resulting pg_ids are passed to ``archive_old_articles``.
         """
-        result_rows = [(pid,) for pid in pg_ids]
-        mock_result = MagicMock()
-        mock_result.__iter__ = MagicMock(return_value=iter(result_rows))
+        # Split into batches of batch_size.
+        batches: list[list[str]] = []
+        for i in range(0, len(pg_ids), batch_size):
+            batches.append(pg_ids[i : i + batch_size])
+        # If the input is empty or evenly divides, append a final empty
+        # batch so the streaming loop sees a terminal "no more rows"
+        # result. (When the last batch is partial, the loop breaks early
+        # on len(batch) < batch_size and never reaches the empty result —
+        # but the empty result is harmless in that case.)
+        if not batches or len(batches[-1]) == batch_size:
+            batches.append([])
+
+        # Build a mock result for each batch.
+        results = []
+        for batch in batches:
+            result_rows = [(pid,) for pid in batch]
+            mock_result = MagicMock()
+            mock_result.__iter__ = MagicMock(return_value=iter(result_rows))
+            results.append(mock_result)
 
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.execute = AsyncMock(side_effect=results)
 
         scheduler_jobs_service._relational_pool.session = MagicMock()
         scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
@@ -357,7 +392,11 @@ class TestArchiveOldNeo4jNodes:
 
     @pytest.mark.asyncio
     async def test_archive_old_nodes_failure(self, scheduler_jobs_service):
-        """Test handling of archive failure (e.g. writer raises)."""
+        """Test handling of archive failure (e.g. writer raises).
+
+        Per-batch failure is logged + the loop continues. With a single
+        batch that fails, total_archived stays 0 (no successful batches).
+        """
         self._setup_cutoff_pg_ids(scheduler_jobs_service, ["pg-old-1"])
         scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
             side_effect=Exception("Archive error")
@@ -365,6 +404,286 @@ class TestArchiveOldNeo4jNodes:
 
         result = await scheduler_jobs_service.archive_old_neo4j_nodes()
         assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_archive_old_nodes_streams_in_multiple_batches(self, scheduler_jobs_service):
+        """Verify that 2500 IDs are streamed across 3 batches (1000+1000+500).
+
+        LOW-1 perf: rather than loading all 2500 IDs at once and passing
+        the full list to a single Cypher query (OOM risk on large
+        archives), the job must paginate via LIMIT/OFFSET.
+        """
+        # 2500 IDs: 3 batches of 1000, 1000, 500.
+        all_ids = [f"pg-old-{i}" for i in range(2500)]
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, all_ids, batch_size=1000)
+
+        # Track per-batch archive calls. Each batch returns its size.
+        archive_calls: list[list[str]] = []
+
+        async def _archive_side_effect(batch):
+            archive_calls.append(list(batch))
+            return len(batch)
+
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
+            side_effect=_archive_side_effect
+        )
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=0)
+
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
+
+        # 3 batches, in order, with correct sizes.
+        assert len(archive_calls) == 3
+        assert len(archive_calls[0]) == 1000
+        assert len(archive_calls[1]) == 1000
+        assert len(archive_calls[2]) == 500
+        # All IDs archived exactly once (no duplicates across batches).
+        flat = [pid for batch in archive_calls for pid in batch]
+        assert sorted(flat) == sorted(all_ids)
+        # Total count = sum of all batches.
+        assert result == 2500
+        # cleanup_orphan_entities runs exactly once after all batches.
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_archive_old_nodes_single_batch_no_extra_fetch(self, scheduler_jobs_service):
+        """A single partial batch (smaller than ARCHIVE_BATCH_SIZE) must
+        not trigger an additional fetch (loop breaks on len(batch) < size)."""
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, ["pg-1", "pg-2"], batch_size=1000)
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(return_value=2)
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=0)
+
+        await scheduler_jobs_service.archive_old_neo4j_nodes()
+        # Only one archive call (single partial batch).
+        scheduler_jobs_service._graph_writer.archive_old_articles.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_archive_old_nodes_batch_failure_continues_remaining_batches(
+        self, scheduler_jobs_service
+    ):
+        """A failure on the middle batch must not abort the rest.
+
+        Rule 24 (no simplified impl) + Rule 12 (failures explicit): the
+        per-batch try/except logs the failure and continues. Total count
+        reflects only successful batches.
+        """
+        # 3 batches of 1000, 1000, 500.
+        all_ids = [f"pg-old-{i}" for i in range(2500)]
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, all_ids, batch_size=1000)
+
+        # Batch 2 (index 1) fails; batches 1 and 3 succeed.
+        async def _archive_side_effect(batch):
+            if "pg-old-1000" in batch:
+                raise RuntimeError("Transient graph store outage")
+            return len(batch)
+
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
+            side_effect=_archive_side_effect
+        )
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=0)
+
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
+        # Batch 1 (1000) + Batch 3 (500) = 1500; Batch 2 failed.
+        assert result == 1500
+        # All 3 batches were attempted (no early abort).
+        assert scheduler_jobs_service._graph_writer.archive_old_articles.await_count == 3
+        # cleanup still runs once after the loop.
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_archive_old_nodes_cleanup_failure_is_non_fatal(self, scheduler_jobs_service):
+        """If cleanup_orphan_entities raises, the archived count is still returned.
+
+        Cleanup failure is logged but does not negate the archive
+        count — the articles were already deleted successfully.
+        """
+        self._setup_cutoff_pg_ids(scheduler_jobs_service, ["pg-1"])
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(return_value=1)
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(
+            side_effect=RuntimeError("cleanup failed")
+        )
+
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
+        # Archive count is preserved even though cleanup failed.
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_archive_old_neo4j_nodes_keyset_pagination(self, scheduler_jobs_service):
+        """MEDIUM-2: keyset pagination uses ``WHERE id > :last_id`` (not OFFSET).
+
+        For 2500 IDs, verifies 3 batches with the keyset pattern:
+        - Batch 1 fetch: ``last_id`` is None (no id filter).
+        - Batch 2 fetch: ``last_id`` = batch1[-1].
+        - Batch 3 fetch: ``last_id`` = batch2[-1].
+
+        No ``OFFSET`` keyword may appear in any executed SQL — OFFSET
+        pagination has O(N²) scan cost at high offsets and is vulnerable
+        to row drift when ``articles_core`` is mutated concurrently.
+        Keyset on ``id`` (UUID string sort) is stable across queries.
+        """
+        # 2500 IDs sorted lexicographically (simulates ORDER BY id).
+        all_ids = sorted(f"pg-old-{i:04d}" for i in range(2500))
+        batch1 = all_ids[:1000]
+        batch2 = all_ids[1000:2000]
+        batch3 = all_ids[2000:]
+
+        # Capture (sql, params) for each execute call.
+        execute_calls: list[tuple[str, dict]] = []
+
+        async def _execute_side_effect(sql, params=None):
+            # sql is a sqlalchemy TextClause — coerce to string for assertions.
+            sql_str = str(sql)
+            execute_calls.append((sql_str, params or {}))
+            last_id = (params or {}).get("last_id")
+            if last_id is None:
+                batch = batch1
+            elif last_id == batch1[-1]:
+                batch = batch2
+            elif last_id == batch2[-1]:
+                batch = batch3
+            else:
+                batch = []
+            result_rows = [(pid,) for pid in batch]
+            mock_result = MagicMock()
+            mock_result.__iter__ = MagicMock(return_value=iter(result_rows))
+            return mock_result
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=_execute_side_effect)
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
+            return_value=None
+        )
+
+        archived_batches: list[list[str]] = []
+
+        async def _archive_side_effect(batch):
+            archived_batches.append(list(batch))
+            return len(batch)
+
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
+            side_effect=_archive_side_effect
+        )
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=0)
+
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
+
+        # 3 batches were fetched from PG.
+        assert len(execute_calls) == 3, f"Expected 3 batch fetches, got {len(execute_calls)}"
+        # No OFFSET keyword in any executed SQL.
+        for sql, _ in execute_calls:
+            assert "OFFSET" not in sql.upper(), f"Keyset pagination must not use OFFSET, got: {sql}"
+        # last_id advances correctly across batches.
+        assert (
+            execute_calls[0][1].get("last_id") is None
+        ), "Batch 1 must have last_id=None (first page)"
+        assert (
+            execute_calls[1][1].get("last_id") == batch1[-1]
+        ), "Batch 2 last_id must equal batch1's last id"
+        assert (
+            execute_calls[2][1].get("last_id") == batch2[-1]
+        ), "Batch 3 last_id must equal batch2's last id"
+        # All 2500 IDs archived exactly once (no duplicates, no skips).
+        flat = [pid for batch in archived_batches for pid in batch]
+        assert len(flat) == 2500
+        assert len(set(flat)) == 2500, "Duplicate IDs across batches"
+        assert sorted(flat) == all_ids, "Missing IDs — keyset skipped rows"
+        assert result == 2500
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_archive_old_neo4j_nodes_keyset_stable_across_concurrent_inserts(
+        self, scheduler_jobs_service
+    ):
+        """MEDIUM-2: keyset pagination is immune to OFFSET drift on concurrent inserts.
+
+        Setup: 1500 IDs initially, sorted by ``id``.
+        After batch 1 fetches IDs [0..999], a concurrent insert adds a
+        new ID ``"pg-old-0050-inserted"`` that sorts BEFORE
+        ``batch1[-1] = "pg-old-0999"``.
+
+        With OFFSET pagination:
+        - Batch 2 uses OFFSET 1000 against the now-1501-row table. The
+          new row at position 50 shifts the existing rows forward, so
+          OFFSET 1000 would now skip rows "pg-old-0950".."pg-old-0999"
+          (they shifted from positions 950..999 to 951..1000).
+
+        With keyset pagination:
+        - Batch 2 uses ``WHERE id > "pg-old-0999"`` — unaffected by the
+          new insert. The new row sorts BEFORE last_id and is correctly
+          skipped (not duplicated), and existing rows after last_id are
+          correctly fetched (not skipped).
+
+        This test verifies the keyset invariant: no duplicates and no
+        skips of the original 1500 IDs, even when a new row is inserted
+        mid-stream.
+        """
+        # Initial 1500 IDs sorted lexicographically.
+        initial_ids = sorted(f"pg-old-{i:04d}" for i in range(1500))
+        batch1 = initial_ids[:1000]
+        batch2 = initial_ids[1000:]
+
+        # Simulated DB state — mutates when a concurrent insert happens.
+        db_state: list[str] = list(initial_ids)
+
+        async def _execute_side_effect(sql, params=None):
+            last_id = (params or {}).get("last_id")
+            if last_id is None:
+                filtered = list(db_state)
+            else:
+                filtered = [pid for pid in db_state if pid > last_id]
+            filtered.sort()
+            batch = filtered[:1000]
+            result_rows = [(pid,) for pid in batch]
+            mock_result = MagicMock()
+            mock_result.__iter__ = MagicMock(return_value=iter(result_rows))
+            return mock_result
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=_execute_side_effect)
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
+            return_value=None
+        )
+
+        archived_batches: list[list[str]] = []
+
+        async def _archive_side_effect(batch):
+            archived_batches.append(list(batch))
+            # Simulate concurrent insert AFTER batch 1 is archived: a new
+            # ID that sorts BEFORE batch1[-1] = "pg-old-0999".
+            if batch == batch1:
+                db_state.append("pg-old-0050-inserted")
+                db_state.sort()
+            return len(batch)
+
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
+            side_effect=_archive_side_effect
+        )
+        scheduler_jobs_service._graph_writer.cleanup_orphan_entities = AsyncMock(return_value=0)
+
+        await scheduler_jobs_service.archive_old_neo4j_nodes()
+
+        # Flatten archived IDs and verify the keyset invariant.
+        flat = [pid for batch in archived_batches for pid in batch]
+
+        # The concurrent insert must NOT appear in this run's archived set
+        # (it sorts before last_id, so it's picked up in the next run).
+        assert "pg-old-0050-inserted" not in flat, (
+            "Concurrent insert sorting before last_id must NOT be archived "
+            "in this run — it would be a keyset violation"
+        )
+        # All 1500 original IDs archived exactly once (no duplicates, no skips).
+        assert len(flat) == 1500, f"Expected 1500 archived, got {len(flat)} — keyset drift detected"
+        assert len(set(flat)) == 1500, "Duplicate IDs — keyset invariant violated"
+        assert (
+            sorted(flat) == initial_ids
+        ), "Missing original IDs — keyset skipped rows due to concurrent insert"
 
 
 class TestCleanupOrphanEntityVectors:
