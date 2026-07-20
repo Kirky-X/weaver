@@ -31,13 +31,16 @@ set -euo pipefail
 # ── Constants ────────────────────────────────────────────────────────────────
 
 PG_DSN="postgresql+asyncpg://postgres:weavertest@localhost:5432/weaver"
+PG_PASSWORD="weavertest"
 NEO4J_PASSWORD="weavertest"
 API_KEY="weaver_test_api_key_for_4db_combinations_2026"
 ADMIN_API_KEY="weaver_test_admin_api_key_for_4db_combinations_2026"
 HOST="127.0.0.1"
-HEALTH_WAIT_SECONDS=30
-HEALTH_POLL_INTERVAL=1
-STOP_GRACE_SECONDS=5
+# spaCy zh_core_web_lg model is 664MB and takes 3-5 minutes to load on first
+# start. Allow up to 7 minutes for /health to come green.
+HEALTH_WAIT_SECONDS=420
+HEALTH_POLL_INTERVAL=5
+STOP_GRACE_SECONDS=10
 
 # Combo -> port
 declare -A COMBO_PORTS=(
@@ -47,20 +50,46 @@ declare -A COMBO_PORTS=(
   ["duckdb-ladybug"]=18004
 )
 
-# Combo -> WEAVER_POSTGRES__DSN value ("" = DuckDB fallback)
-declare -A COMBO_PG_DSN=(
-  ["pg-neo4j"]="$PG_DSN"
-  ["pg-ladybug"]="$PG_DSN"
-  ["duckdb-neo4j"]=""
-  ["duckdb-ladybug"]=""
+# Combo -> WEAVER_POSTGRES__ENABLED value ("true" = use PG, "false" = DuckDB fallback)
+# Using the enabled flag (rather than empty DSN) gives deterministic fallback
+# behavior: create_strategy() skips the PostgreSQL attempt entirely instead
+# of relying on connection failure. See strategy.py::create_strategy.
+declare -A COMBO_PG_ENABLED=(
+  ["pg-neo4j"]="true"
+  ["pg-ladybug"]="true"
+  ["duckdb-neo4j"]="false"
+  ["duckdb-ladybug"]="false"
 )
 
-# Combo -> WEAVER_NEO4J__PASSWORD value ("" = LadybugDB fallback)
-declare -A COMBO_NEO4J_PASSWORD=(
-  ["pg-neo4j"]="$NEO4J_PASSWORD"
+# Combo -> WEAVER_NEO4J__ENABLED value ("true" = use Neo4j, "false" = LadybugDB fallback)
+declare -A COMBO_NEO4J_ENABLED=(
+  ["pg-neo4j"]="true"
+  ["pg-ladybug"]="false"
+  ["duckdb-neo4j"]="true"
+  ["duckdb-ladybug"]="false"
+)
+
+# Combo -> WEAVER_LADYBUG__DB_PATH value. LadybugDB uses a single-writer
+# file lock, so pg-ladybug and duckdb-ladybug CANNOT share the same file.
+# We point duckdb-ladybug at a byte-identical copy (data/weaver_ladybug2.lbug)
+# so both instances can run concurrently while preserving data parity.
+# See specmark/archive/2026-07-20-db-consistency-verify/design.md §"4 DB 组合测试架构".
+declare -A COMBO_LADYBUG_PATH=(
+  ["pg-neo4j"]=""
+  ["pg-ladybug"]="data/weaver.lbug"
+  ["duckdb-neo4j"]=""
+  ["duckdb-ladybug"]="data/weaver_ladybug2.lbug"
+)
+
+# Combo -> WEAVER_DUCKDB__DB_PATH value. DuckDB also uses a single-writer
+# file lock, so duckdb-neo4j and duckdb-ladybug CANNOT share the same file.
+# We point duckdb-ladybug at a byte-identical copy (data/weaver_duckdb2.duckdb)
+# so both DuckDB instances can run concurrently while preserving data parity.
+declare -A COMBO_DUCKDB_PATH=(
+  ["pg-neo4j"]=""
   ["pg-ladybug"]=""
-  ["duckdb-neo4j"]="$NEO4J_PASSWORD"
-  ["duckdb-ladybug"]=""
+  ["duckdb-neo4j"]="data/weaver.duckdb"
+  ["duckdb-ladybug"]="data/weaver_duckdb2.duckdb"
 )
 
 ALL_COMBOS=(pg-neo4j pg-ladybug duckdb-neo4j duckdb-ladybug)
@@ -131,14 +160,50 @@ load_env() {
 
 apply_combo_env() {
   local combo="$1"
-  # Override .env values for this combination. Empty string is intentional
-  # — container treats empty DSN / password as the fallback trigger.
-  export WEAVER_POSTGRES__DSN="${COMBO_PG_DSN[$combo]}"
-  export WEAVER_NEO4J__PASSWORD="${COMBO_NEO4J_PASSWORD[$combo]}"
+  # Override .env values for this combination.
+  # - WEAVER_POSTGRES__ENABLED=false triggers DuckDB fallback deterministically
+  #   (strategy.py::create_strategy skips PG attempt entirely).
+  # - WEAVER_NEO4J__ENABLED=false triggers LadybugDB fallback deterministically.
+  export WEAVER_POSTGRES__ENABLED="${COMBO_PG_ENABLED[$combo]}"
+  export WEAVER_NEO4J__ENABLED="${COMBO_NEO4J_ENABLED[$combo]}"
+  # Still set DSN/password so that when enabled=true, PG/Neo4j connect with
+  # the correct credentials (overriding any stale .env values). When
+  # enabled=false, these are ignored by create_strategy.
+  if [[ "${COMBO_PG_ENABLED[$combo]}" == "true" ]]; then
+    export WEAVER_POSTGRES__DSN="$PG_DSN"
+    export WEAVER_POSTGRES__PASSWORD="$PG_PASSWORD"
+  else
+    # DuckDB combo: unset both DSN and PASSWORD to prevent cross-combo
+    # pollution (Architecture review LOW: previously PASSWORD lingered
+    # from a prior pg-* combo in the same shell session).
+    unset WEAVER_POSTGRES__DSN
+    unset WEAVER_POSTGRES__PASSWORD
+  fi
+  if [[ "${COMBO_NEO4J_ENABLED[$combo]}" == "true" ]]; then
+    export WEAVER_NEO4J__PASSWORD="$NEO4J_PASSWORD"
+  else
+    unset WEAVER_NEO4J__PASSWORD
+  fi
   export WEAVER_API__PORT="${COMBO_PORTS[$combo]}"
   export WEAVER_API__API_KEY="$API_KEY"
   export WEAVER_API__ADMIN_API_KEY="$ADMIN_API_KEY"
   export WEAVER_API__HOST="$HOST"
+  # LadybugDB file path override (only set for ladybug combos). Empty string
+  # means "use default path" which is fine for the two non-ladybug combos.
+  local ladybug_path="${COMBO_LADYBUG_PATH[$combo]:-}"
+  if [[ -n "$ladybug_path" ]]; then
+    export WEAVER_LADYBUG__DB_PATH="$ladybug_path"
+  else
+    unset WEAVER_LADYBUG__DB_PATH
+  fi
+  # DuckDB file path override (only set for duckdb combos). Empty string
+  # means "use default path" which is fine for the two pg combos.
+  local duckdb_path="${COMBO_DUCKDB_PATH[$combo]:-}"
+  if [[ -n "$duckdb_path" ]]; then
+    export WEAVER_DUCKDB__DB_PATH="$duckdb_path"
+  else
+    unset WEAVER_DUCKDB__DB_PATH
+  fi
 }
 
 # ── Process helpers ──────────────────────────────────────────────────────────
@@ -232,6 +297,17 @@ start_combo() {
   require_tool curl
   local port="${COMBO_PORTS[$combo]}"
 
+  # Memory preflight check (Performance review M3): each Weaver instance
+  # needs ~3GB (spaCy zh_core_web_lg 664MB + Python runtime + DB pools).
+  # Warn if available memory is below the per-instance threshold. The check
+  # is advisory (does not abort) because spaCy may share model pages across
+  # instances via OS page cache.
+  local mem_available_mb
+  mem_available_mb="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [[ "$mem_available_mb" -gt 0 && "$mem_available_mb" -lt 3072 ]]; then
+    log_warn "low memory: ${mem_available_mb}MB available (recommended ≥3072MB per instance)"
+  fi
+
   local existing_pid
   existing_pid="$(read_pid "$combo")"
   if pid_alive "$existing_pid"; then
@@ -251,15 +327,21 @@ start_combo() {
   lf="$(log_file "$combo")"
 
   log_step "Starting $combo on ${HOST}:${port}"
-  if [[ -n "$WEAVER_POSTGRES__DSN" ]]; then
-    log_info "  relational: PostgreSQL (DSN set)"
+  if [[ "$WEAVER_POSTGRES__ENABLED" == "true" ]]; then
+    log_info "  relational: PostgreSQL (enabled=true)"
   else
-    log_info "  relational: DuckDB fallback (DSN empty)"
+    log_info "  relational: DuckDB fallback (enabled=false)"
+    if [[ -n "${WEAVER_DUCKDB__DB_PATH:-}" ]]; then
+      log_info "  duckdb:     $WEAVER_DUCKDB__DB_PATH"
+    fi
   fi
-  if [[ -n "$WEAVER_NEO4J__PASSWORD" ]]; then
-    log_info "  graph:      Neo4j (password set)"
+  if [[ "$WEAVER_NEO4J__ENABLED" == "true" ]]; then
+    log_info "  graph:      Neo4j (enabled=true)"
   else
-    log_info "  graph:      LadybugDB fallback (password empty)"
+    log_info "  graph:      LadybugDB fallback (enabled=false)"
+    if [[ -n "${WEAVER_LADYBUG__DB_PATH:-}" ]]; then
+      log_info "  ladybug:    $WEAVER_LADYBUG__DB_PATH"
+    fi
   fi
   log_info "  log: $lf"
 
