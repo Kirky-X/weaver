@@ -11,6 +11,7 @@
 | `tools.py`        | 性能评估、环境验证、数据库种子、代码检查              |
 | `build_nuitka.py` | Nuitka 编译构建                        |
 | `data_io.py`      | PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移 |
+| `dedup_article_graph.py` | Article 图节点残留字段清理迁移（Neo4j + LadybugDB） |
 | `_common.py`      | 共享工具（init_script_container 等，非独立运行） |
 
 ---
@@ -355,3 +356,58 @@ uv run python scripts/data_io.py export --from neo4j --to ladybug \
 - **BIGINT_PK_TABLES 导入** (Bug 1 修复): 从 `core.db.duckdb_schema` 延迟导入,保持 `--help` 快速响应
 - **行数验证**: 每张表导出/导入后断言 PG 与 DuckDB 行数一致,不匹配则 `RuntimeError` 非零退出
 - **Schema 漂移检测**: PK 类型不兼容时(DuckDB UUID vs PG BIGINT)跳过表并警告,而非损坏数据
+
+---
+
+## dedup_article_graph.py
+
+Article 图节点残留字段清理迁移脚本,用于在 T025-T030 Article 节点精简（`{id, pg_id}`）后,清理图数据库中可能残留的业务字段（`title`/`category`/`publish_time`/`score`）。
+
+支持 Neo4j 和 LadybugDB 两种图后端,通过 `GraphPool` Protocol 接口操作,不直接 import `neo4j`/`kuzu`。
+
+### 用法
+
+```bash
+# 执行迁移（跳过确认）
+uv run python scripts/dedup_article_graph.py migrate --yes
+
+# 预览模式（仅备份，不执行清理查询）
+uv run python scripts/dedup_article_graph.py migrate --dry-run
+
+# 指定备份文件路径
+uv run python scripts/dedup_article_graph.py migrate --yes \
+    --backup-path /tmp/article_fields_backup.json
+
+# 不指定子命令时默认使用 migrate
+uv run python scripts/dedup_article_graph.py --yes
+```
+
+### 子命令
+
+#### migrate
+
+执行 Article 图节点残留字段清理迁移。
+
+| 参数               | 默认值                            | 描述                  |
+|------------------|--------------------------------|---------------------|
+| `--yes` / `-y`   | false                          | 跳过确认提示              |
+| `--dry-run`      | false                          | 仅执行备份,不执行清理查询       |
+| `--backup-path`  | `data/article_fields_backup.json` | JSON 备份文件路径         |
+
+### 迁移流程
+
+1. **备份**: 查询所有 Article 节点的残留字段,原子写入 JSON 备份文件（临时文件 + `os.replace()`）
+2. **清理**: 根据 `graph_pool_type` 分派后端清理操作
+   - **LadybugDB**: `ALTER TABLE Article DROP COLUMN {field}` × 4,每个 try/except 幂等
+   - **Neo4j**: 先执行 count 查询获取影响节点数,再执行 `MATCH (a:Article) REMOVE a.title, a.category, a.publish_time, a.score`
+3. **影响范围**: 打印备份文章数和修改节点数
+4. **用户确认**: 提示用户确认（除非 `--yes`）
+5. **执行**: 在活跃的图后端上执行清理
+
+### 特性
+
+- **双后端支持**: 自动检测 `container.graph_pool_type`（`neo4j` 或 `ladybug`）,分派对应的清理逻辑
+- **幂等清理**: LadybugDB 的 `DROP COLUMN` 对不存在的列静默忽略; Neo4j 的 `REMOVE` 对不存在的属性同样安全
+- **原子备份**: 备份 JSON 文件通过临时文件 + `os.replace()` 原子写入,避免写入中断导致文件损坏
+- **`--dry-run` 模式**: 仅执行只读的备份查询,不执行任何修改性 Cypher（`ALTER TABLE` / `REMOVE`）
+- **简化 Container 初始化**: 仅调用 `init_strategy()`,不初始化 LLM/pipeline,减少启动开销

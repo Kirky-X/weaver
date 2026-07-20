@@ -1037,7 +1037,7 @@ _FALLBACK_NODE_COLUMNS: dict[str, list[str]] = {
         "created_at",
         "updated_at",
     ],
-    "Article": ["id", "pg_id", "title", "category", "publish_time", "score"],
+    "Article": ["id", "pg_id"],
     "Community": [
         "id",
         "title",
