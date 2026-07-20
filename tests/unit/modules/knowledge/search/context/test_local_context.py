@@ -341,19 +341,25 @@ class TestLocalContextBuilderGetRelatedArticles:
 
     @pytest.mark.asyncio
     async def test_with_article_repo(self) -> None:
-        """Test article body enrichment from PostgreSQL."""
+        """Test article body + title enrichment from PostgreSQL.
+
+        After Article node slim-down, graph query returns only ``pg_id``;
+        title/publish_time come from ``fetch_titles_by_pg_ids`` and body
+        comes from ``article_repo.get``.
+        """
         pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "id": "a1",
+        pool.execute_query = AsyncMock(return_value=[{"id": "a1"}])
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
+            return_value={
+                "a1": {
                     "title": "新闻",
-                    "summary": "华为新闻",
+                    "category": "tech",
                     "publish_time": "2025-01-01",
-                },
-            ]
+                    "score": 0.92,
+                }
+            }
         )
-        mock_article_repo = AsyncMock()
         mock_article = MagicMock()
         mock_article.body = "华为发布了新产品。这是一个重要的里程碑。"
         mock_article_repo.get = AsyncMock(return_value=mock_article)
@@ -362,7 +368,25 @@ class TestLocalContextBuilderGetRelatedArticles:
         result = await builder._get_related_articles(["华为"])
 
         assert len(result) == 1
+        assert result[0]["id"] == "a1"
+        assert result[0]["title"] == "新闻"
+        assert result[0]["category"] == "tech"
+        assert result[0]["score"] == 0.92
         assert "body_excerpt" in result[0]
+
+    @pytest.mark.asyncio
+    async def test_degraded_without_article_repo(self) -> None:
+        """Degraded mode returns pg_id only with empty title when article_repo is None."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"id": "orphan1"}])
+
+        builder = LocalContextBuilder(graph_pool=pool)
+        result = await builder._get_related_articles(["华为"])
+
+        assert len(result) == 1
+        assert result[0]["id"] == "orphan1"
+        assert result[0]["title"] == ""
+        assert "body_excerpt" not in result[0]
 
 
 class TestLocalContextBuilderFormatMethods:

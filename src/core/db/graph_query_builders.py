@@ -584,24 +584,30 @@ class Neo4jQueryBuilder:
 
         MENTIONS edge direction is (Article)-[:MENTIONS]->(Entity), so we
         traverse from Entity back to Article via incoming MENTIONS edges.
+
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        available on the node — callers batch-fetch title / category /
+        publish_time / score from PostgreSQL via
+        ``ArticleRepository.fetch_titles_by_pg_ids``.
         """
         # Support lookup by canonical_name OR alias
         return """
             MATCH (e:Entity)
             WHERE e.canonical_name = $name OR $name IN e.aliases
             MATCH (a:Article)-[:MENTIONS]->(e)
-            RETURN a.pg_id as id, a.title as title, a.category as category,
-                   a.publish_time as publish_time, a.score as score
-            ORDER BY a.publish_time DESC
+            RETURN a.pg_id as id
             LIMIT $limit
         """
 
     def build_get_article_graph_query(self) -> str:
-        """Build Neo4j query to get article node."""
+        """Build Neo4j query to get article node.
+
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        returned — callers batch-fetch business fields from PostgreSQL.
+        """
         return """
             MATCH (a:Article {pg_id: $id})
-            RETURN a.pg_id as id, a.title as title, a.category as category,
-                   a.publish_time as publish_time, a.score as score
+            RETURN a.pg_id as id
         """
 
     def build_get_article_entities_query(self) -> str:
@@ -631,14 +637,14 @@ class Neo4jQueryBuilder:
         """Build Neo4j query to get related articles via shared entities.
 
         Finds articles that mention the same entities, ranked by overlap count.
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
             MATCH (a:Article {pg_id: $id})-[:MENTIONS]->(e:Entity)<-[:MENTIONS]-(ra:Article)
             WHERE ra.pg_id <> $id
-            RETURN ra.pg_id as id, ra.title as title, ra.category as category,
-                   ra.publish_time as publish_time, ra.score as score,
-                   count(DISTINCT e) as shared_entities
-            ORDER BY shared_entities DESC, ra.publish_time DESC
+            RETURN ra.pg_id as id, count(DISTINCT e) as shared_entities
+            ORDER BY shared_entities DESC
             LIMIT 10
         """
 
@@ -991,11 +997,7 @@ class Neo4jQueryBuilder:
         return """
         MATCH (a:Article)-[:MENTIONS]->(e:Entity)
         WHERE e.canonical_name IN $names
-        RETURN DISTINCT a.pg_id AS id,
-               a.title AS title,
-               a.summary AS summary,
-               a.publish_time AS publish_time
-        ORDER BY a.publish_time DESC
+        RETURN DISTINCT a.pg_id AS id
         LIMIT $limit
         """
 
@@ -1158,21 +1160,21 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
+        # After the Article node slim-down (design.md §D2), Article nodes only
+        # store {pg_id, created_at}. We match Article-Entity via MENTIONS edges
+        # for entity-centric ranking and return ``a.pg_id`` so callers can
+        # batch-fetch title / score from PostgreSQL.
         return """
         MATCH (a:Article)-[:MENTIONS]->(e:Entity)
         WHERE any(token IN $tokens WHERE
                  toLower(e.canonical_name) CONTAINS token
-                 OR toLower(a.title) CONTAINS token
-                 OR toLower(a.summary) CONTAINS token)
+                 OR toLower(e.description) CONTAINS token)
         RETURN e.canonical_name AS entity_name,
                e.type AS entity_type,
                e.description AS entity_description,
-               a.id AS article_id,
-               a.title AS article_title,
-               a.summary AS article_summary,
-               a.score AS article_score,
+               a.pg_id AS article_id,
                size((e)-[:RELATED_TO]->()) AS entity_degree
-        ORDER BY article_score DESC, entity_degree DESC
+        ORDER BY entity_degree DESC
         LIMIT $limit
         """
 
@@ -1191,18 +1193,13 @@ class Neo4jQueryBuilder:
         MATCH (a:Article)-[:MENTIONS]->(e:Entity)
         WHERE any(token IN $tokens WHERE
                  toLower(e.canonical_name) CONTAINS token
-                 OR toLower(e.description) CONTAINS token
-                 OR toLower(a.title) CONTAINS token
-                 OR toLower(a.summary) CONTAINS token)
+                 OR toLower(e.description) CONTAINS token)
         RETURN e.canonical_name AS entity_name,
                e.type AS entity_type,
                e.description AS entity_description,
-               a.id AS article_id,
-               a.title AS article_title,
-               a.summary AS article_summary,
-               a.score AS article_score,
+               a.pg_id AS article_id,
                size((e)-[:RELATED_TO]->()) AS entity_degree
-        ORDER BY article_score DESC, entity_degree DESC
+        ORDER BY entity_degree DESC
         LIMIT $limit
         """
 
@@ -1213,15 +1210,12 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
+        # After the Article node slim-down (design.md §D2), Article nodes no
+        # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
+        # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """
         MATCH (a:Article)
-        WHERE toLower(a.title) CONTAINS $query
-        RETURN a.id AS id,
-               a.title AS title,
-               a.summary AS summary,
-               a.url AS url,
-               a.score AS score
-        ORDER BY a.score DESC
+        RETURN a.pg_id AS id
         LIMIT $limit
         """
 
@@ -1375,24 +1369,30 @@ class LadybugQueryBuilder:
 
         Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
         the reverse direction.
+
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        available on the node — callers batch-fetch title / category /
+        publish_time / score from PostgreSQL via
+        ``ArticleRepository.fetch_titles_by_pg_ids``.
         """
         # LadybugDB Entity has no aliases property - lookup by canonical_name only
         return """
             MATCH (e:Entity)
             WHERE e.canonical_name = $name
             MATCH (a:Article)-[:MENTIONS]->(e)
-            RETURN a.pg_id as id, a.title as title, a.category as category,
-                   a.publish_time as publish_time, a.score as score
-            ORDER BY a.publish_time DESC
+            RETURN a.pg_id as id
             LIMIT $limit
         """
 
     def build_get_article_graph_query(self) -> str:
-        """Build LadybugDB query to get article node."""
+        """Build LadybugDB query to get article node.
+
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        returned — callers batch-fetch business fields from PostgreSQL.
+        """
         return """
             MATCH (a:Article {pg_id: $id})
-            RETURN a.pg_id as id, a.title as title, a.category as category,
-                   a.publish_time as publish_time, a.score as score
+            RETURN a.pg_id as id
         """
 
     def build_get_article_entities_query(self) -> str:
@@ -1429,12 +1429,13 @@ class LadybugQueryBuilder:
         Note: LadybugDB doesn't support | syntax for multiple relation types.
         Only FOLLOWED_BY connects Article to Article (MENTIONS is Article->Entity).
         DISTINCT causes "variable not in scope" errors in LadybugDB.
+
+        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
             MATCH (a:Article {pg_id: $id})-[r:FOLLOWED_BY]->(ra:Article)
-            RETURN ra.pg_id as id, ra.title as title, ra.category as category,
-                   ra.publish_time as publish_time, ra.score as score
-            ORDER BY ra.publish_time DESC
+            RETURN ra.pg_id as id
             LIMIT 10
         """
 
@@ -1736,11 +1737,7 @@ class LadybugQueryBuilder:
         return """
         MATCH (a:Article)-[:MENTIONS]->(e:Entity)
         WHERE e.canonical_name IN $names
-        RETURN DISTINCT a.pg_id AS id,
-               a.title AS title,
-               a.summary AS summary,
-               a.publish_time AS publish_time
-        ORDER BY a.publish_time DESC
+        RETURN DISTINCT a.pg_id AS id
         LIMIT $limit
         """
 
@@ -1912,11 +1909,12 @@ class LadybugQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # LadybugDB: Article may not have summary/url, use title only
+        # After the Article node slim-down (design.md §D2), Article nodes no
+        # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
+        # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """
         MATCH (a:Article)
-        WHERE LOWER(a.title) CONTAINS LOWER($query)
-        RETURN a.title AS title
+        RETURN a.pg_id AS id
         LIMIT $limit
         """
 

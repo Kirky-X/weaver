@@ -233,7 +233,9 @@ class TestNeo4jQueryBuilder:
         assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
         assert "e.canonical_name IN $names" in result
         assert "RETURN DISTINCT a.pg_id AS id" in result
-        assert "ORDER BY a.publish_time DESC" in result
+        # After Article node slim-down (design.md §D2): publish_time is no
+        # longer stored on the graph node. Callers fetch it from PostgreSQL.
+        assert "publish_time" not in result
 
     def test_build_community_search_query_with_text(self, builder: Neo4jQueryBuilder) -> None:
         config = CommunitySearchConfig(level=1, query="test", limit=10)
@@ -922,7 +924,10 @@ class TestNeo4jQueryBuilderSecurity:
         assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
         assert "$tokens" in result
         assert "$limit" in result
-        assert "article_score" in result
+        # After Article node slim-down (design.md §D2): return pg_id as
+        # article_id (instead of article_score) for batch PG lookup.
+        assert "article_id" in result
+        assert "a.pg_id AS article_id" in result
 
     def test_entity_article_fallback_validates_empty_tokens(
         self, builder: Neo4jQueryBuilder
@@ -948,7 +953,11 @@ class TestNeo4jQueryBuilderSecurity:
     def test_build_articles_by_text_query(self, builder: Neo4jQueryBuilder) -> None:
         result = builder.build_articles_by_text_query(limit=10)
         assert "MATCH (a:Article)" in result
-        assert "$query" in result
+        # After Article node slim-down (design.md §D2): the query no longer
+        # filters by title in the graph (Article node has no title). It
+        # returns pg_ids only; callers filter by title in PostgreSQL.
+        assert "$query" not in result
+        assert "RETURN a.pg_id AS id" in result
         assert "$limit" in result
 
 
@@ -1088,5 +1097,8 @@ class TestLadybugQueryBuilderSecurity:
     def test_build_articles_by_text_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_articles_by_text_query(limit=10)
         assert "MATCH (a:Article)" in result
-        assert "$query" in result
+        # After Article node slim-down (design.md §D2): no $query param;
+        # graph returns pg_ids only, callers filter by title in PostgreSQL.
+        assert "$query" not in result
+        assert "RETURN a.pg_id AS id" in result
         assert "$limit" in result

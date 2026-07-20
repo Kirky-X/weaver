@@ -44,6 +44,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         max_entities_per_community: int = 5,
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
+        article_repo: Any = None,
     ) -> None:
         super().__init__(
             graph_pool=graph_pool,
@@ -55,6 +56,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             fallback_enabled=fallback_enabled,
         )
         self._query_builder = create_graph_query_builder("neo4j")
+        self._article_repo = article_repo
 
     def _should_skip_supplementary(self, used_fallback: bool) -> bool:
         """Neo4j skips supplementary queries for fallback results.
@@ -139,6 +141,12 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
         Queries Article-Entity relationships via MENTIONS edges.
         Returns article-based results with entity context.
+
+        After the Article node slim-down (design.md §D2), the graph query
+        returns only ``article_id`` (= ``a.pg_id``) plus entity fields.
+        When ``self._article_repo`` is available, title and score are
+        batch-fetched from PostgreSQL; otherwise the result falls back
+        to using ``entity_name`` as the title and ``0.5`` as the rank.
         """
         tokens = [t.strip() for t in query.split() if t.strip()]
         if not tokens:
@@ -157,18 +165,42 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             if not results:
                 return []
 
-            return [
-                {
-                    "id": f"fallback:{dict(r).get('article_id', '')}",
-                    "title": (
-                        f"{dict(r).get('entity_name', '')} — {dict(r).get('article_title', '')}"
-                    ),
-                    "summary": dict(r).get("entity_description", ""),
-                    "rank": float(dict(r).get("article_score", 0.5)),
-                    "entity_count": 1,
-                }
-                for r in results
-            ]
+            # Batch-fetch titles/scores from PostgreSQL when available.
+            # Graph query returns ``a.pg_id AS article_id``; missing or
+            # non-string values are filtered out before the batch call.
+            pg_ids = [str(r.get("article_id")) for r in results if r.get("article_id")]
+            titles: dict[str, dict[str, Any]] = {}
+            if self._article_repo and pg_ids:
+                try:
+                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
+                except Exception as exc:
+                    log.warning(
+                        "fallback_fetch_titles_failed",
+                        error=str(exc),
+                        pg_id_count=len(pg_ids),
+                    )
+                    titles = {}
+
+            fallback_results: list[dict[str, Any]] = []
+            for r in results:
+                row = dict(r)
+                pg_id = str(row.get("article_id") or "")
+                meta = titles.get(pg_id.lower()) if pg_id else None
+                entity_name = row.get("entity_name", "")
+                # When article_repo is available, use the real title;
+                # otherwise degrade to entity_name only (no trailing dash).
+                title = (meta or {}).get("title") or entity_name
+                rank = float((meta or {}).get("score") or 0.5)
+                fallback_results.append(
+                    {
+                        "id": f"fallback:{pg_id}",
+                        "title": title,
+                        "summary": row.get("entity_description", ""),
+                        "rank": rank,
+                        "entity_count": 1,
+                    }
+                )
+            return fallback_results
         except Exception as exc:
             log.warning("entity_article_fallback_failed", error=str(exc))
             return []

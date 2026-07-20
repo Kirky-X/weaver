@@ -51,6 +51,11 @@ class GraphRepository:
         query_builder: Database-specific query builder for primary.
         fallback_pool_factory: Optional factory function for lazy fallback pool creation.
         fallback_query_builder: Optional query builder for fallback.
+        article_repo: Optional ``ArticleRepository``-compatible instance
+            used by ``GraphArticleReader`` to batch-fetch article business
+            fields (title/category/publish_time/score) from PostgreSQL
+            after the Article node slim-down (design.md §D2). ``None``
+            triggers degraded mode (pg_id only).
     """
 
     def __init__(
@@ -59,6 +64,7 @@ class GraphRepository:
         query_builder: GraphQueryBuilder,
         fallback_pool_factory: callable | None = None,
         fallback_query_builder: GraphQueryBuilder | None = None,
+        article_repo: Any = None,
     ) -> None:
         self._pool = pool
         self._query_builder = query_builder
@@ -70,7 +76,9 @@ class GraphRepository:
         # callable binds _execute_with_fallback so all readers share the
         # same fallback pool state owned by this repository.
         self._entity_reader = GraphEntityReader(pool, query_builder, self._execute_with_fallback)
-        self._article_reader = GraphArticleReader(pool, query_builder, self._execute_with_fallback)
+        self._article_reader = GraphArticleReader(
+            pool, query_builder, self._execute_with_fallback, article_repo=article_repo
+        )
         self._visualizer = GraphVisualizer(pool, query_builder, self._execute_with_fallback)
         self._traverser = GraphTraverser(pool, query_builder, self._execute_with_fallback)
 

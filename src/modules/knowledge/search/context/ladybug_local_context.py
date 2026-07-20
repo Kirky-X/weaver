@@ -205,7 +205,15 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         entity_names: list[str],
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get articles mentioning the query entities."""
+        """Get articles mentioning the query entities.
+
+        After the Article node slim-down (design.md §D2), the graph query
+        returns only ``a.pg_id AS id``. Title / category / publish_time /
+        score are batch-fetched from PostgreSQL via
+        ``fetch_titles_by_pg_ids`` when ``self._article_repo`` is
+        available; article bodies are fetched via ``fetch_article_bodies``
+        for excerpt extraction.
+        """
         if not entity_names:
             return []
 
@@ -219,6 +227,32 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
 
             pg_ids = [a.get("pg_id") or a.get("id") for a in articles]
             pg_ids = [str(pid) for pid in pg_ids if pid]
+
+            # Batch-fetch title/publish_time from PostgreSQL (slim-down).
+            titles: dict[str, dict[str, Any]] = {}
+            if self._article_repo and pg_ids:
+                try:
+                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
+                except Exception as exc:
+                    log.warning(
+                        "ladybug_local_context_fetch_titles_failed",
+                        error=str(exc),
+                        pg_id_count=len(pg_ids),
+                    )
+                    titles = {}
+
+            for article in articles:
+                pg_id = str(article.get("pg_id") or article.get("id") or "")
+                meta = titles.get(pg_id.lower()) if pg_id else None
+                if meta:
+                    article["title"] = meta.get("title", "")
+                    article["publish_time"] = meta.get("publish_time")
+                    article["category"] = meta.get("category")
+                    article["score"] = meta.get("score")
+                else:
+                    article.setdefault("title", "")
+                    article.setdefault("publish_time", None)
+
             bodies = await self.fetch_article_bodies(pg_ids)
 
             for article in articles:
@@ -244,6 +278,11 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
 
         This is a fallback when no entities are found.
         Uses parameterized query via GraphQueryBuilder.
+
+        After the Article node slim-down (design.md §D2), the graph query
+        returns only ``a.pg_id AS id``. Title is batch-fetched from
+        PostgreSQL via ``fetch_titles_by_pg_ids`` when
+        ``self._article_repo`` is available.
         """
         cypher = self._query_builder.build_articles_by_text_query(limit)
 
@@ -252,6 +291,32 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
                 cypher, {"query": query.lower(), "limit": limit}
             )
             articles = [dict(r) for r in results]
+
+            pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
+
+            titles: dict[str, dict[str, Any]] = {}
+            if self._article_repo and pg_ids:
+                try:
+                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
+                except Exception as exc:
+                    log.warning(
+                        "ladybug_text_search_fetch_titles_failed",
+                        error=str(exc),
+                        pg_id_count=len(pg_ids),
+                    )
+                    titles = {}
+
+            for article in articles:
+                pg_id = str(article.get("id", ""))
+                meta = titles.get(pg_id.lower()) if pg_id else None
+                if meta:
+                    article["title"] = meta.get("title", "")
+                    article["publish_time"] = meta.get("publish_time")
+                    article["category"] = meta.get("category")
+                    article["score"] = meta.get("score")
+                else:
+                    article.setdefault("title", "")
+
             if articles:
                 log.info("articles_found_by_text", count=len(articles), query=query)
             return articles

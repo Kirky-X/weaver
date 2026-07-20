@@ -72,6 +72,7 @@ class ContainerSearchMixin:
                 graph_pool=graph_pool,
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
+                article_repo=self.article_repo(),
             )
 
         if self._local_search_engine is None:

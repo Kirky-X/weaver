@@ -86,7 +86,12 @@ class TestGlobalContextBuilderFallback:
 
     @pytest.mark.asyncio
     async def test_fallback_returns_entities_when_no_communities(self):
-        """When Community nodes don't exist, fallback returns Article-Entity aggregation."""
+        """When Community nodes don't exist, fallback returns Article-Entity aggregation.
+
+        After Article node slim-down (design.md §D2), the graph query returns
+        only ``article_id`` (pg_id) and entity fields. Title/score are
+        batch-fetched from PostgreSQL via ``article_repo.fetch_titles_by_pg_ids``.
+        """
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -98,15 +103,24 @@ class TestGlobalContextBuilderFallback:
                         "entity_type": "Company",
                         "entity_description": "中国智能手机制造商",
                         "article_id": "uuid-123",
-                        "article_title": "小米投资AI领域",
-                        "article_score": 0.85,
                         "entity_degree": 15,
                     }
                 ),
             ],
         )
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
+            return_value={
+                "uuid-123": {
+                    "title": "小米投资AI领域",
+                    "category": "tech",
+                    "publish_time": None,
+                    "score": 0.85,
+                }
+            }
+        )
 
-        builder = GlobalContextBuilder(graph_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool, article_repo=mock_article_repo)
         result = await builder._find_entity_article_fallback("小米 AI")
 
         assert len(result) == 1
@@ -115,6 +129,33 @@ class TestGlobalContextBuilderFallback:
         assert "小米投资AI领域" in result[0]["title"]
         assert result[0]["rank"] == pytest.approx(0.85)
         assert result[0]["entity_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_fallback_degraded_without_article_repo(self):
+        """Degraded mode uses entity_name as title and 0.5 as rank."""
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
+
+        pool = MockNeo4jPool(
+            community_results=[],
+            fallback_results=[
+                MockRecord(
+                    {
+                        "entity_name": "小米",
+                        "entity_type": "Company",
+                        "entity_description": "中国智能手机制造商",
+                        "article_id": "uuid-123",
+                        "entity_degree": 15,
+                    }
+                ),
+            ],
+        )
+
+        builder = GlobalContextBuilder(graph_pool=pool)  # no article_repo
+        result = await builder._find_entity_article_fallback("小米 AI")
+
+        assert len(result) == 1
+        assert result[0]["title"] == "小米"
+        assert result[0]["rank"] == pytest.approx(0.5)
 
     @pytest.mark.asyncio
     async def test_fallback_filters_by_query_keyword(self):
@@ -254,7 +295,12 @@ class TestGlobalContextBuilderFallback:
 
     @pytest.mark.asyncio
     async def test_fallback_sorting_by_article_score(self):
-        """Fallback results are sorted by article.score descending."""
+        """Fallback results are sorted by article.score descending.
+
+        After Article node slim-down (design.md §D2), score comes from PG
+        via ``fetch_titles_by_pg_ids``. MockNeo4jPool still sorts by
+        ``article_score`` field (kept in mock data for sort simulation).
+        """
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -266,8 +312,7 @@ class TestGlobalContextBuilderFallback:
                         "entity_type": "Company",
                         "entity_description": "描述",
                         "article_id": "uuid-b",
-                        "article_title": "文章B",
-                        "article_score": 0.55,
+                        "article_score": 0.55,  # mock sort key
                         "entity_degree": 5,
                     }
                 ),
@@ -277,19 +322,36 @@ class TestGlobalContextBuilderFallback:
                         "entity_type": "Company",
                         "entity_description": "描述",
                         "article_id": "uuid-a",
-                        "article_title": "文章A",
-                        "article_score": 0.925,
+                        "article_score": 0.925,  # mock sort key
                         "entity_degree": 5,
                     }
                 ),
             ],
         )
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
+            return_value={
+                "uuid-a": {
+                    "title": "文章A",
+                    "category": "tech",
+                    "publish_time": None,
+                    "score": 0.925,
+                },
+                "uuid-b": {
+                    "title": "文章B",
+                    "category": "tech",
+                    "publish_time": None,
+                    "score": 0.55,
+                },
+            }
+        )
 
-        builder = GlobalContextBuilder(graph_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool, article_repo=mock_article_repo)
         result = await builder._find_entity_article_fallback("公司")
 
         # companyA should be first (score=0.925) > companyB (score=0.55)
+        # After slim-down: title comes from PG (文章A), not entity_name (公司A).
         assert len(result) == 2
-        assert "公司A" in result[0]["title"]
+        assert result[0]["title"] == "文章A"
         assert result[0]["rank"] == pytest.approx(0.925)
         assert result[1]["rank"] == pytest.approx(0.55)

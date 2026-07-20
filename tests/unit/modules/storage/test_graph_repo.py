@@ -170,37 +170,46 @@ class TestGraphRepositoryGetRelatedEntities:
 
 
 class TestGraphRepositoryGetArticle:
-    """Test get_article method."""
+    """Test get_article method.
+
+    After the Article node slim-down (design.md §D2), graph queries only
+    return ``a.pg_id AS id``; business fields are batch-fetched from
+    PostgreSQL via ``article_repo.fetch_titles_by_pg_ids``.
+    """
 
     @pytest.fixture
     def repo(self):
-        """Create GraphRepository with mock pool."""
+        """Create GraphRepository with mock pool and mock article_repo."""
         from modules.storage.graph_repo import GraphRepository
 
         mock_pool = AsyncMock()
         mock_query_builder = MagicMock()
         mock_query_builder.build_get_article_graph_query = MagicMock(return_value="QUERY")
-        return GraphRepository(mock_pool, mock_query_builder)
-
-    @pytest.mark.asyncio
-    async def test_get_article_found(self, repo):
-        """Test get_article finds article."""
-        repo._pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "id": "article1",
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
+            return_value={
+                "article1": {
                     "title": "Test Article",
                     "category": "news",
                     "publish_time": None,
                     "score": 0.95,
                 }
-            ]
+            }
         )
+        return GraphRepository(mock_pool, mock_query_builder, article_repo=mock_article_repo)
+
+    @pytest.mark.asyncio
+    async def test_get_article_found(self, repo):
+        """Test get_article finds article and enriches from PG."""
+        repo._pool.execute_query = AsyncMock(return_value=[{"id": "article1"}])
 
         article = await repo.get_article("article1")
 
         assert article is not None
+        assert article["id"] == "article1"
         assert article["title"] == "Test Article"
+        assert article["category"] == "news"
+        assert article["score"] == 0.95
 
     @pytest.mark.asyncio
     async def test_get_article_not_found(self, repo):
@@ -210,6 +219,24 @@ class TestGraphRepositoryGetArticle:
         article = await repo.get_article("nonexistent")
 
         assert article is None
+
+    @pytest.mark.asyncio
+    async def test_get_article_degraded_without_article_repo(self):
+        """Degraded mode returns pg_id only when article_repo is None."""
+        from modules.storage.graph_repo import GraphRepository
+
+        mock_pool = AsyncMock()
+        mock_query_builder = MagicMock()
+        mock_query_builder.build_get_article_graph_query = MagicMock(return_value="QUERY")
+        mock_pool.execute_query = AsyncMock(return_value=[{"id": "orphan1"}])
+
+        repo = GraphRepository(mock_pool, mock_query_builder)  # article_repo=None
+        article = await repo.get_article("orphan1")
+
+        assert article is not None
+        assert article["id"] == "orphan1"
+        assert article["title"] == ""
+        assert article["category"] is None
 
 
 class TestGraphRepositoryGetVisualizationNodes:

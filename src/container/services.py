@@ -394,7 +394,11 @@ class ContainerServicesMixin:
                 fallback_query_builder = create_graph_query_builder("ladybug")
 
             self._graph_repo = GraphRepository(
-                graph_pool, query_builder, fallback_pool_factory, fallback_query_builder
+                graph_pool,
+                query_builder,
+                fallback_pool_factory,
+                fallback_query_builder,
+                article_repo=self.article_repo(),
             )
         return self._graph_repo
 
