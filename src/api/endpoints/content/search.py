@@ -59,6 +59,37 @@ router = APIRouter(prefix="/search", tags=["search"])
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
+def _sort_response_lists(
+    entities: list[str], sources: list[dict[str, Any]]
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Sort entities and sources for deterministic cross-DB comparison.
+
+    Different DB backends (PG vs DuckDB, Neo4j vs LadybugDB) return rows in
+    non-deterministic order due to different query planners and Cypher
+    execution plans. Sorting at the API response layer ensures cross-DB
+    consistency without relying on DB-side ORDER BY clauses (which would
+    need to be duplicated across SQL/Cypher dialects and would still be
+    fragile across driver versions).
+
+    Closes 4-DB cross-test audit Finding 1/2 (audit_findings.md):
+    - 9 inconsistencies across 3 endpoints (search_local:Windows,
+      search_local:MPEG-4, search_global:Windows) were caused purely by
+      entities/sources ordering differences — same set, different order.
+    """
+    # Cast to str for robustness: prevents TypeError when entities/sources
+    # contain mixed types (str + None + int) across DB backends.
+    sorted_entities = sorted(entities, key=str)
+    # sources dict structure varies by path: local_search returns {"title": ...},
+    # web search fallback returns {"url", "title", "snippet"}, other callers
+    # may use {"article_id": ...}. Use first available key as sort key;
+    # str() cast prevents TypeError when value is None or non-str.
+    sorted_sources = sorted(
+        sources,
+        key=lambda s: str(s.get("title") or s.get("article_id") or s.get("url") or ""),
+    )
+    return sorted_entities, sorted_sources
+
+
 # ── Request/Response Models ─────────────────────────────────────
 
 
@@ -265,6 +296,10 @@ async def search_unified(
     result_metadata["web_search_fallback"] = web_search_used
     result_metadata["web_search_result_count"] = web_search_result_count
 
+    # Sort entities/sources for deterministic cross-DB comparison
+    # (audit_findings.md Finding 1/2: ordering differences across DB backends).
+    result_entities, result_sources = _sort_response_lists(result_entities, result_sources)
+
     # Determine search_type for response
     search_type = explicit_mode if use_explicit_mode else "auto"
 
@@ -324,6 +359,10 @@ async def _execute_explicit_search(
     result_metadata["enrich_entities"] = False
     result_metadata["intent"] = "OPEN"
     result_metadata["intent_confidence"] = 1.0
+
+    # Sort entities/sources for deterministic cross-DB comparison
+    # (audit_findings.md Finding 1/2: ordering differences across DB backends).
+    result_entities, result_sources = _sort_response_lists(result_entities, result_sources)
 
     return SearchResponse(
         query=q,

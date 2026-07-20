@@ -1527,3 +1527,139 @@ class TestSearchUnifiedWebSearchFallback:
         mock_schedule.assert_called_once()
         # When SCHEDULED, the throttle flag must NOT be True.
         assert result.data.metadata.get("background_task_throttled") is not True
+
+
+# ── _sort_response_lists Unit Tests ─────────────────────────────────
+# Covers audit_findings.md Finding 1/2 fix: deterministic cross-DB
+# ordering of entities/sources lists in SearchResponse.
+# Rule 9 (testing meaningful properties) + Rule 24 (no simplification):
+# 7 cases cover ordering, fallback keys, edge values, mixed types, idempotency,
+# no-mutation of input, and empty-input boundary.
+
+
+class TestSortResponseLists:
+    """Unit tests for ``api.endpoints.content.search._sort_response_lists``.
+
+    Validates deterministic cross-DB ordering of entities/sources. Closes
+    audit_findings.md Finding 1/2 (9 cross-DB inconsistencies in
+    search_local/search_global endpoints).
+    """
+
+    def test_sorts_entities_in_ascending_order(self) -> None:
+        """Multi-entity unordered input → ascending output."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities = ["Windows 11", "Apple", "Windows 10", "BSD"]
+        sources: list[dict[str, Any]] = []
+        sorted_entities, _ = _sort_response_lists(entities, sources)
+        assert sorted_entities == ["Apple", "BSD", "Windows 10", "Windows 11"]
+
+    def test_sorts_sources_by_title(self) -> None:
+        """Sources with title key → sorted by title ascending."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities: list[str] = []
+        sources = [
+            {"title": "Zebra Article"},
+            {"title": "Apple Article"},
+            {"title": "Mango Article"},
+        ]
+        _, sorted_sources = _sort_response_lists(entities, sources)
+        titles = [s["title"] for s in sorted_sources]
+        assert titles == ["Apple Article", "Mango Article", "Zebra Article"]
+
+    def test_fallback_to_article_id_when_title_missing(self) -> None:
+        """Sources without title but with article_id → sorted by article_id."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities: list[str] = []
+        sources = [
+            {"article_id": "zzz-123"},
+            {"article_id": "aaa-456"},
+            {"article_id": "mmm-789"},
+        ]
+        _, sorted_sources = _sort_response_lists(entities, sources)
+        ids = [s["article_id"] for s in sorted_sources]
+        assert ids == ["aaa-456", "mmm-789", "zzz-123"]
+
+    def test_fallback_to_url_when_title_and_article_id_missing(self) -> None:
+        """Sources with only url key → sorted by url (web search fallback path)."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities: list[str] = []
+        sources = [
+            {"url": "https://z.example.com", "snippet": "z"},
+            {"url": "https://a.example.com", "snippet": "a"},
+        ]
+        _, sorted_sources = _sort_response_lists(entities, sources)
+        urls = [s["url"] for s in sorted_sources]
+        assert urls == ["https://a.example.com", "https://z.example.com"]
+
+    def test_handles_empty_dict_without_raising(self) -> None:
+        """Sources containing empty dict {} → no exception, sorted as empty string."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities: list[str] = []
+        sources = [{}, {"title": "B"}, {}]
+        _, sorted_sources = _sort_response_lists(entities, sources)
+        # Empty dicts sort as "" — they come before "B"
+        # Expected order: [{}, {}, {"title": "B"}]
+        assert sorted_sources[0] == {}
+        assert sorted_sources[1] == {}
+        assert sorted_sources[2] == {"title": "B"}
+
+    def test_str_cast_handles_mixed_type_values_without_typeerror(self) -> None:
+        """Sources with mixed-type title values (None, int, str) → no TypeError."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities: list[Any] = ["b", 1, None, "a"]
+        sources = [
+            {"title": None},
+            {"title": 42},  # type: ignore[dict-item]
+            {"title": "zebra"},
+            {"title": "apple"},
+        ]
+        # Must not raise TypeError. key=str only affects comparison, not elements.
+        # Entities sorted by str(): str(1)='1' < str(None)='None' < 'a' < 'b'.
+        sorted_entities, sorted_sources = _sort_response_lists(entities, sources)
+        # Elements preserved as-is; only ordering changes.
+        assert sorted_entities == [1, None, "a", "b"]
+        # Sources: {"title": None} → falsy → falls through to "" (sort key ""),
+        #          {"title": 42} → sort key "42",
+        #          {"title": "apple"} → sort key "apple",
+        #          {"title": "zebra"} → sort key "zebra".
+        # Sort order by key: "" < "42" < "apple" < "zebra".
+        titles = [s["title"] for s in sorted_sources]
+        assert titles == [None, 42, "apple", "zebra"]
+
+    def test_does_not_mutate_input_lists(self) -> None:
+        """Function must return new lists, not mutate input (pure function)."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities = ["c", "a", "b"]
+        sources = [{"title": "z"}, {"title": "a"}]
+        entities_snapshot = list(entities)
+        sources_snapshot = [dict(s) for s in sources]
+
+        _sort_response_lists(entities, sources)
+
+        assert entities == entities_snapshot
+        assert sources == sources_snapshot
+
+    def test_empty_inputs_return_empty_outputs(self) -> None:
+        """Empty entities + empty sources → empty outputs (boundary)."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        sorted_entities, sorted_sources = _sort_response_lists([], [])
+        assert sorted_entities == []
+        assert sorted_sources == []
+
+    def test_idempotent_on_already_sorted_input(self) -> None:
+        """Already-sorted input → same order (idempotency)."""
+        from api.endpoints.content.search import _sort_response_lists
+
+        entities = ["a", "b", "c"]
+        sources = [{"title": "a"}, {"title": "b"}, {"title": "c"}]
+        sorted_entities, sorted_sources = _sort_response_lists(entities, sources)
+        assert sorted_entities == entities
+        assert sorted_sources == sources
