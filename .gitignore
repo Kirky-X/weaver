@@ -97,6 +97,7 @@ src/graphify-out/
 *.tmp
 *.tsbuildinfo
 *.whl
+*.backup
 *~
 .DS_Store
 .Python

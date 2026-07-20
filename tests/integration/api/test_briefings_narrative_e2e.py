@@ -12,14 +12,14 @@ These tests use REAL fixtures from tests/integration/conftest.py:
 - graph_pool: Neo4j → LadybugDB auto-fallback (real DB)
 - prompt_loader: real PromptLoader from config/prompts
 
-LLM is replaced with a stub class (FakeLLMClient) defined in this file —
-NOT unittest.mock.MagicMock. Project hook forbids MagicMock in integration
-tests (Rule: integration tests MUST use real services). The stub is a
-real Python class implementing the LLMClient interface; _get_briefing_service
-only needs container.llm_client() to return an object with .call_at()
-method — it does NOT call .call_at() during factory construction, so the
-stub never actually returns LLM responses. This avoids real Ollama calls
-+ RPM consumption.
+LLM is replaced with a stub class (FakeLLMClient) shared from
+.conftest — NOT unittest.mock.MagicMock. Project hook forbids MagicMock
+in integration tests (Rule: integration tests MUST use real services).
+The stub is a real Python class implementing the LLMClient interface;
+_get_briefing_service only needs container.llm_client() to return an
+object with .call_at() method — it does NOT call .call_at() during
+factory construction, so the stub never actually returns LLM responses.
+This avoids real Ollama calls + RPM consumption.
 
 Tests do NOT call generate_briefing() — that would require:
 1. Real LLM API calls (RPM consumption, 429 risk)
@@ -35,8 +35,6 @@ This file verifies the container integration seam: factory wiring is correct.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from fastapi import HTTPException
 
@@ -45,37 +43,7 @@ from core.db.strategy import DatabaseStrategy
 from modules.briefing import DailyBriefingService
 from modules.briefing.narrative import NarrativeBriefingGenerator
 
-
-class FakeLLMClient:
-    """Real Python class stub replacing LLMClient for factory integration tests.
-
-    Project hook forbids MagicMock in integration tests. This stub is a
-    concrete class implementing the LLMClient interface (call_at method).
-    The stub is never invoked during factory construction — only
-    container.llm_client() is called, returning this stub. The stub's
-    call_at method raises AssertionError if ever called (defensive —
-    factory should NOT trigger LLM calls).
-    """
-
-    async def call_at(self, call_point: Any, payload: Any) -> str:
-        raise AssertionError(
-            "FakeLLMClient.call_at should never be called during factory "
-            "construction — factory only wires dependencies, does not invoke LLM."
-        )
-
-
-class FakePromptLoader:
-    """Real Python class stub replacing PromptLoader for factory integration tests.
-
-    Avoids file IO dependency on config/prompts directory. Implements the
-    PromptLoader interface (get + get_version methods).
-    """
-
-    def get(self, name: str, section: str | None = None) -> str:
-        return f"fake {name} prompt"
-
-    def get_version(self, name: str) -> str:
-        return "0.0.0-fake"
+from .conftest import FakeLLMClient, FakePromptLoader
 
 
 def _build_container(
