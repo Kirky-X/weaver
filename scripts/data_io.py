@@ -740,8 +740,20 @@ async def export_neo4j_to_ladybug(
     # Make parent dir exist
     Path(ladybug_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. Initialize LadybugDB — file is created on first connection
-    ladybug_db = ladybug.Database(ladybug_path)
+    # If the target file exists, remove it — Kùzu requires a fresh
+    # database file when (re)initializing schema. Appending to an
+    # existing file may corrupt the catalog.
+    if Path(ladybug_path).exists():
+        Path(ladybug_path).unlink()
+
+    # 1. Initialize LadybugDB — pass max_db_size/buffer_pool_size to
+    # match LadybugPool's production configuration, avoiding catalog
+    # corruption from size-mismatched reopen.
+    ladybug_db = ladybug.Database(
+        ladybug_path,
+        max_db_size=1 * 1024 * 1024 * 1024,
+        buffer_pool_size=256 * 1024 * 1024,
+    )
     ladybug_conn = ladybug.Connection(ladybug_db)
     _init_ladybug_schema(ladybug_conn)
 
@@ -875,6 +887,15 @@ async def export_neo4j_to_ladybug(
                     )
     finally:
         neo4j_driver.close()
+        # Flush and close LadybugDB connection + database to ensure all
+        # writes are persisted to disk. Without explicit close, Kùzu may
+        # leave the file in an inconsistent state (catalog/metadata not
+        # flushed), causing "Unable to open database. The file is not a
+        # valid Kuzu database file!" on subsequent open.
+        with contextlib.suppress(Exception):
+            ladybug_conn.close()
+        with contextlib.suppress(Exception):
+            ladybug_db.close()
 
 
 async def validate_migration(
@@ -1207,15 +1228,41 @@ def _ladybug_create_nodes(
         if vector_cols:
             break
 
-    # Cypher: CREATE with just id PK, SET all scalar cols (including id
-    # to handle edge cases where id != PK). Vector cols are skipped here.
-    other_cols = [c for c in cols if c != "id" and c not in vector_cols]
-    set_pairs = ", ".join(f"n.`{c}` = ${c}" for c in other_cols)
-    set_clause = f" SET {set_pairs}" if other_cols else ""
-    cypher = f"CREATE (n:`{label}` {{id: $id}}){set_clause}"
+    # LadybugDB's binder has a bug: when a string parameter value looks
+    # like a vector literal (e.g., '[]', '[1,2,3]' at certain positions),
+    # it misinfers the type as a vector and raises
+    # "Trying to a create a vector with ANY type". The workaround is to
+    # inline string values as Cypher string literals (safely escaped)
+    # so the binder infers STRING from the literal. Non-string scalars
+    # (int/float/bool) are safe to pass as parameters.
+    # Ref: scripts/data_io.py::_ladybug_create_nodes
+    scalar_cols = [c for c in cols if c not in vector_cols]
 
     for props in nodes:
-        param_dict = {c: props.get(c) for c in cols if c not in vector_cols}
+        # Build CREATE map literal. String values are inlined as escaped
+        # Cypher string literals; other scalars use $param.
+        non_none_cols = [c for c in scalar_cols if props.get(c) is not None]
+        map_parts: list[str] = []
+        param_dict: dict[str, Any] = {}
+        for c in non_none_cols:
+            v = props.get(c)
+            if isinstance(v, str):
+                # Inline as escaped Cypher string literal to avoid the
+                # Kùzu binder bug on vector-looking strings like '[]'.
+                escaped = v.replace("\\", "\\\\").replace("'", "\\'")
+                map_parts.append(f"`{c}`: '{escaped}'")
+            elif isinstance(v, bool):
+                # bool before int because bool is a subclass of int
+                map_parts.append(f"`{c}`: {str(v).lower()}")
+            elif isinstance(v, (int, float)):
+                map_parts.append(f"`{c}`: ${c}")
+                param_dict[c] = v
+            else:
+                # Fallback: parameterize (may fail for edge cases)
+                map_parts.append(f"`{c}`: ${c}")
+                param_dict[c] = v
+        map_pairs = ", ".join(map_parts)
+        cypher = f"CREATE (n:`{label}` {{{map_pairs}}})"
         try:
             ladybug_conn.execute(cypher, param_dict)  # nosemgrep: sqlalchemy-execute-raw-query
         except Exception as exc:
@@ -1318,27 +1365,41 @@ def _ladybug_create_rels(
     Property names are backtick-quoted because some may collide with
     Cypher reserved words.
     """
-    # Build SET clause for properties (skip if no props)
-    if rel_props:
-        set_pairs = ", ".join(f"r.`{p}` = ${p}" for p in rel_props)
-        set_clause = " SET " + set_pairs
-    else:
-        set_clause = ""
-
-    cypher = (
-        f"MATCH (a:`{from_label}` {{id: $_from_id}}), "
-        f"(b:`{to_label}` {{id: $_to_id}}) "
-        f"CREATE (a)-[r:`{rel_type}`]->(b){set_clause}"
-    )
-
+    # Build per-rel Cypher: properties in CREATE map literal.
+    # Same Kùzu binder bug workaround as _ladybug_create_nodes:
+    # string values are inlined as escaped Cypher string literals.
     for rel in rels:
-        param_dict = {"_from_id": rel["_from_id"], "_to_id": rel["_to_id"]}
+        # Collect non-None prop values with timestamp conversion
+        non_none_props: list[tuple[str, Any]] = []
         for p in rel_props:
             v = rel.get(p)
-            # Convert timestamps to INT64
             if p.endswith("_at") or p.endswith("_time"):
                 v = _to_epoch_seconds(v)
-            param_dict[p] = v
+            if v is not None:
+                non_none_props.append((p, v))
+
+        map_parts: list[str] = []
+        param_dict: dict[str, Any] = {"_from_id": rel["_from_id"], "_to_id": rel["_to_id"]}
+        for p, v in non_none_props:
+            if isinstance(v, str):
+                escaped = v.replace("\\", "\\\\").replace("'", "\\'")
+                map_parts.append(f"`{p}`: '{escaped}'")
+            elif isinstance(v, bool):
+                map_parts.append(f"`{p}`: {str(v).lower()}")
+            elif isinstance(v, (int, float)):
+                map_parts.append(f"`{p}`: ${p}")
+                param_dict[p] = v
+            else:
+                map_parts.append(f"`{p}`: ${p}")
+                param_dict[p] = v
+
+        map_literal = f" {{{', '.join(map_parts)}}}" if map_parts else ""
+
+        cypher = (
+            f"MATCH (a:`{from_label}` {{id: $_from_id}}), "
+            f"(b:`{to_label}` {{id: $_to_id}}) "
+            f"CREATE (a)-[r:`{rel_type}`{map_literal}]->(b)"
+        )
         try:
             ladybug_conn.execute(cypher, param_dict)  # nosemgrep: sqlalchemy-execute-raw-query
         except Exception as exc:
