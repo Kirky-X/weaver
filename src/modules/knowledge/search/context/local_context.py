@@ -10,15 +10,13 @@ Builds context by:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.db.safe_query import validate_edge_type
 from core.observability import get_logger
+from core.utils.article_enrichment import enrich_articles_with_titles
 from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 from modules.knowledge.search.context.base_local_context import BaseLocalContextBuilder
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger(__name__)
 
@@ -183,9 +181,9 @@ class LocalContextBuilder(BaseLocalContextBuilder):
 
         After the Article node slim-down (design.md §D2), the graph query
         returns only ``a.pg_id AS id``. Title / publish_time are
-        batch-fetched from PostgreSQL via ``fetch_titles_by_pg_ids`` when
-        ``self._article_repo`` is available; article bodies are fetched
-        via ``fetch_article_bodies`` for excerpt extraction.
+        batch-fetched from PostgreSQL via ``enrich_articles_with_titles``
+        when ``self._article_repo`` is available; article bodies are
+        fetched via ``fetch_article_bodies`` for excerpt extraction.
         """
         if not entity_names:
             return []
@@ -205,37 +203,18 @@ class LocalContextBuilder(BaseLocalContextBuilder):
             )
             articles = [dict(r) for r in results]
 
-            pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
-
-            # Batch-fetch title/publish_time from PostgreSQL (slim-down).
-            titles: dict[str, dict[str, Any]] = {}
-            if self._article_repo and pg_ids:
-                try:
-                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
-                except Exception as exc:
-                    log.warning(
-                        "local_context_fetch_titles_failed",
-                        error=str(exc),
-                        pg_id_count=len(pg_ids),
-                    )
-                    titles = {}
-
-            for article in articles:
-                pg_id = str(article.get("id", ""))
-                meta = titles.get(pg_id.lower()) if pg_id else None
-                if meta:
-                    article["title"] = meta.get("title", "")
-                    article["publish_time"] = meta.get("publish_time")
-                    article["category"] = meta.get("category")
-                    article["score"] = meta.get("score")
-                else:
-                    article.setdefault("title", "")
-                    article.setdefault("publish_time", None)
+            # Batch-enrich titles from PG (slim-down); returns the
+            # lowercase pg_ids list so we can reuse it for body fetching.
+            pg_ids = await enrich_articles_with_titles(
+                articles,
+                article_repo=self._article_repo,
+                id_fields=["id"],
+            )
 
             bodies = await self.fetch_article_bodies(pg_ids)
 
             for article in articles:
-                pg_id = str(article.get("id", ""))
+                pg_id = str(article.get("id", "")).lower()
                 if pg_id and pg_id in bodies:
                     article["body_excerpt"] = self.extract_key_excerpt(
                         bodies[pg_id],

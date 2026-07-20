@@ -344,8 +344,9 @@ class TestLocalContextBuilderGetRelatedArticles:
         """Test article body + title enrichment from PostgreSQL.
 
         After Article node slim-down, graph query returns only ``pg_id``;
-        title/publish_time come from ``fetch_titles_by_pg_ids`` and body
-        comes from ``article_repo.get``.
+        title/publish_time come from ``enrich_articles_with_titles``
+        (which calls ``fetch_titles_by_pg_ids``) and body comes from
+        ``fetch_bodies_by_pg_ids`` (replacing the N+1 ``repo.get`` loop).
         """
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"id": "a1"}])
@@ -360,9 +361,10 @@ class TestLocalContextBuilderGetRelatedArticles:
                 }
             }
         )
-        mock_article = MagicMock()
-        mock_article.body = "华为发布了新产品。这是一个重要的里程碑。"
-        mock_article_repo.get = AsyncMock(return_value=mock_article)
+        # New batch-fetch API replaces the N+1 per-id ``repo.get`` loop.
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(
+            return_value={"a1": "华为发布了新产品。这是一个重要的里程碑。"}
+        )
 
         builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_article_repo)
         result = await builder._get_related_articles(["华为"])
@@ -373,6 +375,9 @@ class TestLocalContextBuilderGetRelatedArticles:
         assert result[0]["category"] == "tech"
         assert result[0]["score"] == 0.92
         assert "body_excerpt" in result[0]
+        # Verify the batch API was used (not the legacy per-id loop).
+        mock_article_repo.fetch_bodies_by_pg_ids.assert_awaited_once_with(["a1"])
+        mock_article_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_degraded_without_article_repo(self) -> None:
@@ -552,28 +557,81 @@ class TestLocalContextBuilderFetchArticleBodies:
 
     @pytest.mark.asyncio
     async def test_with_article_repo(self) -> None:
+        """``fetch_article_bodies`` delegates to ``fetch_bodies_by_pg_ids`` when available.
+
+        T051: the legacy N+1 ``repo.get`` loop is replaced by a single batched
+        SELECT. This test asserts the new contract: ``fetch_bodies_by_pg_ids``
+        is called once with the full pg_ids list.
+        """
         pool = _make_pool()
-        mock_article = MagicMock()
-        mock_article.body = "Article body content"
-        mock_repo = AsyncMock()
-        mock_repo.get = AsyncMock(return_value=mock_article)
+        mock_repo = MagicMock()
+        mock_repo.fetch_bodies_by_pg_ids = AsyncMock(return_value={"a1": "Article body content"})
 
         builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_repo)
         result = await builder.fetch_article_bodies(["a1"])
 
         assert "a1" in result
         assert result["a1"] == "Article body content"
+        mock_repo.fetch_bodies_by_pg_ids.assert_awaited_once_with(["a1"])
 
     @pytest.mark.asyncio
     async def test_handles_fetch_error(self) -> None:
+        """When ``fetch_bodies_by_pg_ids`` raises, ``fetch_article_bodies`` returns {}.
+
+        Rule 12: failures must be explicit (logged) and must not propagate
+        uncaught to the caller. The context builder degrades to no body
+        excerpts rather than aborting the whole context build.
+        """
         pool = _make_pool()
-        mock_repo = AsyncMock()
-        mock_repo.get = AsyncMock(side_effect=Exception("DB error"))
+        mock_repo = MagicMock()
+        mock_repo.fetch_bodies_by_pg_ids = AsyncMock(side_effect=Exception("DB error"))
 
         builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_repo)
         result = await builder.fetch_article_bodies(["a1"])
 
         assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_bodies_no_truncation_in_legacy_fallback(self) -> None:
+        """MEDIUM-1: legacy fallback iterates ALL pg_ids (no ``[:5]`` truncation).
+
+        When ``fetch_bodies_by_pg_ids`` is unavailable on the repo (e.g.,
+        a custom ArticleRepository impl that predates the Protocol
+        method), the fallback path must iterate every pg_id via
+        ``repo.get``. The previous ``pg_ids[:5]`` truncation silently
+        dropped articles 6..N — a Rule 12 violation (silent failure:
+        caller cannot distinguish "5 articles exist" from "only 5 of 10
+        fetched").
+
+        All in-tree ArticleRepository impls now provide the batch method,
+        so this path is only exercised by external custom impls. The
+        getattr check itself is kept for backward compat; only the
+        truncation is removed.
+        """
+        pool = _make_pool()
+        mock_repo = MagicMock()
+        # Force legacy fallback: no fetch_bodies_by_pg_ids method.
+        mock_repo.fetch_bodies_by_pg_ids = None
+
+        async def _mock_get(pg_id):
+            article = MagicMock()
+            article.body = f"body for {pg_id}"
+            return article
+
+        mock_repo.get = AsyncMock(side_effect=_mock_get)
+
+        builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_repo)
+        pg_ids = [f"pg-{i:02d}" for i in range(10)]
+        result = await builder.fetch_article_bodies(pg_ids)
+
+        # All 10 pg_ids attempted (no [:5] truncation).
+        assert (
+            mock_repo.get.await_count == 10
+        ), f"Legacy fallback must iterate ALL pg_ids, got {mock_repo.get.await_count} calls"
+        # All 10 bodies present in the result.
+        assert len(result) == 10
+        for pg_id in pg_ids:
+            assert result[pg_id] == f"body for {pg_id}"
 
 
 class TestLocalContextBuilderInit:

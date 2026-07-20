@@ -15,12 +15,14 @@ touching the assertions (attribute access is compatible).
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from cachetools import TTLCache
 
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.search.web import BingSearchResult
@@ -35,6 +37,7 @@ def _make_settings(
     max_results: int = 5,
     timeout: int = 15,
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    cache_ttl_seconds: int = 0,
 ) -> SimpleNamespace:
     """Build a duck-typed BingSettings stand-in (T013 replaces with real class)."""
     return SimpleNamespace(
@@ -42,6 +45,7 @@ def _make_settings(
         max_results=max_results,
         timeout=timeout,
         user_agent=user_agent,
+        cache_ttl_seconds=cache_ttl_seconds,
     )
 
 
@@ -327,3 +331,173 @@ class TestBingSearcherInputValidation:
         # ~500 chars * ~3x encoding overhead (worst case) + URL prefix.
         # Assert URL is well under Bing's 2KB limit.
         assert len(url) < 2048
+
+
+class TestBingSearcherCache:
+    """Tests for BingSearcher TTL cache (LOW-2 perf fix).
+
+    Covers: cache miss (fetcher called, result cached), cache hit (fetcher
+    NOT called), TTL expiry (entry disappears after TTL), cache write
+    failure (non-fatal — search still returns result), and cache disabled
+    (ttl=0 means no caching).
+    """
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_stores_result_and_calls_fetcher(self) -> None:
+        """On cache miss, fetcher is called and result is stored in cache."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        # First call: cache miss → fetcher called, result cached.
+        results = await searcher.search("trending topic")
+        assert len(results) == 3
+        fetcher.fetch.assert_awaited_once()
+        # Cache must now contain an entry keyed by (query, effective_max).
+        assert ("trending topic", 5) in cache
+        assert len(cache[("trending topic", 5)]) == 3
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_fetcher_and_returns_cached(self) -> None:
+        """On cache hit, fetcher is NOT called and cached result is returned."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        # Prime the cache.
+        first_results = await searcher.search("trending topic")
+        assert fetcher.fetch.await_count == 1
+        # Second call with same query + max_results: cache hit.
+        second_results = await searcher.search("trending topic")
+        assert fetcher.fetch.await_count == 1  # no additional fetcher call
+        assert second_results == first_results
+        # Returned list must be a COPY (caller mutation must not corrupt cache).
+        second_results.clear()
+        assert len(cache[("trending topic", 5)]) == 3  # cache entry untouched
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_with_explicit_max_results_matches_settings_default(self) -> None:
+        """Passing max_results=5 explicitly must hit cache populated by None-default call.
+
+        effective_max normalizes both to settings.max_results=5, so they
+        share the same cache key.
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(max_results=5),
+            cache=cache,
+        )
+        # Prime with explicit max_results=5 (matches settings default).
+        await searcher.search("topic", max_results=5)
+        assert fetcher.fetch.await_count == 1
+        # Call with default max_results (None → settings.max_results=5).
+        await searcher.search("topic")
+        assert fetcher.fetch.await_count == 1  # cache hit
+
+    @pytest.mark.asyncio
+    async def test_cache_ttl_expiry_triggers_refetch(self) -> None:
+        """After TTL expires, fetcher is called again (cache miss)."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        # Use a 1-second TTL so the test doesn't slow down the suite much.
+        cache = TTLCache(maxsize=10, ttl=1)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        await searcher.search("trending topic")
+        assert fetcher.fetch.await_count == 1
+        # Wait for TTL to expire.
+        await asyncio.sleep(1.1)
+        # Cache entry must be gone (TTLCache evicts lazily on access).
+        results = await searcher.search("trending topic")
+        assert fetcher.fetch.await_count == 2  # refetched after expiry
+        assert len(results) == 3
+
+    @pytest.mark.asyncio
+    async def test_cache_write_failure_does_not_block_search(self) -> None:
+        """If cache.__setitem__ raises, search() must still return results.
+
+        Rule 12: failures explicit. Cache write failure is non-fatal —
+        logged and the search flow continues with the freshly-fetched
+        result.
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+
+        # Build a cache whose __setitem__ always raises.
+        class _BrokenCache(TTLCache):
+            def __setitem__(self, key, value):
+                raise RuntimeError("cache backend down")
+
+        cache = _BrokenCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        # search() must NOT propagate the cache write error.
+        results = await searcher.search("trending topic")
+        assert len(results) == 3  # result still returned
+        fetcher.fetch.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cache_disabled_when_ttl_zero(self) -> None:
+        """cache_ttl_seconds=0 must disable caching (fetcher always called)."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        # settings.cache_ttl_seconds=0 → no cache constructed.
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(cache_ttl_seconds=0),
+        )
+        assert searcher._cache is None
+        # Two calls → two fetcher invocations (no caching).
+        await searcher.search("topic")
+        await searcher.search("topic")
+        assert fetcher.fetch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_enabled_when_ttl_positive(self) -> None:
+        """cache_ttl_seconds>0 must construct an internal TTLCache."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(cache_ttl_seconds=1800),
+        )
+        assert searcher._cache is not None
+        assert searcher._cache.ttl == 1800
+
+    @pytest.mark.asyncio
+    async def test_cache_uses_query_and_max_results_in_key(self) -> None:
+        """Different max_results values must produce distinct cache entries.
+
+        Same query with different max_results cap should not share results
+        (parsed list is already client-truncated to the requested cap).
+        """
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        await searcher.search("topic", max_results=2)
+        assert ("topic", 2) in cache
+        assert ("topic", 5) not in cache
+        await searcher.search("topic", max_results=5)
+        assert ("topic", 5) in cache
+        assert fetcher.fetch.await_count == 2  # distinct keys → distinct fetches

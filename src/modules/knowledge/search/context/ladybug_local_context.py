@@ -12,7 +12,7 @@ Uses GraphQueryBuilder for database-agnostic queries.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.db.graph_query_builders import (
     EntitySearchConfig,
@@ -22,10 +22,8 @@ from core.db.graph_query_builders import (
 )
 from core.observability import get_logger
 from core.protocols import GraphPool
+from core.utils.article_enrichment import enrich_articles_with_titles
 from modules.knowledge.search.context.base_local_context import BaseLocalContextBuilder
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger(__name__)
 
@@ -210,7 +208,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         After the Article node slim-down (design.md §D2), the graph query
         returns only ``a.pg_id AS id``. Title / category / publish_time /
         score are batch-fetched from PostgreSQL via
-        ``fetch_titles_by_pg_ids`` when ``self._article_repo`` is
+        ``enrich_articles_with_titles`` when ``self._article_repo`` is
         available; article bodies are fetched via ``fetch_article_bodies``
         for excerpt extraction.
         """
@@ -225,38 +223,18 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
             )
             articles = [dict(r) for r in results]
 
-            pg_ids = [a.get("pg_id") or a.get("id") for a in articles]
-            pg_ids = [str(pid) for pid in pg_ids if pid]
-
-            # Batch-fetch title/publish_time from PostgreSQL (slim-down).
-            titles: dict[str, dict[str, Any]] = {}
-            if self._article_repo and pg_ids:
-                try:
-                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
-                except Exception as exc:
-                    log.warning(
-                        "ladybug_local_context_fetch_titles_failed",
-                        error=str(exc),
-                        pg_id_count=len(pg_ids),
-                    )
-                    titles = {}
-
-            for article in articles:
-                pg_id = str(article.get("pg_id") or article.get("id") or "")
-                meta = titles.get(pg_id.lower()) if pg_id else None
-                if meta:
-                    article["title"] = meta.get("title", "")
-                    article["publish_time"] = meta.get("publish_time")
-                    article["category"] = meta.get("category")
-                    article["score"] = meta.get("score")
-                else:
-                    article.setdefault("title", "")
-                    article.setdefault("publish_time", None)
+            # Batch-enrich titles from PG (slim-down); returns lowercase
+            # pg_ids so we can reuse them for body fetching.
+            pg_ids = await enrich_articles_with_titles(
+                articles,
+                article_repo=self._article_repo,
+                id_fields=["pg_id", "id"],
+            )
 
             bodies = await self.fetch_article_bodies(pg_ids)
 
             for article in articles:
-                pg_id = str(article.get("pg_id") or article.get("id") or "")
+                pg_id = str(article.get("pg_id") or article.get("id") or "").lower()
                 if pg_id and pg_id in bodies:
                     article["body_excerpt"] = self.extract_key_excerpt(
                         bodies[pg_id],
@@ -281,7 +259,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
 
         After the Article node slim-down (design.md §D2), the graph query
         returns only ``a.pg_id AS id``. Title is batch-fetched from
-        PostgreSQL via ``fetch_titles_by_pg_ids`` when
+        PostgreSQL via ``enrich_articles_with_titles`` when
         ``self._article_repo`` is available.
         """
         cypher = self._query_builder.build_articles_by_text_query(limit)
@@ -292,30 +270,15 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
             )
             articles = [dict(r) for r in results]
 
-            pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
-
-            titles: dict[str, dict[str, Any]] = {}
-            if self._article_repo and pg_ids:
-                try:
-                    titles = await self._article_repo.fetch_titles_by_pg_ids(pg_ids)
-                except Exception as exc:
-                    log.warning(
-                        "ladybug_text_search_fetch_titles_failed",
-                        error=str(exc),
-                        pg_id_count=len(pg_ids),
-                    )
-                    titles = {}
-
-            for article in articles:
-                pg_id = str(article.get("id", ""))
-                meta = titles.get(pg_id.lower()) if pg_id else None
-                if meta:
-                    article["title"] = meta.get("title", "")
-                    article["publish_time"] = meta.get("publish_time")
-                    article["category"] = meta.get("category")
-                    article["score"] = meta.get("score")
-                else:
-                    article.setdefault("title", "")
+            # Batch-enrich titles from PG (slim-down). Body fetching is
+            # intentionally skipped here — this path is a no-entities
+            # fallback and the caller (``_handle_no_entities``) only
+            # formats the section, not body excerpts.
+            await enrich_articles_with_titles(
+                articles,
+                article_repo=self._article_repo,
+                id_fields=["id"],
+            )
 
             if articles:
                 log.info("articles_found_by_text", count=len(articles), query=query)

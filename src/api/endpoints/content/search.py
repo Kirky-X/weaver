@@ -43,6 +43,7 @@ from modules.knowledge.search import (
 from modules.memory import IntentType, OutputMode
 from modules.search.web import (
     BingSearchProtocol,
+    ScheduleResult,
     detect_three_tier_empty,
     schedule_pipeline_background,
     trigger_web_search,
@@ -236,7 +237,30 @@ async def search_unified(
             # a SINGLE background task to avoid DuckDB write lock contention
             # (HIGH-1: matches pipeline.py:285 convention).
             urls = [r.url for r in web_results if r.url]
-            schedule_pipeline_background(urls, pipeline_service, _background_tasks)
+            # MEDIUM-1 (T051-B): pass concurrency cap + total batch timeout
+            # from SearchSettings so operators can tune via env vars
+            # (WEAVER_SEARCH__MAX_BACKGROUND_TASKS,
+            #  WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT). Reading
+            # settings lazily here (not via Depends) avoids breaking the
+            # ~20 existing unit tests that call search_unified directly
+            # without a Settings fixture — matches the pattern in
+            # api/middleware/auth.py:102.
+            from container import get_settings
+
+            search_settings = get_settings().search
+            schedule_result = schedule_pipeline_background(
+                urls,
+                pipeline_service,
+                _background_tasks,
+                max_concurrent=search_settings.max_background_tasks,
+                total_timeout=search_settings.background_task_total_timeout,
+            )
+            # MEDIUM-1: when at concurrency cap, the background task was
+            # dropped (not spawned). Signal the client via metadata so it
+            # can retry ingestion later (the search itself succeeded —
+            # Bing snippets are already in the response).
+            if schedule_result is ScheduleResult.THROTTLED:
+                result_metadata["background_task_throttled"] = True
             web_search_used = True
     result_metadata["web_search_fallback"] = web_search_used
     result_metadata["web_search_result_count"] = web_search_result_count

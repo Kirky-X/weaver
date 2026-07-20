@@ -1386,3 +1386,144 @@ class TestSearchUnifiedWebSearchFallback:
         assert result.data.metadata["web_search_result_count"] == 0
         # Response answer stays empty (engine_result was empty, no web results)
         assert result.data.answer == ""
+
+    @pytest.mark.asyncio
+    async def test_fallback_throttle_sets_metadata_flag(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """MEDIUM-1: when ``schedule_pipeline_background`` returns THROTTLED,
+        ``metadata.background_task_throttled`` is set to True.
+
+        Simulates the at-cap scenario (8 background tasks already running)
+        by patching ``schedule_pipeline_background`` to return
+        ``ScheduleResult.THROTTLED``. The search response must still
+        succeed (Bing results are returned to the caller), but the
+        metadata flag indicates the background pipeline was dropped.
+        """
+        # Force empty three-tier result to trigger fallback.
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+        from modules.search.web import BingSearchResult
+
+        bing_results = [
+            BingSearchResult(
+                title="throttled result",
+                url="https://example.com/throttled",
+                snippet="snippet text",
+            ),
+        ]
+        bing_searcher = MagicMock()
+        bing_searcher.search = AsyncMock(return_value=bing_results)
+
+        # Patch schedule_pipeline_background to return THROTTLED (simulates
+        # the at-cap scenario without actually spawning 8 tasks).
+        from modules.search.web.fallback_orchestrator import ScheduleResult
+
+        with patch("api.endpoints.content.search.schedule_pipeline_background") as mock_schedule:
+            from api.endpoints.content.search import search_unified
+
+            mock_schedule.return_value = ScheduleResult.THROTTLED
+
+            result = await search_unified(
+                request=mock_request,
+                q="throttled-query",
+                mode="local",
+                community_level=0,
+                threshold=0.0,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                output_mode=None,
+                enrich_entities=None,
+                _=api_key,
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+                hybrid_engine=mock_hybrid_engine,
+                bing_searcher=bing_searcher,
+                pipeline_service=MagicMock(),
+            )
+
+        # schedule_pipeline_background was invoked (the call happened).
+        mock_schedule.assert_called_once()
+        # Metadata flag indicates the background task was throttled.
+        assert result.data.metadata["background_task_throttled"] is True
+        # Bing results still returned to the caller (search itself succeeded).
+        assert result.data.metadata["web_search_fallback"] is True
+        assert result.data.metadata["web_search_result_count"] == 1
+        assert len(result.data.sources) == 1
+
+    @pytest.mark.asyncio
+    async def test_fallback_no_throttle_flag_when_scheduled(
+        self,
+        mock_request: MagicMock,
+        mock_local_engine: MagicMock,
+        mock_global_engine: MagicMock,
+        mock_vector_repo: MagicMock,
+        mock_llm: MagicMock,
+        mock_hybrid_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        """MEDIUM-1: when schedule_pipeline_background returns SCHEDULED,
+        ``metadata.background_task_throttled`` is NOT set (or False).
+
+        Regression guard: ensures the flag is only set when actually
+        throttled, not on every fallback path.
+        """
+        mock_local_engine.search = AsyncMock(
+            return_value={"answer": "", "entities": [], "sources": [], "metadata": {}}
+        )
+        from modules.search.web import BingSearchResult
+
+        bing_results = [
+            BingSearchResult(
+                title="ok result",
+                url="https://example.com/ok",
+                snippet="snippet",
+            ),
+        ]
+        bing_searcher = MagicMock()
+        bing_searcher.search = AsyncMock(return_value=bing_results)
+
+        from modules.search.web.fallback_orchestrator import ScheduleResult
+
+        with patch("api.endpoints.content.search.schedule_pipeline_background") as mock_schedule:
+            from api.endpoints.content.search import search_unified
+
+            mock_schedule.return_value = ScheduleResult.SCHEDULED
+
+            result = await search_unified(
+                request=mock_request,
+                q="ok-query",
+                mode="local",
+                community_level=0,
+                threshold=0.0,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                output_mode=None,
+                enrich_entities=None,
+                _=api_key,
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+                hybrid_engine=mock_hybrid_engine,
+                bing_searcher=bing_searcher,
+                pipeline_service=MagicMock(),
+            )
+
+        mock_schedule.assert_called_once()
+        # When SCHEDULED, the throttle flag must NOT be True.
+        assert result.data.metadata.get("background_task_throttled") is not True

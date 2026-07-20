@@ -45,6 +45,13 @@ Performance notes:
       request path (``search_unified`` API). Typical 100KB Bing page parses
       in 30-80ms; under concurrent fallback triggers this would otherwise
       serialize all in-flight requests.
+    - An in-process TTL cache (``cachetools.TTLCache``) deduplicates
+      repeated queries (e.g. trending topics) to save bandwidth and
+      avoid Bing rate-limiting. Cache key is ``(query, effective_max)``
+      so callers with different ``max_results`` preferences get distinct
+      entries. Cache write failures are non-fatal (logged + search
+      continues). TTL is configurable via ``settings.cache_ttl_seconds``
+      (default 30 minutes; ``0`` disables caching).
 """
 
 from __future__ import annotations
@@ -52,6 +59,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
+
+from cachetools import TTLCache
 
 from core.observability import get_logger
 from modules.search.web.html_parser import parse_bing_html
@@ -66,6 +75,9 @@ log = get_logger(__name__)
 _BING_SEARCH_URL = "https://cn.bing.com/search"
 _DEFAULT_QUERY_LOG_PREFIX = 50
 _MAX_QUERY_LEN = 500  # Bing accepts ~2KB URL; cap query at 500 chars to leave room for encoding
+# Default cache capacity (entries). Tuned for trending-topic working set
+# (a few hundred distinct queries per 30-minute TTL window).
+_DEFAULT_CACHE_MAX_SIZE = 128
 
 
 class BingSearcher:
@@ -84,13 +96,35 @@ class BingSearcher:
             (DI container) — ``close()`` is a no-op per the protocol
             contract; the container closes the fetcher itself.
         settings: ``BingSettings`` (or duck-typed object exposing the
-            attributes ``max_results``, ``timeout``, ``user_agent``).
-            ``enabled`` is checked by the container, not here.
+            attributes ``max_results``, ``timeout``, ``user_agent``,
+            ``cache_ttl_seconds``). ``enabled`` is checked by the
+            container, not here.
+        cache: Optional pre-built TTL cache instance (for tests that need
+            to inject a custom cache). When ``None`` (default), the
+            searcher builds one from ``settings.cache_ttl_seconds`` —
+            ``> 0`` enables caching with that TTL, ``0`` disables it.
     """
 
-    def __init__(self, fetcher: BaseFetcher, settings: Any) -> None:
+    def __init__(
+        self,
+        fetcher: BaseFetcher,
+        settings: Any,
+        cache: TTLCache | None = None,
+    ) -> None:
         self._fetcher = fetcher
         self._settings = settings
+        # Cache injection point: when caller passes a cache, use it as-is
+        # (tests inject a real TTLCache with a short TTL to verify expiry).
+        # Otherwise build from settings — None means caching is disabled.
+        if cache is not None:
+            self._cache: TTLCache | None = cache
+        elif getattr(settings, "cache_ttl_seconds", 0) > 0:
+            self._cache = TTLCache(
+                maxsize=_DEFAULT_CACHE_MAX_SIZE,
+                ttl=settings.cache_ttl_seconds,
+            )
+        else:
+            self._cache = None
 
     async def search(
         self,
@@ -121,6 +155,21 @@ class BingSearcher:
 
         # DRY: resolve effective max_results from settings when caller omits.
         effective_max = max_results if max_results is not None else self._settings.max_results
+
+        # Cache lookup: a hit avoids the HTTP round-trip and HTML parse.
+        # Key includes effective_max so callers with different caps get
+        # distinct entries (parsed lists are already client-truncated).
+        cache_key = (query, effective_max)
+        if self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                log.info(
+                    "bing_search_cache_hit",
+                    query_prefix=query[:_DEFAULT_QUERY_LOG_PREFIX],
+                    max_results=effective_max,
+                    result_count=len(cached),
+                )
+                return list(cached)  # copy to prevent caller mutation of cache entry
 
         # Build URL: https://cn.bing.com/search?q=<quoted>&first=1
         # ``first`` is 1-indexed offset (Bing convention). safe='' encodes
@@ -166,6 +215,20 @@ class BingSearcher:
             result_count=len(results),
             max_results=effective_max,
         )
+
+        # Best-effort cache write: failures must NOT block the search flow
+        # (Rule 12 — failures explicit, but a cache write error is non-fatal
+        # because the caller already has the correct result).
+        if self._cache is not None:
+            try:
+                self._cache[cache_key] = results
+            except Exception as cache_exc:
+                log.warning(
+                    "bing_search_cache_write_failed",
+                    query_prefix=query[:_DEFAULT_QUERY_LOG_PREFIX],
+                    error=str(cache_exc),
+                )
+
         return results
 
     async def close(self) -> None:

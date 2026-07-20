@@ -54,6 +54,7 @@ Security:
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
@@ -71,6 +72,40 @@ log = get_logger(__name__)
 # batch, while still allowing the background task to make progress.
 # Matches _TRIGGER_SOURCE_TIMEOUT_SECONDS in src/api/endpoints/content/pipeline.py.
 _PIPELINE_URL_TIMEOUT_SECONDS = 300.0
+
+# MEDIUM-2 (T051-B): total wall-clock budget for a single background task
+# that processes N URLs sequentially. Without this, N URLs * 300s per-URL
+# timeout = up to N*300s total wall time (25 minutes for 5 URLs). The
+# total budget bounds the worst case; on timeout, pending URLs are
+# cancelled (CancelledError escapes the per-URL ``except Exception`` and
+# propagates out of the for-loop, then ``asyncio.wait_for`` raises
+# ``TimeoutError``). Configurable via
+# ``WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT``.
+_PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS = 600.0
+
+# MEDIUM-1 (T051-B): default cap on concurrent Bing-fallback background
+# tasks. When ``len(background_tasks) >= max_concurrent``, the next call
+# drops (logs warning + returns ``ScheduleResult.THROTTLED``) rather than
+# spawning. Configurable via ``WEAVER_SEARCH__MAX_BACKGROUND_TASKS``.
+_DEFAULT_MAX_BACKGROUND_TASKS = 8
+
+
+class ScheduleResult(Enum):
+    """Outcome of ``schedule_pipeline_background`` (MEDIUM-1 fix).
+
+    The caller (``search_unified``) inspects this to set the
+    ``metadata.background_task_throttled`` flag in the API response.
+
+    Members:
+        SCHEDULED: A background task was spawned and added to the set.
+        THROTTLED: At concurrency cap — task was dropped (not spawned).
+            Logged at WARNING level. Caller should signal the client.
+        SKIPPED_EMPTY: No URLs (after filtering) — nothing to do.
+    """
+
+    SCHEDULED = "scheduled"
+    THROTTLED = "throttled"
+    SKIPPED_EMPTY = "skipped_empty"
 
 
 def detect_three_tier_empty(result: Any) -> bool:
@@ -159,7 +194,10 @@ def schedule_pipeline_background(
     urls: Iterable[str],
     pipeline_service: PipelineService,
     background_tasks: set[asyncio.Task],
-) -> None:
+    *,
+    max_concurrent: int = _DEFAULT_MAX_BACKGROUND_TASKS,
+    total_timeout: float = _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS,
+) -> ScheduleResult:
     """Fire-and-forget background task that ingests all URLs sequentially.
 
     R-web-search-006: URLs are processed by ``pipeline_service.run_full_pipeline``
@@ -173,20 +211,47 @@ def schedule_pipeline_background(
     lock and trigger exponential backoff retries that are slower than
     serializing (HIGH-1: DuckDB concurrent write conflict). Per-URL
     timeout (300s) still applies so one slow URL cannot block the batch.
+    A total budget (``total_timeout``, default 600s) bounds the whole
+    batch — see ``_PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS`` (MEDIUM-2).
+
+    MEDIUM-1 (T051-B) — concurrency cap:
+        Before spawning, ``len(background_tasks)`` is checked against
+        ``max_concurrent``. At cap, the call drops (no task spawned),
+        logs a warning, and returns ``ScheduleResult.THROTTLED``. The
+        caller (``search_unified``) sets
+        ``metadata.background_task_throttled=true`` in the API response
+        so the client can retry later. The ``background_tasks`` set
+        itself is the registry of in-flight tasks (each task auto-removes
+        via ``add_done_callback(set.discard)``), so ``len(set)`` is the
+        live concurrency counter — functionally equivalent to an
+        ``asyncio.Semaphore`` for the drop-at-cap use case, without the
+        issue that ``asyncio.Semaphore.acquire`` is a coroutine (cannot
+        be awaited from this sync function). Rule 2: Simplicity First.
 
     Args:
         urls: Iterable of URL strings to ingest. Empty iterable → no-op
-            (returns immediately without creating a task).
+            (returns ``ScheduleResult.SKIPPED_EMPTY`` without creating
+            a task).
         pipeline_service: ``PipelineService`` implementation (typically
             ``PipelineServiceImpl`` from the container).
         background_tasks: Set owned by the caller (e.g., the search
             endpoint module's ``_background_tasks: set[asyncio.Task]``).
             Mutated in-place: task added on entry, removed on completion.
+        max_concurrent: Maximum number of in-flight background tasks
+            before throttling kicks in (default 8, configurable via
+            ``WEAVER_SEARCH__MAX_BACKGROUND_TASKS``).
+        total_timeout: Total wall-clock budget for the batch in seconds
+            (default 600s, configurable via
+            ``WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT``).
+
+    Returns:
+        ``ScheduleResult`` indicating the outcome.
 
     Notes:
         - This function is sync and returns immediately (fire-and-forget).
         - Single task processes all URLs sequentially with per-URL timeout
-          (300s) so one slow URL cannot block the batch.
+          (300s) and total batch timeout (``total_timeout``) so one slow
+          URL cannot block the batch, and the batch itself is bounded.
         - Per-URL exceptions are isolated: a failure on one URL does NOT
           abort the for-loop; the next URL is still attempted.
         - URL safety (SSRF/PhishTank/URLhaus) is enforced downstream by
@@ -197,19 +262,35 @@ def schedule_pipeline_background(
     # generator is single-use, and skip invalid entries upfront).
     url_list = [u for u in urls if isinstance(u, str) and u]
     if not url_list:
-        return
+        return ScheduleResult.SKIPPED_EMPTY
 
-    task = asyncio.create_task(_run_pipelines_sequentially(pipeline_service, url_list))
+    # MEDIUM-1: concurrency cap. The set is the in-flight registry;
+    # len(set) == active task count because add_done_callback(set.discard)
+    # removes each task on completion (success or failure).
+    if len(background_tasks) >= max_concurrent:
+        log.warning(
+            "pipeline_background_task_throttled",
+            active=len(background_tasks),
+            cap=max_concurrent,
+        )
+        return ScheduleResult.THROTTLED
+
+    task = asyncio.create_task(
+        _run_pipelines_sequentially(pipeline_service, url_list, total_timeout=total_timeout)
+    )
     background_tasks.add(task)
     # GC protection: remove from set when done (success or failure).
     task.add_done_callback(background_tasks.discard)
     # Exception isolation safety net: log uncaught exceptions.
     task.add_done_callback(_log_pipeline_task_exception)
+    return ScheduleResult.SCHEDULED
 
 
 async def _run_pipelines_sequentially(
     pipeline_service: PipelineService,
     urls: list[str],
+    *,
+    total_timeout: float = _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS,
 ) -> None:
     """Run pipeline for each URL sequentially with per-URL timeout.
 
@@ -228,33 +309,65 @@ async def _run_pipelines_sequentially(
     isolation guarantee as separate asyncio tasks, but without write-lock
     contention.
 
+    MEDIUM-2 (T051-B) — total batch timeout:
+        The for-loop is wrapped in ``asyncio.wait_for(total_timeout)``.
+        On timeout, ``asyncio.wait_for`` cancels the inner coroutine; the
+        ``CancelledError`` propagates out of the for-loop (not caught by
+        ``except Exception`` because ``CancelledError`` is ``BaseException``
+        in Python 3.8+), and ``asyncio.wait_for`` raises ``TimeoutError``.
+        Pending URLs are NOT processed. The batch timeout is logged at
+        ERROR level with ``total_timeout`` and ``url_count``.
+
     Args:
         pipeline_service: ``PipelineService`` implementation.
         urls: List of URL strings (already filtered for non-empty str).
+        total_timeout: Total wall-clock budget for the batch in seconds
+            (default 600s, configurable via
+            ``WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT``).
     """
-    for url in urls:
-        try:
-            await asyncio.wait_for(
-                pipeline_service.run_full_pipeline(url),
-                timeout=_PIPELINE_URL_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            log.warning(
-                "pipeline_background_task_timeout",
-                url=url[:200],  # truncate to avoid log explosion on huge URLs
-                timeout=_PIPELINE_URL_TIMEOUT_SECONDS,
-            )
-        except Exception as exc:
-            # Catch all — one URL's failure must NOT abort the batch.
-            # Includes RuntimeError, network errors, pipeline-internal
-            # exceptions. CancelledError is BaseException (not caught
-            # here) so task cancellation still propagates correctly.
-            log.warning(
-                "pipeline_background_task_failed",
-                url=url[:200],
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
+
+    async def _run_all_urls() -> None:
+        """Inner for-loop extracted for ``asyncio.wait_for`` cancellation.
+
+        When ``asyncio.wait_for`` times out, it cancels this coroutine;
+        the ``CancelledError`` propagates out of the for-loop (the
+        ``except Exception`` clause does NOT catch ``CancelledError``
+        because it is ``BaseException`` in Python 3.8+), so pending
+        URLs are correctly skipped.
+        """
+        for url in urls:
+            try:
+                await asyncio.wait_for(
+                    pipeline_service.run_full_pipeline(url),
+                    timeout=_PIPELINE_URL_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                log.warning(
+                    "pipeline_background_task_timeout",
+                    url=url[:200],  # truncate to avoid log explosion on huge URLs
+                    timeout=_PIPELINE_URL_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                # Catch all — one URL's failure must NOT abort the batch.
+                # Includes RuntimeError, network errors, pipeline-internal
+                # exceptions. CancelledError is BaseException (not caught
+                # here) so task cancellation still propagates correctly.
+                log.warning(
+                    "pipeline_background_task_failed",
+                    url=url[:200],
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
+    try:
+        await asyncio.wait_for(_run_all_urls(), timeout=total_timeout)
+    except TimeoutError:
+        # Total batch budget exhausted — pending URLs were cancelled.
+        log.error(
+            "pipeline_background_task_batch_timeout",
+            total_timeout=total_timeout,
+            url_count=len(urls),
+        )
 
 
 def _log_pipeline_task_exception(task: asyncio.Task) -> None:

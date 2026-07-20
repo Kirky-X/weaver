@@ -38,6 +38,9 @@ import pytest
 
 from modules.search.web.bing_searcher import BingSearcher
 from modules.search.web.fallback_orchestrator import (
+    _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS,
+    _PIPELINE_URL_TIMEOUT_SECONDS,
+    ScheduleResult,
     detect_three_tier_empty,
     schedule_pipeline_background,
     trigger_web_search,
@@ -449,3 +452,337 @@ class TestSchedulePipelineBackground:
 
         # Both URLs from the generator must have been processed.
         assert pipeline_service.run_full_pipeline.await_count == 2
+
+
+class TestSchedulePipelineBackgroundConcurrencyCap:
+    """Tests for MEDIUM-1 fix: concurrency cap on background pipeline tasks.
+
+    When ``len(background_tasks) >= max_concurrent``, the next call must
+    drop (not spawn), log a warning, and return ``ScheduleResult.THROTTLED``.
+    The ``background_tasks`` set itself is the registry of in-flight tasks
+    (each task auto-removes via ``add_done_callback(set.discard)``), so
+    ``len(set)`` is the live concurrency counter. This is functionally
+    equivalent to an ``asyncio.Semaphore`` for the "drop at cap" use case
+    (Rule 2: Simplicity First) and avoids the issue that
+    ``asyncio.Semaphore.acquire`` is a coroutine (cannot be awaited from
+    sync ``schedule_pipeline_background``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_at_cap_drops_ninth_task_returns_throttled(self) -> None:
+        """8 tasks running → 9th call returns THROTTLED, no task spawned.
+
+        Setup: pre-populate ``background_tasks`` with 8 placeholder tasks
+        that block on an event (so they stay "running" for the test's
+        duration). Then call ``schedule_pipeline_background`` with
+        ``max_concurrent=8`` and assert it returns THROTTLED without
+        adding to the set.
+        """
+        release_event = asyncio.Event()
+
+        async def blocking_pipeline(url: str) -> dict:
+            await release_event.wait()
+            return {"status": "ok"}
+
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = blocking_pipeline
+
+        background_tasks: set[asyncio.Task] = set()
+        # Pre-spawn 8 blocking tasks to fill the cap.
+        for i in range(8):
+            task = asyncio.create_task(blocking_pipeline(f"https://example.com/{i}"))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        # Yield to let tasks start running (so len() reflects in-flight count).
+        await asyncio.sleep(0)
+        assert len(background_tasks) == 8
+
+        # 9th call must be throttled.
+        result = schedule_pipeline_background(
+            ["https://example.com/9th"],
+            pipeline_service,
+            background_tasks,
+            max_concurrent=8,
+        )
+        assert result is ScheduleResult.THROTTLED
+        # No new task added.
+        assert len(background_tasks) == 8
+        # pipeline_service.run_full_pipeline NOT called for the 9th URL
+        # (the existing 8 calls are running; 9th was dropped before spawn).
+        # Total await_count is still 8 (the 8 pre-spawned blocking calls).
+        # We can't easily assert "9th not called" because the 8 are still
+        # running — but we can verify no NEW task was added to the set.
+
+        # Cleanup: release the event and let all tasks complete.
+        release_event.set()
+        await asyncio.gather(*background_tasks)
+
+    @pytest.mark.asyncio
+    async def test_below_cap_schedules_normally(self) -> None:
+        """Fewer than max_concurrent tasks running → SCHEDULED returned.
+
+        Verifies the non-throttled path still works after the cap logic
+        was added (regression guard).
+        """
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = AsyncMock(return_value={"status": "ok"})
+
+        background_tasks: set[asyncio.Task] = set()
+        result = schedule_pipeline_background(
+            ["https://example.com/1"],
+            pipeline_service,
+            background_tasks,
+            max_concurrent=8,
+        )
+        assert result is ScheduleResult.SCHEDULED
+        assert len(background_tasks) == 1
+        await asyncio.gather(*background_tasks)
+        assert len(background_tasks) == 0  # auto-removed by done_callback
+
+    @pytest.mark.asyncio
+    async def test_cap_releases_on_task_completion(self) -> None:
+        """After a task completes, len(background_tasks) decreases, allowing new tasks.
+
+        Setup: spawn 8 blocking tasks, then release one, then verify the
+        next ``schedule_pipeline_background`` call returns SCHEDULED.
+        """
+        release_event = asyncio.Event()
+
+        async def blocking_pipeline(url: str) -> dict:
+            await release_event.wait()
+            return {"status": "ok"}
+
+        pipeline_service_blocking = MagicMock()
+        pipeline_service_blocking.run_full_pipeline = blocking_pipeline
+
+        background_tasks: set[asyncio.Task] = set()
+        # Fill the cap with 8 blocking tasks.
+        for i in range(8):
+            task = asyncio.create_task(blocking_pipeline(f"https://example.com/{i}"))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        await asyncio.sleep(0)
+        assert len(background_tasks) == 8
+
+        # 9th call → THROTTLED.
+        result = schedule_pipeline_background(
+            ["https://example.com/9th"],
+            pipeline_service_blocking,
+            background_tasks,
+            max_concurrent=8,
+        )
+        assert result is ScheduleResult.THROTTLED
+
+        # Release ONE task: set the event, all 8 will complete (they share
+        # the same event), and the set will be drained to 0. We only need
+        # one slot to free up — but since all 8 share the event, all 8
+        # complete together. After they finish, the cap is fully released.
+        release_event.set()
+        await asyncio.gather(*background_tasks)
+        assert len(background_tasks) == 0
+
+        # Now scheduling again must succeed.
+        pipeline_service_ok = MagicMock()
+        pipeline_service_ok.run_full_pipeline = AsyncMock(return_value={"status": "ok"})
+        result = schedule_pipeline_background(
+            ["https://example.com/new"],
+            pipeline_service_ok,
+            background_tasks,
+            max_concurrent=8,
+        )
+        assert result is ScheduleResult.SCHEDULED
+        await asyncio.gather(*background_tasks)
+
+    @pytest.mark.asyncio
+    async def test_empty_urls_returns_skipped_empty(self) -> None:
+        """No URLs (after filtering) → SKIPPED_EMPTY, no task spawned."""
+        pipeline_service = MagicMock()
+        background_tasks: set[asyncio.Task] = set()
+        result = schedule_pipeline_background(
+            [],
+            pipeline_service,
+            background_tasks,
+            max_concurrent=8,
+        )
+        assert result is ScheduleResult.SKIPPED_EMPTY
+        assert len(background_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_at_cap_with_default_max_concurrent(self) -> None:
+        """Default max_concurrent=8 → 9th task throttled without explicit arg.
+
+        Regression: ensures the default value is applied when the caller
+        does not pass ``max_concurrent`` (matches the production call
+        site in ``search.py::search_unified``).
+        """
+        release_event = asyncio.Event()
+
+        async def blocking_pipeline(url: str) -> dict:
+            await release_event.wait()
+            return {"status": "ok"}
+
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = blocking_pipeline
+
+        background_tasks: set[asyncio.Task] = set()
+        for i in range(8):
+            task = asyncio.create_task(blocking_pipeline(f"https://example.com/{i}"))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        await asyncio.sleep(0)
+
+        # Call WITHOUT max_concurrent — must default to 8 and throttle.
+        result = schedule_pipeline_background(
+            ["https://example.com/9th"],
+            pipeline_service,
+            background_tasks,
+        )
+        assert result is ScheduleResult.THROTTLED
+
+        release_event.set()
+        await asyncio.gather(*background_tasks)
+
+
+class TestRunPipelinesSequentiallyTotalTimeout:
+    """Tests for MEDIUM-2 fix: total timeout on the sequential batch.
+
+    Per-URL timeout (300s) bounds one slow URL, but with N URLs the
+    total wall time was unbounded (N * 300s). The fix wraps the whole
+    for-loop in ``asyncio.wait_for(total_timeout)`` (default 600s,
+    configurable via ``WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT``).
+    On timeout, pending URLs are cancelled (CancelledError propagates
+    out of the for-loop, escaping the per-URL ``except Exception``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_total_timeout_cancels_pending_urls(self) -> None:
+        """total_timeout fires → pending URLs NOT processed, task completes.
+
+        Setup: 3 URLs, each takes 0.5s. Set total_timeout=0.1s so only
+        the first URL (or none) starts; pending URLs must be cancelled.
+        """
+        started_urls: list[str] = []
+        completed_urls: list[str] = []
+
+        async def slow_pipeline(url: str) -> dict:
+            started_urls.append(url)
+            await asyncio.sleep(0.5)
+            completed_urls.append(url)
+            return {"status": "ok"}
+
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = slow_pipeline
+
+        background_tasks: set[asyncio.Task] = set()
+        # Schedule with very short total_timeout so the batch is cancelled
+        # before all 3 URLs complete.
+        schedule_pipeline_background(
+            [
+                "https://example.com/url1",
+                "https://example.com/url2",
+                "https://example.com/url3",
+            ],
+            pipeline_service,
+            background_tasks,
+            max_concurrent=8,
+            total_timeout=0.1,
+        )
+
+        # Wait for the task to complete (it must NOT hang).
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+
+        # The task completed within the timeout (did not hang until 1.5s).
+        # At most 1 URL was started (the first one); 2nd and 3rd must NOT
+        # have been started because the total_timeout cancelled the batch.
+        assert (
+            len(started_urls) <= 1
+        ), f"Expected at most 1 URL started before timeout, got {started_urls}"
+        # No URL completed (each takes 0.5s, timeout fires at 0.1s).
+        assert len(completed_urls) == 0
+
+    @pytest.mark.asyncio
+    async def test_total_timeout_does_not_fire_on_fast_batch(self) -> None:
+        """Fast batch (each URL 0.01s, 3 URLs) → all complete, no timeout.
+
+        Regression: ensures the total_timeout doesn't accidentally fire
+        on batches that complete well within the budget.
+        """
+        pipeline_service = MagicMock()
+        pipeline_service.run_full_pipeline = AsyncMock(return_value={"status": "ok"})
+
+        background_tasks: set[asyncio.Task] = set()
+        schedule_pipeline_background(
+            [
+                "https://example.com/a",
+                "https://example.com/b",
+                "https://example.com/c",
+            ],
+            pipeline_service,
+            background_tasks,
+            max_concurrent=8,
+            total_timeout=10.0,  # generous budget
+        )
+        await asyncio.gather(*background_tasks)
+
+        # All 3 URLs processed (no timeout cancellation).
+        assert pipeline_service.run_full_pipeline.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_per_url_timeout_still_applies_inside_total(self) -> None:
+        """Per-URL timeout (300s) still isolates slow URLs inside the total budget.
+
+        Scenario: 2 URLs — first hangs longer than per-URL timeout, second
+        is fast. Per-URL timeout fires for the first URL (logs warning,
+        continues); second URL completes normally. Total budget is
+        generous so the batch timeout does NOT fire.
+
+        To keep the test fast, monkeypatch ``_PIPELINE_URL_TIMEOUT_SECONDS``
+        to a small value via direct module attribute reassignment (the
+        constant is read at call time inside ``_run_pipelines_sequentially``,
+        so reassigning the module attribute takes effect for the duration
+        of the test).
+        """
+        from modules.search.web import fallback_orchestrator as fo
+
+        original = fo._PIPELINE_URL_TIMEOUT_SECONDS
+        fo._PIPELINE_URL_TIMEOUT_SECONDS = 0.1  # type: ignore[attr-defined]
+        try:
+            call_log: list[str] = []
+
+            async def pipeline_with_one_hang(url: str) -> dict:
+                call_log.append(url)
+                if "hang" in url:
+                    await asyncio.sleep(1.0)  # exceeds per-URL timeout (0.1s)
+                return {"status": "ok"}
+
+            pipeline_service = MagicMock()
+            pipeline_service.run_full_pipeline = pipeline_with_one_hang
+
+            background_tasks: set[asyncio.Task] = set()
+            schedule_pipeline_background(
+                ["https://example.com/hang", "https://example.com/ok"],
+                pipeline_service,
+                background_tasks,
+                max_concurrent=8,
+                total_timeout=10.0,  # generous total budget
+            )
+            await asyncio.gather(*background_tasks)
+
+            # Both URLs attempted (per-URL timeout did not abort the batch).
+            assert len(call_log) == 2
+            # The hang URL was attempted first; the ok URL was attempted
+            # second (after per-URL timeout cancelled the hang URL).
+            assert call_log == ["https://example.com/hang", "https://example.com/ok"]
+        finally:
+            fo._PIPELINE_URL_TIMEOUT_SECONDS = original
+
+    @pytest.mark.asyncio
+    async def test_total_timeout_default_value(self) -> None:
+        """Default total_timeout == _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS (600s).
+
+        Regression: ensures the default value is exposed as a module
+        constant and matches the documented default (Rule 21: docs
+        and code must stay in sync).
+        """
+        assert _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS == 600.0
+        assert _PIPELINE_URL_TIMEOUT_SECONDS == 300.0

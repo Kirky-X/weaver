@@ -328,6 +328,20 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
+    # MEDIUM-1 (T051-B): max concurrent Bing-fallback background pipeline
+    # tasks. When at cap, the next Bing fallback call drops the new task
+    # (logs warning, sets ``metadata.background_task_throttled=true``)
+    # rather than queueing — protects memory / DB connection pool from
+    # unbounded growth under sustained three-tier-empty traffic.
+    # Env var: WEAVER_SEARCH__MAX_BACKGROUND_TASKS
+    max_background_tasks: int = 8
+    # MEDIUM-2 (T051-B): total wall-clock budget for a single Bing-fallback
+    # background task that processes N URLs sequentially. Per-URL timeout
+    # (300s) bounds one slow URL, but without a total budget a 5-URL
+    # batch could hang the task for 25 minutes. On total timeout, the
+    # for-loop is cancelled and pending URLs are skipped.
+    # Env var: WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT
+    background_task_total_timeout: float = 600.0
 
 
 class ObservabilitySettings(BaseModel):
@@ -592,7 +606,8 @@ class BingSettings(BaseModel):
     background pipeline ingestion.
 
     Environment variables: WEAVER_BING__ENABLED, WEAVER_BING__MAX_RESULTS,
-    WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT
+    WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT,
+    WEAVER_BING__CACHE_TTL_SECONDS
 
     Security:
         - Disabled by default. Must be explicitly enabled in production.
@@ -600,11 +615,18 @@ class BingSettings(BaseModel):
           which enforces URL safety (SSRF / PhishTank / URLhaus) — no
           third-party HTTP library is imported.
         - User-Agent is configurable to allow rotating fingerprints.
+
+    Performance:
+        - ``cache_ttl_seconds`` enables an in-process TTL cache for
+          repeated queries (e.g. trending topics). ``0`` disables caching.
+          Cache write failures are non-fatal — they are logged and the
+          search flow continues.
     """
 
     enabled: bool = False
     max_results: int = 5
     timeout: int = 15  # seconds (passed to asyncio.wait_for in BingSearcher)
+    cache_ttl_seconds: int = 1800  # 30 minutes; 0 disables caching
     user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"

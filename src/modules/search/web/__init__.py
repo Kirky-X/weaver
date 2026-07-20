@@ -9,12 +9,16 @@ Public API:
     - ``detect_three_tier_empty``: check if all three search layers are empty.
     - ``trigger_web_search``: invoke BingSearcher with graceful degradation.
     - ``schedule_pipeline_background``: fire-and-forget pipeline task creation.
+    - ``ScheduleResult``: outcome enum of ``schedule_pipeline_background``
+      (MEDIUM-1 / T051-B). Inspected by ``search_unified`` to set the
+      ``metadata.background_task_throttled`` flag.
 """
 
 from __future__ import annotations
 
 from modules.search.web.bing_searcher import BingSearcher
 from modules.search.web.fallback_orchestrator import (
+    ScheduleResult,
     detect_three_tier_empty,
     schedule_pipeline_background,
     trigger_web_search,
@@ -25,6 +29,7 @@ __all__ = [
     "BingSearchProtocol",
     "BingSearchResult",
     "BingSearcher",
+    "ScheduleResult",
     "detect_three_tier_empty",
     "schedule_pipeline_background",
     "trigger_web_search",

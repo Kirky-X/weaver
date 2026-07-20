@@ -62,14 +62,17 @@ class BingSearchProtocol(Protocol):
         treat ``close()`` as a no-op or only clean up searcher-local state.
     """
 
-    async def search(self, query: str, max_results: int = 5) -> list[BingSearchResult]:
+    async def search(self, query: str, max_results: int | None = None) -> list[BingSearchResult]:
         """Search the web for ``query`` and return up to ``max_results`` hits.
 
         Args:
             query: Search query string (non-empty, caller-validated).
             max_results: Upper bound on returned results. Implementations
                 may return fewer (including an empty list) when the backend
-                yields fewer hits or fails gracefully.
+                yields fewer hits or fails gracefully. ``None`` (default)
+                lets the implementation fall back to its configured
+                ``settings.max_results`` so the effective cap is defined in
+                one place (DRY) — see ``BingSearcher.search``.
 
         Returns:
             List of ``BingSearchResult`` objects, possibly empty on failure

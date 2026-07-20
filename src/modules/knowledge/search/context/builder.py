@@ -284,21 +284,53 @@ class ContextBuilder(ABC):
         pg_ids: list[str],
         article_repo: Any = None,
     ) -> dict[str, str]:
-        """Fetch article body content from PostgreSQL by pg_ids.
+        """Fetch article body content by pg_ids via a single batched SELECT.
+
+        Replaces the previous per-id ``repo.get`` N+1 loop with a single
+        ``ArticleRepository.fetch_bodies_by_pg_ids`` call. The repo
+        implementation chunks large ``pg_ids`` lists (>=500 IDs) to
+        respect PG parameter limits and DuckDB plan-cache budgets.
 
         Args:
-            pg_ids: List of PostgreSQL article IDs.
-            article_repo: Optional ArticleRepo override. Falls back to self._article_repo.
+            pg_ids: List of PostgreSQL article IDs (UUID strings).
+                Empty list short-circuits without a DB call.
+            article_repo: Optional ``ArticleRepository`` override. Falls
+                back to ``self._article_repo`` when not provided.
 
         Returns:
-            Dict mapping pg_id to body content.
+            Dict mapping lowercase ``pg_id`` -> body text. Articles
+            whose pg_id is not found in PG are omitted from the result.
         """
         repo = article_repo or getattr(self, "_article_repo", None)
         if not repo or not pg_ids:
             return {}
 
+        try:
+            # ``fetch_bodies_by_pg_ids`` is part of the ArticleRepository
+            # Protocol (added in T051). When an older repo impl lacks it,
+            # fall back to the legacy N+1 path (preserves backward compat
+            # for any custom ArticleRepository impl in the wild).
+            fetch_batch = getattr(repo, "fetch_bodies_by_pg_ids", None)
+            if fetch_batch is not None:
+                return dict(await fetch_batch(pg_ids))
+        except Exception as exc:
+            from core.observability import get_logger
+
+            get_logger(__name__).warning(
+                "fetch_article_bodies_batch_failed",
+                pg_id_count=len(pg_ids),
+                error=str(exc),
+            )
+            return {}
+
+        # Legacy fallback: per-id repo.get loop. Kept for back-compat with
+        # custom ArticleRepository impls that predate fetch_bodies_by_pg_ids.
+        # All in-tree impls (PostgresArticleRepo, DuckDBArticleRepo) provide
+        # the batch method, so this path is only exercised by external
+        # custom impls. Iterate ALL pg_ids (no truncation) — silently
+        # dropping articles 6..N would violate Rule 12 (MEDIUM-1 fix).
         bodies: dict[str, str] = {}
-        for pg_id in pg_ids[:5]:
+        for pg_id in pg_ids:
             try:
                 article = await repo.get(pg_id)
                 if article and article.body:
