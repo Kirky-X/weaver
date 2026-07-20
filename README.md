@@ -434,6 +434,26 @@ graph TB
 | **Credibility Checker** | 多信号可信度评估                 | ✅ 稳定 |
 | **URL Security**        | 多层 URL 安全检查              | ✅ 稳定 |
 | **APScheduler**         | 定时任务调度                   | ✅ 稳定 |
+| **Bing Web Search**     | 三层全空时网络搜索回填 + 后台 pipeline 入库 | ✅ 稳定 |
+| **Article 图节点瘦身**   | Neo4j/LadybugDB Article 节点只存 `id+pg_id`，业务字段回查 PG | ✅ 稳定 |
+
+### 网络搜索回填
+
+当统一搜索端点 `GET /api/v1/search` 的三层结果（entities / sources / answer）
+全部为空时，系统自动触发 Bing HTML 搜索回填，避免返回空结果。Bing 结果 URL
+通过 `asyncio.create_task` 后台调用完整 pipeline 入库，下次查询即可命中本地
+数据库。回填行为受 `WEAVER_BING__ENABLED` 开关控制，默认关闭。复用项目
+`BaseFetcher` 的 URL 安全链（SSRF / PhishTank / URLhaus），不引入第三方
+HTTP 库。详见 [docs/API.md](docs/API.md) "Bing 网络搜索回填" 章节。
+
+### 图节点去冗余
+
+Neo4j / LadybugDB 的 `Article` 节点收敛为仅存储 `{id, pg_id}`，业务字段
+（`title` / `category` / `publish_time` / `score`）由 `GraphArticleReader`
+通过 `ArticleRepository.fetch_titles_by_pg_ids()` 批量回查 PostgreSQL /
+DuckDB。此设计消除了图数据库与关系数据库之间的字段冗余，所有业务字段以 PG
+为单一真源，图节点仅保留跨库 ID 链接。详见
+[CLAUDE.md](CLAUDE.md) "数据库 Schema" 章节。
 
 ---
 

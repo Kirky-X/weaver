@@ -917,6 +917,60 @@ X-API-Key: your-api-key
 }
 ```
 
+#### Bing 网络搜索回填
+
+当统一搜索的三层结果**全部为空**（`entities` / `sources` / `answer` 均无内容）且
+`BingSettings.enabled=true` 时，端点会自动触发 Bing HTML 搜索回填，避免向用户
+返回空结果。回填行为遵循以下契约：
+
+| 阶段 | 行为 |
+|------|------|
+| **1. 三层空检测** | `detect_three_tier_empty(engine_result)` 判定 entities/sources/answer 是否全空 |
+| **2. Bing HTML 搜索** | `trigger_web_search(q, bing_searcher)` 调用 `BingSearcher.search()`，复用项目 `BaseFetcher`（HttpxFetcher），强制 SSRF / PhishTank / URLhaus 安全检查，超时由 `WEAVER_BING__TIMEOUT` 控制（默认 15s） |
+| **3. 结果合并** | Bing 结果转换为 dict 后追加到 `sources`；`answer` 字段以 Bing snippet 拼接补全 |
+| **4. 后台 Pipeline 入库** | `schedule_pipeline_background(urls, pipeline_service, _background_tasks)` 为每个 Bing 结果 URL 创建 `asyncio.Task` 调用 `pipeline_service.run_full_pipeline(url)`，强引用存入模块级 `_background_tasks: set`，`add_done_callback` 自动清理（GC 防护） |
+| **5. 元数据标记** | `metadata.web_search_fallback=true`，`metadata.web_search_result_count=N` |
+
+**触发条件**（必须同时满足）：
+
+- `WEAVER_BING__ENABLED=true`
+- `bing_searcher` 依赖成功初始化（container 中 `init_bing_searcher()` 返回非 None）
+- 搜索引擎结果三层全空
+
+**降级行为**：
+
+- Bing 搜索失败（网络/超时/解析错误）：`log.warning("web_search_failed")`，返回空 list，不抛异常，原空结果照常返回
+- `BingSearcher` 不可用（`enabled=false` 或初始化失败）：跳过回填，返回原空结果
+
+**响应示例（触发回填）**：
+
+```json
+{
+  "query": "罕见主题查询",
+  "answer": "Bing snippet 1 ... Bing snippet 2 ...",
+  "entities": [],
+  "sources": [
+    {
+      "url": "https://example.com/result-1",
+      "title": "Result 1 Title",
+      "snippet": "Result 1 snippet from Bing",
+      "source": "bing_web_search"
+    }
+  ],
+  "metadata": {
+    "total_results": 3,
+    "web_search_fallback": true,
+    "web_search_result_count": 3
+  }
+}
+```
+
+**安全保证**：
+
+- 不引入第三方 HTTP 库，复用项目 `BaseFetcher` 的 URL 安全链（SSRF / PhishTank / URLhaus / 启发式 / SSL）
+- Bing 结果 URL 在后台 pipeline 入库前再次经过完整 URL 安全检查
+- User-Agent 可通过 `WEAVER_BING__USER_AGENT` 配置，支持指纹轮换
+
 ---
 
 ## Pipeline 端点

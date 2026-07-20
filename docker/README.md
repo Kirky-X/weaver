@@ -77,9 +77,61 @@ Expected: `pgvector` / `neo4j` / `redis` all show `(healthy)`.
    between Neo4j and LadybugDB. The project's `tests/integration/` suite
    covers the canonical verification path.
 
+## Hybrid Test Stacks (Phase 3 / Phase 4)
+
+For testing cross-database combinations beyond the primary (PG+Neo4j) and
+full-fallback (DuckDB+LadybugDB) stacks, Weaver ships a profile-based
+hybrid test compose file:
+
+| Profile | Backends | Purpose | API Port |
+|---------|----------|---------|----------|
+| `phase3` | PostgreSQL + LadybugDB | Relational primary, graph fallback — validates Article slim-down (design.md §D2): PG holds title/score, LadybugDB holds `pg_id` only | 18014 |
+| `phase4` | DuckDB + Neo4j | Graph primary, relational fallback — validates that graph-first deployments still serve search correctly when the relational store is file-backed | 18015 |
+
+### Starting Hybrid Stacks
+
+```bash
+# Phase 3: PG + LadybugDB (force Neo4j fallback by leaving NEO4J__PASSWORD empty)
+docker compose -f docker/docker-compose.hybrid-test.yml --profile phase3 up -d
+
+# Phase 4: DuckDB + Neo4j (force PG fallback by leaving POSTGRES__DSN empty)
+docker compose -f docker/docker-compose.hybrid-test.yml --profile phase4 up -d
+
+# Tear down (keeps volumes)
+docker compose -f docker/docker-compose.hybrid-test.yml --profile phase3 down
+```
+
+### Running Phase 3/4 Integration Tests
+
+```bash
+# Phase 3 tests (auto-skipped if WEAVER_POSTGRES__DSN is unset or NEO4J__PASSWORD is set)
+WEAVER_POSTGRES__DSN=postgresql+asyncpg://postgres:weavertest@localhost:5432/weaver \
+WEAVER_NEO4J__PASSWORD= \
+uv run pytest tests/integration/api/test_hybrid_mode_pg_ladybug.py -m integration -v
+
+# Phase 4 tests (auto-skipped if NEO4J__PASSWORD is unset or POSTGRES__DSN is set)
+WEAVER_POSTGRES__DSN= \
+WEAVER_NEO4J__URI=bolt://localhost:7687 \
+WEAVER_NEO4J__PASSWORD=weavertest \
+uv run pytest tests/integration/api/test_hybrid_mode_duckdb_neo4j.py -m integration -v
+```
+
+### Aggregating Results
+
+After running Phase 3 and/or Phase 4, aggregate results across all four
+phases (Phase 1 + Phase 2 + Phase 3 + Phase 4) and compare core endpoint
+response consistency:
+
+```bash
+uv run python scripts/aggregate_hybrid_results.py
+```
+
+Output: `specmark/changes/web-search-and-db-optimization/records/hybrid_comparison.json`
+
 ## See Also
 
 - `../CLAUDE.md` — "数据库故障转移" section for the fallback contract
-- `../.env.example` — Phase 1 (PG+Neo4j+Redis) and Phase 2 (DuckDB+LadybugDB)
-  environment variable examples
+- `../.env.example` — Phase 1 (PG+Neo4j+Redis), Phase 2 (DuckDB+LadybugDB),
+  Phase 3 (PG+LadybugDB), and Phase 4 (DuckDB+Neo4j) environment variable
+  examples
 - `../scripts/README.md` — `data_io.py` subcommand reference
