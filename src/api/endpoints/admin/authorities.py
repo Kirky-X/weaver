@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_relational_pool_optional
 from api.endpoints.admin.admin import _get_container, _get_source_authority_repo
-from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
 from modules.storage import SourceAuthorityRepo
@@ -109,7 +109,7 @@ class UpdateAuthorityResponse(BaseModel):
 async def list_authorities(
     request: Request,
     needs_review_only: bool = False,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: admin-only — authority list is sensitive
     repo: SourceAuthorityRepo = Depends(_get_source_authority_repo),
 ) -> APIResponse[list[AuthorityResponse]]:
     """Get source authorities, optionally filtered by those needing review.

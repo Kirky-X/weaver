@@ -15,7 +15,7 @@ from api.dependencies import (
     get_graph_pool_type,
     get_llm_client,
 )
-from api.middleware.auth import verify_api_key
+from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import DatabaseType, GraphHealthStatus, ProcessingStatus
 from core.db import GraphDatabaseType
@@ -178,7 +178,7 @@ class RepairResponse(BaseModel):
 @router.post("/rebuild", response_model=APIResponse[RebuildResponse])
 async def rebuild_communities(
     request: RebuildRequest = RebuildRequest(),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
     llm: Any = Depends(get_llm_client),
@@ -247,7 +247,7 @@ async def rebuild_communities(
 async def generate_all_reports(
     level: int | None = Query(None, description="Community level filter"),
     regenerate_stale: bool = Query(True, description="Regenerate stale reports"),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
     community_vector_repo: Any = Depends(get_community_vector_repo),
@@ -307,7 +307,7 @@ async def generate_all_reports(
 )
 async def regenerate_report(
     community_id: str,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
     community_vector_repo: Any = Depends(get_community_vector_repo),
@@ -374,7 +374,7 @@ async def list_communities(
     page: int | None = Query(None, ge=1, description="Page number (1-based)"),
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
     offset: int | None = Query(None, ge=0, description="Result offset"),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[CommunityListResponse]:
@@ -440,7 +440,7 @@ async def list_communities(
 
 @router.get("/health", response_model=APIResponse[HealthOverviewResponse])
 async def get_health_overview(
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[HealthOverviewResponse]:
     """Get community health overview.
@@ -519,7 +519,7 @@ async def get_health_overview(
 
 @router.post("/health/diagnose", response_model=APIResponse[DiagnoseResponse])
 async def diagnose_health(
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[DiagnoseResponse]:
     """Perform full community health diagnosis.
@@ -579,7 +579,7 @@ async def diagnose_health(
 @router.post("/health/repair", response_model=APIResponse[RepairResponse])
 async def repair_health(
     request: RepairRequest = RepairRequest(),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[RepairResponse]:
@@ -683,7 +683,7 @@ async def repair_health(
 @router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
 async def get_community(
     community_id: str,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[CommunityDetailResponse]:
