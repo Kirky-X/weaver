@@ -385,9 +385,9 @@ class TestSchedulePipelineBackground:
 
         # HIGH-1 assertion: max 1 active pipeline call at any time
         # (sequential execution, no overlap).
-        assert (
-            max_active == 1
-        ), f"Expected sequential execution (max_active=1), got max_active={max_active}"
+        assert max_active == 1, (
+            f"Expected sequential execution (max_active=1), got max_active={max_active}"
+        )
         # All 3 URLs processed.
         assert len(call_order) == 6  # 3 starts + 3 ends
         # Verify order: start:a, end:a, start:b, end:b, start:c, end:c
@@ -694,9 +694,9 @@ class TestRunPipelinesSequentiallyTotalTimeout:
         # The task completed within the timeout (did not hang until 1.5s).
         # At most 1 URL was started (the first one); 2nd and 3rd must NOT
         # have been started because the total_timeout cancelled the batch.
-        assert (
-            len(started_urls) <= 1
-        ), f"Expected at most 1 URL started before timeout, got {started_urls}"
+        assert len(started_urls) <= 1, (
+            f"Expected at most 1 URL started before timeout, got {started_urls}"
+        )
         # No URL completed (each takes 0.5s, timeout fires at 0.1s).
         assert len(completed_urls) == 0
 

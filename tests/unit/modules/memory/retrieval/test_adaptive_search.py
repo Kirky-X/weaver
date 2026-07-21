@@ -506,9 +506,9 @@ class TestAdaptiveSearchIntentAwareEdgeType:
 
         # Anchor 评分必须用 CAUSAL edge_type（D4）
         assert len(captured_edge_types) >= 1
-        assert all(
-            et == EdgeType.CAUSAL for et in captured_edge_types
-        ), f"WHY intent 应使用 CAUSAL，实际: {captured_edge_types}"
+        assert all(et == EdgeType.CAUSAL for et in captured_edge_types), (
+            f"WHY intent 应使用 CAUSAL，实际: {captured_edge_types}"
+        )
 
 
 class TestAdaptiveSearchNormalization:

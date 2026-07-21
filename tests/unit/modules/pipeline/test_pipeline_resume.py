@@ -10,9 +10,9 @@ def test_persist_status_has_processing():
     from core.db import PersistStatus
 
     assert hasattr(PersistStatus, "PROCESSING"), "PersistStatus should have PROCESSING attribute"
-    assert (
-        PersistStatus.PROCESSING.value == "processing"
-    ), "PROCESSING value should be 'processing' (lowercase to match DB enum)"
+    assert PersistStatus.PROCESSING.value == "processing", (
+        "PROCESSING value should be 'processing' (lowercase to match DB enum)"
+    )
 
 
 def test_article_has_processing_fields():
@@ -47,9 +47,9 @@ async def test_article_repo_has_get_failed_articles_method():
 
     mock_pool = create_mock_relational_pool()
     repo = ArticleRepo(mock_pool)
-    assert hasattr(
-        repo, "get_failed_articles"
-    ), "ArticleRepo should have get_failed_articles method"
+    assert hasattr(repo, "get_failed_articles"), (
+        "ArticleRepo should have get_failed_articles method"
+    )
     assert callable(repo.get_failed_articles), "get_failed_articles should be callable"
 
 
@@ -72,6 +72,6 @@ def test_scheduler_jobs_service_has_retry_method():
     """验证 SchedulerJobs 有 retry_pipeline_processing 方法"""
     from modules.scheduler import SchedulerJobs
 
-    assert hasattr(
-        SchedulerJobs, "retry_pipeline_processing"
-    ), "SchedulerJobs should have retry_pipeline_processing method"
+    assert hasattr(SchedulerJobs, "retry_pipeline_processing"), (
+        "SchedulerJobs should have retry_pipeline_processing method"
+    )

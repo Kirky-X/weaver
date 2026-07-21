@@ -30,16 +30,16 @@ class ViewTestBase:
     def test_removed_fields_not_present(self):
         field_names = set(self.view_class.model_fields.keys())
         for field in self.removed_fields:
-            assert (
-                field not in field_names
-            ), f"Removed field '{field}' still present in {self.view_class.__name__}"
+            assert field not in field_names, (
+                f"Removed field '{field}' still present in {self.view_class.__name__}"
+            )
 
     def test_required_fields_present(self):
         field_names = set(self.view_class.model_fields.keys())
         for field in self.required_fields:
-            assert (
-                field in field_names
-            ), f"Required field '{field}' missing from {self.view_class.__name__}"
+            assert field in field_names, (
+                f"Required field '{field}' missing from {self.view_class.__name__}"
+            )
 
     def test_uses_pydantic_v2_config_dict(self):
         assert self.view_class.model_config.get("from_attributes") is True

@@ -77,12 +77,12 @@ class EventView(BaseModel):
     location: str | None = None
     status: str = "confirmed"
     importance: float = 0.5
-    participants: list[dict[str, Any]] = (
-        []
-    )  # [{"entity_id": "ent_1", "role": "initiator", "confidence": 0.95}]
-    narratives: list[dict[str, Any]] = (
-        []
-    )  # [{"text": "description", "source": "article_id", "confidence": 0.8}]
+    participants: list[
+        dict[str, Any]
+    ] = []  # [{"entity_id": "ent_1", "role": "initiator", "confidence": 0.95}]
+    narratives: list[
+        dict[str, Any]
+    ] = []  # [{"text": "description", "source": "article_id", "confidence": 0.8}]
     source_article_id: str | None = None
 
 

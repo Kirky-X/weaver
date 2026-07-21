@@ -85,9 +85,9 @@ class TestMapperProtocolCompliance:
     def test_mapper_docstring_declares_protocol(self, mapper_cls: type, view_cls: type) -> None:
         """Each Mapper docstring must declare 'Implements: MapperProtocol'."""
         docstring = mapper_cls.__doc__ or ""
-        assert (
-            "MapperProtocol" in docstring
-        ), f"{mapper_cls.__name__} docstring must declare 'Implements: MapperProtocol'"
+        assert "MapperProtocol" in docstring, (
+            f"{mapper_cls.__name__} docstring must declare 'Implements: MapperProtocol'"
+        )
 
 
 # ── Test: Mapper functional correctness ──────────────────────────────

@@ -49,9 +49,9 @@ class TestCredibilityWeights:
     def test_timeliness_weight_percentage(self):
         """Test that timeliness weight is within expected range."""
         for category, weights in CredibilityCheckerNode.CATEGORY_WEIGHTS.items():
-            assert (
-                0.0 <= weights["timeliness"] <= 1.0
-            ), f"Timeliness weight for {category} out of range"
+            assert 0.0 <= weights["timeliness"] <= 1.0, (
+                f"Timeliness weight for {category} out of range"
+            )
 
 
 class TestCredibilityScoreRange:
@@ -83,9 +83,9 @@ class TestCredibilityScoreRange:
                         + s2 * weights["content"]
                         + s3 * weights["timeliness"]
                     )
-                    assert (
-                        0.0 <= score <= 1.0
-                    ), f"Score {score} out of range for signals {s1}, {s2}, {s3}"
+                    assert 0.0 <= score <= 1.0, (
+                        f"Score {score} out of range for signals {s1}, {s2}, {s3}"
+                    )
 
 
 class TestBreakingNewsWeights:

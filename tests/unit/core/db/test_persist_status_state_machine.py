@@ -354,9 +354,9 @@ class TestCompletedStatuses:
             PersistStatus.SAGA_COMPENSATED,
         }
         for status in non_complete:
-            assert (
-                status not in PersistStatus.completed_statuses()
-            ), f"{status} should not be in completed_statuses"
+            assert status not in PersistStatus.completed_statuses(), (
+                f"{status} should not be in completed_statuses"
+            )
 
     def test_completed_statuses_returns_frozenset(self):
         """completed_statuses() returns a frozenset (immutable)."""

@@ -303,9 +303,7 @@ class FetcherSettings(BaseModel):
     # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True
     crawl4ai_stealth_enabled: bool = True
-    crawl4ai_user_agent: str = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    )
+    crawl4ai_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     crawl4ai_timeout: float = 30.0
 
     rate_limit_enabled: bool = True

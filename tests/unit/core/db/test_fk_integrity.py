@@ -19,9 +19,9 @@ class TestFKIntegrity:
         fks = list(col.foreign_keys)
         assert len(fks) == 1, f"Expected 1 FK, got {len(fks)}"
         fk = fks[0]
-        assert (
-            str(fk.target_fullname) == "articles_core.id"
-        ), f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        assert str(fk.target_fullname) == "articles_core.id", (
+            f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        )
 
     def test_llm_failure_record_article_id_ondelete_set_null(self) -> None:
         """LLMFailureRecord.article_id FK should have ondelete=SET NULL."""
@@ -37,9 +37,9 @@ class TestFKIntegrity:
         fks = list(col.foreign_keys)
         assert len(fks) == 1, f"Expected 1 FK, got {len(fks)}"
         fk = fks[0]
-        assert (
-            str(fk.target_fullname) == "articles_core.id"
-        ), f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        assert str(fk.target_fullname) == "articles_core.id", (
+            f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        )
 
     def test_pending_sync_article_id_ondelete_cascade(self) -> None:
         """PendingSync.article_id FK should have ondelete=CASCADE."""
@@ -55,9 +55,9 @@ class TestFKIntegrity:
         fks = list(col.foreign_keys)
         assert len(fks) == 1, f"Expected 1 FK, got {len(fks)}"
         fk = fks[0]
-        assert (
-            str(fk.target_fullname) == "articles_core.id"
-        ), f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        assert str(fk.target_fullname) == "articles_core.id", (
+            f"Expected FK to articles_core.id, got {fk.target_fullname}"
+        )
 
     def test_daily_briefing_item_article_id_ondelete_cascade(self) -> None:
         """DailyBriefingItem.article_id FK should have ondelete=CASCADE."""

@@ -49,32 +49,32 @@ class TestDataConflictsGinIndex:
     def test_article_analysis_data_conflicts_gin_index_exists(self) -> None:
         """ArticleAnalysis SHALL have a GIN index on data_conflicts."""
         index_names = _get_index_names(ArticleAnalysis)
-        assert (
-            "idx_core_data_conflicts_gin" in index_names
-        ), f"No data_conflicts GIN index found in ArticleAnalysis. Existing: {index_names}"
+        assert "idx_core_data_conflicts_gin" in index_names, (
+            f"No data_conflicts GIN index found in ArticleAnalysis. Existing: {index_names}"
+        )
 
     def test_article_analysis_data_conflicts_gin_index_uses_gin(self) -> None:
         """ArticleAnalysis data_conflicts GIN index SHALL use postgresql_using='gin'."""
         idx = _get_index(ArticleAnalysis, "idx_core_data_conflicts_gin")
         assert idx is not None
-        assert (
-            idx.dialect_options.get("postgresql", {}).get("using") == "gin"
-        ), f"data_conflicts GIN index not using GIN: {idx.dialect_options}"
+        assert idx.dialect_options.get("postgresql", {}).get("using") == "gin", (
+            f"data_conflicts GIN index not using GIN: {idx.dialect_options}"
+        )
 
     def test_article_data_conflicts_gin_index_exists(self) -> None:
         """Article SHALL have a GIN index on data_conflicts."""
         index_names = _get_index_names(Article)
-        assert (
-            "idx_articles_data_conflicts_gin" in index_names
-        ), f"No data_conflicts GIN index found in Article. Existing: {index_names}"
+        assert "idx_articles_data_conflicts_gin" in index_names, (
+            f"No data_conflicts GIN index found in Article. Existing: {index_names}"
+        )
 
     def test_article_data_conflicts_gin_index_uses_gin(self) -> None:
         """Article data_conflicts GIN index SHALL use postgresql_using='gin'."""
         idx = _get_index(Article, "idx_articles_data_conflicts_gin")
         assert idx is not None
-        assert (
-            idx.dialect_options.get("postgresql", {}).get("using") == "gin"
-        ), f"data_conflicts GIN index not using GIN: {idx.dialect_options}"
+        assert idx.dialect_options.get("postgresql", {}).get("using") == "gin", (
+            f"data_conflicts GIN index not using GIN: {idx.dialect_options}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,9 +127,9 @@ class TestAuditLogClientIp:
     def test_client_ip_column_type_is_string(self) -> None:
         """AuditLog.client_ip SHALL be String type."""
         col = AuditLog.__table__.columns["client_ip"]
-        assert isinstance(
-            col.type, String
-        ), f"client_ip column type is {type(col.type).__name__}, expected String"
+        assert isinstance(col.type, String), (
+            f"client_ip column type is {type(col.type).__name__}, expected String"
+        )
 
     def test_client_ip_column_length_is_45(self) -> None:
         """AuditLog.client_ip SHALL be String(45) for IPv6 support."""

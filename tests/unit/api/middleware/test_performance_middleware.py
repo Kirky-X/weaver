@@ -69,18 +69,18 @@ class TestResponseTimeHeader:
         response = client.get("/fast")
 
         assert response.status_code == 200
-        assert (
-            "x-response-time-ms" in response.headers
-        ), "Response should include X-Response-Time-Ms header"
+        assert "x-response-time-ms" in response.headers, (
+            "Response should include X-Response-Time-Ms header"
+        )
 
     def test_slow_endpoint_has_response_time_header(self, client):
         """Test that slow endpoint includes X-Response-Time-Ms header."""
         response = client.get("/slow")
 
         assert response.status_code == 200
-        assert (
-            "x-response-time-ms" in response.headers
-        ), "Response should include X-Response-Time-Ms header"
+        assert "x-response-time-ms" in response.headers, (
+            "Response should include X-Response-Time-Ms header"
+        )
 
     def test_error_endpoint_has_response_time_header(self, client):
         """Test that error responses include X-Response-Time-Ms header."""

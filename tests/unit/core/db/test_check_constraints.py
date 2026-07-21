@@ -65,9 +65,9 @@ class TestDocumentTypeCheckConstraint:
     def test_document_type_check_exists(self) -> None:
         """ArticleCore SHALL have a CHECK constraint on document_type."""
         check_names = _get_constraint_names(ArticleCore, "CheckConstraint")
-        assert any(
-            "document_type" in name.lower() for name in check_names
-        ), f"No document_type CHECK constraint found in ArticleCore. Existing: {check_names}"
+        assert any("document_type" in name.lower() for name in check_names), (
+            f"No document_type CHECK constraint found in ArticleCore. Existing: {check_names}"
+        )
 
     def test_document_type_values_match_spec(self) -> None:
         """document_type CHECK SHALL include design doc values."""
@@ -99,9 +99,9 @@ class TestShiftTypeCheckConstraint:
     def test_shift_type_check_exists(self) -> None:
         """SentimentShift SHALL have a CHECK constraint on shift_type."""
         check_names = _get_constraint_names(SentimentShift, "CheckConstraint")
-        assert any(
-            "shift_type" in name.lower() for name in check_names
-        ), f"No shift_type CHECK constraint found in SentimentShift. Existing: {check_names}"
+        assert any("shift_type" in name.lower() for name in check_names), (
+            f"No shift_type CHECK constraint found in SentimentShift. Existing: {check_names}"
+        )
 
     def test_shift_type_values_match_spec(self) -> None:
         """shift_type CHECK SHALL include design doc values."""
@@ -124,9 +124,9 @@ class TestRankCheckConstraint:
     def test_rank_check_exists(self) -> None:
         """DailyBriefingItem SHALL have a CHECK constraint on rank (1-10)."""
         check_names = _get_constraint_names(DailyBriefingItem, "CheckConstraint")
-        assert any(
-            "rank" in name.lower() for name in check_names
-        ), f"No rank CHECK constraint found in DailyBriefingItem. Existing: {check_names}"
+        assert any("rank" in name.lower() for name in check_names), (
+            f"No rank CHECK constraint found in DailyBriefingItem. Existing: {check_names}"
+        )
 
     def test_rank_check_range(self) -> None:
         """rank CHECK SHALL enforce range 1-10."""
@@ -204,9 +204,9 @@ class TestCommunityVectorTitleGinIndex:
     def test_title_gin_index_exists(self) -> None:
         """CommunityVector SHALL have a GIN index on title."""
         index_names = _get_index_names(CommunityVector)
-        assert any(
-            "title" in name.lower() for name in index_names
-        ), f"No title GIN index found in CommunityVector. Existing: {index_names}"
+        assert any("title" in name.lower() for name in index_names), (
+            f"No title GIN index found in CommunityVector. Existing: {index_names}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -252,15 +252,15 @@ class TestIntervalMinutesCheckConstraint:
     def test_interval_minutes_check_exists(self) -> None:
         """SourceConfig SHALL have a CHECK constraint on interval_minutes (5-1440)."""
         check_names = _get_constraint_names(SourceRow, "CheckConstraint")
-        assert any(
-            "interval" in name.lower() for name in check_names
-        ), f"No interval_minutes CHECK constraint found in SourceConfig. Existing: {check_names}"
+        assert any("interval" in name.lower() for name in check_names), (
+            f"No interval_minutes CHECK constraint found in SourceConfig. Existing: {check_names}"
+        )
 
     def test_interval_minutes_range(self) -> None:
         """interval_minutes CHECK SHALL enforce range 5-1440."""
         constraint = _get_constraint(SourceRow, "CheckConstraint", "interval")
         assert constraint is not None
         sql_text = str(constraint.sqltext)
-        assert (
-            "5" in sql_text and "1440" in sql_text
-        ), f"interval_minutes CHECK not 5-1440: {sql_text}"
+        assert "5" in sql_text and "1440" in sql_text, (
+            f"interval_minutes CHECK not 5-1440: {sql_text}"
+        )

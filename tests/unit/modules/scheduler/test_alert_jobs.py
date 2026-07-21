@@ -212,9 +212,9 @@ class TestAlertJobsCronRegistration:
         """CronTrigger for evaluate_trend_alerts uses minute=0 (top of every hour)."""
         block = self._find_alert_job_block()
         assert block, "evaluate_trend_alerts job block not found"
-        assert (
-            "minute=0" in block
-        ), f"CronTrigger must use minute=0 for hourly execution. Block: {block[:200]}"
+        assert "minute=0" in block, (
+            f"CronTrigger must use minute=0 for hourly execution. Block: {block[:200]}"
+        )
 
     def test_job_id_is_evaluate_trend_alerts(self) -> None:
         """Job id is exactly 'evaluate_trend_alerts'."""
@@ -253,9 +253,9 @@ class TestSchedulerJobsDelegation:
         """SchedulerJobs exposes evaluate_trend_alerts as a delegation method."""
         from modules.scheduler.jobs import SchedulerJobs
 
-        assert hasattr(
-            SchedulerJobs, "evaluate_trend_alerts"
-        ), "SchedulerJobs must expose evaluate_trend_alerts to delegate to AlertJobs"
+        assert hasattr(SchedulerJobs, "evaluate_trend_alerts"), (
+            "SchedulerJobs must expose evaluate_trend_alerts to delegate to AlertJobs"
+        )
 
     @pytest.mark.asyncio
     async def test_delegates_to_alert_jobs(self) -> None:
@@ -350,9 +350,9 @@ class TestSchedulerModuleExports:
         """AlertJobs is exported from the scheduler package __init__.py."""
         import modules.scheduler as scheduler_pkg
 
-        assert hasattr(
-            scheduler_pkg, "AlertJobs"
-        ), "AlertJobs must be exported from modules.scheduler for container/lifecycle use"
+        assert hasattr(scheduler_pkg, "AlertJobs"), (
+            "AlertJobs must be exported from modules.scheduler for container/lifecycle use"
+        )
 
     def test_alert_jobs_in_all(self) -> None:
         """AlertJobs is listed in modules.scheduler.__all__."""

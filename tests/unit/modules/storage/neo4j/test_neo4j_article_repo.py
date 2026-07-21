@@ -50,23 +50,23 @@ class TestCreateArticle:
         call_args = mock_pool.execute_query.call_args
         cypher = call_args[0][0]
         # Cypher must NOT set title/category/publish_time/score on the node.
-        assert (
-            "title" not in cypher.lower()
-        ), f"create_article Cypher must not reference title: {cypher}"
-        assert (
-            "category" not in cypher.lower()
-        ), f"create_article Cypher must not reference category: {cypher}"
-        assert (
-            "publish_time" not in cypher.lower()
-        ), f"create_article Cypher must not reference publish_time: {cypher}"
-        assert (
-            "score" not in cypher.lower()
-        ), f"create_article Cypher must not reference score: {cypher}"
+        assert "title" not in cypher.lower(), (
+            f"create_article Cypher must not reference title: {cypher}"
+        )
+        assert "category" not in cypher.lower(), (
+            f"create_article Cypher must not reference category: {cypher}"
+        )
+        assert "publish_time" not in cypher.lower(), (
+            f"create_article Cypher must not reference publish_time: {cypher}"
+        )
+        assert "score" not in cypher.lower(), (
+            f"create_article Cypher must not reference score: {cypher}"
+        )
         # Params must contain only pg_id.
         params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
-        assert set(params.keys()) == {
-            "pg_id"
-        }, f"create_article params must be only pg_id, got {set(params.keys())}"
+        assert set(params.keys()) == {"pg_id"}, (
+            f"create_article params must be only pg_id, got {set(params.keys())}"
+        )
 
     @pytest.mark.asyncio
     async def test_create_article_uses_merg_on_create_created_at(self):
@@ -79,13 +79,13 @@ class TestCreateArticle:
 
         call_args = mock_pool.execute_query.call_args
         cypher = call_args[0][0]
-        assert (
-            "MERGE (a:Article {pg_id: $pg_id})" in cypher
-        ), f"create_article must MERGE on pg_id: {cypher}"
+        assert "MERGE (a:Article {pg_id: $pg_id})" in cypher, (
+            f"create_article must MERGE on pg_id: {cypher}"
+        )
         assert "ON CREATE SET" in cypher, "create_article must set created_at on create"
-        assert (
-            "a.created_at = datetime()" in cypher
-        ), "create_article must set created_at = datetime() on create"
+        assert "a.created_at = datetime()" in cypher, (
+            "create_article must set created_at = datetime() on create"
+        )
 
     @pytest.mark.asyncio
     async def test_create_article_failure_raises_runtime_error(self):
@@ -338,9 +338,9 @@ class TestDeleteArticle:
 
         call_args = mock_pool.execute_query.await_args
         cypher = call_args[0][0] if call_args[0] else ""
-        assert (
-            "DETACH DELETE" in cypher
-        ), f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
+        assert "DETACH DELETE" in cypher, (
+            f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
+        )
 
 
 class TestDeleteOldArticles:
@@ -368,9 +368,9 @@ class TestDeleteOldArticles:
         mock_pool.execute_query.assert_called_once()
         call_args = mock_pool.execute_query.call_args
         params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
-        assert params == {
-            "pg_ids": ["pg-1", "pg-2", "pg-3"]
-        }, f"delete_old_articles must pass pg_ids param, got {params}"
+        assert params == {"pg_ids": ["pg-1", "pg-2", "pg-3"]}, (
+            f"delete_old_articles must pass pg_ids param, got {params}"
+        )
 
     @pytest.mark.asyncio
     async def test_delete_old_articles_empty_list_returns_zero(self):
@@ -548,12 +548,12 @@ class TestDeleteArticlesWithoutMentions:
         call_args = mock_pool.execute_query.call_args
         cypher = call_args[0][0] if call_args[0] else ""
         assert "DETACH DELETE" in cypher, f"Cypher must contain DETACH DELETE, got: {cypher}"
-        assert (
-            "collect" in cypher.lower()
-        ), f"Cypher must use collect() to gather nodes before delete, got: {cypher}"
-        assert (
-            "size(" in cypher.lower() and "deleted" in cypher.lower()
-        ), f"Cypher must RETURN size(articles) AS deleted, got: {cypher}"
+        assert "collect" in cypher.lower(), (
+            f"Cypher must use collect() to gather nodes before delete, got: {cypher}"
+        )
+        assert "size(" in cypher.lower() and "deleted" in cypher.lower(), (
+            f"Cypher must RETURN size(articles) AS deleted, got: {cypher}"
+        )
         # Preserve existing semantic: incoming MENTIONS + outgoing FOLLOWED_BY.
         assert "MENTIONS" in cypher
         assert "FOLLOWED_BY" in cypher

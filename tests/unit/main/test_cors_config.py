@@ -386,9 +386,9 @@ class TestCORSSecurityConfiguration:
 
                         # All should be localhost
                         for origin in origins:
-                            assert (
-                                "localhost" in origin or "127.0.0.1" in origin
-                            ), f"Development default {origin} should be localhost"
+                            assert "localhost" in origin or "127.0.0.1" in origin, (
+                                f"Development default {origin} should be localhost"
+                            )
                         break
 
     def test_cors_methods_are_configured(self) -> None:

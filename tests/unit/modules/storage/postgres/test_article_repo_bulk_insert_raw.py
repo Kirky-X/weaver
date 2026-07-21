@@ -154,9 +154,9 @@ async def test_bulk_insert_raw_batch_inserts_articles() -> None:
     assert len(set(result)) == 3, "All returned UUIDs must be unique"
 
     # Single commit (not N commits)
-    assert (
-        fake_session.commit_count == 1
-    ), f"Expected single commit for bulk insert, got {fake_session.commit_count}"
+    assert fake_session.commit_count == 1, (
+        f"Expected single commit for bulk insert, got {fake_session.commit_count}"
+    )
 
     # URLs deduped: existing URL not re-inserted
     from core.db import ArticleCore

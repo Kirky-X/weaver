@@ -200,9 +200,9 @@ class TestFastModeLLMCallCount:
         results = await pipeline.process_batch_fast([sample_article_raw])
 
         # Verify LLM call count (should be at least classifier)
-        assert (
-            call_count["call_at"] >= 1
-        ), f"Expected at least 1 call_at call, got {call_count['call_at']}"
+        assert call_count["call_at"] >= 1, (
+            f"Expected at least 1 call_at call, got {call_count['call_at']}"
+        )
 
         # Verify results
         assert len(results) == 1
@@ -324,12 +324,12 @@ class TestDeepModeLLMCallCount:
         # Maximum: all nodes
         expected_max = 20
 
-        assert (
-            call_count >= expected_min
-        ), f"Expected at least {expected_min} calls for deep mode, got {call_count}"
-        assert (
-            call_count <= expected_max
-        ), f"Expected at most {expected_max} calls for deep mode, got {call_count}"
+        assert call_count >= expected_min, (
+            f"Expected at least {expected_min} calls for deep mode, got {call_count}"
+        )
+        assert call_count <= expected_max, (
+            f"Expected at most {expected_max} calls for deep mode, got {call_count}"
+        )
 
 
 class TestProcessingModeOutput:

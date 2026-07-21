@@ -625,9 +625,9 @@ class TestLocalContextBuilderFetchArticleBodies:
         result = await builder.fetch_article_bodies(pg_ids)
 
         # All 10 pg_ids attempted (no [:5] truncation).
-        assert (
-            mock_repo.get.await_count == 10
-        ), f"Legacy fallback must iterate ALL pg_ids, got {mock_repo.get.await_count} calls"
+        assert mock_repo.get.await_count == 10, (
+            f"Legacy fallback must iterate ALL pg_ids, got {mock_repo.get.await_count} calls"
+        )
         # All 10 bodies present in the result.
         assert len(result) == 10
         for pg_id in pg_ids:

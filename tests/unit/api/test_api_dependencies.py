@@ -752,9 +752,9 @@ class TestTypeFallbackGetters:
         mock_container.cache_client.return_value = mock_cache
 
         result = get_cache_type(container=mock_container)
-        assert (
-            result == type(mock_cache).__name__
-        ), f"Expected class name '{type(mock_cache).__name__}', got '{result}'"
+        assert result == type(mock_cache).__name__, (
+            f"Expected class name '{type(mock_cache).__name__}', got '{result}'"
+        )
 
 
 @pytest.mark.xdist_group(name="endpoints_deps")
@@ -792,9 +792,9 @@ class TestRemainingFailoverBranches:
         with pytest.raises(HTTPException) as exc_info:
             getter(container=mock_container)
         assert exc_info.value.status_code == 503
-        assert (
-            detail_substring in exc_info.value.detail
-        ), f"Expected '{detail_substring}' in detail, got '{exc_info.value.detail}'"
+        assert detail_substring in exc_info.value.detail, (
+            f"Expected '{detail_substring}' in detail, got '{exc_info.value.detail}'"
+        )
 
     @pytest.mark.parametrize(
         "import_name,container_method,detail_substring",

@@ -719,15 +719,15 @@ class TestDataQualityFixValidation:
 
         # At least some LLM calls should have article_id set
         rows_with_article_id = [r for r in rows if r[0] is not None]
-        assert (
-            len(rows_with_article_id) > 0
-        ), "llm_usage_raw has no records with article_id — LLM call tracing is broken"
+        assert len(rows_with_article_id) > 0, (
+            "llm_usage_raw has no records with article_id — LLM call tracing is broken"
+        )
 
         # At least some LLM calls should have task_id set
         rows_with_task_id = [r for r in rows if r[1] is not None]
-        assert (
-            len(rows_with_task_id) > 0
-        ), "llm_usage_raw has no records with task_id — LLM call tracing is broken"
+        assert len(rows_with_task_id) > 0, (
+            "llm_usage_raw has no records with task_id — LLM call tracing is broken"
+        )
 
     async def test_article_processing_has_task_id(self, client: Any) -> None:
         """8.3: Verify DuckDB ArticleProcessing table has task_id populated."""
@@ -760,9 +760,9 @@ class TestDataQualityFixValidation:
 
         # At least some records should have task_id
         rows_with_task_id = [r for r in rows if r[1] is not None]
-        assert (
-            len(rows_with_task_id) > 0
-        ), "article_processing has no records with task_id — task_id persistence is broken"
+        assert len(rows_with_task_id) > 0, (
+            "article_processing has no records with task_id — task_id persistence is broken"
+        )
 
     async def test_ladybug_event_node_complete(self, client: Any) -> None:
         """8.4: Verify LadybugDB EventNode has complete properties and relationships."""
@@ -816,9 +816,9 @@ class TestDataQualityFixValidation:
             except Exception as exc:
                 pytest.skip(f"Cannot query HAS_EVENT relationship: {exc}")
 
-            assert (
-                len(rels) > 0
-            ), f"HAS_EVENT relationship not found for Article→EventNode (article_id={article_id})"
+            assert len(rels) > 0, (
+                f"HAS_EVENT relationship not found for Article→EventNode (article_id={article_id})"
+            )
 
     async def test_persist_status_matches_db_type(self, client: Any) -> None:
         """8.5: Verify persist_status is set correctly based on database type."""

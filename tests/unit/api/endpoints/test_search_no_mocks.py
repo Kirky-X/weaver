@@ -33,21 +33,21 @@ class TestSearchEndpointNoMocks:
 
     def test_no_mock_embedding_service(self, search_source: str) -> None:
         """MockEmbeddingService must NOT appear in search.py."""
-        assert (
-            "MockEmbeddingService" not in search_source
-        ), "search.py contains 'MockEmbeddingService' — use Endpoints.get_embedding_service() instead"
+        assert "MockEmbeddingService" not in search_source, (
+            "search.py contains 'MockEmbeddingService' — use Endpoints.get_embedding_service() instead"
+        )
 
     def test_no_mock_intent_classifier(self, search_source: str) -> None:
         """MockIntentClassifier must NOT appear in search.py."""
-        assert (
-            "MockIntentClassifier" not in search_source
-        ), "search.py contains 'MockIntentClassifier' — use Endpoints.get_intent_classifier() instead"
+        assert "MockIntentClassifier" not in search_source, (
+            "search.py contains 'MockIntentClassifier' — use Endpoints.get_intent_classifier() instead"
+        )
 
     def test_no_inline_mock_class(self, search_source: str) -> None:
         """Inline 'class Mock' definitions must NOT appear in search.py."""
-        assert (
-            "class Mock" not in search_source
-        ), "search.py contains inline 'class Mock' — inject real services via Endpoints registry"
+        assert "class Mock" not in search_source, (
+            "search.py contains inline 'class Mock' — inject real services via Endpoints registry"
+        )
 
 
 # ── Task 2.2: EmbeddingService dependency injection ────────────────────

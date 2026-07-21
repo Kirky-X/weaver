@@ -212,12 +212,12 @@ class TestBriefingSchedulerCronRegistration:
         """CronTrigger for daily_briefing_generation uses hour=8 (not hour=7)."""
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert (
-            "hour=8" in block
-        ), f"CronTrigger must use hour=8 per spec R-briefing-006. Block: {block[:200]}"
-        assert (
-            "hour=7" not in block
-        ), "CronTrigger must NOT use hour=7 (old value, spec requires hour=8)"
+        assert "hour=8" in block, (
+            f"CronTrigger must use hour=8 per spec R-briefing-006. Block: {block[:200]}"
+        )
+        assert "hour=7" not in block, (
+            "CronTrigger must NOT use hour=7 (old value, spec requires hour=8)"
+        )
 
     def test_cron_trigger_uses_minute_0(self) -> None:
         """CronTrigger for daily_briefing_generation uses minute=0."""
@@ -229,9 +229,9 @@ class TestBriefingSchedulerCronRegistration:
         """CronTrigger uses Asia/Shanghai timezone per spec R-briefing-006."""
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert (
-            "Asia/Shanghai" in block
-        ), f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
+        assert "Asia/Shanghai" in block, (
+            f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
+        )
 
     def test_job_name_mentions_4_categories(self) -> None:
         """Job name mentions '4 categories' to reflect the 4-briefing generation."""
@@ -240,9 +240,9 @@ class TestBriefingSchedulerCronRegistration:
         match = re.search(r'name="([^"]+)"', block)
         assert match is not None, f"Job name not found in block: {block[:200]}"
         job_name = match.group(1)
-        assert (
-            "4 categories" in job_name.lower()
-        ), f"Job name should mention '4 categories', got: {job_name}"
+        assert "4 categories" in job_name.lower(), (
+            f"Job name should mention '4 categories', got: {job_name}"
+        )
 
     def test_job_uses_max_instances_1_and_coalesce(self) -> None:
         """Job uses max_instances=1 + coalesce=True per spec R-briefing-006."""

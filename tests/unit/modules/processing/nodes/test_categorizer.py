@@ -352,9 +352,9 @@ class TestRegionInferenceFromSourceHost:
         }
         for tld, region in expected_mappings.items():
             assert tld in SOURCE_HOST_REGION_MAP, f"Missing TLD: {tld}"
-            assert (
-                SOURCE_HOST_REGION_MAP[tld] == region
-            ), f"Wrong region for {tld}: expected {region}"
+            assert SOURCE_HOST_REGION_MAP[tld] == region, (
+                f"Wrong region for {tld}: expected {region}"
+            )
 
 
 class TestCategorizerNodeIntegration:

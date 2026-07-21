@@ -843,7 +843,8 @@ async def _upgrade_article_vectors_schema(session) -> None:
         )
         await session.execute(text("DROP TABLE article_vectors"))
         # Recreate with new schema (matches SCHEMA_QUERIES definition)
-        await session.execute(text("""
+        await session.execute(
+            text("""
                 CREATE TABLE article_vectors
                 (
                     id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
@@ -855,7 +856,8 @@ async def _upgrade_article_vectors_schema(session) -> None:
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     UNIQUE (article_id, vector_type)
                 )
-                """))
+                """)
+        )
         # Copy existing data back (id auto-generated, updated_at defaults to NOW())
         # REM-003: Check if backup table has created_at column — old schema may lack it.
         backup_cols_result = await session.execute(
@@ -867,18 +869,22 @@ async def _upgrade_article_vectors_schema(session) -> None:
         backup_cols = {row[0] for row in backup_cols_result.fetchall()}
 
         if "created_at" in backup_cols:
-            await session.execute(text("""
+            await session.execute(
+                text("""
                     INSERT INTO article_vectors (article_id, vector_type, embedding, model_id, created_at)
                     SELECT article_id, vector_type, embedding, model_id, created_at
                     FROM _article_vectors_backup
-                    """))
+                    """)
+            )
         else:
             # Old schema without created_at — let new table default created_at to NOW()
-            await session.execute(text("""
+            await session.execute(
+                text("""
                     INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
                     SELECT article_id, vector_type, embedding, model_id
                     FROM _article_vectors_backup
-                    """))
+                    """)
+            )
         await session.execute(text("DROP TABLE _article_vectors_backup"))
         log.info("duckdb_schema_upgrade_article_vectors_done")
     except Exception as exc:

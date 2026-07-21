@@ -51,9 +51,9 @@ class TestLadybugArticleRepoCreateArticle:
         # Verify the Cypher does NOT set title/category/publish_time/score
         call_args = mock_pool.execute_query.await_args
         cypher = call_args[0][0] if call_args[0] else call_args[1].get("query", "")
-        assert (
-            "title" not in cypher
-        ), f"create_article Cypher must not reference title after slim-down: {cypher}"
+        assert "title" not in cypher, (
+            f"create_article Cypher must not reference title after slim-down: {cypher}"
+        )
         assert "category" not in cypher
         assert "publish_time" not in cypher
         # score may appear as a property of EventNode/other labels but not Article
@@ -168,9 +168,9 @@ class TestLadybugArticleRepoCreateArticlesBatch:
         # The 2nd execute_query call is the UNWIND CREATE
         unwind_call = mock_pool.execute_query.await_args_list[1]
         cypher = unwind_call[0][0] if unwind_call[0] else ""
-        assert (
-            "title" not in cypher
-        ), f"create_articles_batch Cypher must not reference title: {cypher}"
+        assert "title" not in cypher, (
+            f"create_articles_batch Cypher must not reference title: {cypher}"
+        )
         assert "category" not in cypher
         assert "publish_time" not in cypher
 
@@ -326,9 +326,9 @@ class TestLadybugArticleRepoDeleteArticle:
 
         call_args = mock_pool.execute_query.await_args
         cypher = call_args[0][0] if call_args[0] else ""
-        assert (
-            "DETACH DELETE" in cypher
-        ), f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
+        assert "DETACH DELETE" in cypher, (
+            f"delete_article must use DETACH DELETE to clear relationships, got: {cypher}"
+        )
 
 
 class TestLadybugArticleRepoDeleteOrphanArticles:
@@ -398,9 +398,9 @@ class TestLadybugArticleRepoDeleteOrphanArticles:
 
         call_args = mock_pool.execute_query.await_args
         params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
-        assert params == {
-            "valid_pg_ids": ["v1", "v2", "v3"]
-        }, f"delete_orphan_articles must pass valid_pg_ids param, got {params}"
+        assert params == {"valid_pg_ids": ["v1", "v2", "v3"]}, (
+            f"delete_orphan_articles must pass valid_pg_ids param, got {params}"
+        )
 
     @pytest.mark.asyncio
     async def test_delete_orphans_empty_valid_list_deletes_all(self):

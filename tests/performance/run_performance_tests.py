@@ -75,12 +75,14 @@ async def check_prerequisites(pool: PostgresPool):
             return False
 
         # 检查 HNSW 索引
-        result = await session.execute(text("""
+        result = await session.execute(
+            text("""
             SELECT indexname
             FROM pg_indexes
             WHERE tablename = 'article_vectors'
               AND indexname = 'idx_article_vectors_hnsw'
-        """))
+        """)
+        )
         hnsw_index = result.scalar_one_or_none()
 
         if hnsw_index:

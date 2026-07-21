@@ -110,9 +110,9 @@ class TestServerCacheInfoLogging:
         server_info_calls = [
             c for c in all_calls if c.args and c.args[0] == "llm_cache_miss_with_server_info"
         ]
-        assert (
-            len(server_info_calls) == 1
-        ), f"Expected 1 llm_cache_miss_with_server_info log, found {len(server_info_calls)}"
+        assert len(server_info_calls) == 1, (
+            f"Expected 1 llm_cache_miss_with_server_info log, found {len(server_info_calls)}"
+        )
 
         call_kwargs = server_info_calls[0].kwargs
         assert call_kwargs["server_cache_hit"] == 500

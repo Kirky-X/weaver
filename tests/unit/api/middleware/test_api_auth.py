@@ -102,12 +102,12 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         source = inspect.getsource(verify_api_key)
-        assert (
-            "compare_digest" in source
-        ), "verify_api_key must use secrets.compare_digest to prevent timing attacks"
-        assert (
-            "==" not in source.split("compare_digest")[0][-50:]
-        ), "No plain == comparison should be used on the API key"
+        assert "compare_digest" in source, (
+            "verify_api_key must use secrets.compare_digest to prevent timing attacks"
+        )
+        assert "==" not in source.split("compare_digest")[0][-50:], (
+            "No plain == comparison should be used on the API key"
+        )
 
 
 class TestApiKeyHeader:

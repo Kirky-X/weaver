@@ -93,9 +93,9 @@ class TestFindSimilarCommunities:
         first_stmt = first_call.args[0]
         # stmt should be a text() object; compare string
         stmt_str = str(first_stmt)
-        assert (
-            "SET hnsw.ef_search = 60" in stmt_str
-        ), f"First session.execute in PG mode should be SET hnsw.ef_search, got: {stmt_str}"
+        assert "SET hnsw.ef_search = 60" in stmt_str, (
+            f"First session.execute in PG mode should be SET hnsw.ef_search, got: {stmt_str}"
+        )
 
     @pytest.mark.asyncio
     async def test_find_similar_communities_duckdb_mode_skips_hnsw(self):
@@ -121,9 +121,9 @@ class TestFindSimilarCommunities:
             f"got {session.execute.await_count}"
         )
         stmt_str = str(session.execute.await_args_list[0].args[0])
-        assert (
-            "SET hnsw.ef_search" not in stmt_str
-        ), f"DuckDB mode must not execute SET hnsw.ef_search, but got: {stmt_str}"
+        assert "SET hnsw.ef_search" not in stmt_str, (
+            f"DuckDB mode must not execute SET hnsw.ef_search, but got: {stmt_str}"
+        )
 
     @pytest.mark.asyncio
     async def test_find_similar_communities_returns_mapped_views(self):
@@ -169,9 +169,9 @@ class TestFindSimilarCommunities:
         call_args = session.execute.await_args_list[0]
         params = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs
         assert isinstance(params, dict), f"Expected dict params, got {type(params)}"
-        assert (
-            params.get("threshold") == 0.75
-        ), f"Expected threshold=0.75, got {params.get('threshold')}"
+        assert params.get("threshold") == 0.75, (
+            f"Expected threshold=0.75, got {params.get('threshold')}"
+        )
         assert params.get("limit") == 10, f"Expected limit=10, got {params.get('limit')}"
         assert "embedding" in params, "Missing 'embedding' in params"
 
@@ -218,9 +218,9 @@ class TestUpsertCommunityVector:
 
         # Verify all 8 fields
         assert params.get("community_id") == "c-uuid-001"
-        assert (
-            params.get("embedding") == "[0.5]"
-        ), f"Expected formatted embedding '[0.5]', got {params.get('embedding')}"
+        assert params.get("embedding") == "[0.5]", (
+            f"Expected formatted embedding '[0.5]', got {params.get('embedding')}"
+        )
         assert params.get("model_id") == "text-embedding-3-large"
         assert params.get("title") == "Community Title"
         assert params.get("summary") == "Community Summary"
@@ -230,9 +230,9 @@ class TestUpsertCommunityVector:
 
         # Verify SQL contains ON CONFLICT (community_id) DO UPDATE
         stmt_str = str(call_args.args[0])
-        assert (
-            "ON CONFLICT" in stmt_str.upper()
-        ), f"upsert SQL must contain ON CONFLICT, got: {stmt_str}"
+        assert "ON CONFLICT" in stmt_str.upper(), (
+            f"upsert SQL must contain ON CONFLICT, got: {stmt_str}"
+        )
         assert "community_id" in stmt_str
 
     @pytest.mark.asyncio
@@ -245,9 +245,9 @@ class TestUpsertCommunityVector:
         repo = CommunityVectorRepo(pool=pool, query_builder=qb)
         await repo.upsert_community_vector(community_id="c-1", embedding=[0.1])
 
-        assert (
-            session.commit.await_count == 1
-        ), f"Expected 1 commit call, got {session.commit.await_count}"
+        assert session.commit.await_count == 1, (
+            f"Expected 1 commit call, got {session.commit.await_count}"
+        )
 
     @pytest.mark.asyncio
     async def test_upsert_formats_embedding_via_query_builder(self):
@@ -277,9 +277,9 @@ class TestUpsertCommunityVector:
         await repo.upsert_community_vector(community_id="c-1", embedding=[0.1])
 
         params = session.execute.await_args.args[1]
-        assert (
-            params.get("model_id") == "text-embedding-3-large"
-        ), f"Default model_id should be 'text-embedding-3-large', got {params.get('model_id')}"
+        assert params.get("model_id") == "text-embedding-3-large", (
+            f"Default model_id should be 'text-embedding-3-large', got {params.get('model_id')}"
+        )
 
     @pytest.mark.asyncio
     async def test_upsert_propagates_session_exception_without_commit(self):

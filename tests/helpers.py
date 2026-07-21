@@ -94,9 +94,9 @@ def assert_api_response(
     Returns:
         Parsed JSON response data
     """
-    assert (
-        response.status_code == expected_status
-    ), f"Expected status {expected_status}, got {response.status_code}: {response.text}"
+    assert response.status_code == expected_status, (
+        f"Expected status {expected_status}, got {response.status_code}: {response.text}"
+    )
     data = response.json()
 
     if expected_status >= 400:
@@ -105,9 +105,9 @@ def assert_api_response(
         assert "data" in data, f"Response missing 'data' field: {data}"
 
     if expected_code is not None:
-        assert (
-            data.get("code") == expected_code
-        ), f"Expected code {expected_code}, got {data.get('code')}"
+        assert data.get("code") == expected_code, (
+            f"Expected code {expected_code}, got {data.get('code')}"
+        )
     return data
 
 

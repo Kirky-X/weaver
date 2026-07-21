@@ -187,9 +187,9 @@ class TestTraverseAggregateMode:
         build_query_fn(mock_qb)
 
         _, kwargs = mock_qb.build_traverse_query.call_args
-        assert (
-            kwargs.get("mode") == "aggregate"
-        ), f"Expected mode='aggregate', got {kwargs.get('mode')}"
+        assert kwargs.get("mode") == "aggregate", (
+            f"Expected mode='aggregate', got {kwargs.get('mode')}"
+        )
 
 
 class TestProcessTraverseFull:
@@ -208,9 +208,9 @@ class TestProcessTraverseFull:
         result = traverser._process_traverse_full(rows, return_paths=False)
 
         assert len(result) == 1
-        assert (
-            len(result[0]["nodes"]) == 1
-        ), f"Expected 1 deduplicated node, got {len(result[0]['nodes'])}"
+        assert len(result[0]["nodes"]) == 1, (
+            f"Expected 1 deduplicated node, got {len(result[0]['nodes'])}"
+        )
         assert result[0]["nodes"][0]["canonical_name"] == "China"
 
     def test_process_full_deduplicates_edges_by_source_target_reltype(self):
@@ -223,9 +223,9 @@ class TestProcessTraverseFull:
 
         result = traverser._process_traverse_full(rows, return_paths=False)
 
-        assert (
-            len(result[0]["edges"]) == 1
-        ), f"Expected 1 deduplicated edge, got {len(result[0]['edges'])}"
+        assert len(result[0]["edges"]) == 1, (
+            f"Expected 1 deduplicated edge, got {len(result[0]['edges'])}"
+        )
         edge = result[0]["edges"][0]
         assert edge["source"] == "A"
         assert edge["target"] == "B"
@@ -302,9 +302,9 @@ class TestProcessTraverseAggregate:
         result = traverser._process_traverse_aggregate(rows)
 
         assert len(result) == 1
-        assert (
-            result[0]["aggregate"]["total_nodes"] == 10
-        ), f"Expected total_nodes=10 (max), got {result[0]['aggregate']['total_nodes']}"
+        assert result[0]["aggregate"]["total_nodes"] == 10, (
+            f"Expected total_nodes=10 (max), got {result[0]['aggregate']['total_nodes']}"
+        )
 
     def test_aggregate_takes_max_total_edges(self):
         """total_edges must be max across all rows."""
@@ -317,9 +317,9 @@ class TestProcessTraverseAggregate:
 
         result = traverser._process_traverse_aggregate(rows)
 
-        assert (
-            result[0]["aggregate"]["total_edges"] == 8
-        ), f"Expected total_edges=8 (max), got {result[0]['aggregate']['total_edges']}"
+        assert result[0]["aggregate"]["total_edges"] == 8, (
+            f"Expected total_edges=8 (max), got {result[0]['aggregate']['total_edges']}"
+        )
 
     def test_aggregate_groups_relation_type_counts(self):
         """relation_type_counts must map each relation_type to its type_count (not accumulate)."""

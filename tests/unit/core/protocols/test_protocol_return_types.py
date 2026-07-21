@@ -55,26 +55,26 @@ class TestEntityRepositoryReturnTypes:
     def test_find_entity_returns_entity_view_or_none(self) -> None:
         """find_entity() SHALL return EntityView | None."""
         return_str = _get_return_type_str(EntityRepository.find_entity)
-        assert (
-            "EntityView" in return_str
-        ), f"find_entity() should return EntityView | None, got {return_str}"
+        assert "EntityView" in return_str, (
+            f"find_entity() should return EntityView | None, got {return_str}"
+        )
 
     def test_find_entity_by_id_returns_entity_view_or_none(self) -> None:
         """find_entity_by_id() SHALL return EntityView | None."""
         return_str = _get_return_type_str(EntityRepository.find_entity_by_id)
-        assert (
-            "EntityView" in return_str
-        ), f"find_entity_by_id() should return EntityView | None, got {return_str}"
+        assert "EntityView" in return_str, (
+            f"find_entity_by_id() should return EntityView | None, got {return_str}"
+        )
 
     def test_find_entities_batch_returns_list_entity_view(self) -> None:
         """find_entities_batch() SHALL return list[EntityView]."""
         return_str = _get_return_type_str(EntityRepository.find_entities_batch)
-        assert (
-            "EntityView" in return_str
-        ), f"find_entities_batch() should return list[EntityView], got {return_str}"
-        assert (
-            "dict" not in return_str
-        ), f"find_entities_batch() should not return dict type, got {return_str}"
+        assert "EntityView" in return_str, (
+            f"find_entities_batch() should return list[EntityView], got {return_str}"
+        )
+        assert "dict" not in return_str, (
+            f"find_entities_batch() should not return dict type, got {return_str}"
+        )
 
 
 class TestVectorRepositoryReturnTypes:
@@ -83,19 +83,19 @@ class TestVectorRepositoryReturnTypes:
     def test_find_similar_returns_list_article_search_result_view(self) -> None:
         """find_similar() SHALL return list[ArticleSearchResultView]."""
         return_str = _get_return_type_str(VectorRepository.find_similar)
-        assert (
-            "ArticleSearchResultView" in return_str
-        ), f"find_similar() should return list[ArticleSearchResultView], got {return_str}"
-        assert (
-            "Any" not in return_str
-        ), f"find_similar() should not return list[Any], got {return_str}"
+        assert "ArticleSearchResultView" in return_str, (
+            f"find_similar() should return list[ArticleSearchResultView], got {return_str}"
+        )
+        assert "Any" not in return_str, (
+            f"find_similar() should not return list[Any], got {return_str}"
+        )
 
     def test_find_similar_entities_returns_list_entity_search_result_view(self) -> None:
         """find_similar_entities() SHALL return list[EntitySearchResultView]."""
         return_str = _get_return_type_str(VectorRepository.find_similar_entities)
-        assert (
-            "EntitySearchResultView" in return_str
-        ), f"find_similar_entities() should return list[EntitySearchResultView], got {return_str}"
-        assert (
-            "Any" not in return_str
-        ), f"find_similar_entities() should not return list[Any], got {return_str}"
+        assert "EntitySearchResultView" in return_str, (
+            f"find_similar_entities() should return list[EntitySearchResultView], got {return_str}"
+        )
+        assert "Any" not in return_str, (
+            f"find_similar_entities() should not return list[Any], got {return_str}"
+        )

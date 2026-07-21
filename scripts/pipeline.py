@@ -1018,12 +1018,14 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
         async with relational_pool.session() as session:
             from sqlalchemy import text
 
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                 SELECT CAST(id AS VARCHAR) as id, title
                 FROM articles
                 WHERE persist_status = 'pending'
                 ORDER BY created_at
-            """))
+            """)
+            )
             rows = result.fetchall()
 
         print(f"找到 {len(rows)} 篇待处理文章")

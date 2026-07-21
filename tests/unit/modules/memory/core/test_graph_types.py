@@ -58,6 +58,6 @@ def test_intent_edge_weights_completeness():
     for intent in IntentType:
         for edge in EdgeType:
             assert edge in INTENT_EDGE_WEIGHTS[intent], f"Missing weight for {intent} -> {edge}"
-            assert isinstance(
-                INTENT_EDGE_WEIGHTS[intent][edge], float
-            ), f"Weight for {intent} -> {edge} should be float"
+            assert isinstance(INTENT_EDGE_WEIGHTS[intent][edge], float), (
+                f"Weight for {intent} -> {edge} should be float"
+            )

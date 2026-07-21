@@ -31,17 +31,17 @@ class ViewModelTestBase:
         """All fields in required_fields must exist in model_fields."""
         field_names = set(self.model_class.model_fields.keys())
         for field in self.required_fields:
-            assert (
-                field in field_names
-            ), f"Required field '{field}' missing from {self.model_class.__name__}"
+            assert field in field_names, (
+                f"Required field '{field}' missing from {self.model_class.__name__}"
+            )
 
     def test_removed_fields_not_present(self):
         """No field in removed_fields may exist in model_fields."""
         field_names = set(self.model_class.model_fields.keys())
         for field in self.removed_fields:
-            assert (
-                field not in field_names
-            ), f"Removed field '{field}' still present in {self.model_class.__name__}"
+            assert field not in field_names, (
+                f"Removed field '{field}' still present in {self.model_class.__name__}"
+            )
 
     def test_uses_pydantic_v2_config_dict(self):
         """model_config must have from_attributes=True."""
@@ -58,9 +58,9 @@ class ViewModelTestBase:
         instance = self._create_minimal_instance()
         data = instance.model_dump()
         for field in self.removed_fields:
-            assert (
-                field not in data
-            ), f"Removed field '{field}' still in {self.model_class.__name__}.model_dump()"
+            assert field not in data, (
+                f"Removed field '{field}' still in {self.model_class.__name__}.model_dump()"
+            )
 
     def _create_minimal_instance(self) -> Any:
         """Create a minimal valid model instance for dump tests.

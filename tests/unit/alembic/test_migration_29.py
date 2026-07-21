@@ -118,9 +118,9 @@ def test_migration_29_up_idempotent() -> None:
     # Must contain INSERT statement
     assert "INSERT INTO alert_rules" in sql, f"INSERT not found in SQL: {sql}"
     # Must use WHERE NOT EXISTS for idempotency
-    assert (
-        "NOT EXISTS" in sql or "WHERE NOT EXISTS" in sql
-    ), f"Idempotency pattern WHERE NOT EXISTS not found in SQL: {sql}"
+    assert "NOT EXISTS" in sql or "WHERE NOT EXISTS" in sql, (
+        f"Idempotency pattern WHERE NOT EXISTS not found in SQL: {sql}"
+    )
 
 
 def test_migration_29_up_offline_sql_contains_insert() -> None:
@@ -162,9 +162,9 @@ def test_migration_29_down_deletes_events_before_rules() -> None:
     )
 
     # Both DELETEs must be present
-    assert (
-        "DELETE FROM alert_events" in sql
-    ), f"alert_events delete not found in downgrade SQL: {sql}"
+    assert "DELETE FROM alert_events" in sql, (
+        f"alert_events delete not found in downgrade SQL: {sql}"
+    )
     assert "DELETE FROM alert_rules" in sql, f"alert_rules delete not found in downgrade SQL: {sql}"
 
     # Order: alert_events DELETE must come before alert_rules DELETE
@@ -267,9 +267,9 @@ def test_seed_rules_use_wildcard_entity() -> None:
     a specific one. Users can create entity-specific rules separately.
     """
     source = _read_migration_source()
-    assert (
-        "'*'" in source or '"*"' in source
-    ), "Expected entity_name='*' (wildcard) for default seed rules"
+    assert "'*'" in source or '"*"' in source, (
+        "Expected entity_name='*' (wildcard) for default seed rules"
+    )
 
 
 def test_seed_rules_use_enabled_true() -> None:
@@ -298,6 +298,6 @@ def test_duckdb_schema_does_not_need_seed_changes() -> None:
 
     # DuckDB schema should NOT contain INSERT INTO alert_rules
     for stmt in duckdb_schema.SCHEMA_QUERIES:
-        assert (
-            "INSERT INTO alert_rules" not in stmt
-        ), "DuckDB schema should not seed alert_rules — seeds are PostgreSQL-only"
+        assert "INSERT INTO alert_rules" not in stmt, (
+            "DuckDB schema should not seed alert_rules — seeds are PostgreSQL-only"
+        )

@@ -145,9 +145,9 @@ class TestLLMCostEvaluation:
 
         if elapsed > 0:
             cost_per_article = elapsed / 5
-            assert (
-                cost_per_article < 15.0
-            ), f"Cost per article {cost_per_article:.2f}s should be < 15s"
+            assert cost_per_article < 15.0, (
+                f"Cost per article {cost_per_article:.2f}s should be < 15s"
+            )
 
     def test_llm_failure_handling_cost(
         self,

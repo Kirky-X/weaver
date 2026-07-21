@@ -203,9 +203,9 @@ class TestProtocolMethodSignatures:
             "category",
         ], f"Expected [self, date, category], got {params}"
         # category must be optional (default None)
-        assert (
-            sig.parameters["category"].default is None
-        ), f"category must default to None, got {sig.parameters['category'].default}"
+        assert sig.parameters["category"].default is None, (
+            f"category must default to None, got {sig.parameters['category'].default}"
+        )
 
     def test_get_briefing_accepts_date_and_optional_category(self) -> None:
         """get_briefing(date, category=None) per spec R-briefing-001."""
@@ -218,9 +218,9 @@ class TestProtocolMethodSignatures:
             "date",
             "category",
         ], f"Expected [self, date, category], got {params}"
-        assert (
-            sig.parameters["category"].default is None
-        ), f"category must default to None, got {sig.parameters['category'].default}"
+        assert sig.parameters["category"].default is None, (
+            f"category must default to None, got {sig.parameters['category'].default}"
+        )
 
     def test_list_briefings_accepts_date_range(self) -> None:
         """list_briefings(date_from, date_to) per spec R-briefing-001."""
@@ -234,9 +234,9 @@ class TestProtocolMethodSignatures:
             "date_to",
         ], f"Expected [self, date_from, date_to], got {params}"
         # date_from and date_to must be required (no default)
-        assert (
-            sig.parameters["date_from"].default is inspect.Parameter.empty
-        ), "date_from must be required (no default)"
-        assert (
-            sig.parameters["date_to"].default is inspect.Parameter.empty
-        ), "date_to must be required (no default)"
+        assert sig.parameters["date_from"].default is inspect.Parameter.empty, (
+            "date_from must be required (no default)"
+        )
+        assert sig.parameters["date_to"].default is inspect.Parameter.empty, (
+            "date_to must be required (no default)"
+        )

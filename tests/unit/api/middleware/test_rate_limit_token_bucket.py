@@ -317,9 +317,9 @@ class TestSlowapiRemoval:
                 for alias in node.names:
                     assert "slowapi" not in alias.name, f"Found slowapi import: {alias.name}"
             elif isinstance(node, ast.ImportFrom):
-                assert "slowapi" not in (
-                    node.module or ""
-                ), f"Found slowapi import from: {node.module}"
+                assert "slowapi" not in (node.module or ""), (
+                    f"Found slowapi import from: {node.module}"
+                )
 
     def test_no_limiter_decorator_in_admin(self):
         """Test that admin.py no longer uses @limiter.limit decorators."""
@@ -365,6 +365,6 @@ class TestSlowapiRemoval:
                 for alias in node.names:
                     assert "slowapi" not in alias.name, f"Found slowapi import: {alias.name}"
             elif isinstance(node, ast.ImportFrom):
-                assert "slowapi" not in (
-                    node.module or ""
-                ), f"Found slowapi import from: {node.module}"
+                assert "slowapi" not in (node.module or ""), (
+                    f"Found slowapi import from: {node.module}"
+                )

@@ -76,21 +76,25 @@ class TestHNSWPerformance:
         """Verify HNSW indexes exist before running tests."""
         async with relational_pool.session() as session:
             # Check article_vectors HNSW index
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                 SELECT indexname
                 FROM pg_indexes
                 WHERE tablename = 'article_vectors'
                   AND indexname = 'idx_article_vectors_hnsw'
-            """))
+            """)
+            )
             article_index = result.scalar_one_or_none()
 
             # Check entity_vectors HNSW index
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                 SELECT indexname
                 FROM pg_indexes
                 WHERE tablename = 'entity_vectors'
                   AND indexname = 'idx_entity_vectors_hnsw'
-            """))
+            """)
+            )
             entity_index = result.scalar_one_or_none()
 
             return article_index is not None and entity_index is not None
@@ -212,9 +216,9 @@ class TestHNSWPerformance:
         # Assert reasonable performance
         # Should be able to insert at least 100 vectors/second
         assert avg_rate >= 100, f"Insert rate too slow: {avg_rate:.1f} vectors/sec"
-        assert (
-            total_inserted == num_vectors * 2
-        ), f"Missing vectors: inserted {total_inserted}/{num_vectors * 2}"
+        assert total_inserted == num_vectors * 2, (
+            f"Missing vectors: inserted {total_inserted}/{num_vectors * 2}"
+        )
 
     @pytest.mark.asyncio
     async def test_hnsw_index_usage(self, relational_pool, vector_repo, hnsw_index_exists):
@@ -384,9 +388,9 @@ class TestHNSWPerformance:
 
         # Performance assertions
         assert max_time < 1000, f"Slow query detected: {max_time:.2f}ms (should be < 1000ms)"
-        assert (
-            std_time < 100
-        ), f"High query time variance: {std_time:.2f}ms (indicates inconsistent performance)"
+        assert std_time < 100, (
+            f"High query time variance: {std_time:.2f}ms (indicates inconsistent performance)"
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_query_performance(
@@ -469,9 +473,9 @@ class TestHNSWPerformance:
 
         # Performance assertions
         # 放宽断言: 并发查询可能因系统负载波动（WSL/Docker 环境需更宽松阈值）
-        assert (
-            max(query_times) < 8000
-        ), f"Slow concurrent query: {max(query_times):.2f}ms (should be < 8000ms)"
+        assert max(query_times) < 8000, (
+            f"Slow concurrent query: {max(query_times):.2f}ms (should be < 8000ms)"
+        )
         assert total_time < 12000, f"Concurrent queries too slow: {total_time:.2f}ms total"
 
     @pytest.mark.asyncio
@@ -599,25 +603,29 @@ class TestHNSWIndexCreation:
         """Verify HNSW indexes were created with correct parameters."""
         async with relational_pool.session() as session:
             # Check article_vectors index
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                 SELECT
                     indexname,
                     indexdef
                 FROM pg_indexes
                 WHERE tablename = 'article_vectors'
                   AND indexname = 'idx_article_vectors_hnsw'
-            """))
+            """)
+            )
             article_idx = result.first()
 
             # Check entity_vectors index
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                 SELECT
                     indexname,
                     indexdef
                 FROM pg_indexes
                 WHERE tablename = 'entity_vectors'
                   AND indexname = 'idx_entity_vectors_hnsw'
-            """))
+            """)
+            )
             entity_idx = result.first()
 
         # Verify indexes exist
@@ -629,12 +637,12 @@ class TestHNSWIndexCreation:
         assert "USING hnsw" in entity_idx[1], "entity_vectors index not using HNSW algorithm"
 
         # Verify vector_cosine_ops
-        assert (
-            "vector_cosine_ops" in article_idx[1]
-        ), "article_vectors index not using vector_cosine_ops"
-        assert (
-            "vector_cosine_ops" in entity_idx[1]
-        ), "entity_vectors index not using vector_cosine_ops"
+        assert "vector_cosine_ops" in article_idx[1], (
+            "article_vectors index not using vector_cosine_ops"
+        )
+        assert "vector_cosine_ops" in entity_idx[1], (
+            "entity_vectors index not using vector_cosine_ops"
+        )
 
         print("\n✓ HNSW 索引已正确创建")
         print(f"  article_vectors: {article_idx[0]}")
@@ -747,11 +755,11 @@ class TestVectorRepoPerformance:
         print(f"  性能提升: {individual_time / batch_time:.2f}x")
 
         # Batch should be faster or at least not significantly slower
-        assert (
-            batch_time <= individual_time * 1.2
-        ), "Batch query should not be significantly slower than individual queries"
+        assert batch_time <= individual_time * 1.2, (
+            "Batch query should not be significantly slower than individual queries"
+        )
 
         # Verify all queries returned results
-        assert (
-            len(results) == num_queries
-        ), f"Missing query results: got {len(results)}/{num_queries}"
+        assert len(results) == num_queries, (
+            f"Missing query results: got {len(results)}/{num_queries}"
+        )

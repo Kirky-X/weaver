@@ -129,19 +129,18 @@ class TestArticlesCoreTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "articles_core"
-        ), "articles_core table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "articles_core"), (
+            "articles_core table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "articles_core"), "articles_core table missing"
-        assert (
-            col in tables["articles_core"]
-        ), f"Column '{col}' missing from articles_core. Got: {sorted(tables['articles_core'])}"
+        assert col in tables["articles_core"], (
+            f"Column '{col}' missing from articles_core. Got: {sorted(tables['articles_core'])}"
+        )
 
     def test_column_count(self):
         tables = parse_tables_from_schema()
@@ -178,9 +177,9 @@ class TestArticleProcessingTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "article_processing"), "article_processing table missing"
-        assert (
-            col in tables["article_processing"]
-        ), f"Column '{col}' missing from article_processing. Got: {sorted(tables['article_processing'])}"
+        assert col in tables["article_processing"], (
+            f"Column '{col}' missing from article_processing. Got: {sorted(tables['article_processing'])}"
+        )
 
     def test_column_count(self):
         tables = parse_tables_from_schema()
@@ -201,19 +200,18 @@ class TestArticleBodiesTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "article_bodies"
-        ), "article_bodies table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "article_bodies"), (
+            "article_bodies table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "article_bodies"), "article_bodies table missing"
-        assert (
-            col in tables["article_bodies"]
-        ), f"Column '{col}' missing from article_bodies. Got: {sorted(tables['article_bodies'])}"
+        assert col in tables["article_bodies"], (
+            f"Column '{col}' missing from article_bodies. Got: {sorted(tables['article_bodies'])}"
+        )
 
     def test_column_count(self):
         tables = parse_tables_from_schema()
@@ -253,10 +251,9 @@ class TestArticleAnalysisTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "article_analysis"
-        ), "article_analysis table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "article_analysis"), (
+            "article_analysis table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
@@ -296,10 +293,9 @@ class TestCommunityVectorsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "community_vectors"
-        ), "community_vectors table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "community_vectors"), (
+            "community_vectors table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
@@ -333,10 +329,9 @@ class TestSentimentShiftsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "sentiment_shifts"
-        ), "sentiment_shifts table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "sentiment_shifts"), (
+            "sentiment_shifts table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
@@ -364,19 +359,18 @@ class TestDailyBriefingsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "daily_briefings"
-        ), "daily_briefings table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "daily_briefings"), (
+            "daily_briefings table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "daily_briefings"), "daily_briefings table missing"
-        assert (
-            col in tables["daily_briefings"]
-        ), f"Column '{col}' missing from daily_briefings. Got: {sorted(tables['daily_briefings'])}"
+        assert col in tables["daily_briefings"], (
+            f"Column '{col}' missing from daily_briefings. Got: {sorted(tables['daily_briefings'])}"
+        )
 
 
 class TestDailyBriefingItemsTable:
@@ -428,19 +422,18 @@ class TestApiKeysTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "api_keys"
-        ), "api_keys table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "api_keys"), (
+            "api_keys table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "api_keys"), "api_keys table missing"
-        assert (
-            col in tables["api_keys"]
-        ), f"Column '{col}' missing from api_keys. Got: {sorted(tables['api_keys'])}"
+        assert col in tables["api_keys"], (
+            f"Column '{col}' missing from api_keys. Got: {sorted(tables['api_keys'])}"
+        )
 
 
 class TestAlertRulesTable:
@@ -460,19 +453,18 @@ class TestAlertRulesTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "alert_rules"
-        ), "alert_rules table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "alert_rules"), (
+            "alert_rules table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "alert_rules"), "alert_rules table missing"
-        assert (
-            col in tables["alert_rules"]
-        ), f"Column '{col}' missing from alert_rules. Got: {sorted(tables['alert_rules'])}"
+        assert col in tables["alert_rules"], (
+            f"Column '{col}' missing from alert_rules. Got: {sorted(tables['alert_rules'])}"
+        )
 
 
 class TestAlertEventsTable:
@@ -490,19 +482,18 @@ class TestAlertEventsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "alert_events"
-        ), "alert_events table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "alert_events"), (
+            "alert_events table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "alert_events"), "alert_events table missing"
-        assert (
-            col in tables["alert_events"]
-        ), f"Column '{col}' missing from alert_events. Got: {sorted(tables['alert_events'])}"
+        assert col in tables["alert_events"], (
+            f"Column '{col}' missing from alert_events. Got: {sorted(tables['alert_events'])}"
+        )
 
 
 class TestArticleVersionsTable:
@@ -523,10 +514,9 @@ class TestArticleVersionsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "article_versions"
-        ), "article_versions table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "article_versions"), (
+            "article_versions table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
@@ -560,19 +550,18 @@ class TestAuditLogTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "audit_log"
-        ), "audit_log table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "audit_log"), (
+            "audit_log table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "audit_log"), "audit_log table missing"
-        assert (
-            col in tables["audit_log"]
-        ), f"Column '{col}' missing from audit_log. Got: {sorted(tables['audit_log'])}"
+        assert col in tables["audit_log"], (
+            f"Column '{col}' missing from audit_log. Got: {sorted(tables['audit_log'])}"
+        )
 
 
 class TestLLMCompareHourlyTable:
@@ -629,19 +618,18 @@ class TestArticleVectorsTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "article_vectors"
-        ), "article_vectors table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "article_vectors"), (
+            "article_vectors table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "article_vectors"), "article_vectors table missing"
-        assert (
-            col in tables["article_vectors"]
-        ), f"Column '{col}' missing from article_vectors. Got: {sorted(tables['article_vectors'])}"
+        assert col in tables["article_vectors"], (
+            f"Column '{col}' missing from article_vectors. Got: {sorted(tables['article_vectors'])}"
+        )
 
     def test_uses_id_primary_key(self):
         """DDL must declare id as PRIMARY KEY (not composite PK)."""
@@ -650,9 +638,9 @@ class TestArticleVectorsTable:
         assert "id BIGINT" in ddl, "id BIGINT column missing"
         assert "PRIMARY KEY" in ddl, "PRIMARY KEY constraint missing"
         # Composite PK on (article_id, vector_type) is no longer the primary key
-        assert "PRIMARY KEY (article_id, vector_type)" not in ddl.replace(
-            "\n", " "
-        ), "article_vectors still uses composite PK; should use id PK + UNIQUE constraint"
+        assert "PRIMARY KEY (article_id, vector_type)" not in ddl.replace("\n", " "), (
+            "article_vectors still uses composite PK; should use id PK + UNIQUE constraint"
+        )
 
     def test_has_unique_constraint_on_article_vector_type(self):
         """DDL must declare UNIQUE(article_id, vector_type) for upsert ON CONFLICT."""
@@ -693,10 +681,9 @@ class TestPromptTemplatesTable:
 
     def test_table_exists(self):
         tables = parse_tables_from_schema()
-        assert _has_table(
-            tables, "prompt_templates"
-        ), "prompt_templates table is missing from SCHEMA_QUERIES. " "Found tables: " + ", ".join(
-            sorted(tables)
+        assert _has_table(tables, "prompt_templates"), (
+            "prompt_templates table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
         )
 
     @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
@@ -862,9 +849,9 @@ class TestSequenceCompleteness:
     def test_existing_table_has_sequence(self, table):
         seq_names = self._parse_sequence_names()
         expected_seq = f"{table}_seq"
-        assert (
-            expected_seq in seq_names
-        ), f"Sequence '{expected_seq}' missing from SEQUENCE_QUERIES. Found: {sorted(seq_names)}"
+        assert expected_seq in seq_names, (
+            f"Sequence '{expected_seq}' missing from SEQUENCE_QUERIES. Found: {sorted(seq_names)}"
+        )
 
     @pytest.mark.parametrize("table", sorted(NEW_SEQUENCE_TABLES))
     def test_new_table_has_sequence(self, table):

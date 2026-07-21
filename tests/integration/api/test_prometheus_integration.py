@@ -61,9 +61,9 @@ class TestPrometheusMetricsEndpoint:
         expected_content_type = CONTENT_TYPE_LATEST
         actual_content_type = response.headers.get("content-type", "")
 
-        assert (
-            actual_content_type == expected_content_type
-        ), f"Expected Content-Type '{expected_content_type}', got '{actual_content_type}'"
+        assert actual_content_type == expected_content_type, (
+            f"Expected Content-Type '{expected_content_type}', got '{actual_content_type}'"
+        )
 
     def test_metrics_format_valid_prometheus(self, test_client):
         """Test that metrics format follows Prometheus standard format.
@@ -174,9 +174,9 @@ class TestPrometheusMetricsEndpoint:
 
         # 验证所有请求都成功
         for i, response in enumerate(responses):
-            assert (
-                response.status_code == 200
-            ), f"Request {i} failed with status {response.status_code}"
+            assert response.status_code == 200, (
+                f"Request {i} failed with status {response.status_code}"
+            )
             assert response.headers.get("content-type") == CONTENT_TYPE_LATEST
             assert len(response.text) > 0, f"Request {i} returned empty content"
 
@@ -192,9 +192,9 @@ class TestPrometheusMetricsEndpoint:
         # 如果超过这个大小，可能需要考虑优化
         max_reasonable_size = 1 * 1024 * 1024  # 1MB
 
-        assert (
-            content_size < max_reasonable_size
-        ), f"Metrics content size {content_size} bytes exceeds reasonable limit {max_reasonable_size} bytes"
+        assert content_size < max_reasonable_size, (
+            f"Metrics content size {content_size} bytes exceeds reasonable limit {max_reasonable_size} bytes"
+        )
 
         # 同时验证内容不为空
         assert content_size > 0, "Metrics content should not be empty"
@@ -208,9 +208,9 @@ class TestPrometheusMetricsEndpoint:
 
         # 验证 Content-Type 包含 charset=utf-8
         content_type = response.headers.get("content-type", "")
-        assert (
-            "charset=utf-8" in content_type.lower()
-        ), f"Content-Type should include 'charset=utf-8', got: {content_type}"
+        assert "charset=utf-8" in content_type.lower(), (
+            f"Content-Type should include 'charset=utf-8', got: {content_type}"
+        )
 
         # 验证内容可以正确解码为 UTF-8
         try:

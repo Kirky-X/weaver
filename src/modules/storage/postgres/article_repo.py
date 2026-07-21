@@ -1822,7 +1822,8 @@ class ArticleRepo:
             count_before = before_result.scalar() or 0
 
             # Use ROW_NUMBER() to identify duplicates in single query
-            result = await session.execute(text("""
+            result = await session.execute(
+                text("""
                                                 WITH ranked_articles AS (SELECT id,
                                                                                 source_url,
                                                                                 ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY updated_at DESC) as rn
@@ -1833,7 +1834,8 @@ class ArticleRepo:
                                                 DELETE
                                                 FROM articles_core
                                                 WHERE id IN (SELECT id FROM duplicates)
-                                                """))
+                                                """)
+            )
 
             # DuckDB returns -1 for DELETE rowcount; compute via before/after count
             if result.rowcount and result.rowcount > 0:

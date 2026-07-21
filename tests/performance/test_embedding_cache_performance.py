@@ -149,6 +149,6 @@ class TestEmbeddingCachePerformance:
         avg_time = sum(times) / len(times)
         max_time = max(times)
 
-        assert (
-            max_time < avg_time * 2
-        ), f"Max time {max_time:.2f}s should not exceed 2x avg {avg_time:.2f}s"
+        assert max_time < avg_time * 2, (
+            f"Max time {max_time:.2f}s should not exceed 2x avg {avg_time:.2f}s"
+        )

@@ -26,9 +26,9 @@ class TestSettingsSingleton:
         # Both should return the same instance
         settings = config_get_settings()
         container_settings = container_get_settings()
-        assert (
-            settings is container_settings
-        ), "config.settings.get_settings() and container.get_settings() should return the same instance"
+        assert settings is container_settings, (
+            "config.settings.get_settings() and container.get_settings() should return the same instance"
+        )
 
         # Cleanup
         container.reset_settings()

@@ -70,15 +70,15 @@ class TestSentimentShiftModel:
             "confidence",
             "detected_at",
         ):
-            assert (
-                inspect(SentimentShift).columns[field].nullable is False
-            ), f"{field} should be NOT NULL"
+            assert inspect(SentimentShift).columns[field].nullable is False, (
+                f"{field} should be NOT NULL"
+            )
 
     def test_optional_fields(self):
         for field in ("before_avg", "after_avg", "trigger_article_ids"):
-            assert (
-                inspect(SentimentShift).columns[field].nullable is True
-            ), f"{field} should be nullable"
+            assert inspect(SentimentShift).columns[field].nullable is True, (
+                f"{field} should be nullable"
+            )
 
     def test_indexes(self):
         indexes = {idx.name for idx in SentimentShift.__table_args__ if hasattr(idx, "name")}
@@ -111,9 +111,9 @@ class TestDailyBriefingModel:
 
     def test_required_fields(self):
         for field in ("briefing_date", "total_items"):
-            assert (
-                inspect(DailyBriefing).columns[field].nullable is False
-            ), f"{field} should be NOT NULL"
+            assert inspect(DailyBriefing).columns[field].nullable is False, (
+                f"{field} should be NOT NULL"
+            )
 
     def test_unique_constraint(self):
         # Migration 32: single-column unique on briefing_date dropped in
@@ -223,9 +223,9 @@ class TestCommunityVectorModel:
 
     def test_required_fields(self):
         for field in ("community_id", "embedding", "model_id"):
-            assert (
-                inspect(CommunityVector).columns[field].nullable is False
-            ), f"{field} should be NOT NULL"
+            assert inspect(CommunityVector).columns[field].nullable is False, (
+                f"{field} should be NOT NULL"
+            )
 
     def test_unique_community_id(self):
         assert inspect(CommunityVector).columns["community_id"].unique is True

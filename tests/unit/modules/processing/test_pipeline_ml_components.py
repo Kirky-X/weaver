@@ -406,9 +406,9 @@ class TestContainerInitMlComponents:
         """Container should have an init_ml_components method."""
         from src.container import Container
 
-        assert hasattr(
-            Container, "init_ml_components"
-        ), "Container must have init_ml_components() method"
+        assert hasattr(Container, "init_ml_components"), (
+            "Container must have init_ml_components() method"
+        )
         assert callable(Container.init_ml_components)
 
     @pytest.mark.asyncio

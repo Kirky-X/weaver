@@ -107,9 +107,9 @@ class TestDuckDBSchemaViews:
         assert "sentiment" in columns, "articles view missing 'sentiment' from article_analysis"
         # article_processing: task_id, processing_stage
         assert "task_id" in columns, "articles view missing 'task_id' from article_processing"
-        assert (
-            "processing_stage" in columns
-        ), "articles view missing 'processing_stage' from article_processing"
+        assert "processing_stage" in columns, (
+            "articles view missing 'processing_stage' from article_processing"
+        )
 
     @pytest.mark.asyncio
     async def test_articles_view_query_with_limit_returns_empty(self, in_memory_duckdb_with_views):

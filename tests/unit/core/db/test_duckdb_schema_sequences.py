@@ -100,9 +100,9 @@ class TestBigIntPkTablesMapping:
             )
             column_default = result.scalar()
 
-        assert (
-            column_default is not None
-        ), f"Table '{table_name}' id column has no default; expected nextval('{seq_name}')"
+        assert column_default is not None, (
+            f"Table '{table_name}' id column has no default; expected nextval('{seq_name}')"
+        )
         # DuckDB stores default as "nextval('seq_name')" or similar
         assert seq_name in str(column_default), (
             f"Table '{table_name}' id column default '{column_default}' "
@@ -153,9 +153,9 @@ class TestResetDuckDBSequences:
             # Sequence should be at START 1
             result = await session.execute(text(f"SELECT nextval('{seq_name}')"))
             first_val = result.scalar()
-            assert (
-                first_val == 1
-            ), f"Empty table {table} sequence {seq_name} first nextval = {first_val}, expected 1"
+            assert first_val == 1, (
+                f"Empty table {table} sequence {seq_name} first nextval = {first_val}, expected 1"
+            )
 
     @pytest.mark.asyncio
     async def test_reset_sequence_after_insert_sets_start_to_max_plus_one(

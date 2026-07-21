@@ -28,9 +28,9 @@ class TestTemplateDefinition:
     def test_all_4_categories_defined(self) -> None:
         """Templates MUST be defined for finance/tech/ai/general."""
         expected = {"finance", "tech", "ai", "general"}
-        assert (
-            set(BRIEFING_TEMPLATES.keys()) == expected
-        ), f"Expected {expected}, got {set(BRIEFING_TEMPLATES.keys())}"
+        assert set(BRIEFING_TEMPLATES.keys()) == expected, (
+            f"Expected {expected}, got {set(BRIEFING_TEMPLATES.keys())}"
+        )
 
     def test_finance_template_emphasizes_financial_terminology(self) -> None:
         """R-briefing-003: finance template emphasizes 金融术语准确性."""
@@ -38,17 +38,17 @@ class TestTemplateDefinition:
         assert isinstance(template, BriefingTemplate)
         # System prompt must mention finance/financial focus
         prompt_lower = template.system_prompt.lower()
-        assert any(
-            kw in prompt_lower for kw in ["金融", "财经", "financial", "finance"]
-        ), f"finance system_prompt must mention financial focus, got: {template.system_prompt}"
+        assert any(kw in prompt_lower for kw in ["金融", "财经", "financial", "finance"]), (
+            f"finance system_prompt must mention financial focus, got: {template.system_prompt}"
+        )
 
     def test_tech_template_emphasizes_technical_details(self) -> None:
         """R-briefing-003: tech template emphasizes 技术细节."""
         template = BRIEFING_TEMPLATES["tech"]
         prompt_lower = template.system_prompt.lower()
-        assert any(
-            kw in prompt_lower for kw in ["技术", "科技", "technical", "tech"]
-        ), f"tech system_prompt must mention technical focus, got: {template.system_prompt}"
+        assert any(kw in prompt_lower for kw in ["技术", "科技", "technical", "tech"]), (
+            f"tech system_prompt must mention technical focus, got: {template.system_prompt}"
+        )
 
     def test_ai_template_emphasizes_models_algorithms(self) -> None:
         """R-briefing-003: ai template emphasizes 模型/算法."""

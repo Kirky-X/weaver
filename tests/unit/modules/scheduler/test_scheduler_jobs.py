@@ -576,15 +576,15 @@ class TestArchiveOldNeo4jNodes:
         for sql, _ in execute_calls:
             assert "OFFSET" not in sql.upper(), f"Keyset pagination must not use OFFSET, got: {sql}"
         # last_id advances correctly across batches.
-        assert (
-            execute_calls[0][1].get("last_id") is None
-        ), "Batch 1 must have last_id=None (first page)"
-        assert (
-            execute_calls[1][1].get("last_id") == batch1[-1]
-        ), "Batch 2 last_id must equal batch1's last id"
-        assert (
-            execute_calls[2][1].get("last_id") == batch2[-1]
-        ), "Batch 3 last_id must equal batch2's last id"
+        assert execute_calls[0][1].get("last_id") is None, (
+            "Batch 1 must have last_id=None (first page)"
+        )
+        assert execute_calls[1][1].get("last_id") == batch1[-1], (
+            "Batch 2 last_id must equal batch1's last id"
+        )
+        assert execute_calls[2][1].get("last_id") == batch2[-1], (
+            "Batch 3 last_id must equal batch2's last id"
+        )
         # All 2500 IDs archived exactly once (no duplicates, no skips).
         flat = [pid for batch in archived_batches for pid in batch]
         assert len(flat) == 2500
@@ -681,9 +681,9 @@ class TestArchiveOldNeo4jNodes:
         # All 1500 original IDs archived exactly once (no duplicates, no skips).
         assert len(flat) == 1500, f"Expected 1500 archived, got {len(flat)} — keyset drift detected"
         assert len(set(flat)) == 1500, "Duplicate IDs — keyset invariant violated"
-        assert (
-            sorted(flat) == initial_ids
-        ), "Missing original IDs — keyset skipped rows due to concurrent insert"
+        assert sorted(flat) == initial_ids, (
+            "Missing original IDs — keyset skipped rows due to concurrent insert"
+        )
 
 
 class TestCleanupOrphanEntityVectors:

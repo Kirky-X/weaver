@@ -47,14 +47,14 @@ async def test_random_ua_selected_from_pool() -> None:
 
     assert len(captured_headers) == 10, f"Expected 10 captures, got {len(captured_headers)}"
     used_uas = {h.get("user-agent") or h.get("User-Agent") for h in captured_headers}
-    assert used_uas.issubset(
-        set(ua_pool)
-    ), f"All UAs must come from pool; got {used_uas}, pool={set(ua_pool)}"
+    assert used_uas.issubset(set(ua_pool)), (
+        f"All UAs must come from pool; got {used_uas}, pool={set(ua_pool)}"
+    )
     # Sanity: with 10 draws from 3 UAs, at least 2 distinct should appear
     # (probabilistic guarantee: P(all 10 same) = 3*(1/3)^10 ≈ 5e-5)
-    assert (
-        len(used_uas) >= 2
-    ), f"Expected UA rotation; got only {len(used_uas)} distinct in 10 draws"
+    assert len(used_uas) >= 2, (
+        f"Expected UA rotation; got only {len(used_uas)} distinct in 10 draws"
+    )
 
 
 @pytest.mark.asyncio

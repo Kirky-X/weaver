@@ -128,6 +128,6 @@ class TestCalcTimeliness:
         Regression: Bug-A TypeError when publish_time is str.
         """
         score = RuleBasedCredibilityCheckerNode._calc_timeliness(publish_time, event_time)
-        assert (
-            expected_min <= score <= expected_max
-        ), f"test case '{desc}' failed: expected [{expected_min}, {expected_max}], got {score}"
+        assert expected_min <= score <= expected_max, (
+            f"test case '{desc}' failed: expected [{expected_min}, {expected_max}], got {score}"
+        )
