@@ -183,19 +183,18 @@ async def verify_admin_api_key(
             detail="Invalid API Key",
         )
 
-    # Admin key not configured: reject with 503 Service Unavailable
-    # (configuration issue, not server internal error)
+    # Admin key not configured: return generic 403 to avoid disclosing
+    # configuration state to attackers (CWE-200). Server-side log only.
     if not admin_key:
         log.error("admin_key_not_configured")
         raise HTTPException(
-            status_code=503,
-            detail="Admin API key not configured. "
-            "Set WEAVER_API__ADMIN_API_KEY environment variable.",
+            status_code=403,
+            detail="Access denied.",
         )
 
     raise HTTPException(
         status_code=403,
-        detail="Invalid API Key",
+        detail="Access denied.",
     )
 
 
@@ -241,3 +240,95 @@ async def verify_api_key_optional(
         status_code=403,
         detail="Invalid API Key",
     )
+
+
+def verify_api_key_with_scopes(*required_scopes: str):
+    """Dependency factory: verify API key AND enforce required scopes.
+
+    Closes CWE-862 (Missing Authorization): previously ApiKeyManager stored
+    scopes but verify_api_key() never enforced them. Use this dependency on
+    endpoints requiring specific scopes (e.g. ``verify_api_key_with_scopes(
+    "pipeline:write")``).
+
+    Falls back to verify_api_key() for env-var-based keys (which have no
+    scopes stored). Admin keys implicitly pass all scope checks.
+
+    Args:
+        *required_scopes: Scopes that the caller's API key must hold.
+
+    Returns:
+        FastAPI dependency callable returning the validated key_id.
+
+    Raises:
+        HTTPException: 401 if key missing, 403 if scopes insufficient.
+
+    """
+
+    async def _verify(
+        key: str | None = Security(api_key_header),
+        request: Request = None,  # type: ignore[assignment]
+    ) -> str:
+        # Single bcrypt verification path: validate the key once via the DB-backed
+        # manager. verify_api_key() internally calls key_manager.validate_key(),
+        # so calling it here AND re-validating would run bcrypt twice (~200ms
+        # extra per request). Instead, validate once and reuse the result.
+        if key is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Missing API key. Provide X-API-Key header.",
+            )
+
+        key_manager = await _get_api_key_manager()
+
+        # If DB pool is unavailable, fall back to env/admin key verification.
+        if key_manager is None:
+            return await verify_api_key(key, request)  # Admin/env keys have no scopes.
+
+        # Validate the key once via DB; key_info carries scopes for inspection.
+        key_info = await key_manager.validate_key(key)
+        if key_info is None:
+            # Key not in DB: fall through to env/admin key check (no bcrypt there).
+            return await verify_api_key(
+                key, request
+            )  # Admin/env keys implicitly pass scope checks.
+
+        # DB-backed key validated. Run traffic anomaly check (mirror verify_api_key).
+        detector = await _get_traffic_detector()
+        if detector and request:
+            client_ip = request.client.host if request.client else "unknown"
+            decision = await detector.check_request(
+                key_id=key_info["key_id"],
+                ip=client_ip,
+            )
+            if decision.action == "block":
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded: {decision.reason}",
+                )
+
+        key_id = key_info["key_id"]
+
+        granted = set(key_info.get("scopes", []) or [])
+        required = set(required_scopes)
+        missing = required - granted
+
+        if missing:
+            log.warning(
+                "api_key_scope_denied",
+                key_id=key_id,
+                required=sorted(required),
+                granted=sorted(granted),
+                missing=sorted(missing),
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient scopes for this endpoint.",
+            )
+
+        # Inject granted scopes onto request.state for downstream use.
+        if request is not None:
+            request.state.api_key_scopes = sorted(granted)
+
+        return key_id
+
+    return _verify

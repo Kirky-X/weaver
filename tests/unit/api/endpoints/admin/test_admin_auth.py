@@ -88,10 +88,15 @@ class TestAdminAuthMiddleware:
             assert "Admin access required" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_admin_api_key_raises_503_when_not_configured_production(
+    async def test_verify_admin_api_key_returns_403_when_not_configured_production(
         self,
     ) -> None:
-        """Test verify_admin_api_key raises 503 when admin key not configured in production."""
+        """Test verify_admin_api_key returns 403 when admin key not configured in production.
+
+        After CWE-200 fix (vuln-0015): unconfigured admin key returns generic 403
+        ``Access denied.`` instead of 503 ``Admin API key not configured`` to avoid
+        disclosing configuration state to attackers.
+        """
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -104,17 +109,23 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "production"}),
         ):
-            # Admin key not configured: raises 503 Service Unavailable
+            # Admin key not configured: returns 403 with generic message
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
-            assert exc_info.value.status_code == 503
-            assert "Admin API key not configured" in exc_info.value.detail
+            assert exc_info.value.status_code == 403
+            assert "Access denied" in exc_info.value.detail
+            # Must NOT leak configuration state to caller
+            assert "not configured" not in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_rejects_when_not_configured_development(
         self,
     ) -> None:
-        """Test verify_admin_api_key raises 503 when admin key not configured even in dev."""
+        """Test verify_admin_api_key returns 403 when admin key not configured even in dev.
+
+        After CWE-200 fix (vuln-0015): same generic 403 response in all
+        environments to avoid environment-based information disclosure.
+        """
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -127,11 +138,12 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "development"}),
         ):
-            # Admin key not configured: rejects with 503 in all environments
+            # Admin key not configured: rejects with 403 in all environments
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
-            assert exc_info.value.status_code == 503
-            assert "Admin API key not configured" in exc_info.value.detail
+            assert exc_info.value.status_code == 403
+            assert "Access denied" in exc_info.value.detail
+            assert "not configured" not in exc_info.value.detail
 
 
 class TestAdminEndpointAuthorityUpdate:
