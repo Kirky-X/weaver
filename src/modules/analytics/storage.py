@@ -283,7 +283,7 @@ class AnalyticsStorage:
         """
         if category not in {"finance", "tech", "ai", "general"}:
             raise ValueError(
-                f"Invalid briefing category '{category}'. " f"Valid: finance/tech/ai/general"
+                f"Invalid briefing category '{category}'. Valid: finance/tech/ai/general"
             )
 
         async with self._pool.session_context() as session:

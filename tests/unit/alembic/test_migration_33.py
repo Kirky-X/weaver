@@ -91,9 +91,9 @@ def test_migration_33_up_adds_payload_hash_column() -> None:
     # Nullable — column must NOT be declared NOT NULL (nullable defaults to NULL
     # in PostgreSQL, so Alembic emits no explicit NULL keyword). Verify NOT NULL
     # is absent.
-    assert (
-        "NOT NULL" not in sql.upper()
-    ), f"payload_hash must be nullable — NOT NULL must not appear in SQL: {sql[:500]}"
+    assert "NOT NULL" not in sql.upper(), (
+        f"payload_hash must be nullable — NOT NULL must not appear in SQL: {sql[:500]}"
+    )
 
 
 def test_migration_33_up_creates_payload_hash_index() -> None:
@@ -148,12 +148,12 @@ def test_migration_33_down_drops_index_before_column() -> None:
     )
 
     # Both DROP statements must be present
-    assert (
-        "DROP INDEX" in sql.upper() or "drop_index" in sql.lower()
-    ), f"DROP INDEX not found in downgrade SQL: {sql[:500]}"
-    assert (
-        "DROP COLUMN" in sql.upper() or "drop_column" in sql.lower()
-    ), f"DROP COLUMN not found in downgrade SQL: {sql[:500]}"
+    assert "DROP INDEX" in sql.upper() or "drop_index" in sql.lower(), (
+        f"DROP INDEX not found in downgrade SQL: {sql[:500]}"
+    )
+    assert "DROP COLUMN" in sql.upper() or "drop_column" in sql.lower(), (
+        f"DROP COLUMN not found in downgrade SQL: {sql[:500]}"
+    )
     assert "payload_hash" in sql
 
     # Order: DROP INDEX must come before DROP COLUMN
@@ -169,8 +169,7 @@ def test_migration_33_down_drops_index_before_column() -> None:
     assert drop_index_pos != -1, "DROP INDEX position not found"
     assert drop_column_pos != -1, "DROP COLUMN position not found"
     assert drop_index_pos < drop_column_pos, (
-        f"DROP INDEX (pos {drop_index_pos}) must come before "
-        f"DROP COLUMN (pos {drop_column_pos})"
+        f"DROP INDEX (pos {drop_index_pos}) must come before DROP COLUMN (pos {drop_column_pos})"
     )
 
 
@@ -193,9 +192,9 @@ def test_alert_event_orm_payload_hash_field_types() -> None:
     col = AlertEvent.__table__.columns["payload_hash"]
     assert isinstance(col.type, String), f"Expected String, got {type(col.type)}"
     assert col.type.length == 64, f"Expected length=64, got {col.type.length}"
-    assert (
-        col.nullable is True
-    ), "payload_hash must be nullable (back-compat with pre-migration rows)"
+    assert col.nullable is True, (
+        "payload_hash must be nullable (back-compat with pre-migration rows)"
+    )
 
 
 def test_alert_event_orm_has_payload_hash_index() -> None:
@@ -207,9 +206,9 @@ def test_alert_event_orm_has_payload_hash_index() -> None:
     from core.db.models.alert import AlertEvent
 
     index_names = [idx.name for idx in AlertEvent.__table__.indexes]
-    assert (
-        "idx_alert_events_payload_hash" in index_names
-    ), f"idx_alert_events_payload_hash not in {index_names}"
+    assert "idx_alert_events_payload_hash" in index_names, (
+        f"idx_alert_events_payload_hash not in {index_names}"
+    )
 
     # Verify the index covers the expected columns
     payload_index = next(

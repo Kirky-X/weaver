@@ -507,8 +507,7 @@ class TestArticleRepoIntegration:
             async with pool.session_context() as session:
                 result = await session.execute(
                     text(
-                        "SELECT persist_status, category FROM articles_core "
-                        "WHERE source_url = :url"
+                        "SELECT persist_status, category FROM articles_core WHERE source_url = :url"
                     ),
                     {"url": url},
                 )

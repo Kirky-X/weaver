@@ -231,7 +231,7 @@ class PgClient:
 
         async with self._engine.connect() as conn:
             result = await conn.execute(
-                text(f'SELECT {col_str} FROM "{table}" ' f'WHERE "{pk_col}" IN ({placeholders})'),
+                text(f'SELECT {col_str} FROM "{table}" WHERE "{pk_col}" IN ({placeholders})'),
                 params,
             )
             rows = result.fetchall()
@@ -480,7 +480,7 @@ class LadybugClient:
             # label's schema. All LadybugDB node labels have `id` as PRIMARY
             # KEY, so we can use n.id directly without the coalesce fallback
             # that Neo4j needs (Neo4j Article nodes lack `id`, using pg_id).
-            result = self._conn.execute(f"MATCH (n:`{label}`) " f"RETURN n.id AS id " f"LIMIT {n}")
+            result = self._conn.execute(f"MATCH (n:`{label}`) RETURN n.id AS id LIMIT {n}")
             ids: list[str] = []
             while result.has_next():
                 row = result.get_next()
@@ -505,10 +505,7 @@ class LadybugClient:
 
         def _work() -> dict[str, dict[str, Any]]:
             result = self._conn.execute(
-                f"MATCH (n:`{label}`) "
-                f"WHERE n.id IN {ids_literal} "
-                f"RETURN n.id AS _id, "
-                f"{prop_str}"
+                f"MATCH (n:`{label}`) WHERE n.id IN {ids_literal} RETURN n.id AS _id, {prop_str}"
             )
             out: dict[str, dict[str, Any]] = {}
             while result.has_next():
@@ -951,7 +948,7 @@ async def _async_main(args: argparse.Namespace) -> int:
             try:
                 await neo.connect()
                 await lady.connect()
-                print(f"Connected: Neo4j ({args.neo4j_uri}) ↔ " f"LadybugDB ({args.ladybug_path})")
+                print(f"Connected: Neo4j ({args.neo4j_uri}) ↔ LadybugDB ({args.ladybug_path})")
                 print(
                     f"Comparing {len(EXPECTED_NODE_LABELS)} node labels "
                     f"and {len(EXPECTED_REL_TYPES)} rel types..."

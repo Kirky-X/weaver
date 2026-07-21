@@ -366,10 +366,7 @@ _VALID_RSS = (
 )
 
 _EMPTY_RSS = (
-    '<?xml version="1.0"?>'
-    '<rss version="2.0"><channel>'
-    "<title>Empty Feed</title>"
-    "</channel></rss>"
+    '<?xml version="1.0"?><rss version="2.0"><channel><title>Empty Feed</title></channel></rss>'
 )
 
 _MALFORMED_XML = "<rss><channel><title>Broken"

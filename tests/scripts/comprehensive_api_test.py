@@ -852,9 +852,7 @@ class ComprehensiveAPITester:
         else:
             validation = {
                 "status": "pass",
-                "reason": (
-                    f"received {len(events_received)} events: " f"{sorted(event_counts.keys())}"
-                ),
+                "reason": f"received {len(events_received)} events: {sorted(event_counts.keys())}",
             }
             if expected_events:
                 missing = expected_events - set(event_counts.keys())
@@ -1209,7 +1207,7 @@ class ComprehensiveAPITester:
         elif "error" in events_recv:
             log_warn(
                 "SSE valid URL: pipeline returned error event "
-                f"(likely LLM circuit breaker open): {sse_result.get('error_message','')[:120]}"
+                f"(likely LLM circuit breaker open): {sse_result.get('error_message', '')[:120]}"
             )
         if "heartbeat" not in events_recv:
             log_warn(

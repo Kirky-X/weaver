@@ -35,7 +35,7 @@ async def _insert_article_with_task(pool, article_id, url, title, body, persist_
             },
         )
         await session.execute(
-            text("INSERT INTO article_bodies (article_id, body) " "VALUES (:article_id, :body)"),
+            text("INSERT INTO article_bodies (article_id, body) VALUES (:article_id, :body)"),
             {"article_id": article_id, "body": body},
         )
         await session.execute(

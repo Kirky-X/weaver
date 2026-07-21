@@ -216,8 +216,7 @@ def test_alert_rule_orm_has_trend_fields_required_check() -> None:
         c for c in check_constraints if "trigger_type" in c and "trend_window_days" in c
     ]
     assert len(composite_checks) == 1, (
-        f"Expected 1 composite CHECK, got {len(composite_checks)}. "
-        f"All checks: {check_constraints}"
+        f"Expected 1 composite CHECK, got {len(composite_checks)}. All checks: {check_constraints}"
     )
     check_sql = composite_checks[0]
     assert "threshold" in check_sql
@@ -355,9 +354,9 @@ def test_migration_28_downgrade_deletes_events_before_rules() -> None:
     sql = captured.getvalue()
 
     # Both DELETEs must be present
-    assert (
-        "DELETE FROM alert_events" in sql
-    ), f"alert_events delete not found in downgrade SQL: {sql[:500]}"
+    assert "DELETE FROM alert_events" in sql, (
+        f"alert_events delete not found in downgrade SQL: {sql[:500]}"
+    )
     assert "DELETE FROM alert_rules" in sql
 
     # Order: alert_events DELETE must come before alert_rules DELETE

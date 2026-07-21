@@ -529,9 +529,7 @@ class TestCrawlerTitleExtraction:
         from modules.ingestion.crawling.crawler import Crawler
 
         html_with_title_tag = (
-            "<html><head>"
-            "<title>Solidot 文章标题</title>"
-            "</head><body>Article content.</body></html>"
+            "<html><head><title>Solidot 文章标题</title></head><body>Article content.</body></html>"
         )
         mock_fetcher.fetch = AsyncMock(return_value=(200, html_with_title_tag, {}))
 

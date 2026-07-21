@@ -1077,14 +1077,14 @@ class TestTriggerPipelineHTTPIntegration:
         )
 
         assert response.status_code == 400, (
-            f"Expected 400 for empty source_ids, got {response.status_code}: " f"{response.text}"
+            f"Expected 400 for empty source_ids, got {response.status_code}: {response.text}"
         )
         body = response.json()
         # APIResponse envelope: {"data": {...}, "meta": {...}}
         detail = body.get("detail") or body.get("message") or str(body)
-        assert (
-            "source_ids cannot be empty" in detail
-        ), f"Expected 'source_ids cannot be empty' in response, got: {body}"
+        assert "source_ids cannot be empty" in detail, (
+            f"Expected 'source_ids cannot be empty' in response, got: {body}"
+        )
         # Critical: scheduler.trigger_now MUST NOT have been called
         mock_scheduler.trigger_now.assert_not_called()
 
@@ -1175,9 +1175,9 @@ class TestTriggerPipelineHTTPIntegration:
             headers={"X-API-Key": "test-api-key"},
         )
 
-        assert (
-            response.status_code == 200
-        ), f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         body = response.json()
         assert "data" in body
         assert "task_id" in body["data"]
