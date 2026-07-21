@@ -81,15 +81,14 @@ class TestLiveConfigInitialization:
         live = LiveConfig(config_path=temp_config_file)
 
         assert live._current is not None
-        # LLMSettings has circuit_breaker_threshold as a top-level field (not global_settings)
-        # Note: LLMSettings uses hardcoded path config/llm.toml, so providers
-        # will be from actual project config (agnes, ollama), not temp file
+        # LiveConfig reads self._path and passes TOML data as init_settings
+        # to LLMSettings. init_settings has higher priority than the default
+        # PROJECT_ROOT/config/llm.toml, so all fields below come from
+        # temp_config_file (not the project config).
         assert live._current.circuit_breaker_threshold == 5
-        # Verify TOML was actually loaded (defaults/call_points come from llm.toml only,
-        # never from env vars). providers might be empty in CI where no .env exists,
-        # so we check defaults instead which is the proper TOML signal.
-        assert live._current.defaults, "defaults should load from config/llm.toml"
-        assert live._current.call_points, "call_points should load from config/llm.toml"
+        assert live._current.providers, "providers should load from temp_config_file"
+        assert live._current.defaults, "defaults should load from temp_config_file"
+        assert live._current.call_points, "call_points should load from temp_config_file"
 
     def test_raises_on_invalid_config(self, invalid_config_file):
         """LiveConfig raises on invalid TOML during init."""

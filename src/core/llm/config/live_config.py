@@ -189,11 +189,27 @@ class LiveConfig:
     def _load_and_validate(self) -> LLMSettings | None:
         """Load and validate configuration from TOML file.
 
+        Reads TOML data from ``self._path`` and passes it as init data to
+        :class:`LLMSettings`. Hyphenated keys (e.g. ``call-points``) are
+        normalized to underscored form (``call_points``) before being passed
+        to ``LLMSettings``, matching the convention used in
+        :meth:`LLMSettings.__init__` for the project's default config file.
+
         Returns:
             LLMSettings if valid, None if invalid.
         """
+        import tomllib
+
         try:
-            settings = LLMSettings()
+            toml_data: dict[str, Any] = {}
+            if self._path.exists():
+                with open(self._path, "rb") as f:
+                    toml_data = tomllib.load(f)
+                # Normalize hyphenated TOML keys to underscored pydantic fields
+                if "call-points" in toml_data:
+                    toml_data["call_points"] = toml_data.pop("call-points")
+
+            settings = LLMSettings(**toml_data)
             log.debug("live_config_validated", path=str(self._path))
             return settings
         except Exception as exc:
