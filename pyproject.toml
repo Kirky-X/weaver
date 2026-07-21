@@ -99,7 +99,7 @@ packages = ["src"]
 [dependency-groups]
 dev = [
     # ── Code formatting ───────────────────────────────────
-    "black>=26.3.1",
+    # black removed: ruff format is the single source of truth (规则7: 不折中)
     "isort>=8.0.1",
     "ruff>=0.15.6",
     # ── Type checking ──────────────────────────────────────
@@ -361,33 +361,6 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "lf"
-
-# ────────────────────────────────────────────────────────────
-# Black — 代码格式化（双重保障）
-# ────────────────────────────────────────────────────────────
-[tool.black]
-target-version = ["py312"]
-line-length = 100
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.mypy_cache
-  | \.nox
-  | \.venv
-  | \.tox
-  | __pycache__
-  | alembic/versions
-  | docs
-  | monitoring
-  | scripts/rollback
-  | temp
-)/
-'''
-extend-exclude = '''
-^src/scripts/rollback/
-'''
-# preview 禁用：black preview 的括号拆行风格与 ruff format 不兼容，CI 同时跑两者会冲突
 
 # ────────────────────────────────────────────────────────────
 # isort — import 排序

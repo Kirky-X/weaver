@@ -10,7 +10,7 @@
 #   3. 首次运行所有 hook:         pre-commit run --all-files
 #
 # 跳过特定 hook（不跳过整个验证，遵守规则 18）:
-#   SKIP=ruff,black git commit -m "..."
+#   SKIP=ruff git commit -m "..."
 #
 # ============================================================
 
@@ -62,21 +62,21 @@ repos:
           - --filter-files
         files: ^src/|^tests/|^scripts/
 
-  # black — 代码格式化
+  # ruff — linter + fix (replaces black, single source of truth for formatting)
   - repo: local
     hooks:
-      - id: black
-        name: black (local)
-        entry: black
+      - id: ruff-format
+        name: ruff format (check)
+        entry: ruff
         language: system
         types: [ python ]
         args:
+          - format
           - --config=pyproject.toml
+          - --check
+          - --exit-non-zero-on-fix
         files: ^src/|^tests/|^scripts/
-
-  # ruff — linter + fix
-  - repo: local
-    hooks:
+        pass_filenames: true
       - id: ruff
         name: ruff (linter)
         entry: ruff
