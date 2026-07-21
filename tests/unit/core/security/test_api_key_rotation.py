@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.db import ApiKey
+from core.security.api_key_manager import KeyOpStatus
 
 
 class TestApiKeyRotatedToField:
@@ -74,10 +75,11 @@ class TestApiKeyRotation:
         result = await manager.rotate_key("key_old123")
 
         # Should return new key info
-        assert result is not None
-        assert "key_id" in result
-        assert "key_value" in result
-        assert result["key_id"] != "key_old123"
+        assert result.status is KeyOpStatus.OK
+        assert result.data is not None
+        assert "key_id" in result.data
+        assert "key_value" in result.data
+        assert result.data["key_id"] != "key_old123"
 
     @pytest.mark.asyncio
     async def test_rotate_marks_old_key(self, manager, mock_pool) -> None:
@@ -102,8 +104,9 @@ class TestApiKeyRotation:
         result = await manager.rotate_key("key_old123")
 
         # Verify the result contains a new key_id (rotation happened)
-        assert result is not None
-        assert result["key_id"] != "key_old123"
+        assert result.status is KeyOpStatus.OK
+        assert result.data is not None
+        assert result.data["key_id"] != "key_old123"
         # Two execute calls: SELECT ... FOR UPDATE + UPDATE rotated_to
         assert mock_session.execute.call_count == 2
 
@@ -129,8 +132,10 @@ class TestApiKeyRotation:
 
         result = await manager.rotate_key("key_old123")
 
-        assert result["scopes"] == ["search:read", "admin:write"]
-        assert result["rate_limit_per_min"] == 50
+        assert result.status is KeyOpStatus.OK
+        assert result.data is not None
+        assert result.data["scopes"] == ["search:read", "admin:write"]
+        assert result.data["rate_limit_per_min"] == 50
 
 
 class TestGracePeriod:
@@ -185,8 +190,9 @@ class TestGracePeriod:
         result = await manager.rotate_key("key_old123")
 
         # rotation succeeded
-        assert result is not None
-        assert result["key_id"] != "key_old123"
+        assert result.status is KeyOpStatus.OK
+        assert result.data is not None
+        assert result.data["key_id"] != "key_old123"
         # rotate_key should NOT set is_revoked=True on old key — rotated_to
         # is the invalidation mechanism (validate_key enforces it).
         assert old_key.is_revoked is not True
@@ -216,7 +222,7 @@ class TestRotateKeyTOCTOU:
 
     @pytest.mark.asyncio
     async def test_rotate_already_revoked_key_returns_none(self, manager, mock_pool) -> None:
-        """rotate_key SHALL return None when key is already revoked."""
+        """rotate_key SHALL return ALREADY_REVOKED when key is already revoked."""
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -237,7 +243,7 @@ class TestRotateKeyTOCTOU:
         result = await manager.rotate_key("key_old123")
 
         # No new key created — UPDATE was not called.
-        assert result is None
+        assert result.status is KeyOpStatus.ALREADY_REVOKED
         assert mock_session.execute.call_count == 1  # SELECT only, no UPDATE
         # session.add never called — no new key inserted.
         assert not mock_session.add.called
@@ -245,7 +251,7 @@ class TestRotateKeyTOCTOU:
 
     @pytest.mark.asyncio
     async def test_rotate_already_rotated_key_returns_none(self, manager, mock_pool) -> None:
-        """rotate_key SHALL return None when key is already rotated."""
+        """rotate_key SHALL return ALREADY_ROTATED when key is already rotated."""
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -267,14 +273,14 @@ class TestRotateKeyTOCTOU:
         result = await manager.rotate_key("key_old123")
 
         # No new key created — UPDATE was not called.
-        assert result is None
+        assert result.status is KeyOpStatus.ALREADY_ROTATED
         assert mock_session.execute.call_count == 1  # SELECT only, no UPDATE
         assert not mock_session.add.called
         assert not mock_session.commit.called
 
     @pytest.mark.asyncio
     async def test_rotate_nonexistent_key_returns_none(self, manager, mock_pool) -> None:
-        """rotate_key SHALL return None when key_id not found in DB."""
+        """rotate_key SHALL return NOT_FOUND when key_id not found in DB."""
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -286,7 +292,7 @@ class TestRotateKeyTOCTOU:
 
         result = await manager.rotate_key("nonexistent_key")
 
-        assert result is None
+        assert result.status is KeyOpStatus.NOT_FOUND
         assert mock_session.execute.call_count == 1  # SELECT only
         assert not mock_session.add.called
         assert not mock_session.commit.called

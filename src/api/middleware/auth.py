@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
 from core.observability import get_logger
+from core.security.api_key_manager import ENV_ADMIN_ACTOR
 
 log = get_logger(__name__)
 
@@ -109,7 +110,7 @@ async def verify_api_key(
         and len(admin_key) >= MIN_API_KEY_LENGTH
         and secrets.compare_digest(key, admin_key)
     ):
-        return "admin"
+        return ENV_ADMIN_ACTOR
 
     if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:
         environment = getattr(settings, "environment", "development")
@@ -146,7 +147,10 @@ async def verify_admin_api_key(
         key: API key from the request header.
 
     Returns:
-        The validated admin API key.
+        Admin actor identifier. Returns ``"env-admin"`` for env-var-backed
+        admin keys (super-admin that can manage any API key). The raw key
+        value is NEVER returned so it cannot leak into logs or responses
+        (vuln-0009 fix).
 
     Raises:
         HTTPException: If the key is missing, invalid, or not an admin key.
@@ -169,7 +173,10 @@ async def verify_admin_api_key(
         # Admin key configured: require exact match
         if secrets.compare_digest(key, admin_key):
             log.debug("admin_api_key_verified", key_prefix=key[:8] + "...")
-            return key
+            # Return a stable super-admin identifier rather than the raw key
+            # so downstream ownership checks (vuln-0009) can recognize the
+            # env-var-backed admin as a super-admin without exposing the key.
+            return ENV_ADMIN_ACTOR
         # Not admin key, check if it's regular key
         expected_key = settings.api.get_api_key()
         if secrets.compare_digest(key, expected_key):

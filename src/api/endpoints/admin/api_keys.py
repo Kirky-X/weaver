@@ -16,8 +16,29 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
+from core.security import AuditLogService, KeyOpResult, KeyOpStatus
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _raise_for_key_op_status(result: KeyOpResult, key_id: str) -> None:
+    """Raise HTTPException for non-OK KeyOpResult.
+
+    Centralizes the KeyOpStatus → HTTP status code mapping to avoid
+    duplication between revoke and rotate endpoints (LOW-002).
+    """
+    status_map = {
+        KeyOpStatus.NOT_FOUND: (404, f"API key '{key_id}' not found"),
+        KeyOpStatus.FORBIDDEN: (
+            403,
+            "Not authorized to manage this key. Only the key owner or a super-admin can operate.",
+        ),
+        KeyOpStatus.ALREADY_REVOKED: (409, f"API key '{key_id}' already revoked"),
+        KeyOpStatus.ALREADY_ROTATED: (409, f"API key '{key_id}' already rotated"),
+    }
+    if result.status in status_map:
+        code, detail = status_map[result.status]
+        raise HTTPException(status_code=code, detail=detail)
 
 
 # ── API Key Management ───────────────────────────────────────────
@@ -144,9 +165,14 @@ async def list_api_keys(
 async def revoke_api_key(
     request: Request,
     key_id: str,
-    _: str = Depends(verify_admin_api_key),
+    admin_id: str = Depends(verify_admin_api_key),
 ) -> APIResponse[dict]:
-    """Revoke an API key by key_id."""
+    """Revoke an API key by key_id.
+
+    Ownership check (vuln-0009 fix): only the key's creator or a super-admin
+    (``env-admin``) can revoke a key. All attempts — success or failure — are
+    written to the audit log for security monitoring.
+    """
     from container import get_container
     from core.security import ApiKeyManager
 
@@ -154,9 +180,24 @@ async def revoke_api_key(
     pool = container.relational_pool()
     manager = ApiKeyManager(pool)
 
-    revoked = await manager.revoke_key(key_id)
-    if not revoked:
-        raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
+    result = await manager.revoke_key(key_id, actor=admin_id)
+
+    # Audit log: record every attempt regardless of outcome so security
+    # monitoring can detect probing patterns (vuln-0009).
+    audit = AuditLogService(pool)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    await audit.log_event(
+        key_id=admin_id,
+        action="api_key.revoke",
+        target_type="api_key",
+        target_id=key_id,
+        detail={"status": result.status.value},
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    _raise_for_key_op_status(result, key_id)
 
     return success_response({"key_id": key_id, "revoked": True})
 
@@ -176,12 +217,16 @@ class RotateKeyResponse(BaseModel):
 async def rotate_api_key(
     request: Request,
     key_id: str,
-    _: str = Depends(verify_admin_api_key),
+    admin_id: str = Depends(verify_admin_api_key),
 ) -> APIResponse[RotateKeyResponse]:
     """Manually rotate an API key, creating a replacement.
 
     The old key remains valid during a 24-hour grace period.
     The new key inherits the same scopes and rate limit.
+
+    Ownership check (vuln-0009 fix): only the key's creator or a super-admin
+    (``env-admin``) can rotate a key. All attempts — success or failure — are
+    written to the audit log for security monitoring.
     """
     from container import get_container
     from core.security import ApiKeyManager
@@ -190,17 +235,32 @@ async def rotate_api_key(
     pool = container.relational_pool()
     manager = ApiKeyManager(pool)
 
-    result = await manager.rotate_key(key_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
+    result = await manager.rotate_key(key_id, actor=admin_id)
 
+    # Audit log: record every attempt regardless of outcome (vuln-0009).
+    audit = AuditLogService(pool)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    await audit.log_event(
+        key_id=admin_id,
+        action="api_key.rotate",
+        target_type="api_key",
+        target_id=key_id,
+        detail={"status": result.status.value},
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    _raise_for_key_op_status(result, key_id)
+
+    data = result.data or {}
     return success_response(
         RotateKeyResponse(
             old_key_id=key_id,
-            new_key_id=result["key_id"],
-            new_key_value=result["key_value"],
-            scopes=result["scopes"],
-            rate_limit_per_min=result["rate_limit_per_min"],
-            expires_at=result["expires_at"],
+            new_key_id=data["key_id"],
+            new_key_value=data["key_value"],
+            scopes=data["scopes"],
+            rate_limit_per_min=data["rate_limit_per_min"],
+            expires_at=data["expires_at"],
         )
     )

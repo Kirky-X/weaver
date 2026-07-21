@@ -241,6 +241,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_crawler.crawl_batch = AsyncMock(return_value=[])
@@ -271,6 +274,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_article = MagicMock()
@@ -307,6 +313,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_crawler.crawl_batch = AsyncMock(side_effect=ConnectionError("Network timeout"))
@@ -336,6 +345,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_article = MagicMock()
@@ -376,6 +388,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_article = MagicMock()
@@ -409,6 +424,9 @@ class TestProcessSingleUrlExtended:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": task_id}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_article = MagicMock()
@@ -455,6 +473,9 @@ class TestUpdateTaskStatus:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=existing_data)
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         await _update_task_status(
             cache=mock_cache,
@@ -481,6 +502,9 @@ class TestUpdateTaskStatus:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=None)
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         await _update_task_status(
             cache=mock_cache,
@@ -503,6 +527,9 @@ class TestUpdateTaskStatus:
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=json.dumps({"task_id": "test-id"}))
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         await _update_task_status(
             cache=mock_cache,
@@ -601,6 +628,9 @@ class TestSafeEchoAndReflectedXSS:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.hget = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         # TriggerRequest with XSS payload
         request = MagicMock()
@@ -653,6 +683,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=[])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
         mock_scheduler = MagicMock()
         mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
         mock_scheduler.trigger_now = AsyncMock()
@@ -678,6 +711,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=[])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         # Simulate 18 enabled sources (the bug scenario)
         mock_sources = []
@@ -711,6 +747,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["ghost-1", "ghost-2"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
         mock_scheduler = MagicMock()
         mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
         mock_scheduler.list_all_sources = MagicMock(return_value=[])
@@ -735,6 +774,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["existing-1", "missing-1", "existing-2"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src_1 = MagicMock()
         mock_src_1.id = "existing-1"
@@ -777,6 +819,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-a", "source-b"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src_a = MagicMock()
         mock_src_a.id = "source-a"
@@ -811,6 +856,9 @@ class TestTriggerPipelineSourceIds:
         )
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_legacy = MagicMock()
         mock_legacy.id = "legacy-source"
@@ -854,6 +902,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest()  # All defaults
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_src_1 = MagicMock()
         mock_src_1.id = "source-1"
@@ -886,6 +937,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-1"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src = MagicMock()
         mock_src.id = "source-1"
@@ -926,6 +980,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-1"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src = MagicMock()
         mock_src.id = "source-1"
@@ -968,6 +1025,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-1"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
         mock_scheduler = MagicMock()
         # Simulate DB error (PostgreSQL or DuckDB failure)
         mock_scheduler.list_enabled_sources = MagicMock(
@@ -994,6 +1054,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-1", "source-1", "source-2"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src_1 = MagicMock()
         mock_src_1.id = "source-1"
@@ -1028,6 +1091,9 @@ class TestTriggerPipelineSourceIds:
         request = TriggerRequest(source_ids=["source-1"])
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src = MagicMock()
         mock_src.id = "source-1"
@@ -1071,6 +1137,9 @@ class TestTriggerPipelineHTTPIntegration:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.hget = AsyncMock(return_value=None)
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
@@ -1117,6 +1186,12 @@ class TestTriggerPipelineHTTPIntegration:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.hget = AsyncMock(return_value=None)
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx needed for 3rd request
+        # (the valid-source_ids request reaches the per-source lock code).
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.list_enabled_sources = MagicMock(return_value=[])
@@ -1169,6 +1244,11 @@ class TestTriggerPipelineHTTPIntegration:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.hget = AsyncMock(return_value=None)
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_src = MagicMock()
         mock_src.id = "reuters"
@@ -1208,6 +1288,9 @@ class TestTriggerPipelineHTTPIntegration:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.hget = AsyncMock(return_value=None)
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.list_enabled_sources = MagicMock(return_value=[])

@@ -364,6 +364,9 @@ class TestPipelineEndpoint:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()
         mock_source.id = "source-1"
@@ -402,6 +405,9 @@ class TestPipelineEndpoint:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_source1 = MagicMock()
         mock_source1.id = "source-1"
@@ -446,6 +452,9 @@ class TestPipelineEndpoint:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()
         mock_source.id = "source-1"
@@ -505,6 +514,9 @@ class TestPipelineEndpoint:
                 }
             )
         )
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_relational_pool = MagicMock()
 
@@ -524,6 +536,9 @@ class TestPipelineEndpoint:
 
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=None)
+        mock_cache.get = AsyncMock(return_value=None)
+        mock_cache.set = AsyncMock()
+        mock_cache.delete = AsyncMock()
 
         mock_relational_pool = MagicMock()
 
@@ -788,8 +803,9 @@ class TestArticlesEndpoint:
         mock_pool.session().execute.return_value = mock_result
 
         result = await get_article(
+            request=MagicMock(),
             article_id="12345678-1234-5678-1234-567812345678",
-            _="test-key",
+            api_key_id="test-key",
             pool=mock_pool,
         )
         assert result.data.title == "Test Article"
@@ -803,8 +819,9 @@ class TestArticlesEndpoint:
 
         with pytest.raises(HTTPException) as exc_info:
             await get_article(
+                request=MagicMock(),
                 article_id="invalid-uuid",
-                _="test-key",
+                api_key_id="test-key",
                 pool=mock_pool,
             )
         assert exc_info.value.status_code == 400
@@ -823,8 +840,9 @@ class TestArticlesEndpoint:
 
         with pytest.raises(HTTPException) as exc_info:
             await get_article(
+                request=MagicMock(),
                 article_id="12345678-1234-5678-1234-567812345678",
-                _="test-key",
+                api_key_id="test-key",
                 pool=mock_pool,
             )
         assert exc_info.value.status_code == 404

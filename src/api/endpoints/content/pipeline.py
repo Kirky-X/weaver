@@ -146,6 +146,14 @@ _url_processing_semaphore = asyncio.Semaphore(_URL_PROCESSING_CONCURRENCY)
 # background task to make progress and update task status.
 _TRIGGER_SOURCE_TIMEOUT_SECONDS = 300.0
 
+# Per-source dedup lock (vuln-0002 fix: CWE-362).
+# Prevents concurrent trigger_pipeline requests from scheduling the same
+# source multiple times. Lock is set in trigger_pipeline and released in
+# _execute_trigger_background's finally block. TTL matches trigger timeout
+# so a crashed task does not permanently lock the source.
+_SOURCE_LOCK_KEY_PREFIX = "pipeline:source:lock:"
+_SOURCE_LOCK_TTL_SECONDS = 600  # 10 minutes (> _TRIGGER_SOURCE_TIMEOUT_SECONDS)
+
 # Strong references to fire-and-forget background tasks so they are not
 # garbage-collected before completion (MEDIUM-1: asyncio.create_task GC risk).
 # Tasks remove themselves via ``add_done_callback`` upon completion.
@@ -211,6 +219,7 @@ async def _execute_trigger_background(
     cache: CachePool,
     scheduler: SourceScheduler,
     queued_at: str,
+    locked_source_ids: list[str] | None = None,
 ) -> None:
     """Background coroutine that actually triggers crawls.
 
@@ -423,6 +432,27 @@ async def _execute_trigger_background(
                 task_id=task_id,
                 exc_info=True,
             )
+    finally:
+        # Release per-source dedup locks (vuln-0002 fix).
+        # Always release locks regardless of success/failure so the source
+        # is available for the next trigger request. Lock release errors are
+        # non-fatal — the TTL will eventually expire the lock anyway.
+        #
+        # M-1 optimization: batch release via a single ``cache.delete``
+        # call (the CacheKV Protocol's ``delete`` accepts variadic keys,
+        # mapping to Redis ``DEL k1 k2 ...``). This collapses N round-trips
+        # into one for the common multi-source trigger case.
+        if locked_source_ids:
+            release_keys = [f"{_SOURCE_LOCK_KEY_PREFIX}{sid}" for sid in locked_source_ids]
+            try:
+                await cache.delete(*release_keys)
+            except Exception:
+                log.warning(
+                    "source_lock_release_failed",
+                    task_id=task_id,
+                    source_ids=locked_source_ids,
+                    exc_info=True,
+                )
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -549,48 +579,103 @@ async def trigger_pipeline(
         # sources (preserves the original "crawl everything" behaviour).
         target_source_ids = None
 
+    # ── Per-source dedup lock (vuln-0002 fix: CWE-362) ──
+    # Atomic acquire using SET NX: each lock is acquired atomically,
+    # eliminating the TOCTOU window of the previous check-then-set
+    # pattern (two concurrent requests could both pass ``cache.get``
+    # seeing ``None`` and then both proceed to ``cache.set``).
+    #
+    # ``set_nx`` maps to Redis ``SET key value NX EX ttl`` (atomic) and
+    # to an in-process atomic check-and-set for the CashewsClient
+    # fallback. If any source is already locked, we roll back the locks
+    # acquired so far and return 409 Conflict so the client can retry.
+    locked_source_ids: list[str] = []
+    if target_source_ids:
+        for sid in target_source_ids:
+            lock_key = f"{_SOURCE_LOCK_KEY_PREFIX}{sid}"
+            acquired = await cache.set_nx(lock_key, task_id, ex=_SOURCE_LOCK_TTL_SECONDS)
+            if not acquired:
+                # Roll back already-acquired locks before failing so we
+                # do not leak locks for sources that we did successfully
+                # claim in this iteration.
+                for prev_sid in locked_source_ids:
+                    with contextlib.suppress(Exception):
+                        await cache.delete(f"{_SOURCE_LOCK_KEY_PREFIX}{prev_sid}")
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Source '{_safe_echo(sid)}' is already being processed "
+                        f"by another task (lock held). Retry after the current "
+                        f"task completes."
+                    ),
+                )
+            locked_source_ids.append(sid)
+
     # ── Queue the task (initial status = QUEUED) ──
     # ``source_ids_field`` is computed once and threaded through to the
     # background task to avoid recomputing it from ``request`` later
     # (LOW-1: avoid dual data paths between ``target_source_ids`` and
     # ``request.source_ids``).
-    source_ids_field: list[str] | None = request.source_ids if source_ids_provided else None
-    await cache.hset(
-        TASK_STATUS_KEY,
-        task_id,
-        _build_trigger_status_payload(
-            task_id=task_id,
-            status=PipelineTaskStatus.QUEUED.value,
-            source_id=request.source_id,
-            source_ids=source_ids_field,
-            queued_at=now,
-        ),
-    )
-
-    # ── Launch background processing (fire-and-forget) ──
-    # The HTTP request returns immediately with the task_id. The actual crawl
-    # happens in the background; all exceptions are caught in
-    # ``_execute_trigger_background`` so the server process cannot crash.
     #
-    # The task is added to ``_background_tasks`` so the event loop does not
-    # garbage-collect it before completion (MEDIUM-1: asyncio.create_task GC
-    # risk). ``add_done_callback`` removes the entry automatically when the
-    # task finishes, so the set does not grow unboundedly.
-    background_task = asyncio.create_task(
-        _execute_trigger_background(
-            task_id=task_id,
-            target_source_ids=target_source_ids,
-            source_id_field=request.source_id,
-            source_ids_field=source_ids_field,
-            max_items=request.max_items,
-            force=request.force,
-            cache=cache,
-            scheduler=scheduler,
-            queued_at=now,
+    # HIGH-001: wrap the queue-write + ``asyncio.create_task`` in
+    # try/except so that a failure between lock acquire and background
+    # task creation rolls back the acquired locks. Without this, a
+    # ``cache.hset`` failure (e.g. Redis transient error) would leave
+    # the source locked for the full TTL (600s), blocking retries.
+    source_ids_field: list[str] | None = request.source_ids if source_ids_provided else None
+    try:
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            _build_trigger_status_payload(
+                task_id=task_id,
+                status=PipelineTaskStatus.QUEUED.value,
+                source_id=request.source_id,
+                source_ids=source_ids_field,
+                queued_at=now,
+            ),
         )
-    )
-    _background_tasks.add(background_task)
-    background_task.add_done_callback(_background_tasks.discard)
+
+        # ── Launch background processing (fire-and-forget) ──
+        # The HTTP request returns immediately with the task_id. The actual
+        # crawl happens in the background; all exceptions are caught in
+        # ``_execute_trigger_background`` so the server process cannot crash.
+        #
+        # The task is added to ``_background_tasks`` so the event loop does
+        # not garbage-collect it before completion (MEDIUM-1:
+        # asyncio.create_task GC risk). ``add_done_callback`` removes the
+        # entry automatically when the task finishes, so the set does not
+        # grow unboundedly.
+        background_task = asyncio.create_task(
+            _execute_trigger_background(
+                task_id=task_id,
+                target_source_ids=target_source_ids,
+                source_id_field=request.source_id,
+                source_ids_field=source_ids_field,
+                max_items=request.max_items,
+                force=request.force,
+                cache=cache,
+                scheduler=scheduler,
+                queued_at=now,
+                locked_source_ids=locked_source_ids or None,
+            )
+        )
+        _background_tasks.add(background_task)
+        background_task.add_done_callback(_background_tasks.discard)
+    except Exception:
+        # Roll back acquired locks if task queueing fails (HIGH-001).
+        # Without this, a failure between lock acquire and background task
+        # creation would leave the source locked for TTL (600s).
+        for sid in locked_source_ids:
+            with contextlib.suppress(Exception):
+                await cache.delete(f"{_SOURCE_LOCK_KEY_PREFIX}{sid}")
+        log.error(
+            "pipeline_trigger_queue_failed_rolling_back_locks",
+            task_id=task_id,
+            locked_source_count=len(locked_source_ids),
+            exc_info=True,
+        )
+        raise
 
     return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 

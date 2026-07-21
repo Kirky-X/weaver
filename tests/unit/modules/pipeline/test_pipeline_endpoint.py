@@ -161,6 +161,9 @@ class TestTriggerPipelineEdgeCases:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()
         mock_source.id = "test-source"
@@ -197,6 +200,9 @@ class TestTriggerPipelineEdgeCases:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()
         mock_source.id = "test-source"
@@ -226,6 +232,9 @@ class TestTriggerPipelineEdgeCases:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
+        # Atomic lock acquire (CWE-362 fix): set_nx replaces check-then-set
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()
         mock_source.id = "test-source"
@@ -246,6 +255,121 @@ class TestTriggerPipelineEdgeCases:
 
         # hset should be called at least once (initial status)
         assert mock_cache.hset.call_count >= 1
+
+
+class TestTriggerPipelineSourceDedup:
+    """Tests for per-source dedup lock on POST /pipeline/trigger (vuln-0002 fix)."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_returns_409_when_source_already_locked(self):
+        """If source lock exists, trigger returns 409 Conflict."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        # set_nx returns False → simulates lock already held by another task
+        mock_cache.set_nx = AsyncMock(return_value=False)
+
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
+        mock_scheduler = MagicMock()
+        mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
+
+        request = TriggerRequest(source_id="test-source")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await trigger_pipeline(
+                request=request,
+                _="test-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        assert exc_info.value.status_code == 409
+        assert "already being processed" in exc_info.value.detail
+        # No task should be queued
+        assert mock_cache.hset.call_count == 0
+        # set_nx must have been attempted (atomic acquire)
+        mock_cache.set_nx.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_trigger_sets_source_lock_when_not_locked(self):
+        """If source is not locked, trigger acquires the lock atomically via set_nx."""
+        from api.endpoints.content.pipeline import (
+            _SOURCE_LOCK_TTL_SECONDS,
+            TriggerRequest,
+            trigger_pipeline,
+        )
+
+        task_uuid = uuid.uuid4()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        # set_nx returns True → lock acquired atomically (CWE-362 fix)
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
+
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
+        mock_scheduler = MagicMock()
+        mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
+
+        request = TriggerRequest(source_id="test-source")
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+            await trigger_pipeline(
+                request=request,
+                _="test-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        await asyncio.sleep(0.05)  # Let background task run
+
+        # Lock should be acquired atomically via set_nx with TTL
+        mock_cache.set_nx.assert_called()
+        nx_call = mock_cache.set_nx.call_args
+        assert "pipeline:source:lock:test-source" in nx_call.args[0]
+        assert nx_call.kwargs.get("ex") == _SOURCE_LOCK_TTL_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_background_task_releases_lock_on_completion(self):
+        """Background task releases source lock after completion."""
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+
+        task_uuid = uuid.uuid4()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
+        mock_cache.set_nx = AsyncMock(return_value=True)
+        mock_cache.delete = AsyncMock()
+
+        mock_source = MagicMock()
+        mock_source.id = "test-source"
+        mock_scheduler = MagicMock()
+        mock_scheduler.trigger_now = AsyncMock()
+        mock_scheduler.list_enabled_sources.return_value = [mock_source]
+        mock_scheduler.list_all_sources.return_value = [mock_source]
+
+        request = TriggerRequest(source_id="test-source")
+
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+            await trigger_pipeline(
+                request=request,
+                _="test-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+
+        await asyncio.sleep(0.1)  # Wait for background task
+
+        # Lock should be deleted after completion (batch release via *keys)
+        mock_cache.delete.assert_called()
+        delete_call = mock_cache.delete.call_args
+        # All positional args are lock keys — at least one must match prefix
+        assert any("pipeline:source:lock:" in str(arg) for arg in delete_call.args)
 
 
 class TestProcessSingleUrlEndpoint:

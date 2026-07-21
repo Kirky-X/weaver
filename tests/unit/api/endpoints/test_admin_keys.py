@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from core.security import ApiKeyManager
+from core.security.api_key_manager import KeyOpStatus
 
 
 class TestApiKeyRotationEndpoint:
@@ -58,16 +59,17 @@ class TestApiKeyRotationEndpoint:
 
         result = await manager.rotate_key("key_old123")
 
-        assert result is not None
-        assert "key_id" in result
-        assert "key_value" in result
-        assert result["key_id"] != "key_old123"
-        assert result["scopes"] == ["search:read", "admin:write"]
-        assert result["rate_limit_per_min"] == 50
+        assert result.status is KeyOpStatus.OK
+        assert result.data is not None
+        assert "key_id" in result.data
+        assert "key_value" in result.data
+        assert result.data["key_id"] != "key_old123"
+        assert result.data["scopes"] == ["search:read", "admin:write"]
+        assert result.data["rate_limit_per_min"] == 50
 
     @pytest.mark.asyncio
     async def test_rotate_key_not_found(self, manager, mock_pool) -> None:
-        """rotate_key SHALL return None when key not found."""
+        """rotate_key SHALL return NOT_FOUND when key not found."""
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -79,7 +81,7 @@ class TestApiKeyRotationEndpoint:
 
         result = await manager.rotate_key("nonexistent_key")
 
-        assert result is None
+        assert result.status is KeyOpStatus.NOT_FOUND
 
     @pytest.mark.asyncio
     async def test_rotate_key_marks_old_key(self, manager, mock_pool) -> None:
@@ -103,7 +105,7 @@ class TestApiKeyRotationEndpoint:
 
         result = await manager.rotate_key("key_old123")
 
-        assert result is not None
+        assert result.status is KeyOpStatus.OK
         # Two execute calls: SELECT ... FOR UPDATE + UPDATE rotated_to
         assert mock_session.execute.call_count == 2
 
@@ -140,11 +142,16 @@ class TestDailyRotationScheduler:
         mock_result.scalars.return_value.all.return_value = [expiring_key]
         mock_session.execute.return_value = mock_result
 
-        with patch.object(manager, "rotate_key", return_value={"key_id": "new_key"}) as mock_rotate:
+        # check_expiring_keys now calls rotate_key with actor="system" and
+        # expects a KeyOpResult (vuln-0009 fix). Mock the return value.
+        from core.security.api_key_manager import KeyOpResult
+
+        ok_result = KeyOpResult(status=KeyOpStatus.OK, data={"key_id": "new_key"})
+        with patch.object(manager, "rotate_key", return_value=ok_result) as mock_rotate:
             count = await manager.check_expiring_keys(days_before=7)
 
         assert count == 1
-        mock_rotate.assert_called_once_with("key_expiring")
+        mock_rotate.assert_called_once_with("key_expiring", actor="system")
 
     @pytest.mark.asyncio
     async def test_check_expiring_keys_no_expiring(self, manager, mock_pool) -> None:

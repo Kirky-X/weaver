@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any
@@ -18,10 +19,16 @@ from api.schemas.response import APIResponse, success_response
 from core.db import Article, CategoryType, PersistStatus
 from core.observability import get_logger
 from core.protocols import RelationalPool
+from core.security import AuditLogService
 
 log = get_logger("articles_api")
 
 router = APIRouter(prefix="/articles", tags=["articles"])
+
+# Strong references for fire-and-forget audit log tasks so they are not
+# garbage-collected before completion (CPython GC caveat for create_task).
+# Mirrors the pattern used in src/api/endpoints/pipeline.py.
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 # ── Request/Response Models ─────────────────────────────────────
@@ -261,15 +268,25 @@ async def list_articles(
 
 @router.get("/{article_id}", response_model=APIResponse[ArticleDetailResponse])
 async def get_article(
+    request: Request,
     article_id: str,
-    _: str = Depends(verify_api_key),
+    api_key_id: str = Depends(verify_api_key),
     pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[ArticleDetailResponse]:
     """Get detailed information about a specific article.
 
+    Articles are system-level public content (aggregated news, not user-private
+    data), so all authenticated users can read all articles by design. However,
+    every article access is recorded in the audit log for security monitoring
+    and breach detection (vuln-0003 mitigation: CWE-639).
+
+    True multi-tenant isolation (tenant_id on Article + query filtering) is an
+    architecture-level change tracked separately — see fix_report.md §6.
+
     Args:
+        request: FastAPI request (for client IP / user agent in audit log).
         article_id: The article UUID.
-        _: Verified API key.
+        api_key_id: Verified API key identifier (for audit trail).
         pool: Relational database pool (PostgreSQL or DuckDB).
 
     Returns:
@@ -297,4 +314,28 @@ async def get_article(
                 detail=f"Article '{article_id}' not found",
             )
 
-        return success_response(ArticleDetailResponse(**_article_to_dict(article)))
+        # Extract data while session is open — article ORM object's attribute
+        # access is bound to the session lifecycle.
+        article_dict = _article_to_dict(article)
+
+    # Audit log: record article access for security monitoring (vuln-0003
+    # mitigation). Written OUTSIDE the session block to avoid nested sessions
+    # / double connection exhaustion under high concurrency (H-1).
+    # Fire-and-forget via create_task so the audit write does not block the
+    # response (LOW-001). AuditLogService.log_event swallows errors internally
+    # so audit failure never breaks the request.
+    audit = AuditLogService(pool)
+    audit_task = asyncio.create_task(
+        audit.log_event(
+            key_id=api_key_id,
+            action="article.read",
+            target_type="article",
+            target_id=article_id,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    )
+    _background_tasks.add(audit_task)
+    audit_task.add_done_callback(_background_tasks.discard)
+
+    return success_response(ArticleDetailResponse(**article_dict))
