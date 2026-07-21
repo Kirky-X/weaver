@@ -25,7 +25,7 @@ from sqlalchemy.dialects import postgresql
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:
-    Vector = sa.LargeBinary
+    Vector = sa.LargeBinary  # type: ignore[assignment,misc]  # fallback when pgvector not installed
 
 revision: str = "01_initial"
 down_revision: str | None = None

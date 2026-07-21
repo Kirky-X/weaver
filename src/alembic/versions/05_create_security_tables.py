@@ -21,7 +21,7 @@ from sqlalchemy.dialects import postgresql
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:
-    Vector = sa.LargeBinary
+    Vector = sa.LargeBinary  # type: ignore[assignment,misc]  # fallback when pgvector not installed
 
 revision: str = "05_create_security_tables"
 down_revision: str | None = "04_create_analytics_tables"
