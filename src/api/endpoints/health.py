@@ -15,7 +15,9 @@ from sqlalchemy import text
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import HealthCheckStatus, HealthStatus
-from core.observability import metrics
+from core.observability import get_logger, metrics
+
+log = get_logger(__name__)
 
 
 class ServiceHealthCheck(BaseModel):
@@ -23,7 +25,10 @@ class ServiceHealthCheck(BaseModel):
 
     status: str = Field(description="Service status: ok, timeout, error, or unavailable")
     latency_ms: float | None = Field(default=None, description="Response latency in milliseconds")
-    error: str | None = Field(default=None, description="Error message if any")
+    error: bool = Field(
+        default=False,
+        description="Error flag (true if check failed; details are logged server-side only).",
+    )
 
 
 class HealthCheckResponse(BaseModel):
@@ -79,11 +84,16 @@ async def check_postgres_health(pool: Any, service_name: str = "postgres") -> di
             HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
         )
         metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
-        return {
-            "status": HealthCheckStatus.ERROR.value,
-            "latency_ms": latency_ms,
-            HealthCheckStatus.ERROR.value: str(e),
-        }
+        # CWE-200: log full error server-side, expose only boolean flag in
+        # the public health response to avoid disclosing topology/version
+        # information to unauthenticated callers.
+        log.warning(
+            "health_check_error",
+            service=service_name,
+            error=str(e),
+            exc_type=type(e).__name__,
+        )
+        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, "error": True}
 
 
 async def check_neo4j_health(pool: Any, service_name: str = "neo4j") -> dict[str, Any]:
@@ -120,11 +130,13 @@ async def check_neo4j_health(pool: Any, service_name: str = "neo4j") -> dict[str
             HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
         )
         metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
-        return {
-            "status": HealthCheckStatus.ERROR.value,
-            "latency_ms": latency_ms,
-            HealthCheckStatus.ERROR.value: str(e),
-        }
+        log.warning(
+            "health_check_error",
+            service=service_name,
+            error=str(e),
+            exc_type=type(e).__name__,
+        )
+        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, "error": True}
 
 
 async def check_redis_health(client: Any) -> dict[str, Any]:
@@ -157,11 +169,13 @@ async def check_redis_health(client: Any) -> dict[str, Any]:
             HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
         )
         metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
-        return {
-            "status": HealthCheckStatus.ERROR.value,
-            "latency_ms": latency_ms,
-            HealthCheckStatus.ERROR.value: str(e),
-        }
+        log.warning(
+            "health_check_error",
+            service="redis",
+            error=str(e),
+            exc_type=type(e).__name__,
+        )
+        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, "error": True}
 
 
 async def health_check() -> HealthCheckResponse:
@@ -197,7 +211,7 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks[relational_service_name] = ServiceHealthCheck(
-            status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
+            status=HealthCheckStatus.UNAVAILABLE.value, error=True
         )
         metrics.health_check_status.labels(service=relational_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
@@ -218,7 +232,7 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks[graph_service_name] = ServiceHealthCheck(
-            status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
+            status=HealthCheckStatus.UNAVAILABLE.value, error=True
         )
         metrics.health_check_status.labels(service=graph_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
@@ -242,7 +256,7 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks[cache_service_name] = ServiceHealthCheck(
-            status=HealthCheckStatus.UNAVAILABLE.value, error="Client not initialized"
+            status=HealthCheckStatus.UNAVAILABLE.value, error=True
         )
         metrics.health_check_status.labels(service=cache_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]

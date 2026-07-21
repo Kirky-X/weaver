@@ -103,11 +103,17 @@ async def system_config(
 async def health_endpoint() -> APIResponse[dict]:
     """Health check endpoint for load balancers.
 
-    Returns health status wrapped in APIResponse format.
-    Detailed health info requires authentication via /api/v1/system/status.
+    Returns ONLY the overall status (``healthy``/``unhealthy``) without
+    per-dependency details — the unauthenticated ``/health`` endpoint
+    must not disclose internal topology (CWE-200 fix). Callers needing
+    per-dependency detail must use the admin-authenticated
+    ``/api/v1/system/health/dependencies`` endpoint.
     """
     result = await health_check()
-    return success_response({"status": result.status, "checks": result.checks})
+    # Expose only overall status; per-dependency checks contain error
+    # messages that may leak driver / version info to unauthenticated
+    # callers. The ``checks`` dict is intentionally omitted here.
+    return success_response({"status": result.status})
 
 
 async def metrics_endpoint(
@@ -164,7 +170,17 @@ async def health_dependencies(
                 "latency_ms": round(latency_ms, 2),
             }
         except Exception as e:
-            details["relational"] = {"status": "error", "error": str(e)}
+            # CWE-200: log full error server-side, expose only type to
+            # admin callers (admin endpoint, but still minimize leakage).
+            log.warning(
+                "system_health_relational_error",
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            details["relational"] = {
+                "status": "error",
+                "error_type": type(e).__name__,
+            }
 
         # Graph DB
         try:
@@ -181,7 +197,15 @@ async def health_dependencies(
                 "latency_ms": round(latency_ms, 2),
             }
         except Exception as e:
-            details["graph"] = {"status": "error", "error": str(e)}
+            log.warning(
+                "system_health_graph_error",
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            details["graph"] = {
+                "status": "error",
+                "error_type": type(e).__name__,
+            }
 
         # Cache
         try:
@@ -198,7 +222,15 @@ async def health_dependencies(
                 "latency_ms": round(latency_ms, 2),
             }
         except Exception as e:
-            details["cache"] = {"status": "error", "error": str(e)}
+            log.warning(
+                "system_health_cache_error",
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            details["cache"] = {
+                "status": "error",
+                "error_type": type(e).__name__,
+            }
 
         # LLM
         try:
@@ -210,7 +242,15 @@ async def health_dependencies(
                 "provider_count": len(providers),
             }
         except Exception as e:
-            details["llm"] = {"status": "error", "error": str(e)}
+            log.warning(
+                "system_health_llm_error",
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            details["llm"] = {
+                "status": "error",
+                "error_type": type(e).__name__,
+            }
 
     overall_healthy = all(v.get("status") == "ok" for v in details.values() if isinstance(v, dict))
     return success_response(
@@ -290,5 +330,5 @@ async def reload_config(
             }
         )
     except Exception as exc:
-        log.error("config_reload_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Reload failed: {exc!s}") from exc
+        log.error("config_reload_failed", error=str(exc), exc_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Configuration reload failed") from exc

@@ -8,7 +8,7 @@ Implements: Weaver-数据库设计文档 §12.3
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -24,6 +24,53 @@ log = get_logger(__name__)
 
 # Write methods that trigger audit on write-only paths
 _WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
+
+# Query parameter keys whose values must be redacted in audit logs to
+# prevent credential / token leakage (CWE-532 fix).
+_SENSITIVE_QUERY_PARAM_KEYS = frozenset(
+    {
+        "token",
+        "access_token",
+        "refresh_token",
+        "api_key",
+        "apikey",
+        "key",
+        "password",
+        "passwd",
+        "secret",
+        "secret_key",
+        "authorization",
+        "auth",
+        "code",  # OAuth authorization code
+        "session",
+        "session_id",
+        "csrf_token",
+        "x_api_key",
+        "x-api-key",
+    }
+)
+
+_REDACTED_PLACEHOLDER = "[REDACTED]"
+
+
+def _redact_query_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of params with sensitive values redacted.
+
+    Args:
+        params: Original query_params dict from request.
+
+    Returns:
+        New dict where sensitive keys have their values replaced with
+        ``[REDACTED]`` (CWE-532 fix).
+
+    """
+    redacted: dict[str, Any] = {}
+    for k, v in params.items():
+        if k.lower() in _SENSITIVE_QUERY_PARAM_KEYS:
+            redacted[k] = _REDACTED_PLACEHOLDER
+        else:
+            redacted[k] = v
+    return redacted
 
 
 class AuditLogMiddleware(BaseHTTPMiddleware):
@@ -158,7 +205,8 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "status_code": response.status_code,
                 "duration_ms": round(duration_ms, 2),
-                "query_params": dict(request.query_params),
+                # CWE-532: redact sensitive query params before logging
+                "query_params": _redact_query_params(dict(request.query_params)),
             }
 
             # Log to structured logging

@@ -123,7 +123,7 @@ class APISettings(BaseModel):
     port: int = 8000
     port_auto_detect: bool = True  # Enable automatic port detection
     port_max_attempts: int = 100  # Maximum port search attempts
-    require_auth_for_metrics: bool = False  # Optional auth for Prometheus metrics endpoint
+    require_auth_for_metrics: bool = True  # CWE-200: require auth for /metrics by default
     hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
     hmac_secret: str | None = (
         None  # Independent HMAC signing key (WEAVER_API__HMAC_SECRET). Falls back to API key if not set.

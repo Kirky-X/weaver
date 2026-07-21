@@ -1080,9 +1080,7 @@ class TestHealthEndpoint:
                     mock_health_check.return_value = HealthCheckResponse(
                         status="unhealthy",
                         checks={
-                            "postgres": ServiceHealthCheck(
-                                status="error", error="Connection refused"
-                            ),
+                            "postgres": ServiceHealthCheck(status="error", error=True),
                         },
                     )
 

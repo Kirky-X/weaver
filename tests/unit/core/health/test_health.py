@@ -84,7 +84,9 @@ class TestCheckPostgresHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        assert "Connection refused" in result["error"]
+        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # detailed exception messages are logged server-side only.
+        assert result["error"] is True
 
     @pytest.mark.asyncio
     async def test_postgres_health_latency_measurement(self, mock_relational_pool):
@@ -137,7 +139,9 @@ class TestCheckNeo4jHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        assert "ServiceUnavailable" in result["error"]
+        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # detailed exception messages are logged server-side only.
+        assert result["error"] is True
 
     @pytest.mark.asyncio
     async def test_neo4j_health_latency_measurement(self, mock_graph_pool):
@@ -190,7 +194,9 @@ class TestCheckRedisHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        assert "Connection refused" in result["error"]
+        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # detailed exception messages are logged server-side only.
+        assert result["error"] is True
 
     @pytest.mark.asyncio
     async def test_redis_health_latency_measurement(self, mock_cache_client):
@@ -373,9 +379,11 @@ class TestHealthCheck:
         assert result.checks["postgres"].status == "unavailable"
         assert result.checks["neo4j"].status == "unavailable"
         assert result.checks["redis"].status == "unavailable"
-        assert "not initialized" in result.checks["postgres"].error
-        assert "not initialized" in result.checks["neo4j"].error
-        assert "not initialized" in result.checks["redis"].error
+        # After CWE-200 fix (vuln-0011): error is a bool flag (True on failure);
+        # detailed messages are logged server-side only, not exposed via API.
+        assert result.checks["postgres"].error is True
+        assert result.checks["neo4j"].error is True
+        assert result.checks["redis"].error is True
 
     @pytest.mark.asyncio
     async def test_partial_pools_initialized(self, mock_graph_pool, mock_cache_client):
@@ -496,9 +504,11 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert "PostgreSQL connection failed" in result.checks["postgres"].error
-        assert "Neo4j connection failed" in result.checks["neo4j"].error
-        assert "Redis connection failed" in result.checks["redis"].error
+        # After CWE-200 fix (vuln-0011): error is a bool flag (True on failure);
+        # detailed exception messages are logged server-side only.
+        assert result.checks["postgres"].error is True
+        assert result.checks["neo4j"].error is True
+        assert result.checks["redis"].error is True
 
 
 class TestGlobalPoolSetters:
