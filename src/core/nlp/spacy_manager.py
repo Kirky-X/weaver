@@ -7,7 +7,8 @@ Provides startup-time model validation and automatic installation capabilities.
 
 from __future__ import annotations
 
-import subprocess
+# 用于 spaCy 模型安装，shell=False 已限定安全模式
+import subprocess  # nosec B404
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -177,7 +178,8 @@ class SpacyModelManager:
 
         # Path is from config, verified to exist above - safe to use
         # Explicit shell=False ensures no shell interpretation
-        result = subprocess.run(
+        # 配置源路径 + .whl 后缀校验
+        result = subprocess.run(  # nosec B603
             cmd,
             capture_output=True,
             text=True,

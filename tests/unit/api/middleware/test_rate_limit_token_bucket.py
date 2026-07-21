@@ -352,9 +352,13 @@ class TestSlowapiRemoval:
     def test_main_no_slowapi_imports(self):
         """Test that main.py no longer imports slowapi."""
         import ast
+        import importlib.util
         import pathlib
 
-        main_path = pathlib.Path("/home/dev/projects/weaver/src/main.py")
+        # 用 find_spec 解析 main 模块路径，不实际执行（避免触发 app 初始化）
+        spec = importlib.util.find_spec("main")
+        assert spec is not None and spec.origin, "main 模块未找到"
+        main_path = pathlib.Path(spec.origin)
         tree = ast.parse(main_path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

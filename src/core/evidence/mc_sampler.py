@@ -205,7 +205,8 @@ class MCSampler:
             section_start = i * section_size
             section_end = min((i + 1) * section_size, text_len - self._region_size)
             if section_end > section_start:
-                anchor = random.randint(section_start, section_end)
+                # 非密码学采样用途
+                anchor = random.randint(section_start, section_end)  # nosec B311
                 random_anchors.append(anchor)
 
         anchors.extend(random_anchors)
@@ -218,9 +219,10 @@ class MCSampler:
             # Prioritize fuzz anchors (content change points)
             anchors = sorted(
                 anchors,
+                # 非密码学排序用途
                 key=lambda x: (
                     x not in fuzz_anchors,  # Fuzz anchors first
-                    random.random(),  # Then random order
+                    random.random(),  # nosec B311
                 ),
             )[: self._sample_size]
 

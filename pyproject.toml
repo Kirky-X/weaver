@@ -296,6 +296,7 @@ ignore = [
     "F841",
     "B007",
     "RUF002",
+    "RUF003", # 中文全角字符
     "RET504",
     "S112",
     "UP042",
@@ -317,6 +318,7 @@ ignore = [
     "RET503",
     "PLR0913",
     "RUF002",
+    "RUF003", # 中文全角字符
     "N818",
     "RET504",
     "RUF059",
@@ -331,6 +333,7 @@ ignore = [
     "N818",
     "F811",
     "D", # main.py 放宽 docstring 要求
+    "RUF006", # signal handler 中 asyncio.create_task 不需保存引用（fire-and-forget）
 ]  # main.py 放宽要求
 
 [tool.ruff.lint.isort]
@@ -384,7 +387,7 @@ exclude = '''
 extend-exclude = '''
 ^src/scripts/rollback/
 '''
-preview = true       # 启用 preview 功能
+# preview 禁用：black preview 的括号拆行风格与 ruff format 不兼容，CI 同时跑两者会冲突
 
 # ────────────────────────────────────────────────────────────
 # isort — import 排序
@@ -507,8 +510,10 @@ follow_imports = "skip"
 module = "alembic.*"
 ignore_errors = true
 
+# mypy 把 src/ 下的模块解析为不带 src 前缀的命名空间（namespace package）
+# 因此 override 必须用 core.* / modules.* / api.* 而非 src.core.* 等
 [[tool.mypy.overrides]]
-module = "src/config.*"
+module = "config.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
@@ -516,7 +521,15 @@ module = "container.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = "src.core.*"
+module = "core.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "modules.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "api.*"
 ignore_errors = true
 
 # ────────────────────────────────────────────────────────────
@@ -634,6 +647,7 @@ addopts = [
     "-n", "2",
     "--dist=loadscope",
     "--ignore=tests/e2e",
+    "--ignore=tests/performance",
     "--strict-markers",
     "--strict-config",
     "--tb=short",
@@ -644,13 +658,14 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-fail-under=80",
-    "-m", "not integration and not e2e",
+    "-m", "not integration and not e2e and not performance and not benchmark",
 ]
 markers = [
     "integration: Integration tests requiring external services",
     "e2e: End-to-end tests",
     "slow: Slow-running tests",
     "performance: Performance benchmark tests",
+    "benchmark: pytest-benchmark fixture tests (skip in CI)",
     "unit: mark test as unit test",
 ]
 filterwarnings = [

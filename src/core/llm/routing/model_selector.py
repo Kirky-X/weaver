@@ -124,8 +124,11 @@ class ModelSelector:
         ranked = self._score_and_rank(call_point, capable, mode)
 
         # Phase 4: Exploration — with probability exploration_weight, shuffle results
-        if self.exploration_weight > 0.0 and random.random() < self.exploration_weight:
-            random.shuffle(ranked)
+        # 探索性随机非密码学
+        if (
+            self.exploration_weight > 0.0 and random.random() < self.exploration_weight
+        ):  # nosec B311
+            random.shuffle(ranked)  # nosec B311
 
         return ranked
 

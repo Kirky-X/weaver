@@ -1,4 +1,4 @@
-# Weaver CI 质量门禁：ruff(format/lint) / black / mypy / pytest+cov(≥80%) / bandit
+# Weaver CI 质量门禁：ruff(format/lint) / mypy / pytest+cov(≥80%) / bandit
 name: CI
 
 on:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   lint:
-    name: ruff format + ruff check + black --check + mypy
+    name: ruff format + ruff check + mypy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +23,6 @@ jobs:
       - run: uv sync --all-extras --all-groups
       - run: uv run ruff format --check src/ tests/ scripts/
       - run: uv run ruff check src/ tests/ scripts/
-      - run: uv run black --check src/ tests/
       - run: uv run mypy --ignore-missing-imports src/
 
   test:

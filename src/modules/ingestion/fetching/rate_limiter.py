@@ -105,7 +105,8 @@ class HostRateLimiter:
             last = self._last_request.get(host, 0.0)
             elapsed = now - last
 
-            delay = random.uniform(self._delay_min, self._delay_max)
+            # 速率抖动非密码学用途
+            delay = random.uniform(self._delay_min, self._delay_max)  # nosec B311
 
             if last > 0 and elapsed < delay:
                 wait_time = delay - elapsed

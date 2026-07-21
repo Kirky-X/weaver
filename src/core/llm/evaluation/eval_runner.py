@@ -94,7 +94,8 @@ class EvalRunner:
             return False
         if call_point not in self._config.target_call_points:
             return False
-        return random.random() < self._config.sample_rate
+        # 评估采样非密码学用途
+        return random.random() < self._config.sample_rate  # nosec B311
 
     async def trigger_shadow_call(
         self,

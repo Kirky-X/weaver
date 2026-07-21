@@ -14,7 +14,9 @@ Security Note:
 from __future__ import annotations
 
 import hashlib
-import pickle
+
+# BM25 索引持久化，已用 RestrictedUnpickler 加固防 RCE
+import pickle  # nosec B403
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field

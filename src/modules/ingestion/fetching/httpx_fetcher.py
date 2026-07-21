@@ -141,7 +141,8 @@ class HttpxFetcher(BaseFetcher):
         Returns:
             Merged headers dict with a User-Agent selected from the pool.
         """
-        merged: dict[str, str] = {"User-Agent": random.choice(self._user_agents)}
+        # UA 轮换非密码学用途
+        merged: dict[str, str] = {"User-Agent": random.choice(self._user_agents)}  # nosec B311
         if headers:
             merged.update(headers)
         return merged

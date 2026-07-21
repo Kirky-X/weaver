@@ -123,13 +123,15 @@ class ExperienceStore:
 
                     # Recent calls (0-24h ago)
                     for i in range(recent_calls):
-                        timestamp = now - random.uniform(0, RECENT_WINDOW_SECONDS)
+                        # 模拟数据非安全用途
+                        timestamp = now - random.uniform(0, RECENT_WINDOW_SECONDS)  # nosec B311
                         success = i < recent_successes
                         call_history.append((timestamp, avg_latency, success))
 
                     # Older calls (24h-7d ago)
                     for i in range(old_calls):
-                        timestamp = now - random.uniform(
+                        # 模拟数据非安全用途
+                        timestamp = now - random.uniform(  # nosec B311
                             RECENT_WINDOW_SECONDS, OLDER_WINDOW_SECONDS
                         )
                         success = i < old_successes
@@ -332,8 +334,9 @@ class ExperienceStore:
             return selected
 
         # Random exploration probability
-        if random.random() < self._exploration_weight:
-            return random.choice(providers)
+        # ε-greedy 探索非密码学
+        if random.random() < self._exploration_weight:  # nosec B311
+            return random.choice(providers)  # nosec B311
 
         # Thompson Sampling after warmup
         best_provider = providers[0]

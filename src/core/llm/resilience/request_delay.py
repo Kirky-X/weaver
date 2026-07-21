@@ -121,7 +121,8 @@ class RequestDelay:
             elapsed = now - last_time
 
             # 生成随机延迟
-            delay = random.uniform(self._delay_min, self._delay_max)
+            # 延迟抖动非密码学用途
+            delay = random.uniform(self._delay_min, self._delay_max)  # nosec B311
 
             # 如果距离上次请求时间小于延迟,则等待
             if elapsed < delay:

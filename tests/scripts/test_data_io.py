@@ -26,6 +26,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# 整个文件需要 PostgreSQL + Neo4j Docker 服务，标记为 integration 在 CI 跳过
+pytestmark = pytest.mark.integration
+
 # ── Connection configuration (real Docker services) ────────────────────
 PG_DSN = os.environ.get(
     "WEAVER_TEST_PG_DSN",

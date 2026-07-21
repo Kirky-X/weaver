@@ -8,6 +8,7 @@ import asyncio
 import os
 import signal
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -54,7 +55,7 @@ def _ensure_spacy_models(settings: Settings) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> None:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager for startup and shutdown.
 
     Args:
@@ -252,10 +253,11 @@ async def main() -> None:
         loop.stop()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(
-            sig,
-            lambda s=sig: asyncio.create_task(graceful_shutdown(s)),
-        )
+
+        def _signal_handler(s: signal.Signals = sig) -> None:
+            asyncio.create_task(graceful_shutdown(s))
+
+        loop.add_signal_handler(sig, _signal_handler)
 
     # Run server
     config = uvicorn.Config(
