@@ -1,6 +1,6 @@
 [project]
 name = "weaver"
-version = "0.1.0"
+version = "0.2.0"
 description = "Weaver - 智能资讯发掘与知识图谱构建平台"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -586,7 +586,7 @@ ignore = [
 # ────────────────────────────────────────────────────────────
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.2.0"
 tag_format = "v$version"
 version_files = []
 changelog_encode = true

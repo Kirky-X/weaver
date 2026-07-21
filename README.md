@@ -12,7 +12,7 @@
 
 <p>
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
 </p>

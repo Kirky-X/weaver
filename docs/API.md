@@ -89,7 +89,7 @@ Host: api.weaver.example.com
 ```json
 {
   "status": "running",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "database": {
     "relational": "postgres",
     "graph": "neo4j",
