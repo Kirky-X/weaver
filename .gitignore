@@ -56,6 +56,7 @@ coverage.json
 .opencode/
 .qoder/
 .remember/
+.tiangang_scan/
 logs/
 
 # Documentation files
