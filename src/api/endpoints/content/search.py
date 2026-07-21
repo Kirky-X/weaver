@@ -509,12 +509,21 @@ async def search_drift(
         )
 
     except Exception as exc:
-        get_logger(__name__).error("drift_search_failed", error=str(exc))
-        if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
+        # CWE-200: log full error server-side (with traceback context),
+        # expose only generic message to client to avoid disclosing
+        # driver / SQL / internal topology information.
+        get_logger(__name__).error(
+            "drift_search_failed",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            query=body.query[:50],
+        )
+        err_msg = str(exc).lower()
+        if "neo4j" in err_msg or "graph" in err_msg:
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        if "llm" in str(exc).lower() or "circuit breaker" in str(exc).lower():
+        if "llm" in err_msg or "circuit breaker" in err_msg:
             raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")
+        raise HTTPException(status_code=500, detail="DRIFT search failed")
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────
@@ -708,12 +717,16 @@ async def search_causal(
     except HTTPException:
         raise
     except Exception as exc:
-        log.error("causal_search_failed", error=str(exc))
+        # CWE-200: log full error server-side, expose only generic message.
+        log.error(
+            "causal_search_failed",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            query=body.query[:50],
+        )
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error during causal search: {exc}"
-        )
+        raise HTTPException(status_code=500, detail="Internal server error during causal search")
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -945,9 +958,12 @@ async def search_temporal(
     except HTTPException:
         raise
     except Exception as exc:
-        log.error("temporal_search_failed", error=str(exc))
+        log.error(
+            "temporal_search_failed",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            query=body.query[:50],
+        )
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(
-            status_code=500, detail=f"Internal server error during temporal search: {exc}"
-        )
+        raise HTTPException(status_code=500, detail="Internal server error during temporal search")
