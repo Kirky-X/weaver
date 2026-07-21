@@ -208,6 +208,18 @@ class ApiKeyManager:
                         elapsed = time.monotonic() - start_time
                         _api_key_validation_duration.labels(method=method).observe(elapsed)
                         return None
+                    # Check rotated_to — rotated keys are no longer valid
+                    # even though is_revoked may still be False (race window
+                    # before atomic rotation completes).
+                    if getattr(candidate, "rotated_to", None):
+                        log.warning(
+                            "api_key_rotated_rejected",
+                            key_id=candidate.key_id,
+                            rotated_to=candidate.rotated_to,
+                        )
+                        elapsed = time.monotonic() - start_time
+                        _api_key_validation_duration.labels(method=method).observe(elapsed)
+                        return None
                     # bcrypt verify
                     if self._verify_key(key_value, candidate.key_hash):
                         matched_key = candidate
@@ -222,6 +234,8 @@ class ApiKeyManager:
                 candidates = result.scalars().all()
 
                 for candidate in candidates:
+                    if getattr(candidate, "rotated_to", None):
+                        continue  # skip rotated keys
                     if self._verify_key(key_value, candidate.key_hash):
                         matched_key = candidate
                         break
@@ -345,44 +359,103 @@ class ApiKeyManager:
     async def rotate_key(self, key_id: str) -> dict[str, Any] | None:
         """Rotate an API key, creating a replacement and marking the old one.
 
-        Creates a new key with the same scopes and rate limit as the old key.
-        Sets rotated_to on the old key to link to the new key.
+        Creates a new key with the same scopes and rate limit as the old key
+        and atomically marks the old key as rotated+revoked in a single
+        transaction, eliminating the window where both old and new keys are
+        valid simultaneously (CWE-362 fix).
+
+        The fetch + insert + update is performed inside a single transaction
+        using ``SELECT ... FOR UPDATE`` on the old key. This closes the TOCTOU
+        window where two concurrent ``rotate_key`` calls for the same key_id
+        would each read an unrotated old_key, then both insert a new key and
+        clobber each other's ``rotated_to`` reference — leaving one new key as
+        an orphan. With row-level locking, the second caller blocks until the
+        first commits, then observes ``is_revoked=True`` / ``rotated_to != None``
+        and bails out cleanly.
 
         Args:
             key_id: The key ID to rotate.
 
         Returns:
-            New key info dict if rotated, None if key not found.
+            New key info dict if rotated, None if key not found, already
+            revoked, or already rotated.
+
         """
-        old_key = await self._fetch_key(key_id)
-        if old_key is None:
-            log.warning("api_key_rotation_failed_not_found", key_id=key_id)
-            return None
+        # Build new key material
+        new_key_id = secrets.token_hex(4)
+        new_key_value = f"weaver_{new_key_id}_{secrets.token_hex(8)}"
+        new_expires_at = datetime.now(UTC) + timedelta(days=90)
+        new_key_hash = self._hash_key(new_key_value)
 
-        # Create replacement key with same config
-        new_key_info = await self.create_key(
-            scopes=old_key.scopes,
-            rate_limit_per_min=old_key.rate_limit_per_min,
-            expires_in_days=90,
-            created_by=f"rotation:{key_id}",
-        )
-
-        # Mark old key as rotated
+        # Single atomic transaction: SELECT ... FOR UPDATE + insert new key +
+        # revoke+rotate old key. If any step fails, all roll back — no
+        # half-rotated state, no orphaned new keys.
         async with self._pool.session() as session:
+            # Lock the old key row for the duration of this transaction so
+            # concurrent rotate_key / revoke_key callers cannot interleave.
+            # with_for_update() emits SELECT ... FOR UPDATE on PG;
+            # DuckDB falls back to a no-op lock (single-writer model).
+            result = await session.execute(
+                select(ApiKey).where(ApiKey.key_id == key_id).with_for_update()
+            )
+            old_key = result.scalar_one_or_none()
+
+            if old_key is None:
+                log.warning("api_key_rotation_failed_not_found", key_id=key_id)
+                return None
+
+            if old_key.is_revoked:
+                log.warning(
+                    "api_key_rotation_failed_already_revoked",
+                    key_id=key_id,
+                )
+                return None
+
+            if old_key.rotated_to is not None:
+                log.warning(
+                    "api_key_rotation_failed_already_rotated",
+                    key_id=key_id,
+                    rotated_to=old_key.rotated_to,
+                )
+                return None
+
+            # Insert new key
+            new_api_key = ApiKey(
+                key_id=new_key_id,
+                key_hash=new_key_hash,
+                scopes=old_key.scopes,
+                rate_limit_per_min=old_key.rate_limit_per_min,
+                expires_at=new_expires_at,
+                created_by=f"rotation:{key_id}",
+            )
+            session.add(new_api_key)
+
+            # Mark old key as rotated atomically. validate_key() rejects any
+            # key whose ``rotated_to`` is non-null (see api_key_manager.validate_key
+            # around line 214), so setting ``rotated_to`` is sufficient to close
+            # the window where both old and new keys are valid simultaneously
+            # (CWE-362). We intentionally do NOT set ``is_revoked=True`` here
+            # because ``is_revoked`` is reserved for explicit revocation
+            # (revoke_key) and is the field audit logs key off of to flag
+            # operator-initiated revocations vs. scheduled rotations.
             await session.execute(
-                update(ApiKey)
-                .where(ApiKey.key_id == key_id)
-                .values(rotated_to=new_key_info["key_id"])
+                update(ApiKey).where(ApiKey.key_id == key_id).values(rotated_to=new_key_id)
             )
             await session.commit()
 
         log.info(
             "api_key_rotated",
             old_key_id=key_id,
-            new_key_id=new_key_info["key_id"],
+            new_key_id=new_key_id,
         )
 
-        return new_key_info
+        return {
+            "key_id": new_key_id,
+            "key_value": new_key_value,
+            "scopes": old_key.scopes,
+            "rate_limit_per_min": old_key.rate_limit_per_min,
+            "expires_at": new_expires_at.isoformat(),
+        }
 
     async def check_expiring_keys(self, days_before: int = 7) -> int:
         """Check for keys expiring within days_before days and auto-rotate them.

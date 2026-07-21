@@ -55,7 +55,9 @@ class TestApiKeyRotation:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        # Mock the old key query
+        # Mock the old key query — rotate_key now does SELECT ... FOR UPDATE
+        # inside the main transaction (TOCTOU fix), so we mock session.execute
+        # to return a result with scalar_one_or_none returning the old_key.
         old_key = ApiKey(
             key_id="key_old123",
             key_hash="$2b$12$hash",
@@ -64,8 +66,12 @@ class TestApiKeyRotation:
             expires_at=datetime.now(UTC) + timedelta(days=5),
         )
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
+
+        result = await manager.rotate_key("key_old123")
 
         # Should return new key info
         assert result is not None
@@ -88,14 +94,18 @@ class TestApiKeyRotation:
             expires_at=datetime.now(UTC) + timedelta(days=5),
         )
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
+
+        result = await manager.rotate_key("key_old123")
 
         # Verify the result contains a new key_id (rotation happened)
         assert result is not None
         assert result["key_id"] != "key_old123"
-        # The UPDATE was executed (session.execute was called)
-        assert mock_session.execute.call_count >= 1
+        # Two execute calls: SELECT ... FOR UPDATE + UPDATE rotated_to
+        assert mock_session.execute.call_count == 2
 
     @pytest.mark.asyncio
     async def test_rotate_preserves_scopes(self, manager, mock_pool) -> None:
@@ -112,15 +122,27 @@ class TestApiKeyRotation:
             expires_at=datetime.now(UTC) + timedelta(days=5),
         )
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
+
+        result = await manager.rotate_key("key_old123")
 
         assert result["scopes"] == ["search:read", "admin:write"]
         assert result["rate_limit_per_min"] == 50
 
 
 class TestGracePeriod:
-    """Old key SHALL remain valid during 24h grace period after rotation."""
+    """Old key SHALL be invalidated via rotated_to (not is_revoked) on rotation.
+
+    After the CWE-362 fix (vuln-0001), rotate_key uses SELECT ... FOR UPDATE
+    to atomically fetch + rotate within a single transaction. The old key is
+    invalidated by setting ``rotated_to`` (validate_key rejects any key whose
+    ``rotated_to`` is non-null). ``is_revoked`` is intentionally NOT set — it
+    is reserved for explicit operator-initiated revocation (revoke_key), so
+    audit logs can distinguish scheduled rotations from explicit revocations.
+    """
 
     @pytest.fixture
     def mock_pool(self):
@@ -136,10 +158,13 @@ class TestGracePeriod:
 
     @pytest.mark.asyncio
     async def test_rotated_key_valid_in_grace_period(self, manager, mock_pool) -> None:
-        """Rotated key SHALL be valid for 24h after rotation (not revoked immediately)."""
-        # rotate_key does NOT revoke the old key — it only sets rotated_to.
-        # The old key remains valid until it naturally expires.
-        # This is the 24h grace period by design.
+        """Rotation SHALL invalidate old key via rotated_to, NOT is_revoked.
+
+        Setting ``rotated_to`` is sufficient: validate_key rejects any key
+        whose ``rotated_to`` is non-null (immediate invalidation, no grace
+        window — closes the CWE-362 race). ``is_revoked`` stays False so audit
+        logs can distinguish rotation from explicit revocation.
+        """
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -152,12 +177,119 @@ class TestGracePeriod:
             expires_at=datetime.now(UTC) + timedelta(days=5),
         )
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
 
-        # rotate_key should NOT set is_revoked=True on old key
-        # (old key remains valid during grace period)
+        result = await manager.rotate_key("key_old123")
+
+        # rotation succeeded
+        assert result is not None
+        assert result["key_id"] != "key_old123"
+        # rotate_key should NOT set is_revoked=True on old key — rotated_to
+        # is the invalidation mechanism (validate_key enforces it).
         assert old_key.is_revoked is not True
+
+
+class TestRotateKeyTOCTOU:
+    """TOCTOU edge cases — rotate_key SHALL reject already-rotated / revoked keys.
+
+    After the CWE-362 fix (vuln-0001), rotate_key performs SELECT ... FOR UPDATE
+    inside the main transaction and inspects ``is_revoked`` / ``rotated_to``
+    before rotating. Concurrent rotate_key calls for the same key_id are
+    serialized by the row lock; the second caller observes the post-rotation
+    state and bails out cleanly instead of creating an orphan new key.
+    """
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        pool.session = MagicMock()
+        return pool
+
+    @pytest.fixture
+    def manager(self, mock_pool):
+        from core.security.api_key_manager import ApiKeyManager
+
+        return ApiKeyManager(pool=mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_rotate_already_revoked_key_returns_none(self, manager, mock_pool) -> None:
+        """rotate_key SHALL return None when key is already revoked."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        revoked_key = ApiKey(
+            key_id="key_old123",
+            key_hash="$2b$12$hash",
+            scopes=["search:read"],
+            rate_limit_per_min=100,
+            expires_at=datetime.now(UTC) + timedelta(days=5),
+            is_revoked=True,
+        )
+
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=revoked_key)
+        mock_session.execute = AsyncMock(return_value=select_result)
+
+        result = await manager.rotate_key("key_old123")
+
+        # No new key created — UPDATE was not called.
+        assert result is None
+        assert mock_session.execute.call_count == 1  # SELECT only, no UPDATE
+        # session.add never called — no new key inserted.
+        assert not mock_session.add.called
+        assert not mock_session.commit.called
+
+    @pytest.mark.asyncio
+    async def test_rotate_already_rotated_key_returns_none(self, manager, mock_pool) -> None:
+        """rotate_key SHALL return None when key is already rotated."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        rotated_key = ApiKey(
+            key_id="key_old123",
+            key_hash="$2b$12$hash",
+            scopes=["search:read"],
+            rate_limit_per_min=100,
+            expires_at=datetime.now(UTC) + timedelta(days=5),
+            is_revoked=False,
+            rotated_to="key_new456",  # already rotated
+        )
+
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=rotated_key)
+        mock_session.execute = AsyncMock(return_value=select_result)
+
+        result = await manager.rotate_key("key_old123")
+
+        # No new key created — UPDATE was not called.
+        assert result is None
+        assert mock_session.execute.call_count == 1  # SELECT only, no UPDATE
+        assert not mock_session.add.called
+        assert not mock_session.commit.called
+
+    @pytest.mark.asyncio
+    async def test_rotate_nonexistent_key_returns_none(self, manager, mock_pool) -> None:
+        """rotate_key SHALL return None when key_id not found in DB."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        # scalar_one_or_none returns None — key not in DB.
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_session.execute = AsyncMock(return_value=select_result)
+
+        result = await manager.rotate_key("nonexistent_key")
+
+        assert result is None
+        assert mock_session.execute.call_count == 1  # SELECT only
+        assert not mock_session.add.called
+        assert not mock_session.commit.called
 
 
 class TestDailyRotationCheck:

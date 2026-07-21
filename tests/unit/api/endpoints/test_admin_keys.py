@@ -45,9 +45,18 @@ class TestApiKeyRotationEndpoint:
         old_key.scopes = ["search:read", "admin:write"]
         old_key.rate_limit_per_min = 50
         old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
+        old_key.is_revoked = False
+        old_key.rotated_to = None
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        # rotate_key now does SELECT ... FOR UPDATE inside the main transaction
+        # (TOCTOU fix), so mock session.execute to return a result with
+        # scalar_one_or_none returning the old_key.
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
+
+        result = await manager.rotate_key("key_old123")
 
         assert result is not None
         assert "key_id" in result
@@ -59,8 +68,16 @@ class TestApiKeyRotationEndpoint:
     @pytest.mark.asyncio
     async def test_rotate_key_not_found(self, manager, mock_pool) -> None:
         """rotate_key SHALL return None when key not found."""
-        with patch.object(manager, "_fetch_key", return_value=None):
-            result = await manager.rotate_key("nonexistent_key")
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        # scalar_one_or_none returns None — key not in DB.
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_session.execute = AsyncMock(return_value=select_result)
+
+        result = await manager.rotate_key("nonexistent_key")
 
         assert result is None
 
@@ -76,13 +93,19 @@ class TestApiKeyRotationEndpoint:
         old_key.scopes = ["search:read"]
         old_key.rate_limit_per_min = 100
         old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
+        old_key.is_revoked = False
+        old_key.rotated_to = None
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
+
+        result = await manager.rotate_key("key_old123")
 
         assert result is not None
-        # The UPDATE was executed (session.execute was called for marking rotated_to)
-        assert mock_session.execute.call_count >= 1
+        # Two execute calls: SELECT ... FOR UPDATE + UPDATE rotated_to
+        assert mock_session.execute.call_count == 2
 
 
 class TestDailyRotationScheduler:
@@ -161,7 +184,14 @@ class TestGracePeriod:
 
     @pytest.mark.asyncio
     async def test_rotated_key_not_revoked(self, manager, mock_pool) -> None:
-        """Rotated key SHALL NOT be revoked immediately (grace period)."""
+        """Rotated key SHALL NOT be revoked immediately (grace period).
+
+        After the CWE-362 fix (vuln-0001), rotate_key uses SELECT ... FOR UPDATE
+        inside the main transaction and sets ``rotated_to`` (validate_key rejects
+        any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
+        it is reserved for explicit operator-initiated revocation (revoke_key),
+        so audit logs can distinguish scheduled rotations from explicit revocations.
+        """
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -172,11 +202,19 @@ class TestGracePeriod:
         old_key.rate_limit_per_min = 100
         old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
         old_key.is_revoked = False
+        old_key.rotated_to = None
 
-        with patch.object(manager, "_fetch_key", return_value=old_key):
-            result = await manager.rotate_key("key_old123")
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=old_key)
+        update_result = MagicMock()
+        mock_session.execute = AsyncMock(side_effect=[select_result, update_result])
 
-        # rotate_key should NOT set is_revoked=True on old key
+        result = await manager.rotate_key("key_old123")
+
+        # rotation succeeded
+        assert result is not None
+        # rotate_key should NOT set is_revoked=True on old key — rotated_to
+        # is the invalidation mechanism (validate_key enforces it).
         assert old_key.is_revoked is False
 
 
