@@ -17,6 +17,33 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient, Response
 
 # ────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _flatten_app_routes(routes):
+    """Flatten ``app.routes`` expanding ``_IncludedRouter`` objects.
+
+    Starlette 1.3 / FastAPI introduced ``_IncludedRouter`` wrapping
+    sub-routers; these objects have no top-level ``path`` attribute. This
+    helper uses ``effective_candidates()`` to recursively walk the nested
+    structure and return full paths for all effective routes. Uses duck
+    typing to avoid hard dependency on fastapi private API.
+    """
+    result = []
+    for route in routes:
+        if hasattr(route, "effective_candidates"):
+            for sub in route.effective_candidates():
+                if hasattr(sub, "effective_candidates"):
+                    result.extend(_flatten_app_routes([sub]))
+                elif hasattr(sub, "path"):
+                    result.append(sub.path)
+        elif hasattr(route, "path"):
+            result.append(route.path)
+    return result
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Fixtures
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -934,7 +961,7 @@ class TestCreateApp:
                 app = create_app()
 
                 # Check router is included
-                routes = [route.path for route in app.routes]
+                routes = _flatten_app_routes(app.routes)
                 # API routes should start with /api/v1
                 api_routes = [r for r in routes if r.startswith("/api/v1")]
                 assert len(api_routes) > 0
@@ -1022,7 +1049,7 @@ class TestCreateApp:
 
                 app = create_app()
 
-                routes = [route.path for route in app.routes]
+                routes = _flatten_app_routes(app.routes)
                 assert "/health" in routes
 
     def test_has_metrics_endpoint(self, mock_settings):
@@ -1033,7 +1060,7 @@ class TestCreateApp:
 
                 app = create_app()
 
-                routes = [route.path for route in app.routes]
+                routes = _flatten_app_routes(app.routes)
                 assert "/metrics" in routes
 
 
@@ -1325,7 +1352,7 @@ class TestAppIntegration:
 
                 app = create_app()
 
-                routes = [route.path for route in app.routes]
+                routes = _flatten_app_routes(app.routes)
 
                 # Check some known API routes exist
                 api_routes = [r for r in routes if r.startswith("/api/v1")]
