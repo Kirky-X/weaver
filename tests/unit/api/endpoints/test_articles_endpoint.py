@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -347,7 +348,9 @@ class TestGetArticleDetail:
     @pytest.mark.asyncio
     async def test_get_article_detail_returns_title_and_body(self):
         """Test that get_article returns full article detail."""
-        from api.endpoints.content.articles import get_article
+        from api.endpoints.content.articles import _background_tasks, get_article
+
+        _background_tasks.clear()  # Ensure clean state before test
 
         article = _make_mock_article(
             article_id="12345678-1234-5678-1234-567812345678",
@@ -365,13 +368,24 @@ class TestGetArticleDetail:
         pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
         pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
+        # Mock request for audit logging (vuln-0003 mitigation).
+        mock_request = MagicMock()
+        mock_request.client.host = "127.0.0.1"
+        mock_request.headers = {"user-agent": "test-agent"}
+
         result = await get_article(
+            request=mock_request,
             article_id="12345678-1234-5678-1234-567812345678",
-            _="test-key",
+            api_key_id="test-key",
             pool=pool,
         )
         assert result.data.title == "Detailed Article"
         assert result.data.body == "Full article body content"
+
+        # Let fire-and-forget audit log background task complete to avoid
+        # "Task was destroyed but it is pending!" warnings.
+        await asyncio.sleep(0.01)
+        _background_tasks.clear()
 
     @pytest.mark.asyncio
     async def test_get_article_invalid_uuid_returns_400(self):
@@ -379,11 +393,13 @@ class TestGetArticleDetail:
         from api.endpoints.content.articles import get_article
 
         pool = MagicMock()
+        mock_request = MagicMock()
 
         with pytest.raises(HTTPException) as exc_info:
             await get_article(
+                request=mock_request,
                 article_id="not-a-valid-uuid",
-                _="test-key",
+                api_key_id="test-key",
                 pool=pool,
             )
         assert exc_info.value.status_code == 400
@@ -404,14 +420,172 @@ class TestGetArticleDetail:
         pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
         pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
+        mock_request = MagicMock()
+
         with pytest.raises(HTTPException) as exc_info:
             await get_article(
+                request=mock_request,
                 article_id="12345678-1234-5678-1234-567812345678",
-                _="test-key",
+                api_key_id="test-key",
                 pool=pool,
             )
         assert exc_info.value.status_code == 404
         assert "not found" in exc_info.value.detail
+
+
+class TestArticleAuditLog:
+    """Verify article access is recorded in the audit log (vuln-0003 mitigation)."""
+
+    @pytest.mark.asyncio
+    async def test_successful_article_access_writes_audit_log(self):
+        """get_article SHALL write an audit log entry on successful access."""
+        from api.endpoints.content.articles import _background_tasks, get_article
+
+        _background_tasks.clear()  # Ensure clean state before test
+
+        article = _make_mock_article(
+            article_id="12345678-1234-5678-1234-567812345678",
+            title="Audited Article",
+        )
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = article
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result_mock)
+
+        pool = MagicMock()
+        pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
+        pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_request = MagicMock()
+        mock_request.client.host = "192.168.1.42"
+        mock_request.headers = {"user-agent": "audit-test-agent/1.0"}
+
+        with patch("api.endpoints.content.articles.AuditLogService") as MockAuditService:
+            mock_audit_instance = MockAuditService.return_value
+            mock_audit_instance.log_event = AsyncMock()
+
+            await get_article(
+                request=mock_request,
+                article_id="12345678-1234-5678-1234-567812345678",
+                api_key_id="caller-key-id",
+                pool=pool,
+            )
+
+            # Let fire-and-forget background task execute so the AsyncMock
+            # coroutine is consumed (avoids "coroutine never awaited" warning).
+            await asyncio.sleep(0.01)
+
+            mock_audit_instance.log_event.assert_called_once()
+            call_kwargs = mock_audit_instance.log_event.call_args.kwargs
+            assert call_kwargs["key_id"] == "caller-key-id"
+            assert call_kwargs["action"] == "article.read"
+            assert call_kwargs["target_type"] == "article"
+            assert call_kwargs["target_id"] == "12345678-1234-5678-1234-567812345678"
+            assert call_kwargs["client_ip"] == "192.168.1.42"
+            assert call_kwargs["user_agent"] == "audit-test-agent/1.0"
+
+        _background_tasks.clear()  # Clean up after test
+
+    @pytest.mark.asyncio
+    async def test_404_response_does_not_write_audit_log(self):
+        """get_article SHALL NOT write audit log when article is not found."""
+        from api.endpoints.content.articles import _background_tasks, get_article
+
+        _background_tasks.clear()  # Ensure clean state before test
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result_mock)
+
+        pool = MagicMock()
+        pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
+        pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_request = MagicMock()
+
+        with patch("api.endpoints.content.articles.AuditLogService") as MockAuditService:
+            mock_audit_instance = MockAuditService.return_value
+            mock_audit_instance.log_event = AsyncMock()
+
+            with pytest.raises(HTTPException) as exc_info:
+                await get_article(
+                    request=mock_request,
+                    article_id="12345678-1234-5678-1234-567812345678",
+                    api_key_id="test-key",
+                    pool=pool,
+                )
+            assert exc_info.value.status_code == 404
+
+            # Audit log should NOT be called for 404 — the 404 is raised
+            # inside the session block, before the fire-and-forget audit
+            # log code is reached.
+            mock_audit_instance.log_event.assert_not_called()
+
+        _background_tasks.clear()  # Clean up after test
+
+    @pytest.mark.asyncio
+    async def test_audit_log_failure_does_not_block_response(self):
+        """Audit log failure SHALL NOT block the article response (fire-and-forget).
+
+        This verifies the LOW-001 fix: audit log is dispatched via
+        asyncio.create_task (fire-and-forget), so even if log_event raises,
+        the article response is already returned to the caller.
+        """
+        from api.endpoints.content.articles import _background_tasks, get_article
+
+        _background_tasks.clear()  # Ensure clean state before test
+
+        article = _make_mock_article(
+            article_id="12345678-1234-5678-1234-567812345678",
+            title="Resilient Article",
+            body="Content despite audit failure",
+        )
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = article
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result_mock)
+
+        pool = MagicMock()
+        pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
+        pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_request = MagicMock()
+        mock_request.client.host = "127.0.0.1"
+        mock_request.headers = {"user-agent": "test-agent"}
+
+        with patch("api.endpoints.content.articles.AuditLogService") as MockAuditService:
+            mock_audit_instance = MockAuditService.return_value
+            # Simulate audit log write failure
+            mock_audit_instance.log_event = AsyncMock(
+                side_effect=RuntimeError("audit DB connection refused")
+            )
+
+            result = await get_article(
+                request=mock_request,
+                article_id="12345678-1234-5678-1234-567812345678",
+                api_key_id="test-key",
+                pool=pool,
+            )
+
+            # Response should still be returned successfully despite audit
+            # log failure (fire-and-forget pattern).
+            assert result.data.title == "Resilient Article"
+            assert result.data.body == "Content despite audit failure"
+
+            # Let the fire-and-forget task run and fail
+            await asyncio.sleep(0.01)
+
+        # Retrieve task exceptions to avoid "Task exception was never
+        # retrieved" warnings, then clean up.
+        for task in list(_background_tasks):
+            task.exception()
+        _background_tasks.clear()
 
 
 class TestArticlesEndpointHTTPLevel:

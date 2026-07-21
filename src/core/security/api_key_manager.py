@@ -16,7 +16,9 @@ from __future__ import annotations
 import re
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from typing import Any
 
 import bcrypt
@@ -31,6 +33,44 @@ log = get_logger(__name__)
 
 # Prometheus histogram for API key validation duration
 _api_key_validation_duration = metrics.api_key_validation_duration_seconds
+
+
+class KeyOpStatus(str, Enum):
+    """Outcome of a key management operation (revoke/rotate).
+
+    Replaces the previous bool/dict return types so callers can distinguish
+    not_found / forbidden / already_revoked / ok without raising HTTPException
+    inside the service layer (vuln-0009 fix).
+    """
+
+    OK = "ok"
+    NOT_FOUND = "not_found"
+    FORBIDDEN = "forbidden"
+    ALREADY_REVOKED = "already_revoked"
+    ALREADY_ROTATED = "already_rotated"
+
+
+@dataclass
+class KeyOpResult:
+    """Result of a key management operation.
+
+    Attributes:
+        status: Outcome status.
+        data: For rotate_key OK, contains the new key info dict. Else None.
+    """
+
+    status: KeyOpStatus
+    data: dict[str, Any] | None = None
+
+
+# Actor identifiers for audit log and ownership check.
+# These are the only values that bypass ownership check in revoke_key/rotate_key.
+# IMPORTANT: verify_admin_api_key and verify_api_key MUST return these exact
+# strings — drift between producer and consumer would silently lock out all
+# admins (silent failure, no error raised).
+ENV_ADMIN_ACTOR = "env-admin"
+SYSTEM_ACTOR = "system"
+_SUPER_ADMIN_ACTORS: frozenset[str] = frozenset({ENV_ADMIN_ACTOR, SYSTEM_ACTOR})
 
 # New format: weaver_{8hex}_{16hex} (32 chars total, key_id = 8 hex chars)
 # Shorter format requested for usability while keeping O(1) direct lookup.
@@ -270,25 +310,57 @@ class ApiKeyManager:
                 "expires_at": matched_key.expires_at.isoformat(),
             }
 
-    async def revoke_key(self, key_id: str) -> bool:
-        """Revoke an API key.
+    async def revoke_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
+        """Revoke an API key with ownership check (vuln-0009 fix: CWE-639).
+
+        Only the key's creator (``created_by``) or a super-admin
+        (``env-admin`` / ``system``) can revoke a key. This closes the IDOR
+        where any admin could revoke any other admin's key.
 
         Args:
             key_id: The key ID to revoke.
+            actor: Admin identifier performing the operation. Super-admins
+                (``env-admin``, ``system``) bypass the ownership check.
 
         Returns:
-            True if revoked, False if not found.
+            KeyOpResult with status:
+                OK — revoked successfully.
+                NOT_FOUND — key_id does not exist.
+                ALREADY_REVOKED — key was already revoked (idempotent no-op).
+                FORBIDDEN — actor is not the owner nor a super-admin.
         """
         async with self._pool.session() as session:
-            result = await session.execute(
+            # Using FOR UPDATE to align with rotate_key and prevent concurrent
+            # revoke+rotate from producing misleading OK status (MED-004 fix).
+            fetch_result = await session.execute(
+                select(ApiKey).where(ApiKey.key_id == key_id).with_for_update()
+            )
+            target = fetch_result.scalar_one_or_none()
+
+            if target is None:
+                return KeyOpResult(status=KeyOpStatus.NOT_FOUND)
+
+            if target.is_revoked:
+                return KeyOpResult(status=KeyOpStatus.ALREADY_REVOKED)
+
+            # Ownership check (vuln-0009): super-admins bypass; otherwise
+            # actor must match the key's created_by.
+            if actor not in _SUPER_ADMIN_ACTORS and target.created_by != actor:
+                log.warning(
+                    "api_key_revoke_forbidden",
+                    key_id=key_id,
+                    actor=actor,
+                    owner=target.created_by,
+                )
+                return KeyOpResult(status=KeyOpStatus.FORBIDDEN)
+
+            await session.execute(
                 update(ApiKey).where(ApiKey.key_id == key_id).values(is_revoked=True)
             )
             await session.commit()
 
-            if result.rowcount and result.rowcount > 0:
-                log.info("api_key_revoked", key_id=key_id)
-                return True
-            return False
+            log.info("api_key_revoked", key_id=key_id, actor=actor)
+            return KeyOpResult(status=KeyOpStatus.OK)
 
     async def list_keys(
         self,
@@ -356,8 +428,8 @@ class ApiKeyManager:
             result = await session.execute(select(ApiKey).where(ApiKey.key_id == key_id))
             return result.scalar_one_or_none()
 
-    async def rotate_key(self, key_id: str) -> dict[str, Any] | None:
-        """Rotate an API key, creating a replacement and marking the old one.
+    async def rotate_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
+        """Rotate an API key with ownership check (vuln-0009 fix: CWE-639).
 
         Creates a new key with the same scopes and rate limit as the old key
         and atomically marks the old key as rotated+revoked in a single
@@ -373,12 +445,23 @@ class ApiKeyManager:
         first commits, then observes ``is_revoked=True`` / ``rotated_to != None``
         and bails out cleanly.
 
+        Ownership check (vuln-0009): only the key's creator or a super-admin
+        (``env-admin`` / ``system``) can rotate a key. The ownership check runs
+        AFTER the FOR UPDATE lock is acquired, so a concurrent caller that
+        passes ownership cannot race with one that fails it.
+
         Args:
             key_id: The key ID to rotate.
+            actor: Admin identifier performing the operation. Super-admins
+                (``env-admin``, ``system``) bypass the ownership check.
 
         Returns:
-            New key info dict if rotated, None if key not found, already
-            revoked, or already rotated.
+            KeyOpResult with status:
+                OK — rotated successfully; ``data`` holds the new key info.
+                NOT_FOUND — key_id does not exist.
+                FORBIDDEN — actor is not the owner nor a super-admin.
+                ALREADY_REVOKED — key was already revoked.
+                ALREADY_ROTATED — key was already rotated.
 
         """
         # Build new key material
@@ -402,14 +485,27 @@ class ApiKeyManager:
 
             if old_key is None:
                 log.warning("api_key_rotation_failed_not_found", key_id=key_id)
-                return None
+                return KeyOpResult(status=KeyOpStatus.NOT_FOUND)
+
+            # Ownership check (vuln-0009): runs after FOR UPDATE so the
+            # ownership decision is consistent with the row state being
+            # rotated. Super-admins bypass; otherwise actor must match
+            # created_by.
+            if actor not in _SUPER_ADMIN_ACTORS and old_key.created_by != actor:
+                log.warning(
+                    "api_key_rotation_forbidden",
+                    key_id=key_id,
+                    actor=actor,
+                    owner=old_key.created_by,
+                )
+                return KeyOpResult(status=KeyOpStatus.FORBIDDEN)
 
             if old_key.is_revoked:
                 log.warning(
                     "api_key_rotation_failed_already_revoked",
                     key_id=key_id,
                 )
-                return None
+                return KeyOpResult(status=KeyOpStatus.ALREADY_REVOKED)
 
             if old_key.rotated_to is not None:
                 log.warning(
@@ -417,7 +513,7 @@ class ApiKeyManager:
                     key_id=key_id,
                     rotated_to=old_key.rotated_to,
                 )
-                return None
+                return KeyOpResult(status=KeyOpStatus.ALREADY_ROTATED)
 
             # Insert new key
             new_api_key = ApiKey(
@@ -447,15 +543,19 @@ class ApiKeyManager:
             "api_key_rotated",
             old_key_id=key_id,
             new_key_id=new_key_id,
+            actor=actor,
         )
 
-        return {
-            "key_id": new_key_id,
-            "key_value": new_key_value,
-            "scopes": old_key.scopes,
-            "rate_limit_per_min": old_key.rate_limit_per_min,
-            "expires_at": new_expires_at.isoformat(),
-        }
+        return KeyOpResult(
+            status=KeyOpStatus.OK,
+            data={
+                "key_id": new_key_id,
+                "key_value": new_key_value,
+                "scopes": old_key.scopes,
+                "rate_limit_per_min": old_key.rate_limit_per_min,
+                "expires_at": new_expires_at.isoformat(),
+            },
+        )
 
     async def check_expiring_keys(self, days_before: int = 7) -> int:
         """Check for keys expiring within days_before days and auto-rotate them.
@@ -482,8 +582,10 @@ class ApiKeyManager:
         rotated_count = 0
         for key in expiring_keys:
             try:
-                new_key = await self.rotate_key(key.key_id)
-                if new_key:
+                # Auto-rotation runs as the "system" super-admin so it can
+                # rotate any key regardless of created_by (vuln-0009).
+                result = await self.rotate_key(key.key_id, actor="system")
+                if result.status is KeyOpStatus.OK:
                     rotated_count += 1
             except Exception as exc:
                 log.warning(

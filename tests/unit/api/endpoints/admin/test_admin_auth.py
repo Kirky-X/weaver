@@ -66,8 +66,10 @@ class TestAdminAuthMiddleware:
         mock_settings.api.get_api_key.return_value = "regular-key-12345678901234567890123456"
 
         with patch("container.get_settings", return_value=mock_settings):
+            # verify_admin_api_key now returns "env-admin" (super-admin
+            # identifier) instead of the raw key value (vuln-0009 fix).
             result = await verify_admin_api_key(key=admin_key)
-            assert result == admin_key
+            assert result == "env-admin"
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_regular_key_returns_403(self) -> None:

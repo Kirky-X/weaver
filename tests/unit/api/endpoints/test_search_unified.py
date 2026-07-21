@@ -24,6 +24,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from core.security.api_key_manager import ENV_ADMIN_ACTOR
 from tests.fixtures.search_keywords import (
     LONG_QUERY_10K,
     REAL_ARTICLE_TITLES,
@@ -736,7 +737,7 @@ class TestSearchUnifiedAuthentication:
         mock_request: MagicMock,
         admin_api_key: str,
     ) -> None:
-        """Admin API key is accepted; verify_api_key returns "admin"."""
+        """Admin API key is accepted; verify_api_key returns ENV_ADMIN_ACTOR."""
         from api.middleware.auth import verify_api_key
 
         with (
@@ -750,7 +751,7 @@ class TestSearchUnifiedAuthentication:
             mock_get_settings.return_value = mock_settings
 
             result = await verify_api_key(key=admin_api_key, request=mock_request)
-            assert result == "admin"
+            assert result == ENV_ADMIN_ACTOR
 
 
 # ── Degradation tests ────────────────────────────────────────────────

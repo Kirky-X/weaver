@@ -11,7 +11,13 @@ This module provides comprehensive URL security checking including:
 - Security audit utilities
 """
 
-from core.security.api_key_manager import ApiKeyManager
+from core.security.api_key_manager import (
+    ENV_ADMIN_ACTOR,
+    SYSTEM_ACTOR,
+    ApiKeyManager,
+    KeyOpResult,
+    KeyOpStatus,
+)
 from core.security.audit import (
     SecurityAuditReport,
     SecurityCheckResult,
@@ -36,11 +42,15 @@ from core.security.validation.ssrf import SSRFChecker, SSRFError
 from core.security.validation.validator import URLValidator, URLValidatorConfig
 
 __all__ = [
+    "ENV_ADMIN_ACTOR",
+    "SYSTEM_ACTOR",
     "ApiKeyManager",
     "AuditLogService",
     "CheckResult",
     "CheckSource",
     "IntegrityError",
+    "KeyOpResult",
+    "KeyOpStatus",
     "SSRFChecker",
     "SSRFError",
     "SecurityAuditReport",

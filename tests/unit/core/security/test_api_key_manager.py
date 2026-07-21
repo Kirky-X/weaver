@@ -133,13 +133,22 @@ class TestRevokeKey:
         self, manager: ApiKeyManager, mock_pool: MagicMock
     ) -> None:
         """Revoke sets is_revoked to True."""
+        from core.security.api_key_manager import KeyOpStatus
+
         session = mock_pool.session.return_value
-        mock_result = MagicMock()
-        mock_result.rowcount = 1
-        session.execute.return_value = mock_result
+        # revoke_key now does SELECT (ownership check) then UPDATE.
+        # Mock a non-revoked target key returned by SELECT.
+        target_key = MagicMock()
+        target_key.is_revoked = False
+        target_key.created_by = None  # No owner — env-admin bypasses anyway
+        select_result = MagicMock()
+        select_result.scalar_one_or_none = MagicMock(return_value=target_key)
+        update_result = MagicMock()
+        update_result.rowcount = 1
+        session.execute.side_effect = [select_result, update_result]
 
         result = await manager.revoke_key("key_abc123")
-        assert result is True
+        assert result.status is KeyOpStatus.OK
 
 
 class TestListKeys:
