@@ -142,6 +142,30 @@ class CacheKV(Protocol):
         """
         ...
 
+    async def set_nx(self, key: str, value: str, ex: int | None = None) -> bool:
+        """Set key to value if key does not exist.
+
+        Atomic equivalent of Redis ``SET key value NX [EX ex]``. Returns
+        ``True`` if the key was set (i.e. did not previously exist), or
+        ``False`` if the key already existed and was therefore left
+        unchanged.
+
+        Used for distributed locks where the check-then-set pattern would
+        otherwise introduce a TOCTOU race window (CWE-362). The ``ex``
+        parameter, when provided, ensures the lock auto-expires if the
+        holder crashes before releasing it.
+
+        Args:
+            key: Key to set conditionally.
+            value: Value to store.
+            ex: Optional expiration time in seconds.
+
+        Returns:
+            ``True`` if the value was set, ``False`` if the key already
+            existed.
+        """
+        ...
+
     async def delete(self, *keys: str) -> int:
         """Delete one or more keys.
 

@@ -209,6 +209,26 @@ class FallbackCachePool:
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         return await self._execute("set", key, value, ex=ex)
 
+    async def set_nx(self, key: str, value: str, ex: int | None = None) -> bool:
+        """Set key to value only if key does not exist (CWE-362 fix).
+
+        Delegates to the active backend's ``set_nx`` via ``_execute``, so
+        that primary (Redis ``SET NX``) and fallback (in-memory atomic
+        check-and-set) both honour the same atomic SET NX semantics. The
+        underlying primary ``set_nx`` returns ``True``/``False`` (not
+        ``None``), so the degradation path is safe.
+
+        Args:
+            key: Key to set conditionally.
+            value: Value to store.
+            ex: Optional expiration time in seconds.
+
+        Returns:
+            ``True`` if the value was set, ``False`` if the key already
+            existed.
+        """
+        return await self._execute("set_nx", key, value, ex=ex)
+
     async def delete(self, *keys: str) -> int:
         return await self._execute("delete", *keys)
 

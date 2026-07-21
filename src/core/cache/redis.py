@@ -102,6 +102,29 @@ class RedisClient:
         """Set a key-value pair with optional expiration."""
         await self.client.set(key, value, ex=ex)
 
+    async def set_nx(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+    ) -> bool:
+        """Set a key-value pair only if key does not exist (CWE-362 fix).
+
+        Maps to Redis ``SET key value NX [EX ex]``. Returns ``True`` if the
+        value was set, ``False`` if the key already existed.
+
+        Args:
+            key: Key to set conditionally.
+            value: Value to store.
+            ex: Optional expiration time in seconds.
+
+        Returns:
+            ``True`` if the value was set, ``False`` if the key already
+            existed.
+        """
+        result = await self.client.set(key, value, ex=ex, nx=True)
+        return bool(result)
+
     async def hget(self, name: str, key: str) -> str | None:
         """Get a hash field value."""
         return await self.client.hget(name, key)
@@ -400,6 +423,34 @@ class CashewsClient:
         self._store[key] = value
         if ex is not None:
             self._expiry[key] = time.monotonic() + ex
+
+    async def set_nx(self, key: str, value: str, ex: int | None = None) -> bool:
+        """Set key to value only if key does not exist (CWE-362 fix).
+
+        Atomic in-process equivalent of Redis ``SET NX``. Because
+        ``CashewsClient`` runs entirely in-memory within a single asyncio
+        event loop, the read-check-write sequence below has no
+        cooperative suspension point (no ``await`` between the existence
+        check and the assignment), so it cannot be interleaved with
+        another coroutine. This preserves the SET NX semantics required
+        by ``CacheKV.set_nx``.
+
+        Args:
+            key: Key to set conditionally.
+            value: Value to store.
+            ex: Optional expiration time in seconds.
+
+        Returns:
+            ``True`` if the value was set, ``False`` if the key already
+            existed.
+        """
+        self._check_expiry(key)
+        if key in self._store:
+            return False
+        self._store[key] = value
+        if ex is not None:
+            self._expiry[key] = time.monotonic() + ex
+        return True
 
     async def delete(self, *keys: str) -> int:
         if not keys:
