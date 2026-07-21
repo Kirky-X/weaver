@@ -919,8 +919,8 @@ fallbacks = ["chat.another_provider.model"]
 Weaver 还提供了一些管理员功能：
 
 - **源权威管理**: `/api/v1/admin/authorities` - 管理新闻源权威性评分
-- **LLM 失败监控**: `/api/v1/admin/llm-failures` - 查看 LLM 调用失败记录
-- **LLM 失败统计**: `/api/v1/admin/llm-failures/stats` - 查看 LLM 失败统计
+- **LLM 失败监控**: `/api/v1/monitoring/llm/failures` - 查看 LLM 调用失败记录
+- **LLM 失败统计**: `/api/v1/monitoring/llm/failures/stats` - 查看 LLM 失败统计
 
 ### 去重配置
 

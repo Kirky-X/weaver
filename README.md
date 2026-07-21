@@ -3,6 +3,10 @@
 <div align="center">
 
 <p align="center">
+  <img src="docs/asserts/logo.png" alt="Weaver Logo" width="150">
+</p>
+
+<p align="center">
   <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
 </p>
 
@@ -427,7 +431,7 @@ graph TB
 |-------------------------|--------------------------|------|
 | **SmartFetcher**        | HTTPX/Crawl4AI 自动选择      | ✅ 稳定 |
 | **Deduplicator**        | 两级 URL 去重                | ✅ 稳定 |
-| **Pipeline**            | LangGraph 流水线编排          | ✅ 稳定 |
+| **Pipeline**            | LiteLLM 驱动流水线编排          | ✅ 稳定 |
 | **LLM Client**          | 多 Provider 支持 + Fallback | ✅ 稳定 |
 | **Neo4j Writer**        | 实体关系写入                   | ✅ 稳定 |
 | **Vector Repo**         | pgvector 向量存储            | ✅ 稳定 |
@@ -500,9 +504,9 @@ X-API-Key: your-api-key
 | `/api/v1/graph/visualization`                      | POST   | 获取子图数据                                                                    |
 | `/api/v1/admin/authorities`                        | GET    | 获取源权威度列表                                                                  |
 | `/api/v1/admin/authorities/{host}`                 | PATCH  | 更新源权威度                                                                    |
-| `/api/v1/admin/llm-failures`                       | GET    | LLM 失败记录查询                                                                |
-| `/api/v1/admin/llm-failures/stats`                 | GET    | LLM 失败统计                                                                  |
-| `/api/v1/admin/llm-usage`                          | GET    | LLM 使用统计（支持多维度分组查询）                                                       |
+| `/api/v1/monitoring/llm/failures`                  | GET    | LLM 失败记录查询                                                                |
+| `/api/v1/monitoring/llm/failures/stats`            | GET    | LLM 失败统计                                                                  |
+| `/api/v1/monitoring/llm/usage`                     | GET    | LLM 使用统计（支持多维度分组查询）                                                       |
 | `/api/v1/admin/articles/deduplicate`               | POST   | 文章去重                                                                      |
 | `/api/v1/admin/communities`                        | GET    | 社区列表查询                                                                    |
 | `/api/v1/admin/communities/{id}`                   | GET    | 社区详情                                                                      |
@@ -610,14 +614,27 @@ flowchart LR
     C --> E[Credibility]
     D --> E
     E --> F[EntityExtractor]
-    F --> G[EntityResolver]
+    F --> G[fake_news_detector]
+    F --> H[conflict_detector]
+    F --> I[narrative_generator]
+    F --> J[schema_extractor]
+    G --> K[sentiment_tracker]
+    H --> K
+    I --> K
+    J --> K
+    K --> L[EntityResolver]
 ```
 
 - **ReVectorize**: 合并后重新生成向量 (对 terminal 文章跳过)
 - **Analyze + QualityScorer**: 并行执行 - 摘要/情感分析/关键数据提取 + 内容质量评分
 - **Credibility**: 可信度评分 (依赖 Analyze 结果)
 - **EntityExtractor**: spaCy + LLM 实体提取
-- **EntityResolver**: 实体消歧和合并 (新增)
+- **fake_news_detector**: 假新闻检测
+- **conflict_detector**: 数据冲突检测
+- **narrative_generator**: 叙述生成
+- **schema_extractor**: 结构化数据提取
+- **sentiment_tracker**: 实体级别情感偏移计算
+- **EntityResolver**: 实体消歧和合并
 
 ---
 
@@ -628,7 +645,7 @@ flowchart LR
 | 信号    | 说明                            |
 |-------|-------------------------------|
 | 来源权威性 | 三级优先级：预设值 > 历史自动计算 > 默认值 0.50 |
-| 内容核查  | LLM 事实一致性检查                   |
+| 内容核查  | 基于正文长度的启发式评分                   |
 | 时效性   | 发布时间与事件时间差                    |
 
 ### 类别自适应权重

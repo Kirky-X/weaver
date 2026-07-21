@@ -51,12 +51,11 @@
 - [文章管理端点](#文章管理端点)
     - [POST /api/v1/admin/articles/deduplicate](#post-apiv1adminarticlesdeduplicate)
 - [LLM 失败监控端点](#llm-失败监控端点)
-    - [GET /api/v1/admin/llm-failures](#get-apiv1adminllm-failures)
-    - [GET /api/v1/admin/llm-failures/stats](#get-apiv1adminllm-failuresstats)
+    - [GET /api/v1/monitoring/llm/failures](#get-apiv1monitoringllm-failures)
+    - [GET /api/v1/monitoring/llm/failures/stats](#get-apiv1monitoringllm-failuresstats)
 - [LLM 使用统计端点](#llm-使用统计端点)
-    - [GET /api/v1/admin/llm-usage](#get-apiv1adminllm-usage)
-- [DRIFT 搜索端点](#drift-搜索端点)
-    - [POST /api/v1/search/drift](#post-apiv1searchdrift)
+    - [GET /api/v1/monitoring/llm/usage](#get-apiv1monitoringllm-usage)
+
 - [健康检查端点](#健康检查端点)
     - [GET /health](#get-health)
 - [监控指标端点](#监控指标端点)
@@ -81,7 +80,7 @@ Host: api.weaver.example.com
 
 **请求参数**: 无
 
-**认证**: 不需要
+**认证**: 需要 API Key
 
 #### 响应
 
@@ -90,7 +89,7 @@ Host: api.weaver.example.com
 ```json
 {
   "status": "running",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "database": {
     "relational": "postgres",
     "graph": "neo4j",
@@ -130,7 +129,7 @@ Host: api.weaver.example.com
 
 **请求参数**: 无
 
-**认证**: 不需要
+**认证**: 需要 Admin API Key
 
 #### 响应
 
@@ -608,7 +607,7 @@ X-API-Key: your-api-key
       "primary_emotion": "中性",
       "credibility_score": 0.88,
       "source_credibility": 0.95,
-      "cross_verification": 0.82,
+
       "content_check_score": 0.87,
       "publish_time": "2024-01-15T09:30:00+08:00",
       "created_at": "2024-01-15T10:30:00Z",
@@ -2350,14 +2349,14 @@ X-API-Key: your-api-key
 
 ## LLM 失败监控端点
 
-### GET /api/v1/admin/llm-failures
+### GET /api/v1/monitoring/llm/failures
 
 查询 LLM 调用失败记录，用于监控和调试。
 
 #### 请求
 
 ```http
-GET /api/v1/admin/llm-failures?call_point=classifier&limit=50 HTTP/1.1
+GET /api/v1/monitoring/llm/failures?call_point=classifier&limit=50 HTTP/1.1
 Host: api.weaver.example.com
 X-API-Key: your-api-key
 ```
@@ -2424,34 +2423,34 @@ X-API-Key: your-api-key
 **查询最近 50 条失败记录**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?limit=50" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures?limit=50" \
   -H "X-API-Key: your-api-key"
 ```
 
 **查询特定调用点的失败记录**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?call_point=entity_extractor&limit=100" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures?call_point=entity_extractor&limit=100" \
   -H "X-API-Key: your-api-key"
 ```
 
 **查询最近 24 小时的失败记录**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?since=2024-01-14T10:00:00Z&limit=100" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures?since=2024-01-14T10:00:00Z&limit=100" \
   -H "X-API-Key: your-api-key"
 ```
 
 ---
 
-### GET /api/v1/admin/llm-failures/stats
+### GET /api/v1/monitoring/llm/failures/stats
 
 获取 LLM 失败统计摘要，按调用点和错误类型分组。
 
 #### 请求
 
 ```http
-GET /api/v1/admin/llm-failures/stats?since=2024-01-01T00:00:00Z HTTP/1.1
+GET /api/v1/monitoring/llm/failures/stats?since=2024-01-01T00:00:00Z HTTP/1.1
 Host: api.weaver.example.com
 X-API-Key: your-api-key
 ```
@@ -2508,14 +2507,14 @@ X-API-Key: your-api-key
 **查询总体统计**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-failures/stats" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures/stats" \
   -H "X-API-Key: your-api-key"
 ```
 
 **查询最近 7 天的统计**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-failures/stats?since=2024-01-08T00:00:00Z" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures/stats?since=2024-01-08T00:00:00Z" \
   -H "X-API-Key: your-api-key"
 ```
 
@@ -2523,14 +2522,14 @@ curl -X GET "http://localhost:8000/api/v1/admin/llm-failures/stats?since=2024-01
 
 ## LLM 使用统计端点
 
-### GET /api/v1/admin/llm-usage
+### GET /api/v1/monitoring/llm/usage
 
 统一 LLM 使用统计端点，支持多维度分组查询。
 
 #### 请求
 
 ```http
-GET /api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary HTTP/1.1
+GET /api/v1/monitoring/llm/usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary HTTP/1.1
 Host: api.weaver.example.com
 X-API-Key: your-api-key
 ```
@@ -2699,28 +2698,28 @@ X-API-Key: your-api-key
 **查询总体汇总**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary" \
   -H "X-API-Key: your-api-key"
 ```
 
 **按 Provider 分组查询**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=provider" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=provider" \
   -H "X-API-Key: your-api-key"
 ```
 
 **按调用点分组并过滤特定模型**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=call_point&model=gpt-4o" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=call_point&model=gpt-4o" \
   -H "X-API-Key: your-api-key"
 ```
 
 **按小时粒度查询时间趋势**
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-15T00:00:00Z&to=2024-01-15T23:59:59Z&group_by=time&granularity=hourly" \
+curl -X GET "http://localhost:8000/api/v1/monitoring/llm/usage?from=2024-01-15T00:00:00Z&to=2024-01-15T23:59:59Z&group_by=time&granularity=hourly" \
   -H "X-API-Key: your-api-key"
 ```
 
