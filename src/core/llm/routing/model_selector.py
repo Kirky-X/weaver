@@ -125,9 +125,7 @@ class ModelSelector:
 
         # Phase 4: Exploration — with probability exploration_weight, shuffle results
         # 探索性随机非密码学
-        if (
-            self.exploration_weight > 0.0 and random.random() < self.exploration_weight
-        ):  # nosec B311
+        if self.exploration_weight > 0.0 and random.random() < self.exploration_weight:  # nosec B311
             random.shuffle(ranked)  # nosec B311
 
         return ranked
