@@ -462,7 +462,13 @@ class ContainerServicesMixin:
     # ── Fetcher & Crawler ────────────────────────────────────────
 
     async def init_smart_fetcher(self) -> SmartFetcher:
-        """Initialize smart fetcher."""
+        """Initialize smart fetcher.
+
+        Wires ``url_validator`` into the fetcher chain so every HttpxFetcher
+        request validates the URL against the project's URLValidator facade
+        (SSRF + URLhaus + PhishTank + heuristic + SSL) before fetching
+        (CWE-918 fix — previously the fetcher accepted unvalidated URLs).
+        """
         from core.observability import get_logger
         from modules.ingestion import SmartFetcher
         from modules.ingestion.fetching import HostRateLimiter, HttpxFetcher
@@ -485,10 +491,14 @@ class ContainerServicesMixin:
                     delay_max=settings.rate_limit_delay_max,
                 )
 
+            # Build URLValidator for SSRF/malicious URL protection (CWE-918).
+            url_validator = await self._build_url_validator()
+
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
                 # P1-4 fix: pass [base_ua, *pool] so each request rotates UA.
                 user_agents=[settings.user_agent, *settings.user_agent_pool],
+                url_validator=url_validator,
             )
             crawl4ai_fetcher = Crawl4AIFetcher(
                 headless=settings.crawl4ai_headless,
@@ -503,12 +513,82 @@ class ContainerServicesMixin:
                 circuit_breaker_enabled=settings.circuit_breaker_enabled,
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
                 circuit_breaker_timeout=settings.circuit_breaker_timeout,
+                url_validator=url_validator,
             )
             log.info(
                 "smart_fetcher_initialized",
                 circuit_breaker_enabled=settings.circuit_breaker_enabled,
+                url_validator_enabled=url_validator is not None,
             )
         return self._smart_fetcher
+
+    async def _build_url_validator(self) -> Any | None:
+        """Construct a URLValidator instance from settings.
+
+        Returns ``None`` when URL security is disabled in settings, so the
+        fetcher chain degrades gracefully to plain SSRFChecker (which is
+        always applied at the API layer via ``_validate_url_for_processing``
+        and ``_validate_source_url_ssrf``).
+
+        When URL security is enabled but initialization fails (e.g., network
+        error during URLhaus/PhishTank sync, misconfiguration), the failure
+        is propagated rather than silently swallowed. Fail-open on security
+        components would let the service run with disabled SSRF/malware
+        checks — an unacceptable posture. Fail-fast forces operators to
+        fix the underlying issue before serving traffic.
+
+        Returns:
+            ``URLValidator`` instance or ``None`` if disabled.
+
+        Raises:
+            RuntimeError: If URL security is enabled but initialization fails.
+
+        """
+        from core.security.validation.validator import URLValidator, URLValidatorConfig
+
+        url_settings = self._settings.url_security
+        config = URLValidatorConfig.from_settings(url_settings)
+        if not config.enabled:
+            return None
+
+        # URLValidator requires a fetcher for URLhaus/PhishTank sync;
+        # use a minimal HttpxFetcher built on the same settings.
+        from modules.ingestion.fetching import HttpxFetcher
+
+        fetcher_settings = self._settings.fetcher
+        inner_fetcher = HttpxFetcher(
+            timeout=fetcher_settings.httpx_timeout,
+            user_agents=[fetcher_settings.user_agent, *fetcher_settings.user_agent_pool],
+        )
+        validator = URLValidator(
+            config=config,
+            fetcher=inner_fetcher,
+            cache_client=self._cache_client,
+        )
+        try:
+            await validator.initialize()
+        except Exception as exc:
+            from core.observability import get_logger
+
+            log = get_logger(__name__)
+            # Fail-closed: surface the error so the service does NOT start with
+            # URL security silently disabled (CWE-1188 Insecure Default /
+            # fail-open). Operators must either fix the underlying issue
+            # (URLhaus/PhishTank sync failure) or explicitly disable
+            # url_security.enabled in settings to acknowledge the trade-off.
+            log.error(
+                "url_validator_init_failed_fail_closed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                hint="Set url_security.enabled=false in settings to acknowledge "
+                "the security trade-off, or fix the underlying initialization error.",
+            )
+            raise RuntimeError(
+                "URL security is enabled but URLValidator initialization failed. "
+                "Fix the underlying error or explicitly disable "
+                "url_security.enabled in settings."
+            ) from exc
+        return validator
 
     def smart_fetcher(self) -> Any:
         """Get smart fetcher for URL/feed fetching.

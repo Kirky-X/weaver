@@ -54,6 +54,12 @@ def _validate_source_url(v: str) -> str:
     5. Per-label length (RFC 1035: max 63 chars)
     6. Per-label character set (letters, digits, hyphens only)
 
+    Note: This is a fast synchronous format check only. Callers MUST also
+    invoke ``_validate_source_url_ssrf`` in the request handler to perform
+    DNS resolution and redirect-chain validation via SSRFChecker (CWE-918
+    fix). Without the async SSRF check, hostnames resolving to internal
+    IPs would still pass.
+
     Args:
         v: URL string to validate.
 
@@ -86,6 +92,31 @@ def _validate_source_url(v: str) -> str:
         if not _LABEL_PATTERN.match(label):
             raise ValueError(f"Hostname label contains invalid characters: {label[:20]}")
     return v
+
+
+async def _validate_source_url_ssrf(url: str) -> None:
+    """Run SSRF validation (DNS resolution + redirect chain) for a source URL.
+
+    This complements the sync ``_validate_source_url`` format check by
+    resolving the hostname via ``getaddrinfo`` and verifying none of the
+    resolved IPs fall in blocked private/loopback/metadata ranges. It also
+    walks the HTTP redirect chain (up to MAX_REDIRECT_HOPS) to prevent
+    SSRF via open-redirect vulnerabilities (CWE-918 fix).
+
+    Args:
+        url: URL string to validate (already passed sync format check).
+
+    Raises:
+        HTTPException: 403 if the URL fails SSRF validation.
+
+    """
+    from core.security.validation.ssrf import SSRFChecker, SSRFError
+
+    checker = SSRFChecker()
+    try:
+        await checker.validate(url)
+    except SSRFError as exc:
+        raise HTTPException(status_code=403, detail=exc.message) from exc
 
 
 async def _validate_feed_reachable(
@@ -348,6 +379,9 @@ async def create_source(
             detail=f"Source with id '{request.id}' already exists",
         )
 
+    # CWE-918: SSRF validation with DNS resolution + redirect-chain check
+    await _validate_source_url_ssrf(request.url)
+
     # Validate feed URL is reachable and contains valid content
     await _validate_feed_reachable(
         url=request.url, fetcher=fetcher, source_type=request.source_type
@@ -400,6 +434,10 @@ async def update_source(
             status_code=404,
             detail=f"Source '{safe_echo(source_id)}' not found",
         )
+
+    # CWE-918: SSRF validation when URL is being changed
+    if request.url is not None:
+        await _validate_source_url_ssrf(request.url)
 
     # Apply updates
     if request.name is not None:

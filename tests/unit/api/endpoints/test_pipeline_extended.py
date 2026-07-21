@@ -69,14 +69,20 @@ class TestURLValidationExtended:
     async def test_should_block_internal_host_prefixes(
         self, url: str, blocked_host: str, mock_settings
     ):
-        """Test that internal host prefixes are blocked (lines 396-401)."""
+        """Test that internal host prefixes are blocked (CWE-918 SSRF).
+
+        After delegating to SSRFChecker (DNS resolution + IP range check),
+        the error detail reports the resolved IP (e.g. 127.0.0.1) rather
+        than the original hostname (e.g. localhost). We assert the security
+        property (URL blocked with 403 + "blocked" in detail) rather than
+        the specific resolved IP, which is implementation-dependent.
+        """
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
         with pytest.raises(HTTPException) as exc_info:
             await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
 
         assert exc_info.value.status_code == 403
-        assert blocked_host in exc_info.value.detail
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
@@ -92,14 +98,19 @@ class TestURLValidationExtended:
         ],
     )
     async def test_should_block_private_ip_addresses(self, url: str, ip_type: str, mock_settings):
-        """Test that private IP addresses are blocked (lines 404-414)."""
+        """Test that private IP addresses are blocked (CWE-918 SSRF).
+
+        SSRFChecker reports "Access to private/internal IP address ..." so
+        we assert on the security property ("blocked" + "IP" in detail)
+        rather than the literal string "internal IP" (older inline check).
+        """
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
         with pytest.raises(HTTPException) as exc_info:
             await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
 
         assert exc_info.value.status_code == 403
-        assert "internal IP" in exc_info.value.detail
+        assert "IP" in exc_info.value.detail
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
@@ -131,19 +142,24 @@ class TestURLValidationExtended:
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_should_handle_numeric_hostname_like_ip(self, mock_settings):
-        """Test handling of numeric hostnames that look like IPs (lines 418-428)."""
+    async def test_should_block_numeric_hostname_resolving_to_private_ip(self, mock_settings):
+        """Test that hostnames resolving to private IPs are blocked (CWE-918 fix).
+
+        Previously the inline string-prefix check missed hostnames like
+        ``192.168.1.1.nip.io`` because they did not match the literal
+        ``"192.168"`` prefix. After delegating to SSRFChecker, the DNS
+        resolution reveals the resolved IP (192.168.1.1) is private, so
+        the URL is correctly blocked.
+        """
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
-        # This tests the code path where hostname.replace(".", "").isdigit() is True
-        # but the IP validation happens in the nested try-except
-        url = "http://192.168.1.1.nip.io/"  # This is a real service, should pass
+        url = "http://192.168.1.1.nip.io/"  # Resolves to 192.168.1.1 (private)
 
-        # Should not raise exception for valid public hostname
-        result = await _validate_url_for_processing(
-            url, whitelist_mode=False, settings=mock_settings
-        )
-        assert result == url
+        with pytest.raises(HTTPException) as exc_info:
+            await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
+
+        assert exc_info.value.status_code == 403
+        assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_should_allow_valid_public_url(self, mock_settings):

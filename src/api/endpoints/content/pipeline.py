@@ -135,6 +135,12 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 # SSE concurrency limiter (default 3 concurrent streams)
 _sse_semaphore = asyncio.Semaphore(3)
 
+# Background URL-processing concurrency limiter (CWE-770 fix).
+# Bounds the number of concurrently running ``_process_single_url`` tasks
+# so a flood of POST /pipeline/url requests cannot exhaust server memory.
+_URL_PROCESSING_CONCURRENCY = 10
+_url_processing_semaphore = asyncio.Semaphore(_URL_PROCESSING_CONCURRENCY)
+
 # Per-source timeout for background trigger (5 minutes). Keeps one slow
 # source from blocking the entire trigger batch, while still allowing the
 # background task to make progress and update task status.
@@ -799,6 +805,14 @@ async def _validate_url_for_processing(
 ) -> str:
     """Validate URL for SSRF and whitelist.
 
+    Delegates SSRF protection to ``SSRFChecker.validate`` which performs:
+    1. URL scheme check (http/https only)
+    2. Metadata host blocklist (cloud metadata endpoints)
+    3. DNS resolution via ``getaddrinfo`` with private/loopback/link-local
+       IP range checks (CWE-918 fix — previously only string prefix checks)
+    4. Redirect-chain walking (up to MAX_REDIRECT_HOPS) to prevent SSRF
+       via open-redirect vulnerabilities
+
     Args:
         url: URL to validate.
         whitelist_mode: Whether to check whitelist.
@@ -811,8 +825,9 @@ async def _validate_url_for_processing(
         HTTPException: If URL is invalid or blocked.
 
     """
-    # SSRF validation using basic URL parsing (no external dependencies needed)
     from urllib.parse import urlparse
+
+    from core.security.validation.ssrf import SSRFChecker, SSRFError
 
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -821,45 +836,12 @@ async def _validate_url_for_processing(
             detail="URL must use http or https protocol",
         )
 
-    # Block internal/private IP ranges using ipaddress module for proper validation
-    import ipaddress
-
-    hostname = parsed.hostname or ""
-
-    # First check simple string prefixes for obvious cases
-    blocked_prefixes = ("localhost", "127.", "0.", "::1", "169.254.")
-    if any(hostname.lower().startswith(prefix) for prefix in blocked_prefixes):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access to internal host '{hostname}' is blocked",
-        )
-
-    # Try to parse as IP address and check if private/internal
+    # CWE-918: full SSRF validation with DNS resolution + redirect chain
+    checker = SSRFChecker()
     try:
-        # Handle IPv6 brackets
-        ip_str = hostname.replace("[", "").replace("]", "")
-        ip_obj = ipaddress.ip_address(ip_str)
-
-        # Block private, loopback, link-local, and reserved addresses
-        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Access to internal IP '{hostname}' is blocked",
-            )
-    except ValueError:
-        # Not an IP address, likely a domain name
-        # Check for numeric prefixes that could be IP-like
-        if hostname.replace(".", "").isdigit():
-            # All digits with dots - looks like IP, validate
-            try:
-                ip_obj = ipaddress.ip_address(hostname)
-                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Access to internal IP '{hostname}' is blocked",
-                    )
-            except ValueError:
-                pass
+        await checker.validate(url)
+    except SSRFError as exc:
+        raise HTTPException(status_code=403, detail=exc.message) from exc
 
     # Whitelist validation
     if whitelist_mode:
@@ -915,6 +897,11 @@ async def _process_single_url(
 ) -> None:
     """Background task to process a single URL through the pipeline.
 
+    Acquires ``_url_processing_semaphore`` to bound concurrent background
+    processing (CWE-770 resource exhaustion fix). Up to
+    ``_URL_PROCESSING_CONCURRENCY`` tasks may run pipeline work in
+    parallel; excess tasks queue inside the semaphore.
+
     Args:
         url: URL to process.
         task_id: Task ID for tracking.
@@ -929,58 +916,59 @@ async def _process_single_url(
     crawler = container.crawler()
     pipeline = container.pipeline()
 
-    try:
-        # Update status to running
-        await _update_task_status(
-            cache,
-            task_id,
-            PipelineTaskStatus.RUNNING.value,
-            started_at=datetime.now(UTC).isoformat(),
-        )
+    async with _url_processing_semaphore:
+        try:
+            # Update status to running
+            await _update_task_status(
+                cache,
+                task_id,
+                PipelineTaskStatus.RUNNING.value,
+                started_at=datetime.now(UTC).isoformat(),
+            )
 
-        # Create NewsItem and crawl
-        item = NewsItem(
-            url=url,
-            title="",
-            source="url_endpoint",
-            source_host=urlparse(url).netloc,
-        )
-        results = await crawler.crawl_batch([item])
+            # Create NewsItem and crawl
+            item = NewsItem(
+                url=url,
+                title="",
+                source="url_endpoint",
+                source_host=urlparse(url).netloc,
+            )
+            results = await crawler.crawl_batch([item])
 
-        # Check for fetch error
-        if results and isinstance(results[0], FetchError):
-            raise results[0]
+            # Check for fetch error
+            if results and isinstance(results[0], FetchError):
+                raise results[0]
 
-        if not results:
-            raise RuntimeError("Crawler returned no results")
+            if not results:
+                raise RuntimeError("Crawler returned no results")
 
-        article = results[0]
+            article = results[0]
 
-        # Run through pipeline
-        states = await pipeline.process_batch(
-            [article],
-            task_id=uuid.UUID(task_id),
-        )
+            # Run through pipeline
+            states = await pipeline.process_batch(
+                [article],
+                task_id=uuid.UUID(task_id),
+            )
 
-        # Update status to completed
-        state = states[0] if states else {}
-        await _update_task_status(
-            cache,
-            task_id,
-            PipelineTaskStatus.COMPLETED.value,
-            completed_at=datetime.now(UTC).isoformat(),
-            article_id=state.get("article_id", ""),
-        )
+            # Update status to completed
+            state = states[0] if states else {}
+            await _update_task_status(
+                cache,
+                task_id,
+                PipelineTaskStatus.COMPLETED.value,
+                completed_at=datetime.now(UTC).isoformat(),
+                article_id=state.get("article_id", ""),
+            )
 
-    except Exception as exc:
-        # Update status to failed
-        await _update_task_status(
-            cache,
-            task_id,
-            PipelineTaskStatus.FAILED.value,
-            error=str(exc),
-            completed_at=datetime.now(UTC).isoformat(),
-        )
+        except Exception as exc:
+            # Update status to failed
+            await _update_task_status(
+                cache,
+                task_id,
+                PipelineTaskStatus.FAILED.value,
+                error=str(exc),
+                completed_at=datetime.now(UTC).isoformat(),
+            )
 
 
 @router.post("/url", response_model=APIResponse[ProcessUrlResponse])
@@ -1030,8 +1018,12 @@ async def process_single_url(
         ),
     )
 
-    # Launch background processing
-    _ = asyncio.create_task(_process_single_url(request.url, task_id, cache))  # noqa: RUF006
+    # Launch background processing. Track in ``_background_tasks`` so the
+    # event loop does not garbage-collect the task before completion
+    # (MEDIUM-1 GC risk; previously suppressed via ``# noqa: RUF006``).
+    background_task = asyncio.create_task(_process_single_url(request.url, task_id, cache))
+    _background_tasks.add(background_task)
+    background_task.add_done_callback(_background_tasks.discard)
 
     return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))
 
