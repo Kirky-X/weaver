@@ -133,6 +133,9 @@ vendor/
 venv/
 # -------------------------------------
 
+# Strix runs
+strix_runs/
+
 # API test results
 api_test_results/
 
