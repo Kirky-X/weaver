@@ -114,7 +114,8 @@ def detect_three_tier_empty(result: Any) -> bool:
     Three layers (R-web-search-004):
         - ``entities``: list[str] — entity neighborhood from local search
         - ``sources``: list[dict] — article sources used to build the answer
-        - ``answer``: str — LLM-synthesized narrative (or empty string)
+        - ``context_tokens``: int — non-zero means the answer is grounded in
+          actual data (LLM generates "no data" filler when this is 0)
 
     Args:
         result: ``SearchResult`` instance (duck-typed) or dict with the
@@ -125,23 +126,20 @@ def detect_three_tier_empty(result: Any) -> bool:
         True iff all three layers are empty (after stripping ``answer``).
         False if any layer is non-empty OR the input is invalid.
     """
-    # Conservative: None or unexpected type → False (don't trigger Bing).
     if result is None:
         return False
     if isinstance(result, dict):
         entities = result.get("entities", []) or []
         sources = result.get("sources", []) or []
-        answer = result.get("answer", "") or ""
+        context_tokens = result.get("context_tokens", 0) or 0
     elif hasattr(result, "entities") and hasattr(result, "sources") and hasattr(result, "answer"):
         entities = result.entities or []
         sources = result.sources or []
-        answer = result.answer or ""
+        context_tokens = getattr(result, "context_tokens", 0) or 0
     else:
-        # Unexpected type → conservative False.
         return False
 
-    # All three must be empty. answer is stripped to catch whitespace-only.
-    return len(entities) == 0 and len(sources) == 0 and not str(answer).strip()
+    return len(entities) == 0 and len(sources) == 0 and context_tokens == 0
 
 
 async def trigger_web_search(

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -226,7 +225,9 @@ def create_app(container: Container | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+def get_app() -> FastAPI:
+    """Lazy app factory for ``uvicorn src.main:get_app``."""
+    return create_app()
 
 
 async def main() -> None:
@@ -240,24 +241,6 @@ async def main() -> None:
 
     container = Container().configure(settings)
     app = create_app(container)
-
-    # Setup graceful shutdown
-    loop = asyncio.get_running_loop()
-
-    async def graceful_shutdown(sig: signal.Signals) -> None:
-        """Handle graceful shutdown on SIGTERM/SIGINT."""
-        log.info("shutdown_signal_received", signal=str(sig))
-        # The lifespan context manager will handle cleanup
-        # Just stop the server
-        server.force_exit = True
-        loop.stop()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-
-        def _signal_handler(s: signal.Signals = sig) -> None:
-            asyncio.create_task(graceful_shutdown(s))
-
-        loop.add_signal_handler(sig, _signal_handler)
 
     # Run server
     config = uvicorn.Config(
