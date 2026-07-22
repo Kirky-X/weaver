@@ -180,11 +180,43 @@ class TestTriggerWebSearch:
 
     @pytest.mark.asyncio
     async def test_trigger_web_search_passes_query_to_searcher(self) -> None:
-        """The query string must be forwarded to bing_searcher.search()."""
+        """The query string must be forwarded to bing_searcher.search().
+
+        R-web-search-008: trigger_web_search now forwards ``mode`` and
+        ``time_filter`` kwargs (defaulting to ``"auto"`` / ``None`` so the
+        searcher's settings-based defaults apply). These are passed as
+        keyword arguments to ``bing_searcher.search``.
+        """
         bing_searcher = MagicMock(spec=BingSearcher)
         bing_searcher.search = AsyncMock(return_value=[])
         await trigger_web_search("specific query text", bing_searcher)
-        bing_searcher.search.assert_awaited_once_with("specific query text")
+        bing_searcher.search.assert_awaited_once_with(
+            "specific query text", mode="auto", time_filter=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_trigger_web_search_forwards_mode_to_searcher(self) -> None:
+        """mode kwarg must be forwarded to bing_searcher.search()."""
+        bing_searcher = MagicMock(spec=BingSearcher)
+        bing_searcher.search = AsyncMock(return_value=[])
+        await trigger_web_search("q", bing_searcher, mode="news")
+        bing_searcher.search.assert_awaited_once_with("q", mode="news", time_filter=None)
+
+    @pytest.mark.asyncio
+    async def test_trigger_web_search_forwards_time_filter_to_searcher(self) -> None:
+        """time_filter kwarg must be forwarded to bing_searcher.search()."""
+        bing_searcher = MagicMock(spec=BingSearcher)
+        bing_searcher.search = AsyncMock(return_value=[])
+        await trigger_web_search("q", bing_searcher, time_filter="week")
+        bing_searcher.search.assert_awaited_once_with("q", mode="auto", time_filter="week")
+
+    @pytest.mark.asyncio
+    async def test_trigger_web_search_forwards_both_mode_and_time_filter(self) -> None:
+        """Both mode and time_filter kwargs forwarded together."""
+        bing_searcher = MagicMock(spec=BingSearcher)
+        bing_searcher.search = AsyncMock(return_value=[])
+        await trigger_web_search("q", bing_searcher, mode="all", time_filter="day")
+        bing_searcher.search.assert_awaited_once_with("q", mode="all", time_filter="day")
 
 
 class TestSchedulePipelineBackground:
