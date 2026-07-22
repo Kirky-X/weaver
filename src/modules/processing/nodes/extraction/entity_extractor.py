@@ -50,6 +50,22 @@ ALLOWED_ENTITY_TYPES = {
     "未知",
 }
 
+# LLM 偶尔返回简写或近义类型，映射到 ALLOWED_ENTITY_TYPES 标准名称。
+# 防御性 fallback，prompt 已统一为标准名称（规则8 惯例优先）。
+_ENTITY_TYPE_ALIASES: dict[str, str] = {
+    "产品": "产品与技术",
+    "技术": "产品与技术",
+    "概念": "产品与技术",
+    "组织": "组织机构",
+    "机构": "组织机构",
+    "公司": "组织机构",
+    "企业": "组织机构",
+    "政策": "法规与政策",
+    "法规": "法规与政策",
+    "法律": "法规与政策",
+    "指标": "数据指标",
+}
+
 
 class EntityExtractorNode:
     """Pipeline node: extract entities using spaCy + LLM refinement.
@@ -262,17 +278,27 @@ class EntityExtractorNode:
                     normalized_relations.append(rel)
                 state["relations"] = normalized_relations
 
-            # Post-validation: validate entity types against allowed list
+            # Post-validation: normalize and validate entity types
             for entity in state["entities"]:
                 entity_type = entity.get("type", "未知")
+                # 先做别名映射（LLM 偶尔返回简写形式）
+                if entity_type in _ENTITY_TYPE_ALIASES:
+                    log.debug(
+                        "entity_type_alias_mapped",
+                        entity_name=entity.get("name", ""),
+                        original_type=entity_type,
+                        mapped_type=_ENTITY_TYPE_ALIASES[entity_type],
+                    )
+                    entity_type = _ENTITY_TYPE_ALIASES[entity_type]
                 if entity_type not in ALLOWED_ENTITY_TYPES:
                     log.warning(
                         "entity_type_not_allowed",
                         entity_name=entity.get("name", ""),
-                        original_type=entity_type,
+                        original_type=entity.get("type", ""),
                         mapped_type="未知",
                     )
-                    entity["type"] = "未知"
+                    entity_type = "未知"
+                entity["type"] = entity_type
 
             # Post-validation: discard relations with missing source/target
             entity_names = {e.get("name") for e in state["entities"]}

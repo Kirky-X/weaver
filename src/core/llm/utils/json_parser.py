@@ -54,13 +54,20 @@ def parse_llm_json(content: str, model: type[T] | None = None) -> T | dict[str, 
         if extracted != stripped:
             # Found JSON in markdown, use extracted content
             stripped = extracted
-        elif model:
-            # Neither JSON marker nor markdown wrapper, model output format error
-            raise ValueError(
-                f"LLM output is not JSON format. "
-                f"Content starts with: '{stripped[:50]}...' "
-                f"Expected JSON object or array for {model.__name__}"
-            )
+        else:
+            # 尝试从文本中提取 JSON 对象/数组（LLM 有时在 JSON 前加说明文字）
+            json_extracted = extract_json_from_text(content)
+            if json_extracted:
+                stripped = json_extracted
+            else:
+                # 所有提取策略均失败：内容不含 JSON 标记。
+                # 显式报错而非将非 JSON 文本喂给 repair_json（规则12 失败必须显性化）。
+                model_name = f" for {model.__name__}" if model else ""
+                raise ValueError(
+                    f"LLM output is not JSON format. "
+                    f"Content starts with: '{stripped[:50]}...' "
+                    f"Expected JSON object or array{model_name}"
+                )
 
     try:
         repaired = repair_json(stripped)
@@ -86,6 +93,7 @@ def extract_json_from_markdown(content: str) -> str:
 
     Returns:
         提取出的JSON字符串
+
     """
     import re
 
@@ -97,3 +105,63 @@ def extract_json_from_markdown(content: str) -> str:
         return match.group(1).strip()
 
     return content.strip()
+
+
+def extract_json_from_text(content: str) -> str:
+    """从任意文本中提取 JSON 对象或数组.
+
+    处理 LLM 在 JSON 前后添加说明文字的情况，例如::
+
+        `score`: 0.85 is fine....
+        {"score": 0.85, "sentiment": "neutral", ...}
+
+    策略：取最先出现的 ``{`` 或 ``[`` 作为起点，用括号配对找到完整的
+    JSON 块。使用括号配对而非纯正则，避免嵌套 JSON 被截断，且正确
+    处理字符串内的括号。
+
+    Args:
+        content: 可能包含 JSON 的任意文本
+
+    Returns:
+        提取出的 JSON 字符串，未找到则返回空字符串
+
+    """
+    brace_pos = content.find("{")
+    bracket_pos = content.find("[")
+
+    # 取最先出现的开括号
+    if brace_pos == -1 and bracket_pos == -1:
+        return ""
+    if brace_pos == -1:
+        start, open_char, close_char = bracket_pos, "[", "]"
+    elif bracket_pos == -1:
+        start, open_char, close_char = brace_pos, "{", "}"
+    else:
+        if brace_pos < bracket_pos:
+            start, open_char, close_char = brace_pos, "{", "}"
+        else:
+            start, open_char, close_char = bracket_pos, "[", "]"
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(content)):
+        ch = content[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == open_char:
+            depth += 1
+        elif ch == close_char:
+            depth -= 1
+            if depth == 0:
+                return content[start : i + 1]
+    return ""

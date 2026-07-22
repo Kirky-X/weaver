@@ -633,10 +633,14 @@ class GraphWriter(Protocol):
         """Merge a SchemaNode keyed by event_type (no relationships).
 
         Creates or updates a SchemaNode capturing the structural pattern of
-        an event type. SchemaNode is MERGEd by event_type — multiple articles
+        an event type. SchemaNode is MERGEd so that multiple articles
         with the same event_type produce a single SchemaNode (idempotent
-        upsert). No relationships are created (SchemaNode stands alone as a
-        schema registry consumed by SchemaDrivenStructuredOutput).
+        upsert). Neo4j MERGEs on ``event_type`` (backed by a UNIQUE
+        constraint); LadybugDB MERGEs on the primary key ``id``
+        (``schema-{event_type}``) because Kùzu requires the primary key
+        in the MERGE pattern. No relationships are created (SchemaNode
+        stands alone as a schema registry consumed by
+        SchemaDrivenStructuredOutput).
 
         Args:
             event_type: Event type string (e.g. 融资/政策发布/人事变动).
