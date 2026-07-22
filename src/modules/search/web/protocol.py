@@ -16,6 +16,18 @@ Both import paths work — pick whichever is most readable in context.
 
 from __future__ import annotations
 
-from core.protocols.web_search import BingSearchProtocol, BingSearchResult
+from core.protocols.web_search import (
+    BingSearchMode,
+    BingSearchProtocol,
+    BingSearchResult,
+    BingTimeFilter,
+    QueryExpanderProtocol,
+)
 
-__all__ = ["BingSearchProtocol", "BingSearchResult"]
+__all__ = [
+    "BingSearchMode",
+    "BingSearchProtocol",
+    "BingSearchResult",
+    "BingTimeFilter",
+    "QueryExpanderProtocol",
+]
