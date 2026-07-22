@@ -41,7 +41,7 @@ class CallPoint(str, Enum):
     CAUSAL_INFERENCE = "causal_inference"
     ENTITY_FACTS = "entity_facts"
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
-    SCHEMA_EXTRACTION = "schema_extraction"
+    NARRATIVE_SCHEMA = "narrative_schema"
     EVIDENCE_SAMPLING = "evidence_sampling"
     ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"
@@ -461,6 +461,10 @@ CACHE_TTL: dict[str, int] = {
     "analyze": 24 * 60 * 60,
     "summary": 7 * 24 * 60 * 60,
     "entity_extractor": 7 * 24 * 60 * 60,
+    "cleaner": 24 * 60 * 60,
+    "merger": 7 * 24 * 60 * 60,
+    "claim_extraction": 24 * 60 * 60,
+    "narrative_schema": 7 * 24 * 60 * 60,
     "default": 24 * 60 * 60,
 }
 
