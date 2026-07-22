@@ -108,6 +108,23 @@ class ApiKeyManager:
         self._pool = pool
 
     @staticmethod
+    def _select_key_for_update(session: Any, key_id: str) -> Any:
+        """Build SELECT ApiKey by key_id, with FOR UPDATE on PostgreSQL only.
+
+        DuckDB 不支持 ``FOR UPDATE`` 锁定子句（``Parser Error: SELECT
+        locking clause is not supported!``），跳过行级锁。DuckDB 乐观并发
+        控制（OCC）在 commit 时检测写-写冲突，跳过 ``FOR UPDATE`` 不影响
+        并发安全性。
+        """
+        stmt = select(ApiKey).where(ApiKey.key_id == key_id)
+        try:
+            if session.get_bind().dialect.name != "duckdb":
+                stmt = stmt.with_for_update()
+        except AttributeError:
+            pass
+        return stmt
+
+    @staticmethod
     def _extract_key_id(key_value: str) -> str | None:
         """Extract key_id from key_value if it uses a recognized format.
 
@@ -332,9 +349,8 @@ class ApiKeyManager:
         async with self._pool.session() as session:
             # Using FOR UPDATE to align with rotate_key and prevent concurrent
             # revoke+rotate from producing misleading OK status (MED-004 fix).
-            fetch_result = await session.execute(
-                select(ApiKey).where(ApiKey.key_id == key_id).with_for_update()
-            )
+            # DuckDB 下降级为普通 SELECT（单写者模型已保证串行）。
+            fetch_result = await session.execute(self._select_key_for_update(session, key_id))
             target = fetch_result.scalar_one_or_none()
 
             if target is None:
@@ -477,10 +493,8 @@ class ApiKeyManager:
             # Lock the old key row for the duration of this transaction so
             # concurrent rotate_key / revoke_key callers cannot interleave.
             # with_for_update() emits SELECT ... FOR UPDATE on PG;
-            # DuckDB falls back to a no-op lock (single-writer model).
-            result = await session.execute(
-                select(ApiKey).where(ApiKey.key_id == key_id).with_for_update()
-            )
+            # DuckDB 下降级为普通 SELECT（单写者模型已保证串行）。
+            result = await session.execute(self._select_key_for_update(session, key_id))
             old_key = result.scalar_one_or_none()
 
             if old_key is None:
