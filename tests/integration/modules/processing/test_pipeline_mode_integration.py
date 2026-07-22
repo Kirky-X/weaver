@@ -4,7 +4,7 @@
 
 Tests verify:
 1. ProcessingMode enum values work correctly
-2. Mode-specific configuration overrides are applied correctly
+2. CLI mode is bridged to backend settings via WEAVER_PIPELINE_PROCESS__PROCESSING_MODE
 3. CLI arguments are parsed correctly
 4. Pipeline node integration with real LLM + real DB
 
@@ -25,27 +25,25 @@ from modules.processing.pipeline.state import PipelineState
 
 @pytest.mark.integration
 class TestProcessingModeConfiguration:
-    """Test mode-specific configuration overrides (no mocks needed)."""
+    """Test that CLI processing mode is bridged to backend settings."""
 
-    def test_fast_mode_config(self) -> None:
-        """Test that fast mode config has correct overrides."""
-        from scripts.pipeline import ProcessingMode, get_mode_config
+    def test_processing_mode_env_bridge_fast(self, monkeypatch) -> None:
+        """CLI fast mode reaches settings.pipeline_process via the env bridge."""
+        from config.settings import Settings
+        from scripts.pipeline import PROCESSING_MODE_ENV
 
-        config = get_mode_config(ProcessingMode.FAST)
+        monkeypatch.setenv(PROCESSING_MODE_ENV, "fast")
+        settings = Settings()
+        assert settings.pipeline_process.processing_mode == "fast"
 
-        assert config.get("skip_entities") is True
-        assert config.get("skip_quality") is True
-        assert config.get("skip_credibility") is True
-        assert config.get("skip_phase3") is True
+    def test_processing_mode_env_bridge_deep(self, monkeypatch) -> None:
+        """CLI deep mode reaches settings.pipeline_process via the env bridge."""
+        from config.settings import Settings
+        from scripts.pipeline import PROCESSING_MODE_ENV
 
-    def test_deep_mode_config(self) -> None:
-        """Test that deep mode config has no overrides."""
-        from scripts.pipeline import ProcessingMode, get_mode_config
-
-        config = get_mode_config(ProcessingMode.DEEP)
-
-        # Deep mode should have empty config (no overrides)
-        assert config == {}
+        monkeypatch.setenv(PROCESSING_MODE_ENV, "deep")
+        settings = Settings()
+        assert settings.pipeline_process.processing_mode == "deep"
 
     def test_processing_mode_enum(self) -> None:
         """Test ProcessingMode enum values."""

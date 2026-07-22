@@ -84,24 +84,13 @@ class ProcessingMode(enum.StrEnum):
     DEEP = "deep"
 
 
-def get_mode_config(mode: ProcessingMode) -> dict[str, Any]:
-    """Get mode-specific configuration overrides.
-
-    Args:
-        mode: Processing mode.
-
-    Returns:
-        Dictionary of configuration overrides for the mode.
-    """
-    if mode == ProcessingMode.FAST:
-        return {
-            "skip_entities": True,
-            "skip_quality": True,
-            "skip_credibility": True,
-            "skip_batch_merger": True,
-            "skip_phase3": True,
-        }
-    return {}
+# Bridge CLI --processing-mode to the backend worker.
+# PipelineWorker reads settings.pipeline_process.processing_mode once at
+# startup (container/services.py) and dispatches to process_batch_fast /
+# process_batch. pydantic-settings loads that field from this env var
+# (env_prefix="WEAVER_", env_nested_delimiter="__"). The worker has no
+# per-request mode, so the env var must be set before Settings() init.
+PROCESSING_MODE_ENV = "WEAVER_PIPELINE_PROCESS__PROCESSING_MODE"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -891,13 +880,15 @@ async def cmd_test(args: argparse.Namespace) -> int:
     """Run pipeline test."""
     # Convert processing_mode string to enum
     processing_mode = ProcessingMode(args.processing_mode)
-    mode_config = get_mode_config(processing_mode)
+
+    # Bridge CLI --processing-mode to the backend worker. PipelineWorker
+    # reads settings.pipeline_process.processing_mode once at startup, so the
+    # env var MUST be set before Settings() is instantiated in setup_*_mode().
+    os.environ[PROCESSING_MODE_ENV] = processing_mode.value
 
     print("=" * 60)
     print(f"  Pipeline Test: {args.mode.upper()} mode")
     print(f"  Processing: {processing_mode.value.upper()} mode")
-    if mode_config:
-        print(f"  Config overrides: {', '.join(k for k, v in mode_config.items() if v)}")
     print("=" * 60)
 
     start_time = time.time()
@@ -912,6 +903,18 @@ async def cmd_test(args: argparse.Namespace) -> int:
             server_ctx = await setup_strategy_mode(debug=args.debug)
         else:
             server_ctx = await setup_normal_mode(debug=args.debug)
+
+        # Fail loud if the env bridge silently fell back to the default.
+        # pydantic-settings does not error on an unrecognized env name — it
+        # just uses the default ("deep"), which is exactly the bug fixed here.
+        effective_mode = server_ctx.container._settings.pipeline_process.processing_mode
+        if effective_mode != processing_mode.value:
+            raise RuntimeError(
+                f"processing_mode env bridge failed: CLI={processing_mode.value} "
+                f"but settings.pipeline_process.processing_mode={effective_mode!r} "
+                f"(verify {PROCESSING_MODE_ENV})"
+            )
+        step(f"Processing mode bridged", True, processing_mode.value)
 
         step(
             f"Database: {server_ctx.relational_type} + {server_ctx.graph_type}",
