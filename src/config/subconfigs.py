@@ -606,7 +606,11 @@ class BingSettings(BaseModel):
 
     Environment variables: WEAVER_BING__ENABLED, WEAVER_BING__MAX_RESULTS,
     WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT,
-    WEAVER_BING__CACHE_TTL_SECONDS
+    WEAVER_BING__CACHE_TTL_SECONDS, WEAVER_BING__NEWS_ENABLED,
+    WEAVER_BING__NEWS_MAX_RESULTS, WEAVER_BING__TIME_FILTER,
+    WEAVER_BING__QUERY_EXPANSION_ENABLED,
+    WEAVER_BING__QUERY_EXPANSION_MAX_TERMS,
+    WEAVER_BING__QUERY_EXPANSION_TIMEOUT
 
     Security:
         - Disabled by default. Must be explicitly enabled in production.
@@ -620,6 +624,21 @@ class BingSettings(BaseModel):
           repeated queries (e.g. trending topics). ``0`` disables caching.
           Cache write failures are non-fatal — they are logged and the
           search flow continues.
+
+    News vertical + time filter + query expansion (R-web-search-008):
+        - ``news_enabled``: when True, BingSearcher also queries the Bing
+          News vertical (``cn.bing.com/news/search``) in parallel and merges
+          deduplicated results. News vertical returns timely articles
+          ranked by recency — critical for queries like "菲律宾" where the
+          user expects "仁爱礁" related news rather than encyclopedic
+          overviews.
+        - ``time_filter``: applies Bing's time-range filter to the general
+          search (``filters=ex1:"ez5_<window>"``). Default "week" biases
+          results toward recent content; "none" preserves legacy behavior.
+        - ``query_expansion_enabled``: when True, the LLM expands the
+          user's broad query (e.g. "菲律宾" → ["菲律宾 仁爱礁",
+          "菲律宾 南海", ...]) before searching. Each expansion query runs
+          in parallel; results are merged and deduplicated.
     """
 
     enabled: bool = False
@@ -630,3 +649,20 @@ class BingSettings(BaseModel):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
+
+    # News vertical search (cn.bing.com/news/search). Parallel to general
+    # search; results merged + deduplicated.
+    news_enabled: bool = True
+    news_max_results: int = 8
+
+    # Time filter applied to general search URL. "none" = no filter (legacy).
+    # Bing filter syntax: filters=ex1:"ez5_<window>" where <window> is
+    # "_86400_1" (1d), "_604800_7" (7d), "_2592000_30" (30d).
+    time_filter: Literal["none", "day", "week", "month"] = "week"
+
+    # Query expansion via LLM. Broad queries like "菲律宾" get expanded
+    # into topical variants (e.g. "菲律宾 仁爱礁") so Bing returns news
+    # on the actual hot topic rather than encyclopedic results.
+    query_expansion_enabled: bool = True
+    query_expansion_max_terms: int = 3
+    query_expansion_timeout: float = 5.0  # seconds

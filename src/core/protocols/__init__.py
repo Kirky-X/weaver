@@ -69,15 +69,20 @@ from core.protocols.validation import (
 
 # Web search protocols
 from core.protocols.web_search import (
+    BingSearchMode,
     BingSearchProtocol,
     BingSearchResult,
+    BingTimeFilter,
+    QueryExpanderProtocol,
 )
 
 __all__ = [
     "AnalyticsStorageProtocol",
     "ArticleRepository",
+    "BingSearchMode",
     "BingSearchProtocol",
     "BingSearchResult",
+    "BingTimeFilter",
     "CachePool",
     "DailyBriefingProtocol",
     "DeduplicationStrategy",
@@ -92,6 +97,7 @@ __all__ = [
     "PersistStatus",
     "PipelineService",
     "PipelineState",
+    "QueryExpanderProtocol",
     "RelationalPool",
     "SentimentTrendProtocol",
     "SourceAuthorityRepository",
