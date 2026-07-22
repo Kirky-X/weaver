@@ -25,11 +25,8 @@ from modules.processing.nodes.classification.credibility_checker import (
 )
 from modules.processing.nodes.extraction.analyze import AnalyzeNode
 from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
-from modules.processing.nodes.extraction.narrative_generator import (
-    NarrativeGeneratorNode,
-)
-from modules.processing.nodes.extraction.schema_extractor import (
-    SchemaExtractorNode,
+from modules.processing.nodes.extraction.narrative_schema_extractor import (
+    NarrativeSchemaExtractorNode,
 )
 from modules.processing.nodes.extraction.sentiment_tracker import (
     SentimentTrackerNode,
@@ -88,8 +85,7 @@ PHASE3_STAGES = {
     "entity_extractor": "phase3_entity_extractor",
     "fake_news_detector": "phase3_fake_news_detector",
     "conflict_detector": "phase3_conflict_detector",
-    "narrative_generator": "phase3_narrative_generator",
-    "schema_extractor": "phase3_schema_extractor",
+    "narrative_schema": "phase3_narrative_schema",
     "sentiment_tracker": "phase3_sentiment_tracker",
 }
 
@@ -219,20 +215,13 @@ class Pipeline:
             if fake_news_detector is not None
             else None
         )
-        # Narrative synthesis node — analyzes framing dimensions (source_bias/
-        # frame/tone/emphasis) and persists NarrativeNode linked to EventNode.
-        # Degraded gracefully when LLM or graph_writer fails (Rule 12).
-        self._narrative_generator = (
-            NarrativeGeneratorNode(llm, budget, prompt_loader, graph_writer)
-            if graph_writer is not None
-            else None
-        )
-        # Schema extractor node — identifies event_type and generates JSON
-        # Schema pattern, persists SchemaNode MERGEd by event_type (no
-        # relationships). Serves as the schema registry for structured output.
-        # Degraded gracefully when LLM or graph_writer fails (Rule 12).
-        self._schema_extractor = (
-            SchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
+        # Narrative+schema extractor node — single LLM call yielding both
+        # framing dimensions (NarrativeNode) and event schema (SchemaNode).
+        # Replaces the former separate NarrativeGeneratorNode +
+        # SchemaExtractorNode (token optimization: 2 calls → 1). Each graph
+        # write degrades independently per Rule 12.
+        self._narrative_schema = (
+            NarrativeSchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
             if graph_writer is not None
             else None
         )
@@ -935,10 +924,10 @@ class Pipeline:
             )
 
             # === Phase 3 concurrent block (P1-3 fix) ===
-            # fake_news_detector + conflict_detector + narrative_generator +
-            # schema_extractor are independent (each reads shared state and
-            # writes its own keys). Run them via asyncio.gather to cut
-            # Phase 3 tail latency from 4x LLM to ~1x LLM.
+            # fake_news_detector + conflict_detector + narrative_schema are
+            # independent (each reads shared state and writes its own keys).
+            # Run them via asyncio.gather to cut Phase 3 tail latency from
+            # 3x LLM to ~1x LLM.
             #
             # Nodes modify state in-place (see conflict_detector.execute:
             # ``state["data_conflicts"] = ...``), so gather returns the same
@@ -969,42 +958,30 @@ class Pipeline:
                 )
                 return "conflict_detector"
 
-            async def _run_narrative() -> str | None:
-                if "narrative_generator" in self._disabled_phase3_stage_names:
+            async def _run_narrative_schema() -> str | None:
+                if "narrative_schema" in self._disabled_phase3_stage_names:
                     return None
-                if self._narrative_generator is None:
+                if self._narrative_schema is None:
                     return None
-                start_n = time.monotonic()
-                await self._narrative_generator.execute(state)
-                MetricsCollector.pipeline_stage_latency.labels(stage="narrative_generator").observe(
-                    time.monotonic() - start_n
+                start_ns = time.monotonic()
+                await self._narrative_schema.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="narrative_schema").observe(
+                    time.monotonic() - start_ns
                 )
-                return "narrative_generator"
-
-            async def _run_schema() -> str | None:
-                if "schema_extractor" in self._disabled_phase3_stage_names:
-                    return None
-                if self._schema_extractor is None:
-                    return None
-                start_s = time.monotonic()
-                await self._schema_extractor.execute(state)
-                MetricsCollector.pipeline_stage_latency.labels(stage="schema_extractor").observe(
-                    time.monotonic() - start_s
-                )
-                return "schema_extractor"
+                return "narrative_schema"
 
             concurrent_results = await asyncio.gather(
                 _run_fake_news(),
                 _run_conflict(),
-                _run_narrative(),
-                _run_schema(),
+                _run_narrative_schema(),
                 return_exceptions=not self._debug,
             )
 
             # Update processing stages serially after concurrent completion
-            # to preserve stage ordering (fake_news → conflict → narrative →
-            # schema). Skip exceptions (when self._debug=False, gather returns
-            # Exception objects for failed nodes; log them via stage update).
+            # to preserve stage ordering (fake_news → conflict →
+            # narrative_schema). Skip exceptions (when self._debug=False,
+            # gather returns Exception objects for failed nodes; log them
+            # via stage update).
             for stage_key in concurrent_results:
                 if not isinstance(stage_key, str):
                     continue

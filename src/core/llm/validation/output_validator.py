@@ -338,3 +338,71 @@ class SchemaExtractorOutput(BaseModel):
         if "properties" not in parsed:
             raise ValueError("pattern JSON missing required 'properties' field")
         return self
+
+
+class NarrativeSchemaOutput(BaseModel):
+    """Combined output for the narrative+schema extractor node.
+
+    Merges NarrativeOutput (4 framing dimensions) and SchemaExtractorOutput
+    (event schema) into a single LLM call (token optimization: collapses two
+    per-article calls into one). The node splits this into NarrativeNode
+    (merge_narrative) and SchemaNode (merge_schema) writes.
+
+    Field constraints mirror NarrativeOutput / SchemaExtractorOutput to keep
+    the prompt contract and prevent prompt injection into the graph.
+    """
+
+    # Narrative framing dimensions
+    source_bias: Literal[
+        "左倾",
+        "右倾",
+        "中立",
+        "官方",
+        "民营",
+        "商业",
+        "学术",
+        "民间",
+    ] = "中立"
+    frame: str = Field(min_length=1, max_length=100)
+    tone: Literal[
+        "乐观",
+        "悲观",
+        "客观",
+        "批判",
+        "振奋",
+        "焦虑",
+        "冷静",
+        "激昂",
+        "嘲讽",
+        "同情",
+    ] = "客观"
+    emphasis: str = Field(min_length=1, max_length=60)
+    # Event schema
+    event_type: str = Field(
+        min_length=1,
+        max_length=40,
+        pattern=r"^[一-龥a-zA-Z0-9_]+$",
+    )
+    pattern: str = Field(min_length=2, max_length=4000)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_pattern_json_schema(self) -> NarrativeSchemaOutput:
+        """Validate pattern is legal JSON containing type and properties.
+
+        Mirrors SchemaExtractorOutput validation — prevents LLM output
+        corruption from polluting SchemaNode.pattern.
+        """
+        import json
+
+        try:
+            parsed = json.loads(self.pattern)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"pattern is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"pattern must be a JSON object, got {type(parsed).__name__}")
+        if "type" not in parsed:
+            raise ValueError("pattern JSON missing required 'type' field")
+        if "properties" not in parsed:
+            raise ValueError("pattern JSON missing required 'properties' field")
+        return self

@@ -7,8 +7,7 @@ respect the TOML `enabled=false` flag:
 
 - ``fake_news_detector`` (None-guarded)
 - ``conflict_detector`` (always)
-- ``narrative_generator`` (None-guarded)
-- ``schema_extractor`` (None-guarded)
+- ``narrative_schema`` (None-guarded)
 - ``sentiment_tracker`` (None-guarded)
 
 Dependency stages (``re_vectorize``/``analyze``/``quality_scorer``/
@@ -66,11 +65,8 @@ def _make_pipeline_with_mock_nodes(
     pipeline._conflict_detector = MagicMock()
     pipeline._conflict_detector.execute = AsyncMock(return_value=None)
 
-    pipeline._narrative_generator = MagicMock()
-    pipeline._narrative_generator.execute = AsyncMock(return_value=None)
-
-    pipeline._schema_extractor = MagicMock()
-    pipeline._schema_extractor.execute = AsyncMock(return_value=None)
+    pipeline._narrative_schema = MagicMock()
+    pipeline._narrative_schema.execute = AsyncMock(return_value=None)
 
     # sentiment_tracker (serial after concurrent block)
     pipeline._sentiment_tracker = MagicMock()
@@ -119,7 +115,7 @@ async def test_independent_stage_skipped_when_disabled() -> None:
     pipeline._fake_news_node.execute.assert_not_called()
     # Other independent stages still execute
     pipeline._conflict_detector.execute.assert_called_once()
-    pipeline._narrative_generator.execute.assert_called_once()
+    pipeline._narrative_schema.execute.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -139,8 +135,7 @@ async def test_independent_stage_executed_when_not_disabled() -> None:
 
     pipeline._fake_news_node.execute.assert_called_once()
     pipeline._conflict_detector.execute.assert_called_once()
-    pipeline._narrative_generator.execute.assert_called_once()
-    pipeline._schema_extractor.execute.assert_called_once()
+    pipeline._narrative_schema.execute.assert_called_once()
     pipeline._sentiment_tracker.execute.assert_called_once()
 
 
@@ -157,8 +152,7 @@ async def test_dependency_stage_executed_even_if_disabled_in_toml() -> None:
         disabled_stage_names={
             "fake_news_detector",
             "conflict_detector",
-            "narrative_generator",
-            "schema_extractor",
+            "narrative_schema",
             "sentiment_tracker",
             "entity_extractor",  # dependency stage — should be ignored
             "re_vectorize",  # dependency stage — should be ignored
@@ -182,8 +176,7 @@ async def test_dependency_stage_executed_even_if_disabled_in_toml() -> None:
     # All 5 independent stages skipped
     pipeline._fake_news_node.execute.assert_not_called()
     pipeline._conflict_detector.execute.assert_not_called()
-    pipeline._narrative_generator.execute.assert_not_called()
-    pipeline._schema_extractor.execute.assert_not_called()
+    pipeline._narrative_schema.execute.assert_not_called()
     pipeline._sentiment_tracker.execute.assert_not_called()
 
 
@@ -197,8 +190,7 @@ async def test_multiple_independent_stages_skipped() -> None:
     pipeline = _make_pipeline_with_mock_nodes(
         disabled_stage_names={
             "fake_news_detector",
-            "narrative_generator",
-            "schema_extractor",
+            "narrative_schema",
             "sentiment_tracker",
         }
     )
@@ -213,8 +205,7 @@ async def test_multiple_independent_stages_skipped() -> None:
     # Only conflict_detector executes among independent stages
     pipeline._conflict_detector.execute.assert_called_once()
     pipeline._fake_news_node.execute.assert_not_called()
-    pipeline._narrative_generator.execute.assert_not_called()
-    pipeline._schema_extractor.execute.assert_not_called()
+    pipeline._narrative_schema.execute.assert_not_called()
     pipeline._sentiment_tracker.execute.assert_not_called()
 
 
@@ -242,7 +233,7 @@ def test_toml_phase3_stage_names_subset_of_graph_phase3_stages() -> None:
 
 
 def test_independent_stage_names_all_in_graph_phase3_stages() -> None:
-    """All 5 independent stage names must be in PHASE3_STAGES.
+    """All 4 independent stage names must be in PHASE3_STAGES.
 
     Independent stages are the ones graph.py checks against
     _disabled_phase3_stage_names. If any name is missing from
@@ -254,8 +245,7 @@ def test_independent_stage_names_all_in_graph_phase3_stages() -> None:
     independent_stages = {
         "fake_news_detector",
         "conflict_detector",
-        "narrative_generator",
-        "schema_extractor",
+        "narrative_schema",
         "sentiment_tracker",
     }
 

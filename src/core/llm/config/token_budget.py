@@ -39,7 +39,7 @@ LIMITS: dict[CallPoint, int] = {
     # Advanced analysis
     CallPoint.CAUSAL_INFERENCE: 4000,
     CallPoint.NARRATIVE_SYNTHESIS: 8000,
-    CallPoint.SCHEMA_EXTRACTION: 8000,
+    CallPoint.NARRATIVE_SCHEMA: 8000,
     CallPoint.EVIDENCE_SAMPLING: 2000,
     CallPoint.ROI_SUMMARY: 4000,
     CallPoint.SENTIMENT: 1000,

@@ -9,7 +9,7 @@ JSON Schema dict ready for LLM ``response_format`` parameter.
 SchemaNode schema (actual fields):
     - ``id`` (str, primary key, format "schema-{event_type}")
     - ``event_type`` (str, business key, e.g. "融资"/"政策发布")
-    - ``pattern`` (str, JSON Schema string produced by SchemaExtractorNode)
+    - ``pattern`` (str, JSON Schema string produced by NarrativeSchemaExtractorNode)
     - ``confidence`` (float [0,1])
     - ``created_at`` / ``updated_at`` (timestamps)
 
@@ -19,7 +19,7 @@ Spec R-structured-001 field naming conflict (Rule 7 exposed):
     JSON Schema string) and ``event_type`` (business key). Resolution:
     aligned with actual schema — ``pattern`` is parsed as JSON to produce
     the schema dict, and ``event_type`` is added as the JSON Schema ``title``
-    field. The docstring of SchemaExtractorNode and the schema files
+    field. The docstring of NarrativeSchemaExtractorNode and the schema files
     (ladybug_schema.py L160-167) confirm ``pattern`` / ``event_type`` are
     the canonical field names. Updating the spec wording is out of scope for
     T023 (would require specmark converge phase 7).
@@ -28,13 +28,13 @@ Conversion rules:
     - ``pattern`` (JSON string) → ``json.loads`` → schema dict (R-structured-001)
     - ``event_type`` → schema["title"] (latest-wins: overrides any title
       embedded in ``pattern``, because event_type is the authoritative
-      business key maintained by SchemaExtractorNode)
+      business key maintained by NarrativeSchemaExtractorNode)
     - Returns ``{schema: dict, schema_node_id: str}``
 
 Failure handling (Rule 12 — fail loud):
     - SchemaNode not found (empty result OR record missing ``pattern``)
       → raise ``SchemaNotFoundError`` (caller may regenerate via
-      SchemaExtractorNode, or degrade to plain LLM call per R-structured-002).
+      NarrativeSchemaExtractorNode, or degrade to plain LLM call per R-structured-002).
     - Invalid JSON in ``pattern`` → propagate ``ValueError`` from
       ``json.loads``. Do not swallow — caller needs to know the SchemaNode
       is corrupted (Rule 12).
@@ -119,7 +119,7 @@ class StructuredOutputValidationError(Exception):
           by the LLM. When logging or persisting, apply the same redaction
           policy used for LLM request/response payloads elsewhere in the
           system. Never return ``last_response`` verbatim to API end users.
-        - Consider regenerating the schema via SchemaExtractorNode if
+        - Consider regenerating the schema via NarrativeSchemaExtractorNode if
           the schema is the root cause.
 
     Attributes:
@@ -220,7 +220,7 @@ class SchemaDrivenStructuredOutput:
 
         # event_type → JSON Schema title (latest-wins: overrides any title
         # embedded in pattern). event_type is the authoritative business
-        # key maintained by SchemaExtractorNode.
+        # key maintained by NarrativeSchemaExtractorNode.
         event_type = record.get("event_type")
         if event_type:
             schema["title"] = event_type
