@@ -777,7 +777,7 @@ class TestEntityOutputValidation:
         mock_spacy.extract = MagicMock(return_value=[])
         mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
-                entities=[{"name": "自由意志", "type": "概念"}],
+                entities=[{"name": "自由意志", "type": "动物"}],
                 relations=[],
             )
         )
@@ -795,6 +795,39 @@ class TestEntityOutputValidation:
         result = await node.execute(state)
 
         assert result["entities"][0]["type"] == "未知"
+
+    @pytest.mark.asyncio
+    async def test_entity_type_alias_mapped_to_standard(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Entity type aliases should be mapped to standard names."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[
+                    {"name": "Steam", "type": "产品"},
+                    {"name": "自由意志", "type": "概念"},
+                    {"name": "某公司", "type": "公司"},
+                ],
+                relations=[],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["entities"][0]["type"] == "产品与技术"
+        assert result["entities"][1]["type"] == "产品与技术"
+        assert result["entities"][2]["type"] == "组织机构"
 
     @pytest.mark.asyncio
     async def test_valid_relation_preserved(
@@ -895,7 +928,7 @@ class TestEntityOutputValidation:
             return_value=EntityExtractorOutput(
                 entities=[
                     {"name": "张三", "type": "人物"},
-                    {"name": "自由意志", "type": "概念"},
+                    {"name": "自由意志", "type": "动物"},
                     {"name": "北京", "type": "地点"},
                 ],
                 relations=[],

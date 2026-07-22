@@ -478,9 +478,11 @@ class LadybugWriter:
         Implements: GraphWriter.merge_schema
 
         Creates or updates a SchemaNode with the event pattern (JSON Schema
-        string) and confidence. SchemaNode is MERGEd by event_type so that
-        multiple articles reporting the same event type collapse into one
-        SchemaNode (idempotent upsert). No relationships are created —
+        string) and confidence. SchemaNode is MERGEd by primary key id
+        (``schema-{event_type}``) so that multiple articles reporting the same
+        event type collapse into one SchemaNode (idempotent upsert). LadybugDB
+        requires the primary key in the MERGE pattern (unlike Neo4j which can
+        MERGE on non-key properties). No relationships are created —
         SchemaNode serves as a standalone schema registry.
 
         Confidence-based update policy: pattern/confidence are only updated
@@ -526,8 +528,8 @@ class LadybugWriter:
         async with _write_lock:
             result = await self._pool.execute_query(
                 """
-                MERGE (s:SchemaNode {event_type: $event_type})
-                SET s.id = $schema_id,
+                MERGE (s:SchemaNode {id: $schema_id})
+                SET s.event_type = $event_type,
                     s.pattern = CASE WHEN s.confidence IS NULL OR $confidence > s.confidence
                                      THEN $pattern ELSE s.pattern END,
                     s.confidence = CASE WHEN s.confidence IS NULL OR $confidence > s.confidence
