@@ -654,8 +654,16 @@ class TestBingSearcherMode:
         # After dedup by URL (URLs differ across fixtures), merged count is 7.
         assert len(results) >= 3  # at least general results present
         # Verify URLs from both fixtures appear (cross-check dedup didn't drop all).
+        # Compare parsed hostname (== "example.com" or *.example.com) instead of a
+        # substring check — semantically stricter and avoids a CodeQL false positive
+        # (py/incomplete-url-substring-sanitization) misreading the assertion as URL
+        # sanitization.
         urls = {r.url for r in results}
-        assert any("example.com" in u for u in urls)
+        assert any(
+            (h := urlparse(u).hostname) is not None
+            and (h == "example.com" or h.endswith(".example.com"))
+            for u in urls
+        )
 
     @pytest.mark.asyncio
     async def test_mode_all_deduplicates_by_url(self) -> None:
