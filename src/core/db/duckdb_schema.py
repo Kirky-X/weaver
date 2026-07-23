@@ -743,6 +743,21 @@ async def _upgrade_schema(session) -> None:
             error=str(exc),
         )
 
+    # Migration 34: title index for Stage 3 DB-level dedup safety net.
+    # Accelerates ArticleRepository.get_existing_titles which runs
+    # `SELECT title FROM articles_core WHERE title IN (...)`. Matches
+    # PostgreSQL migration 34. Idempotent CREATE INDEX IF NOT EXISTS.
+    try:
+        await session.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_articles_core_title ON articles_core(title)")
+        )
+        log.info("duckdb_schema_upgrade_added_articles_core_title_index")
+    except Exception as exc:
+        log.warning(
+            "duckdb_schema_upgrade_articles_core_title_index_failed",
+            error=str(exc),
+        )
+
     # F-007 defensive: Reset BIGINT PK sequences to MAX(id) + 1.
     # Pre-existing DuckDB files created via PG→DuckDB data import may
     # have sequences still at START 1 while the table contains rows with

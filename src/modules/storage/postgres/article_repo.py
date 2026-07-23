@@ -582,6 +582,49 @@ class ArticleRepo:
             )
             return {row[0] for row in result}
 
+    async def get_existing_titles(self, titles: set[str]) -> set[str]:
+        """Check which titles already exist in the database (exact match).
+
+        Safety-net dedup (Level 3) for when SimHash fingerprints are missing.
+
+        Args:
+            titles: Set of titles to check.
+
+        Returns:
+            Set of titles that already exist.
+        """
+        if not titles:
+            return set()
+
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(ArticleCore.title).where(ArticleCore.title.in_(titles))
+            )
+            return {row[0] for row in result if row[0]}
+
+    async def get_existing_content_hashes(self, content_hashes: set[str]) -> set[str]:
+        """Check which content hashes already exist in the database.
+
+        Cross-source dedup (Level 2.5) — catches same content republished
+        across different sources (different URLs). Especially important
+        when title extraction fails (empty title) and SimHash/DB title
+        dedup both skip the item.
+
+        Args:
+            content_hashes: Set of SHA-256 content hashes to check.
+
+        Returns:
+            Set of content hashes that already exist.
+        """
+        if not content_hashes:
+            return set()
+
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(ArticleCore.content_hash).where(ArticleCore.content_hash.in_(content_hashes))
+            )
+            return {row[0] for row in result if row[0]}
+
     async def update_persist_status(
         self, article_id: uuid.UUID, status: PersistStatus | str
     ) -> None:
@@ -976,10 +1019,51 @@ class ArticleRepo:
                     row[0]: row[1] for row in existing_result.all()
                 }
 
+                # Stage 2.5: batch pre-query existing content_hashes
+                # Cross-source dedup — prevents same content with different
+                # URLs from being stored twice. Catches cases where title
+                # extraction failed (empty title) and SimHash/DB title dedup
+                # both skipped the item.
+                hash_to_raw: dict[str, tuple[int, Any, str]] = {}
+                for idx, raw, norm_url in prepared:
+                    if existing_map.get(norm_url) is not None:
+                        continue
+                    effective_body = raw.body
+                    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
+                        effective_body = raw.description
+                    ch = ChangeDetector.compute_hash(
+                        {"title": raw.title or "", "body": effective_body}
+                    )
+                    hash_to_raw[ch] = (idx, raw, norm_url)
+
+                existing_hashes: set[str] = set()
+                if hash_to_raw:
+                    hash_query = select(ArticleCore.content_hash, ArticleCore.id).where(
+                        ArticleCore.content_hash.in_(set(hash_to_raw.keys()))
+                    )
+                    hash_result = await session.execute(hash_query)
+                    for row in hash_result.all():
+                        existing_hashes.add(row[0])
+                        # Map duplicate content to existing article id so
+                        # downstream pipeline can skip reprocessing.
+                        ch = row[0]
+                        if ch in hash_to_raw:
+                            idx, _, _ = hash_to_raw[ch]
+                            results[idx] = row[1]
+
+                    if existing_hashes:
+                        log.info(
+                            "bulk_insert_raw_content_hash_dup",
+                            dup_count=len(existing_hashes),
+                            total_checked=len(hash_to_raw),
+                        )
+
                 # Stage 3: build new objects for URLs not in existing_map
                 new_objects: list[Any] = []
                 # Track (orig_idx, core_ref) so we can read core.id after flush
                 pending_cores: list[tuple[int, ArticleCore]] = []
+                # Track in-batch content_hashes to dedup within the same batch
+                in_batch_hashes: set[str] = set()
 
                 for idx, raw, norm_url in prepared:
                     existing_id = existing_map.get(norm_url)
@@ -988,6 +1072,30 @@ class ArticleRepo:
                         log.debug("bulk_insert_raw_existing", url=raw.url, normalized=norm_url)
                         continue
 
+                    # Skip if content_hash already exists (cross-source dup
+                    # in DB, or within the same batch)
+                    effective_body = raw.body
+                    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
+                        effective_body = raw.description
+                    ch = ChangeDetector.compute_hash(
+                        {"title": raw.title or "", "body": effective_body}
+                    )
+                    if ch in existing_hashes:
+                        log.info(
+                            "bulk_insert_raw_skipped_content_hash_dup",
+                            url=raw.url,
+                            content_hash=ch,
+                        )
+                        continue
+                    if ch in in_batch_hashes:
+                        log.info(
+                            "bulk_insert_raw_skipped_in_batch_dup",
+                            url=raw.url,
+                            content_hash=ch,
+                        )
+                        continue
+
+                    in_batch_hashes.add(ch)
                     core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
                     core = ArticleCore(**core_kwargs)
                     session.add(core)

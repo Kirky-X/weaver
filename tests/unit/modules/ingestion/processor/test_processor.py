@@ -35,7 +35,10 @@ def mock_crawler():
 @pytest.fixture
 def mock_article_repo():
     """Mock article repository."""
-    return AsyncMock()
+    repo = AsyncMock()
+    # DB title dedup returns empty set by default (no existing titles)
+    repo.get_existing_titles = AsyncMock(return_value=set())
+    return repo
 
 
 @pytest.fixture
@@ -399,6 +402,242 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         # Should not call simhash when disabled
         mock_simhash.dedup_titles_with_metrics.assert_not_called()
+
+
+class TestDiscoveryProcessorDbTitleDedup:
+    """Tests for DB-level title deduplication (Stage 3 safety net).
+
+    When SimHash fingerprints are missing (Redis degradation, process
+    restart, scheduler timing), the DB title check prevents duplicate
+    articles from being inserted.
+    """
+
+    @pytest.fixture
+    def mock_source(self):
+        source = MagicMock()
+        source.id = "test-source-id"
+        source.name = "test_source"
+        return source
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_filters_existing_title(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """Items with titles already in DB should be filtered before crawl."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item = MagicMock()
+        item.url = "https://example.com/new-url"
+        item.title = "10间敢死队"
+        item.name = "10间敢死队"
+
+        # DB already has this title
+        mock_article_repo.get_existing_titles = AsyncMock(return_value={"10间敢死队"})
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        await processor.on_items_discovered([item], mock_source)
+
+        # Should NOT crawl items whose titles already exist in DB
+        mock_crawler.crawl_batch.assert_not_called()
+        mock_article_repo.bulk_insert_raw.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_passes_new_title(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """Items with new titles should pass through to crawl."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item = MagicMock()
+        item.url = "https://example.com/new-article"
+        item.title = "Brand New Story"
+        item.name = "Brand New Story"
+
+        mock_article_repo.get_existing_titles = AsyncMock(return_value=set())
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
+
+        mock_article = RawArticle(
+            url="https://example.com/new-article",
+            title="Brand New Story",
+            body="Content",
+            source="test_source",
+            publish_time=datetime.now(UTC),
+            source_host="example.com",
+        )
+        mock_crawler.crawl_batch = AsyncMock(return_value=[mock_article])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        await processor.on_items_discovered([item], mock_source)
+
+        mock_crawler.crawl_batch.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_partial_filter(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """Mixed batch: some titles exist, some don't — only new ones crawl."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item_old = MagicMock()
+        item_old.url = "https://example.com/old"
+        item_old.title = "Existing Title"
+        item_old.name = "Existing Title"
+
+        item_new = MagicMock()
+        item_new.url = "https://example.com/new"
+        item_new.title = "New Title"
+        item_new.name = "New Title"
+
+        mock_article_repo.get_existing_titles = AsyncMock(return_value={"Existing Title"})
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
+
+        mock_article = RawArticle(
+            url="https://example.com/new",
+            title="New Title",
+            body="Content",
+            source="test_source",
+            publish_time=datetime.now(UTC),
+            source_host="example.com",
+        )
+        mock_crawler.crawl_batch = AsyncMock(return_value=[mock_article])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        await processor.on_items_discovered([item_old, item_new], mock_source)
+
+        # Only new item should be crawled
+        crawled_items = mock_crawler.crawl_batch.call_args[0][0]
+        assert len(crawled_items) == 1
+        assert crawled_items[0].url == "https://example.com/new"
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_skipped_in_force_mode(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """force=True should bypass DB title dedup (user wants re-crawl)."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item = MagicMock()
+        item.url = "https://example.com/existing"
+        item.title = "Existing Title"
+        item.name = "Existing Title"
+
+        mock_article_repo.get_existing_titles = AsyncMock(return_value={"Existing Title"})
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
+
+        mock_article = RawArticle(
+            url="https://example.com/existing",
+            title="Existing Title",
+            body="Content",
+            source="test_source",
+            publish_time=datetime.now(UTC),
+            source_host="example.com",
+        )
+        mock_crawler.crawl_batch = AsyncMock(return_value=[mock_article])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        # force=True: should NOT call get_existing_titles
+        await processor.on_items_discovered([item], mock_source, force=True)
+
+        mock_article_repo.get_existing_titles.assert_not_called()
+        mock_crawler.crawl_batch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_skipped_when_method_missing(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """When repo lacks get_existing_titles, Stage 3 is skipped (backward compat)."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item = MagicMock()
+        item.url = "https://example.com/article"
+        item.title = "Some Title"
+        item.name = "Some Title"
+
+        # Remove get_existing_titles to simulate legacy repo
+        del mock_article_repo.get_existing_titles
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
+
+        mock_article = RawArticle(
+            url="https://example.com/article",
+            title="Some Title",
+            body="Content",
+            source="test_source",
+            publish_time=datetime.now(UTC),
+            source_host="example.com",
+        )
+        mock_crawler.crawl_batch = AsyncMock(return_value=[mock_article])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        # Should proceed to crawl without error
+        await processor.on_items_discovered([item], mock_source)
+
+        mock_crawler.crawl_batch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_db_title_dedup_degrades_on_db_failure(
+        self, mock_crawler, mock_article_repo, mock_source
+    ):
+        """DB failure in safety net should degrade gracefully (process all items)."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        item = MagicMock()
+        item.url = "https://example.com/article"
+        item.title = "Some Title"
+        item.name = "Some Title"
+
+        mock_article_repo.get_existing_titles = AsyncMock(
+            side_effect=RuntimeError("DB connection lost")
+        )
+        mock_article_repo.bulk_insert_raw = AsyncMock(return_value=[uuid.uuid4()])
+
+        mock_article = RawArticle(
+            url="https://example.com/article",
+            title="Some Title",
+            body="Content",
+            source="test_source",
+            publish_time=datetime.now(UTC),
+            source_host="example.com",
+        )
+        mock_crawler.crawl_batch = AsyncMock(return_value=[mock_article])
+
+        processor = DiscoveryProcessor(
+            crawler=mock_crawler,
+            article_repo=mock_article_repo,
+            enable_simhash=False,
+        )
+
+        # DB failure should NOT abort the batch — degrade to crawl all items
+        await processor.on_items_discovered([item], mock_source)
+
+        mock_crawler.crawl_batch.assert_called_once()
+        mock_article_repo.bulk_insert_raw.assert_called_once()
 
 
 class TestDiscoveryProcessorErrorHandling:
