@@ -38,6 +38,18 @@ def _make_settings(
     timeout: int = 15,
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     cache_ttl_seconds: int = 0,
+    # R-web-search-008 fields. Defaulted to OFF in the test stand-in so
+    # legacy tests (which assume general-only /search) continue to pass
+    # without modification. New tests opt-in by setting these to True /
+    # non-"none". The real BingSettings class defaults news_enabled=True
+    # and time_filter="week" — that production default is exercised by the
+    # new TestBingSearcherMode / TestBingSearcherTimeFilter test classes.
+    news_enabled: bool = False,
+    news_max_results: int = 8,
+    time_filter: str = "none",
+    query_expansion_enabled: bool = False,
+    query_expansion_max_terms: int = 3,
+    query_expansion_timeout: float = 5.0,
 ) -> SimpleNamespace:
     """Build a duck-typed BingSettings stand-in (T013 replaces with real class)."""
     return SimpleNamespace(
@@ -46,6 +58,12 @@ def _make_settings(
         timeout=timeout,
         user_agent=user_agent,
         cache_ttl_seconds=cache_ttl_seconds,
+        news_enabled=news_enabled,
+        news_max_results=news_max_results,
+        time_filter=time_filter,
+        query_expansion_enabled=query_expansion_enabled,
+        query_expansion_max_terms=query_expansion_max_terms,
+        query_expansion_timeout=query_expansion_timeout,
     )
 
 
@@ -357,9 +375,11 @@ class TestBingSearcherCache:
         results = await searcher.search("trending topic")
         assert len(results) == 3
         fetcher.fetch.assert_awaited_once()
-        # Cache must now contain an entry keyed by (query, effective_max).
-        assert ("trending topic", 5) in cache
-        assert len(cache[("trending topic", 5)]) == 3
+        # Cache key includes (query, effective_max, resolved_mode,
+        # effective_time_filter). With news_enabled=False, mode="auto"
+        # resolves to "general"; time_filter defaults to "none".
+        assert ("trending topic", 5, "general", "none") in cache
+        assert len(cache[("trending topic", 5, "general", "none")]) == 3
 
     @pytest.mark.asyncio
     async def test_cache_hit_skips_fetcher_and_returns_cached(self) -> None:
@@ -381,7 +401,7 @@ class TestBingSearcherCache:
         assert second_results == first_results
         # Returned list must be a COPY (caller mutation must not corrupt cache).
         second_results.clear()
-        assert len(cache[("trending topic", 5)]) == 3  # cache entry untouched
+        assert len(cache[("trending topic", 5, "general", "none")]) == 3  # cache entry untouched
 
     @pytest.mark.asyncio
     async def test_cache_hit_with_explicit_max_results_matches_settings_default(self) -> None:
@@ -496,8 +516,464 @@ class TestBingSearcherCache:
             cache=cache,
         )
         await searcher.search("topic", max_results=2)
-        assert ("topic", 2) in cache
-        assert ("topic", 5) not in cache
+        assert ("topic", 2, "general", "none") in cache
+        assert ("topic", 5, "general", "none") not in cache
         await searcher.search("topic", max_results=5)
-        assert ("topic", 5) in cache
+        assert ("topic", 5, "general", "none") in cache
         assert fetcher.fetch.await_count == 2  # distinct keys → distinct fetches
+
+
+def _make_news_fetcher(html_map: dict[str, str] | None = None) -> AsyncMock:
+    """Create a fetcher that returns different HTML based on URL path.
+
+    Args:
+        html_map: Maps URL path (e.g. "/search", "/news/search") to HTML
+            content. When a path is not in the map, returns empty HTML.
+            When None, returns the same general-sample HTML for all paths
+            (simplified case for tests that don't distinguish).
+    """
+    fetcher = AsyncMock(spec=BaseFetcher)
+
+    general_html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+    news_html = (_FIXTURE_DIR / "bing_news_sample.html").read_text(encoding="utf-8")
+
+    if html_map is None:
+        html_map = {"/search": general_html, "/news/search": news_html}
+
+    async def _fetch(url: str, headers: dict | None = None) -> tuple[int, str, dict]:
+        parsed = urlparse(url)
+        html = html_map.get(parsed.path, "<html></html>")
+        return (200, html, {"Content-Type": "text/html"})
+
+    fetcher.fetch = AsyncMock(side_effect=_fetch)
+    fetcher.close = AsyncMock(return_value=None)
+    return fetcher
+
+
+def _make_expander(terms: list[str] | None = None, raises: bool = False) -> AsyncMock:
+    """Create an AsyncMock standing in for QueryExpanderProtocol.
+
+    Args:
+        terms: Expanded query terms to return. When None, returns []
+            (no expansion). When raises=True, the mock raises an
+            exception instead of returning terms.
+    """
+    from modules.search.web.protocol import QueryExpanderProtocol
+
+    expander = AsyncMock(spec=QueryExpanderProtocol)
+    if raises:
+        expander.expand = AsyncMock(side_effect=RuntimeError("LLM down"))
+    else:
+        expander.expand = AsyncMock(return_value=list(terms or []))
+    return expander
+
+
+class TestBingSearcherMode:
+    """Tests for BingSearcher.search() mode parameter (R-web-search-008).
+
+    Covers all four mode values (auto/general/news/all) and their
+    interaction with settings.news_enabled.
+    """
+
+    @pytest.mark.asyncio
+    async def test_mode_general_calls_only_general_path(self) -> None:
+        """mode='general' must hit only /search (never /news/search)."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=True),  # mode overrides this
+        )
+        await searcher.search("q", mode="general")
+        # Exactly one fetcher call, and its URL path is /search.
+        assert fetcher.fetch.await_count == 1
+        url = fetcher.fetch.call_args.args[0]
+        assert urlparse(url).path == "/search"
+
+    @pytest.mark.asyncio
+    async def test_mode_news_calls_only_news_path(self) -> None:
+        """mode='news' must hit only /news/search (never /search)."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=False),  # mode overrides this
+        )
+        await searcher.search("q", mode="news")
+        assert fetcher.fetch.await_count == 1
+        url = fetcher.fetch.call_args.args[0]
+        assert urlparse(url).path == "/news/search"
+
+    @pytest.mark.asyncio
+    async def test_mode_all_calls_both_paths(self) -> None:
+        """mode='all' must hit both /search and /news/search."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=False),  # mode overrides this
+        )
+        await searcher.search("q", mode="all")
+        assert fetcher.fetch.await_count == 2
+        paths = sorted(urlparse(c.args[0]).path for c in fetcher.fetch.call_args_list)
+        assert paths == ["/news/search", "/search"]
+
+    @pytest.mark.asyncio
+    async def test_mode_auto_with_news_enabled_calls_both(self) -> None:
+        """mode='auto' + news_enabled=True must hit both paths."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=True),
+        )
+        await searcher.search("q", mode="auto")
+        assert fetcher.fetch.await_count == 2
+        paths = sorted(urlparse(c.args[0]).path for c in fetcher.fetch.call_args_list)
+        assert paths == ["/news/search", "/search"]
+
+    @pytest.mark.asyncio
+    async def test_mode_auto_with_news_disabled_calls_only_general(self) -> None:
+        """mode='auto' + news_enabled=False must hit only /search (legacy)."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=False),
+        )
+        await searcher.search("q", mode="auto")
+        assert fetcher.fetch.await_count == 1
+        url = fetcher.fetch.call_args.args[0]
+        assert urlparse(url).path == "/search"
+
+    @pytest.mark.asyncio
+    async def test_mode_all_merges_general_and_news_results(self) -> None:
+        """mode='all' must merge results from both verticals."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=False, max_results=10, news_max_results=10),
+        )
+        results = await searcher.search("q", mode="all", max_results=10)
+        # General fixture has 3 results, news fixture has 4 (3 newsitem + 1 b_algo).
+        # After dedup by URL (URLs differ across fixtures), merged count is 7.
+        assert len(results) >= 3  # at least general results present
+        # Verify URLs from both fixtures appear (cross-check dedup didn't drop all).
+        # Compare parsed hostname (== "example.com" or *.example.com) instead of a
+        # substring check — semantically stricter and avoids a CodeQL false positive
+        # (py/incomplete-url-substring-sanitization) misreading the assertion as URL
+        # sanitization.
+        urls = {r.url for r in results}
+        assert any(
+            (h := urlparse(u).hostname) is not None
+            and (h == "example.com" or h.endswith(".example.com"))
+            for u in urls
+        )
+
+    @pytest.mark.asyncio
+    async def test_mode_all_deduplicates_by_url(self) -> None:
+        """mode='all' must deduplicate results by URL across verticals."""
+        # Build a fetcher that returns the SAME HTML (with same URLs) for
+        # both /search and /news/search — the dedup logic must collapse them.
+        same_html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_news_fetcher(html_map={"/search": same_html, "/news/search": same_html})
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(max_results=10, news_max_results=10),
+        )
+        results = await searcher.search("q", mode="all", max_results=10)
+        # Both verticals returned the same 3 URLs → dedup yields 3 (not 6).
+        urls = [r.url for r in results]
+        assert len(urls) == len(set(urls))  # no duplicates
+        assert len(results) == 3
+
+    @pytest.mark.asyncio
+    async def test_mode_general_ignores_news_max_results(self) -> None:
+        """mode='general' must not invoke news search at all (news_max_results unused)."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=True, news_max_results=99),
+        )
+        await searcher.search("q", mode="general")
+        assert fetcher.fetch.await_count == 1
+        url = fetcher.fetch.call_args.args[0]
+        assert urlparse(url).path == "/search"
+
+
+class TestBingSearcherTimeFilter:
+    """Tests for BingSearcher.search() time_filter parameter."""
+
+    @pytest.mark.asyncio
+    async def test_time_filter_day_adds_filters_param(self) -> None:
+        """time_filter='day' must add filters=ex1:"ez5_86400_1" to URL."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        await searcher.search("q", mode="general", time_filter="day")
+        url = fetcher.fetch.call_args.args[0]
+        # URL must contain the filters parameter (URL-encoded form).
+        # quote('ex1:"ez5_86400_1"', safe='') → 'ex1%3A%22ez5_86400_1%22'
+        assert "86400" in url
+        assert "ez5_" in url
+
+    @pytest.mark.asyncio
+    async def test_time_filter_week_adds_filters_param(self) -> None:
+        """time_filter='week' must add filters=ex1:"ez5_604800_7" to URL."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        await searcher.search("q", mode="general", time_filter="week")
+        url = fetcher.fetch.call_args.args[0]
+        assert "604800" in url
+        assert "ez5_" in url
+
+    @pytest.mark.asyncio
+    async def test_time_filter_month_adds_filters_param(self) -> None:
+        """time_filter='month' must add filters=ex1:"ez5_2592000_30" to URL."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        await searcher.search("q", mode="general", time_filter="month")
+        url = fetcher.fetch.call_args.args[0]
+        assert "2592000" in url
+        assert "ez5_" in url
+
+    @pytest.mark.asyncio
+    async def test_time_filter_none_no_filters_param(self) -> None:
+        """time_filter='none' must NOT add filters param to URL (legacy)."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(fetcher=fetcher, settings=_make_settings())
+        await searcher.search("q", mode="general", time_filter="none")
+        url = fetcher.fetch.call_args.args[0]
+        assert "filters" not in url
+        assert "ez5_" not in url
+
+    @pytest.mark.asyncio
+    async def test_time_filter_none_falls_back_to_settings(self) -> None:
+        """time_filter=None must defer to settings.time_filter."""
+        fetcher = _make_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(time_filter="week"),
+        )
+        await searcher.search("q", mode="general", time_filter=None)
+        url = fetcher.fetch.call_args.args[0]
+        assert "604800" in url  # settings.week applied
+
+    @pytest.mark.asyncio
+    async def test_time_filter_only_applied_to_general_search(self) -> None:
+        """time_filter must NOT be applied to news search URL (news is already time-sorted)."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+        )
+        await searcher.search("q", mode="all", time_filter="week")
+        # Two calls: /search and /news/search. Only /search should have filters.
+        for call in fetcher.fetch.call_args_list:
+            url = call.args[0]
+            parsed = urlparse(url)
+            if parsed.path == "/news/search":
+                assert "filters" not in url, "News URL must not have time_filter"
+            else:
+                assert "604800" in url, "General URL must have time_filter"
+
+
+class TestBingSearcherQueryExpansion:
+    """Tests for BingSearcher.search() query expansion (R-web-search-008)."""
+
+    @pytest.mark.asyncio
+    async def test_expansion_enabled_runs_multiple_queries(self) -> None:
+        """When query_expansion_enabled and expander returns terms, all are searched."""
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=["菲律宾 仁爱礁", "菲律宾 南海"])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(
+                news_enabled=False,
+                query_expansion_enabled=True,
+                query_expansion_max_terms=3,
+            ),
+            query_expander=expander,
+        )
+        await searcher.search("菲律宾", mode="general")
+        # Original + 2 expanded = 3 queries, each hits general search once.
+        assert fetcher.fetch.await_count == 3
+        # Verify expander was called with the original query.
+        expander.expand.assert_awaited_once()
+        call_kwargs = expander.expand.call_args.kwargs
+        assert call_kwargs["max_terms"] == 3
+
+    @pytest.mark.asyncio
+    async def test_expansion_disabled_does_not_call_expander(self) -> None:
+        """When query_expansion_enabled=False, expander is never called."""
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=["should_not_be_called"])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(query_expansion_enabled=False),
+            query_expander=expander,
+        )
+        await searcher.search("q", mode="general")
+        expander.expand.assert_not_called()
+        assert fetcher.fetch.await_count == 1  # only original query
+
+    @pytest.mark.asyncio
+    async def test_expansion_no_expander_falls_back_to_original_only(self) -> None:
+        """When query_expansion_enabled but no expander injected, only original searched."""
+        fetcher = _make_news_fetcher()
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(query_expansion_enabled=True),
+            query_expander=None,  # no expander injected
+        )
+        await searcher.search("q", mode="general")
+        assert fetcher.fetch.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_expansion_returns_empty_falls_back_to_original_only(self) -> None:
+        """When expander returns [], only original query is searched."""
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=[])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(query_expansion_enabled=True),
+            query_expander=expander,
+        )
+        await searcher.search("q", mode="general")
+        assert fetcher.fetch.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_expansion_failure_falls_back_to_original_only(self) -> None:
+        """When expander raises, only original query is searched (graceful degradation)."""
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(raises=True)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(query_expansion_enabled=True),
+            query_expander=expander,
+        )
+        results = await searcher.search("q", mode="general")
+        # Expansion failed → only original query searched → at least 1 result returned.
+        assert fetcher.fetch.await_count == 1
+        assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_expansion_results_deduplicated_by_url(self) -> None:
+        """Expansion queries' results must be deduplicated by URL."""
+        # All three queries return the SAME fixture → only 3 unique URLs total.
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=["expanded1", "expanded2"])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(
+                news_enabled=False,
+                query_expansion_enabled=True,
+                max_results=10,
+            ),
+            query_expander=expander,
+        )
+        results = await searcher.search("original", mode="general", max_results=10)
+        urls = [r.url for r in results]
+        assert len(urls) == len(set(urls))  # no duplicates
+
+    @pytest.mark.asyncio
+    async def test_expansion_truncates_to_max_results_after_merge(self) -> None:
+        """Final result count must respect max_results after merge+dedup."""
+        # Each query returns 3 results; with 1 original + 2 expanded = 3 queries,
+        # total before dedup = 9. After dedup (same fixture) = 3. After truncation
+        # to max_results=2 = 2.
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=["expanded1", "expanded2"])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(
+                news_enabled=False,
+                query_expansion_enabled=True,
+                max_results=10,
+            ),
+            query_expander=expander,
+        )
+        results = await searcher.search("original", mode="general", max_results=2)
+        assert len(results) <= 2
+
+    @pytest.mark.asyncio
+    async def test_expansion_timeout_falls_back_to_original_only(self) -> None:
+        """When expander times out, only original query is searched."""
+        import asyncio
+
+        fetcher = _make_news_fetcher()
+
+        class _SlowExpander:
+            async def expand(self, query: str, *, max_terms: int = 3) -> list[str]:
+                # Sleep longer than the configured timeout.
+                await asyncio.sleep(10)
+                return ["should_never_return"]
+
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(
+                query_expansion_enabled=True,
+                query_expansion_timeout=0.1,  # 100ms timeout
+            ),
+            query_expander=_SlowExpander(),
+        )
+        results = await searcher.search("q", mode="general")
+        # Timeout → only original query searched.
+        assert fetcher.fetch.await_count == 1
+        assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_expansion_with_mode_all_runs_both_verticals_per_query(self) -> None:
+        """mode='all' + expansion must run both general+news for each expanded query."""
+        fetcher = _make_news_fetcher()
+        expander = _make_expander(terms=["expanded1"])
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(
+                news_enabled=False,
+                query_expansion_enabled=True,
+            ),
+            query_expander=expander,
+        )
+        # 1 original + 1 expanded = 2 queries; mode='all' = 2 verticals each = 4 fetches.
+        await searcher.search("original", mode="all")
+        assert fetcher.fetch.await_count == 4
+
+
+class TestBingSearcherCacheKeyEvolution:
+    """Verify cache key now includes mode and time_filter (R-web-search-008).
+
+    Without these components, a cache hit for mode='general' would
+    incorrectly return mode='news' results. The 4-tuple key
+    (query, effective_max, resolved_mode, effective_time_filter) prevents
+    cross-mode / cross-time-filter contamination.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cache_key_differs_by_mode(self) -> None:
+        """Different modes must produce distinct cache entries."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(news_enabled=False),
+            cache=cache,
+        )
+        await searcher.search("topic", mode="general")
+        await searcher.search("topic", mode="news")
+        # Two distinct cache entries (mode differs).
+        assert ("topic", 5, "general", "none") in cache
+        assert ("topic", 5, "news", "none") in cache
+        assert fetcher.fetch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_key_differs_by_time_filter(self) -> None:
+        """Different time_filter values must produce distinct cache entries."""
+        html = (_FIXTURE_DIR / "bing_sample.html").read_text(encoding="utf-8")
+        fetcher = _make_fetcher(html=html)
+        cache = TTLCache(maxsize=10, ttl=1800)
+        searcher = BingSearcher(
+            fetcher=fetcher,
+            settings=_make_settings(),
+            cache=cache,
+        )
+        await searcher.search("topic", mode="general", time_filter="none")
+        await searcher.search("topic", mode="general", time_filter="week")
+        assert ("topic", 5, "general", "none") in cache
+        assert ("topic", 5, "general", "week") in cache
+        assert fetcher.fetch.await_count == 2

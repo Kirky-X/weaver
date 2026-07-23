@@ -1,0 +1,61 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: © 2026 Weaver Contributors -->
+<!--
+    Minimal Bing News search result page fixture for unit testing.
+
+    Mirrors the structure of cn.bing.com/news/search (as of 2024):
+    - Each news item is <div class="newsitem"> wrapped in <div class="news_card">
+    - Title + URL: <a class="title" href="...">title text</a>
+    - Snippet: <div class="snippet">snippet text</div>
+    - Source: <div class="source">...</div>
+    - Time: <div class="time">...</div>
+
+    Also includes legacy .b_algo items (Bing News sometimes mixes in
+    general-result cards) to verify both selectors are applied.
+-->
+<html>
+<head><title>菲律宾 仁爱礁 - 新闻</title></head>
+<body>
+<div id="b_results">
+  <div class="news_card">
+    <div class="newsitem">
+      <a class="title" href="https://news.example.com/renai-reef-1">菲律宾船只再次闯入仁爱礁邻近海域</a>
+      <div class="snippet">中国海警局发言人表示，菲律宾船只近期在仁爱礁附近活动频繁，已就此向菲方提出严正交涉。</div>
+      <div class="source">新华社</div>
+      <div class="time">2 小时前</div>
+    </div>
+    <div class="newsitem">
+      <a class="title" href="https://news.example.com/renai-reef-2">外交部就菲律宾仁爱礁非法坐滩答记者问</a>
+      <div class="snippet">中方要求菲方立即停止侵权挑衅，拖走非法坐滩军舰，恢复仁爱礁原貌。</div>
+      <div class="source">人民日报</div>
+      <div class="time">5 小时前</div>
+    </div>
+    <div class="newsitem">
+      <!-- Missing href — must be skipped -->
+      <a class="title">菲律宾国防部发表声明</a>
+      <div class="snippet">菲方就南海局势发表评论。</div>
+    </div>
+    <div class="newsitem">
+      <!-- Missing title text — must be skipped -->
+      <a class="title" href="https://news.example.com/empty"></a>
+      <div class="snippet">Empty title.</div>
+    </div>
+    <div class="newsitem">
+      <a class="title" href="https://news.example.com/renai-reef-3">  南海局势：仁爱礁争端的来龙去脉  </a>
+      <div class="snippet">  解析仁爱礁争端的历史背景与菲律宾方面的诉求。  </div>
+      <div class="source">澎湃新闻</div>
+      <div class="time">1 天前</div>
+    </div>
+  </div>
+  <!-- Mixed-in general result cards (Bing News sometimes includes these) -->
+  <li class="b_algo">
+    <h2><a href="https://news.example.com/general-1">菲律宾仁爱礁专题报道</a></h2>
+    <div class="b_caption"><p>专题汇总仁爱礁相关新闻报道。</p></div>
+  </li>
+  <!-- Non-result nodes that must be ignored -->
+  <li class="b_no_result">没有更多结果</li>
+  <li class="b_pag">分页控件</li>
+</div>
+<div class="sb_count">约 56,789 条新闻结果</div>
+</body>
+</html>

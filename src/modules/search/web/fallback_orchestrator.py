@@ -59,7 +59,12 @@ from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from core.protocols.services import PipelineService
-from modules.search.web.protocol import BingSearchProtocol, BingSearchResult
+from modules.search.web.protocol import (
+    BingSearchMode,
+    BingSearchProtocol,
+    BingSearchResult,
+    BingTimeFilter,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -87,7 +92,15 @@ _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS = 600.0
 # tasks. When ``len(background_tasks) >= max_concurrent``, the next call
 # drops (logs warning + returns ``ScheduleResult.THROTTLED``) rather than
 # spawning. Configurable via ``WEAVER_SEARCH__MAX_BACKGROUND_TASKS``.
-_DEFAULT_MAX_BACKGROUND_TASKS = 8
+#
+# H-2 fix: lowered from 8 to 2. Each background task runs
+# ``run_full_pipeline`` which holds a DuckDB write lock; 8 concurrent
+# tasks would contend on the same lock and trigger exponential backoff
+# retries that are slower than serializing (matches the DuckDB
+# single-writer convention in pipeline.py:285). 2 allows limited
+# concurrency for independent search requests while keeping write-lock
+# contention bounded.
+_DEFAULT_MAX_BACKGROUND_TASKS = 2
 
 
 class ScheduleResult(Enum):
@@ -109,12 +122,16 @@ class ScheduleResult(Enum):
 
 
 def detect_three_tier_empty(result: Any) -> bool:
-    """Return True iff all three search layers are empty.
+    """Return True iff all search layers are empty.
 
-    Three layers (R-web-search-004):
+    Four layers checked (R-web-search-004):
+        - ``answer``: str — non-empty (after strip) means the user already
+          has visible content; do NOT trigger Bing (avoids redundant
+          fallback when LLM produced a meaningful answer).
         - ``entities``: list[str] — entity neighborhood from local search
         - ``sources``: list[dict] — article sources used to build the answer
-        - ``answer``: str — LLM-synthesized narrative (or empty string)
+        - ``context_tokens``: int — non-zero means the answer is grounded in
+          actual data (LLM generates "no data" filler when this is 0)
 
     Args:
         result: ``SearchResult`` instance (duck-typed) or dict with the
@@ -122,42 +139,61 @@ def detect_three_tier_empty(result: Any) -> bool:
             (conservative: do NOT trigger Bing on uncertain inputs).
 
     Returns:
-        True iff all three layers are empty (after stripping ``answer``).
+        True iff all layers are empty (after stripping ``answer``).
         False if any layer is non-empty OR the input is invalid.
     """
-    # Conservative: None or unexpected type → False (don't trigger Bing).
     if result is None:
         return False
     if isinstance(result, dict):
         entities = result.get("entities", []) or []
         sources = result.get("sources", []) or []
-        answer = result.get("answer", "") or ""
+        context_tokens = result.get("context_tokens", 0) or 0
+        answer = str(result.get("answer", "") or "").strip()
     elif hasattr(result, "entities") and hasattr(result, "sources") and hasattr(result, "answer"):
         entities = result.entities or []
         sources = result.sources or []
-        answer = result.answer or ""
+        context_tokens = getattr(result, "context_tokens", 0) or 0
+        answer = str(getattr(result, "answer", "") or "").strip()
     else:
-        # Unexpected type → conservative False.
         return False
 
-    # All three must be empty. answer is stripped to catch whitespace-only.
-    return len(entities) == 0 and len(sources) == 0 and not str(answer).strip()
+    if answer:
+        return False
+    return len(entities) == 0 and len(sources) == 0 and context_tokens == 0
 
 
 async def trigger_web_search(
     query: str,
     bing_searcher: BingSearchProtocol | None,
+    *,
+    mode: BingSearchMode = "auto",
+    time_filter: BingTimeFilter | None = None,
 ) -> list[BingSearchResult]:
     """Invoke BingSearcher.search with full graceful degradation.
 
     R-web-search-005: Bing must NEVER block the main search flow. All
     failure paths return ``[]`` rather than raising.
 
+    R-web-search-008: ``mode`` and ``time_filter`` kwargs are forwarded
+    to ``bing_searcher.search`` so callers can opt into news vertical
+    search and time-bounded retrieval (e.g. "菲律宾 仁爱礁" latest news).
+    Defaults (``"auto"`` / ``None``) let the searcher apply its own
+    settings-based defaults, preserving backward compatibility for
+    callers that don't pass these kwargs.
+
     Args:
         query: User search query (already validated by caller).
         bing_searcher: ``BingSearchProtocol`` implementation, or ``None``
             if Bing is disabled at the container level
             (``settings.bing.enabled == False``).
+        mode: Bing search mode — ``"auto"`` (use searcher settings),
+            ``"general"``, ``"news"``, or ``"all"`` (parallel general +
+            news with merge/dedup). Forwarded as kwarg to
+            ``bing_searcher.search``.
+        time_filter: Time-bounded filter — ``"none"``, ``"day"``,
+            ``"week"``, or ``"month"``. ``None`` defers to searcher
+            settings (``settings.bing.time_filter``). Forwarded as kwarg
+            to ``bing_searcher.search``.
 
     Returns:
         List of ``BingSearchResult`` (possibly empty). Empty list on:
@@ -171,7 +207,7 @@ async def trigger_web_search(
         return []
 
     try:
-        results = await bing_searcher.search(query)
+        results = await bing_searcher.search(query, mode=mode, time_filter=time_filter)
     except Exception as exc:
         # Catch all — Bing is a fallback path; any failure degrades to [].
         # Includes TimeoutError, RuntimeError, network errors, parser bugs.

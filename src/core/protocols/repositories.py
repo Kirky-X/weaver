@@ -257,6 +257,36 @@ class ArticleRepository(Protocol):
         """
         ...
 
+    async def get_existing_titles(self, titles: set[str]) -> set[str]:
+        """Check which titles already exist in the database.
+
+        Safety-net dedup (Level 3) for when SimHash fingerprints are
+        missing (Redis degradation, process restart). Uses exact match.
+
+        Args:
+            titles: Set of titles to check.
+
+        Returns:
+            Set of titles that already exist in the database.
+        """
+        ...
+
+    async def get_existing_content_hashes(self, content_hashes: set[str]) -> set[str]:
+        """Check which content hashes already exist in the database.
+
+        Cross-source dedup (Level 2.5) for when the same content is
+        republished across different sources (different URLs). Catches
+        duplicates that URL dedup and title SimHash both miss —
+        especially when title extraction fails (empty title).
+
+        Args:
+            content_hashes: Set of SHA-256 content hashes to check.
+
+        Returns:
+            Set of content hashes that already exist in the database.
+        """
+        ...
+
     async def bulk_upsert(
         self,
         states: list[dict[str, Any]],
@@ -633,10 +663,14 @@ class GraphWriter(Protocol):
         """Merge a SchemaNode keyed by event_type (no relationships).
 
         Creates or updates a SchemaNode capturing the structural pattern of
-        an event type. SchemaNode is MERGEd by event_type — multiple articles
+        an event type. SchemaNode is MERGEd so that multiple articles
         with the same event_type produce a single SchemaNode (idempotent
-        upsert). No relationships are created (SchemaNode stands alone as a
-        schema registry consumed by SchemaDrivenStructuredOutput).
+        upsert). Neo4j MERGEs on ``event_type`` (backed by a UNIQUE
+        constraint); LadybugDB MERGEs on the primary key ``id``
+        (``schema-{event_type}``) because Kùzu requires the primary key
+        in the MERGE pattern. No relationships are created (SchemaNode
+        stands alone as a schema registry consumed by
+        SchemaDrivenStructuredOutput).
 
         Args:
             event_type: Event type string (e.g. 融资/政策发布/人事变动).

@@ -142,6 +142,49 @@ class DiscoveryProcessor:
                         source=source.id,
                     )
 
+            # Stage 3: DB title deduplication (safety net for SimHash failure)
+            # When SimHash fingerprints are missing (Redis degradation, process
+            # restart, scheduler timing), this prevents duplicate titles from
+            # being inserted. Uses exact match — SimHash handles fuzzy matching.
+            # Skipped in force mode (user explicitly requested re-crawl).
+            if items and not force and hasattr(self._article_repo, "get_existing_titles"):
+                titles_to_check = {
+                    (getattr(item, "title", None) or getattr(item, "name", "")) for item in items
+                }
+                titles_to_check.discard("")
+                if titles_to_check:
+                    try:
+                        existing_titles = await self._article_repo.get_existing_titles(
+                            titles_to_check
+                        )
+                    except Exception as exc:
+                        # Safety net: on DB failure, degrade gracefully —
+                        # proceed with all items rather than aborting the batch.
+                        log.warning("db_title_dedup_failed_safety_net_skip", error=str(exc))
+                        existing_titles = set()
+                    if existing_titles:
+                        pre_count = len(items)
+                        items = [
+                            item
+                            for item in items
+                            if (getattr(item, "title", None) or getattr(item, "name", ""))
+                            not in existing_titles
+                        ]
+                        filtered_count = pre_count - len(items)
+                        if not items:
+                            log.info(
+                                "all_items_deduplicated_by_db_title",
+                                source=source.id,
+                                existing_count=len(existing_titles),
+                            )
+                            return
+                        log.info(
+                            "items_after_db_title_dedup",
+                            count=len(items),
+                            filtered=filtered_count,
+                            source=source.id,
+                        )
+
             if max_items is not None and len(items) > max_items:
                 items = items[:max_items]
                 log.info("items_limited", count=len(items), max_items=max_items)

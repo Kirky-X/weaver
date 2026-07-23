@@ -7,11 +7,11 @@ given host to avoid port conflicts).
 
 ## Stacks
 
-| File | Purpose | Backends | Ports |
-|------|---------|----------|-------|
-| `docker-compose.yml` | Production-style stack | PostgreSQL (pgvector) + Neo4j + Redis | 5432 / 7474 / 7687 / 6379 |
-| `docker-compose.test.yml` | Primary test stack for API acceptance tests | pgvector/pgvector:pg16 + neo4j:5.25 + redis:7-alpine | 5432 / 7474 / 7687 / 6379 |
-| `docker-compose.verify.yml` | Second instance for cross-instance data consistency verification | postgres (5433) + neo4j (7688); Redis reused from test stack | 5433 / 7475 / 7688 |
+| File                        | Purpose                                                          | Backends                                                     | Ports                     |
+| --------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------- |
+| `docker-compose.yml`        | Production-style stack                                           | PostgreSQL (pgvector) + Neo4j + Redis                        | 5432 / 7474 / 7687 / 6379 |
+| `docker-compose.test.yml`   | Primary test stack for API acceptance tests                      | pgvector/pgvector:pg16 + neo4j:5.25 + redis:7-alpine         | 5432 / 7474 / 7687 / 6379 |
+| `docker-compose.verify.yml` | Second instance for cross-instance data consistency verification | postgres (5433) + neo4j (7688); Redis reused from test stack | 5433 / 7475 / 7688        |
 
 ## Common Commands
 
@@ -47,11 +47,11 @@ compose files.
 
 ## Volumes
 
-| Stack | Volumes |
-|-------|---------|
-| test | `weaver_pg_data`, `weaver_neo4j_data`, `weaver_neo4j_logs`, `weaver_redis_data` |
+| Stack  | Volumes                                                                                 |
+| ------ | --------------------------------------------------------------------------------------- |
+| test   | `weaver_pg_data`, `weaver_neo4j_data`, `weaver_neo4j_logs`, `weaver_redis_data`         |
 | verify | `weaver_pg2_data`, `weaver_neo4j2_data`, `weaver_neo4j2_logs` (Redis reuses test stack) |
-| prod | Defined inline in `docker-compose.yml` |
+| prod   | Defined inline in `docker-compose.yml`                                                  |
 
 ## Health Checks
 
@@ -83,10 +83,10 @@ For testing cross-database combinations beyond the primary (PG+Neo4j) and
 full-fallback (DuckDB+LadybugDB) stacks, Weaver ships a profile-based
 hybrid test compose file:
 
-| Profile | Backends | Purpose | API Port |
-|---------|----------|---------|----------|
-| `phase3` | PostgreSQL + LadybugDB | Relational primary, graph fallback — validates Article slim-down (design.md §D2): PG holds title/score, LadybugDB holds `pg_id` only | 18014 |
-| `phase4` | DuckDB + Neo4j | Graph primary, relational fallback — validates that graph-first deployments still serve search correctly when the relational store is file-backed | 18015 |
+| Profile  | Backends               | Purpose                                                                                                                                           | API Port |
+| -------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `phase3` | PostgreSQL + LadybugDB | Relational primary, graph fallback — validates Article slim-down (design.md §D2): PG holds title/score, LadybugDB holds `pg_id` only              | 18014    |
+| `phase4` | DuckDB + Neo4j         | Graph primary, relational fallback — validates that graph-first deployments still serve search correctly when the relational store is file-backed | 18015    |
 
 ### Starting Hybrid Stacks
 
@@ -116,17 +116,12 @@ WEAVER_NEO4J__PASSWORD=weavertest \
 uv run pytest tests/integration/api/test_hybrid_mode_duckdb_neo4j.py -m integration -v
 ```
 
-### Aggregating Results
+### Result Aggregation (archived)
 
-After running Phase 3 and/or Phase 4, aggregate results across all four
-phases (Phase 1 + Phase 2 + Phase 3 + Phase 4) and compare core endpoint
-response consistency:
-
-```bash
-uv run python scripts/aggregate_hybrid_results.py
-```
-
-Output: `specmark/changes/web-search-and-db-optimization/records/hybrid_comparison.json`
+The Phase 1–4 cross-DB verification (formerly driven by the now-removed
+`scripts/aggregate_hybrid_results.py`) is complete and archived under
+`specmark/archive/2026-07-20-web-search-and-db-optimization/records/`. The
+script has been removed; see the archived `hybrid_comparison.json` for results.
 
 ## See Also
 

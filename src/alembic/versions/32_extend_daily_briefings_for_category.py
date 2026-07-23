@@ -56,7 +56,7 @@ def upgrade() -> None:
     # (from sa.Column(..., unique=True) in migration 04_create_analytics_tables).
     # Use IF EXISTS for robustness — name may vary across installations.
     op.execute(
-        "ALTER TABLE daily_briefings " "DROP CONSTRAINT IF EXISTS daily_briefings_briefing_date_key"
+        "ALTER TABLE daily_briefings DROP CONSTRAINT IF EXISTS daily_briefings_briefing_date_key"
     )
 
     # Step 3: Create composite UNIQUE(briefing_date, category).

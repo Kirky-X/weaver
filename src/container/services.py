@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
     from modules.memory.integration.memory_service import MemoryIntegrationService
     from modules.processing.pipeline.graph import Pipeline
+    from modules.search.web.protocol import BingSearchProtocol
     from modules.storage.postgres import PendingSyncRepo, SourceAuthorityRepo
 
 
@@ -604,7 +605,7 @@ class ContainerServicesMixin:
             raise RuntimeError("Smart fetcher not initialized. Call init_smart_fetcher() first.")
         return self._smart_fetcher
 
-    async def init_bing_searcher(self) -> Any:
+    async def init_bing_searcher(self) -> BingSearchProtocol | None:
         """Initialize Bing web search backend (no-op when disabled).
 
         Returns ``None`` when ``settings.bing.enabled`` is False so callers
@@ -633,7 +634,17 @@ class ContainerServicesMixin:
                 raise RuntimeError(
                     "Smart fetcher not initialized. Call init_smart_fetcher() before init_bing_searcher()."
                 )
-            from modules.search.web import BingSearcher
+            from modules.search.web import BingSearcher, LLMQueryExpander
+
+            # R-web-search-008: Inject LLM-driven query expander so broad
+            # queries (e.g. "菲律宾") get expanded into topical variants
+            # (e.g. "菲律宾 仁爱礁") before hitting Bing. Degrades to
+            # ``query_expander=None`` when disabled or LLM unavailable,
+            # preserving backward compatibility (BingSearcher falls back
+            # to single-query search in that case).
+            query_expander = None
+            if getattr(settings, "query_expansion_enabled", False) and self._llm_client is not None:
+                query_expander = LLMQueryExpander(llm=self._llm_client)
 
             # SmartFetcher stores HttpxFetcher at ``_httpx`` and itself
             # implements BaseFetcher.fetch(url, headers) -> (status, body, headers),
@@ -641,19 +652,23 @@ class ContainerServicesMixin:
             self._bing_searcher = BingSearcher(
                 fetcher=self._smart_fetcher,
                 settings=settings,
+                query_expander=query_expander,
             )
             log.info(
                 "bing_searcher_initialized",
                 max_results=settings.max_results,
                 timeout=settings.timeout,
+                news_enabled=bool(getattr(settings, "news_enabled", False)),
+                time_filter=getattr(settings, "time_filter", "none"),
+                query_expansion_enabled=query_expander is not None,
             )
         return self._bing_searcher
 
-    def bing_searcher(self) -> Any:
+    def bing_searcher(self) -> BingSearchProtocol | None:
         """Get the Bing web search backend.
 
         Returns:
-            ``BingSearcher`` instance, or ``None`` when disabled.
+            ``BingSearchProtocol`` instance, or ``None`` when disabled.
 
         Raises:
             RuntimeError: If ``init_bing_searcher()`` has not been called.

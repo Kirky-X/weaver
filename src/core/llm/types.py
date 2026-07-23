@@ -41,7 +41,7 @@ class CallPoint(str, Enum):
     CAUSAL_INFERENCE = "causal_inference"
     ENTITY_FACTS = "entity_facts"
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
-    SCHEMA_EXTRACTION = "schema_extraction"
+    NARRATIVE_SCHEMA = "narrative_schema"
     EVIDENCE_SAMPLING = "evidence_sampling"
     ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"
@@ -49,6 +49,11 @@ class CallPoint(str, Enum):
     # T004: BriefingGenerator — daily per-category briefing summary generation.
     # Used by BriefingGenerator.generate() to summarize articles per category.
     BRIEFING = "briefing"
+    # R-web-search-008: QueryExpander — LLM-driven broad-query expansion
+    # (e.g. "菲律宾" → ["菲律宾 仁爱礁", "菲律宾 南海"]). Used by
+    # modules.search.web.query_expander.LLMQueryExpander to surface topical
+    # news that a literal single-term query would miss.
+    QUERY_EXPANDER = "query_expander"
 
 
 class Capability(str, Enum):
@@ -461,6 +466,10 @@ CACHE_TTL: dict[str, int] = {
     "analyze": 24 * 60 * 60,
     "summary": 7 * 24 * 60 * 60,
     "entity_extractor": 7 * 24 * 60 * 60,
+    "cleaner": 24 * 60 * 60,
+    "merger": 7 * 24 * 60 * 60,
+    "claim_extraction": 24 * 60 * 60,
+    "narrative_schema": 7 * 24 * 60 * 60,
     "default": 24 * 60 * 60,
 }
 

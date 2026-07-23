@@ -72,13 +72,8 @@ class_path = "modules.processing.nodes.quality.conflict_detector.ConflictDetecto
 enabled = true
 
 [[phase3.stages]]
-name = "narrative_generator"
-class_path = "modules.processing.nodes.extraction.narrative_generator.NarrativeGeneratorNode"
-enabled = true
-
-[[phase3.stages]]
-name = "schema_extractor"
-class_path = "modules.processing.nodes.extraction.schema_extractor.SchemaExtractorNode"
+name = "narrative_schema"
+class_path = "modules.processing.nodes.extraction.narrative_schema_extractor.NarrativeSchemaExtractorNode"
 enabled = true
 
 [[phase3.stages]]

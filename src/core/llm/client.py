@@ -47,6 +47,15 @@ log = get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+# 结构化输出（output_model 存在）时追加到 system_prompt 最末尾的格式约束。
+# 利用弱模型 recency bias（对末尾指令记忆最强），强制 JSON-only 输出。
+# 集中在 client.py 而非每个 prompt 文件，确保所有结构化 CallPoint 统一兜底（DRY）。
+_JSON_FORMAT_TAIL = """
+
+【输出格式·强制】
+仅输出一个 JSON 对象：首字符必须是 "{"，末字符必须是 "}"。
+禁止 ```代码块``` 围栏、禁止任何解释/前言/结语、禁止 JSON 以外任何文字。"""
+
 # Fields that do not affect LLM output semantics.
 # Changes to these fields should NOT invalidate the cache.
 NON_SEMANTIC_FIELDS: frozenset[str] = frozenset(
@@ -158,7 +167,7 @@ class LLMClient:
 
         # Schema cache for structured_call (T024 / R-structured-001).
         # Avoids repeated graph DB roundtrips when same schema_node_id is
-        # queried multiple times. SchemaNode is updated by SchemaExtractorNode
+        # queried multiple times. SchemaNode is updated by NarrativeSchemaExtractorNode
         # occasionally; 5-minute TTL is a reasonable freshness/perf tradeoff.
         # Key: schema_node_id; Value: schema dict returned by get_schema.
         self._schema_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=64, ttl=300)
@@ -684,17 +693,9 @@ class LLMClient:
             if cp_config.response_format is not None and "response_format" not in request_payload:
                 request_payload["response_format"] = cp_config.response_format
 
-        # Auto-enable JSON mode when structured output is expected but response_format is not configured.
-        # This prevents LLM from returning non-JSON content (e.g., greetings, conversational text)
-        # when output_model is provided, which would cause parse failures downstream.
-        if output_model is not None and "response_format" not in request_payload:
-            request_payload["response_format"] = "json"
-            log.warning(
-                "structured_output_auto_json_mode",
-                call_point=call_point,
-                output_model=output_model.__name__,
-                hint="Auto-enabled JSON mode. Set response_format='json' in [call-points.X] to suppress this warning",
-            )
+        # NOTE: response_format intentionally NOT auto-enabled here.
+        # Agnes API does not support the OpenAI response_format parameter;
+        # sending it causes empty responses. Prompts already instruct JSON output.
 
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
@@ -704,12 +705,21 @@ class LLMClient:
             current_time = get_current_time_with_timezone()
             system_prompt = f"当前时间: {current_time}\n\n{system_prompt}"
 
-            # 构建user_content
-            user_content = json.dumps(payload, ensure_ascii=False, default=str)
+            # 构建user_content — 剥离 NON_SEMANTIC_FIELDS 使 cache key 稳定。
+            # 追踪字段（article_id/task_id 等）不影响 LLM 输出语义，但若烘进
+            # user_content 字符串，相同内容跨 article_id 会产生不同 cache key
+            # → 永久 cache miss（重处理/相似内容无法复用）。
+            semantic_payload = {k: v for k, v in payload.items() if k not in NON_SEMANTIC_FIELDS}
+            user_content = json.dumps(semantic_payload, ensure_ascii=False, default=str)
 
             # 处理retry hint
             if "_retry_hint" in request_payload:
                 system_prompt += f"\n\n{request_payload.pop('_retry_hint')}"
+
+            # 结构化输出时追加 JSON 格式尾指令（放在最末尾，recency bias 最强）。
+            # 纯文本 prompt（briefing/search 等）无 output_model，自动跳过避免污染。
+            if output_model is not None:
+                system_prompt += _JSON_FORMAT_TAIL
 
             # Preserve call-point overrides (think, max_tokens, temperature, response_format)
             preserved_overrides = {
@@ -833,7 +843,7 @@ class LLMClient:
 
         How to obtain ``schema_node_id``:
 
-            SchemaNode records are written by ``SchemaExtractorNode`` (pipeline
+            SchemaNode records are written by ``NarrativeSchemaExtractorNode`` (pipeline
             phase3) via ``GraphWriter.merge_schema(event_type, pattern,
             confidence)``. The business-level id is deterministic and follows
             the format ``"schema-{event_type}"`` (e.g. ``"schema-funding"``,
@@ -841,7 +851,7 @@ class LLMClient:
 
             1. **From pipeline state** (preferred when running inside a
                pipeline node): ``state["schema"]["schema_id"]`` is set by
-               ``SchemaExtractorNode`` after a successful MERGE.
+               ``NarrativeSchemaExtractorNode`` after a successful MERGE.
             2. **From the graph database** (for ad-hoc / API callers):
                query ``MATCH (s:SchemaNode) RETURN s.id, s.event_type``
                via ``GraphPool.execute_query`` to enumerate available schemas.

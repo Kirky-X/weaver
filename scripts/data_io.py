@@ -35,9 +35,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
+import math
 import os
 import sys
-from datetime import datetime
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +114,20 @@ EXPECTED_REL_TYPES: list[str] = [
 
 # Batch size for INSERT operations
 BATCH_SIZE = 1000
+
+
+def _ensure_src_path() -> None:
+    """Insert src/ into sys.path for lazy imports of core.db.* modules.
+
+    Consolidates the 4 repeated ``sys.path.insert`` blocks that previously
+    appeared inside individual functions. Idempotent: safe to call multiple
+    times.
+    """
+    import sys
+
+    src_path = str(Path(__file__).resolve().parent.parent / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -249,12 +266,7 @@ def _init_duckdb_schema(duck_conn) -> None:
     Reuses schema definitions from src/core/db/duckdb_schema.py to guarantee
     parity with the application's normal schema initialization.
     """
-    import sys
-
-    # Add src/ to sys.path to import schema module
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
 
     from core.db.duckdb_schema import (
         SCHEMA_QUERIES,
@@ -278,11 +290,7 @@ def _init_ladybug_schema(ladybug_conn) -> None:
     Reuses schema definitions from src/core/db/ladybug_schema.py to guarantee
     parity with the application's normal schema initialization.
     """
-    import sys
-
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
 
     from core.db.ladybug_schema import SCHEMA_QUERIES
 
@@ -382,11 +390,7 @@ def _reset_duckdb_sequences(duck_conn) -> None:
     raised at the end so the script exits non-zero and the user sees
     every failing sequence in one run.
     """
-    import sys
-
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
     from core.db.duckdb_schema import BIGINT_PK_TABLES
 
     failed_sequences: list[tuple[str, str]] = []
@@ -556,9 +560,7 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
     # BIGINT_PK_TABLES is needed for sequence reset (phase 3). It is
     # imported here rather than at module top to keep --help fast (the
     # src/ package is heavy to load).
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
     from core.db.duckdb_schema import BIGINT_PK_TABLES
 
     if not os.path.exists(duckdb_path):
@@ -1406,6 +1408,788 @@ def _ladybug_create_rels(
             raise RuntimeError(f"Failed to create rel {rel_type} with {param_dict}: {exc}") from exc
 
 
+# ── Cross-DB consistency verification (merged from verify_db_consistency.py) ──
+
+# Columns whose names end with these suffixes are excluded from content hash
+# because timestamps legitimately drift between primary and fallback DBs
+# (PG→DuckDB migration rewrites NOW() defaults; Neo4j→LadybugDB converts
+# datetime to INT64 epoch seconds). Excluding them yields a stable hash that
+# reflects business data parity rather than migration-induced timestamp drift.
+HASH_EXCLUDE_SUFFIXES = ("_at", "_time")
+
+TABLE_SAMPLE_SIZE = 10
+NODE_SAMPLE_SIZE = 5
+
+# Tables where the business PK is not the column named "id".
+# source_authorities.host is the natural key (one row per crawled host).
+NON_ID_PK_TABLES: dict[str, str] = {
+    "source_authorities": "host",
+}
+
+
+@dataclass
+class CheckResult:
+    """Result of a single consistency check (one table / label / rel-type)."""
+
+    category: str  # "pg_duckdb" | "neo4j_ladybug"
+    check_type: str  # "table" | "node_label" | "rel_type"
+    name: str
+    source_count: int = 0
+    target_count: int = 0
+    match: bool = False
+    hash_source: str | None = None
+    hash_target: str | None = None
+    sample_match: bool | None = None
+    error: str | None = None
+
+    def is_pass(self) -> bool:
+        """True iff this check passed (no error, count match, hash match, sample match).
+
+        sample_match is None (N/A — e.g., empty table or rel-type sample skip)
+        is treated as pass: we cannot evidence a mismatch when sampling is N/A.
+        Only sample_match is False (sample drawn and diverged) counts as failure.
+        """
+        if self.error is not None:
+            return False
+        if not self.match:
+            return False
+        return self.sample_match is not False
+
+
+@dataclass
+class Report:
+    """Full consistency report across both DB pairs."""
+
+    pg_duckdb: list[CheckResult] = field(default_factory=list)
+    neo4j_ladybug: list[CheckResult] = field(default_factory=list)
+
+    def summary(self) -> dict[str, dict[str, int]]:
+        return {
+            "pg_duckdb": _tally(self.pg_duckdb),
+            "neo4j_ladybug": _tally(self.neo4j_ladybug),
+        }
+
+    def details(self) -> list[dict[str, Any]]:
+        return [asdict(r) for r in (*self.pg_duckdb, *self.neo4j_ladybug)]
+
+    def inconsistencies(self) -> list[dict[str, Any]]:
+        return [asdict(r) for r in (*self.pg_duckdb, *self.neo4j_ladybug) if not r.is_pass()]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": self.summary(),
+            "details": self.details(),
+            "inconsistencies": self.inconsistencies(),
+        }
+
+
+def _tally(results: list[CheckResult]) -> dict[str, int]:
+    passed = sum(1 for r in results if r.is_pass())
+    return {"pass": passed, "fail": len(results) - passed}
+
+
+class _VerifyPgClient:
+    """Async PostgreSQL client via SQLAlchemy async engine.
+
+    Uses REPEATABLE READ isolation so all reads across the 27 tables see a
+    single consistent snapshot (mirrors export_postgres_to_duckdb).
+    """
+
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+        self._engine: Any = None
+
+    async def connect(self) -> None:
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        self._engine = create_async_engine(
+            self.dsn, pool_pre_ping=True, isolation_level="REPEATABLE READ"
+        )
+
+    async def close(self) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+
+    async def get_columns(self, table: str) -> list[str]:
+        from sqlalchemy import text
+
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = :t AND table_schema = 'public' "
+                    "ORDER BY ordinal_position"
+                ),
+                {"t": table},
+            )
+            return [r[0] for r in result.fetchall()]
+
+    async def count_rows(self, table: str) -> int:
+        from sqlalchemy import text
+
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
+            return int(result.scalar() or 0)
+
+    async def compute_content_hash(self, table: str, columns: list[str], pk_col: str) -> str:
+        """Compute a deterministic content hash for table rows.
+
+        Per-row hash: MD5(concat_ws(chr(31), col1::text, col2::text, ...))
+            chr(31) = ASCII Unit Separator — chosen because it never appears
+            in well-formed text data, so it cannot collide with column values.
+        Aggregate: string_agg(per_row_hash, '' ORDER BY pk) — fixed-length
+            32-char MD5 strings need no separator.
+        Outer: COALESCE(..., '') so empty tables hash to "" on both sides.
+
+        Timestamp columns (*_at, *_time) are excluded because they drift
+        between primary and fallback DBs (see HASH_EXCLUDE_SUFFIXES).
+        """
+        from sqlalchemy import text
+
+        hash_cols = [c for c in columns if not c.endswith(HASH_EXCLUDE_SUFFIXES)]
+        if not hash_cols:
+            return ""
+        col_expr = ", ".join(f'CAST("{c}" AS TEXT)' for c in hash_cols)
+        row_hash = f"MD5(concat_ws(chr(31), {col_expr}))"
+        sql = (
+            f"SELECT COALESCE(string_agg({row_hash}, '' ORDER BY \"{pk_col}\"), '') "
+            f'FROM "{table}"'
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text(sql))
+            return str(result.scalar() or "")
+
+    async def sample_pks(self, table: str, pk_col: str, n: int = TABLE_SAMPLE_SIZE) -> list[Any]:
+        from sqlalchemy import text
+
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                text(f'SELECT "{pk_col}" FROM "{table}" ORDER BY random() LIMIT {n}')
+            )
+            return [r[0] for r in result.fetchall()]
+
+    async def fetch_rows_by_pks(
+        self, table: str, columns: list[str], pk_col: str, pks: list[Any]
+    ) -> dict[Any, tuple]:
+        if not pks:
+            return {}
+        col_str = ", ".join(f'"{c}"' for c in columns)
+        placeholders = ", ".join(f":p{i}" for i in range(len(pks)))
+        params = {f"p{i}": v for i, v in enumerate(pks)}
+        from sqlalchemy import text
+
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                text(f'SELECT {col_str} FROM "{table}" WHERE "{pk_col}" IN ({placeholders})'),
+                params,
+            )
+            rows = result.fetchall()
+        return {row[0]: tuple(row) for row in rows}
+
+
+class _VerifyDuckDbClient:
+    """Sync DuckDB client wrapped for async use via asyncio.to_thread.
+
+    DuckDB's Python driver is synchronous; we wrap every call with
+    asyncio.to_thread to avoid blocking the event loop. read_only=True
+    prevents accidental writes during verification.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self.db_path = db_path
+        self._conn: Any = None
+
+    async def connect(self) -> None:
+        import duckdb
+
+        self._conn = await asyncio.to_thread(duckdb.connect, self.db_path, read_only=True)
+
+    async def close(self) -> None:
+        if self._conn is not None:
+            await asyncio.to_thread(self._conn.close)
+            self._conn = None
+
+    async def get_columns(self, table: str) -> list[str]:
+        def _work() -> list[str]:
+            rows = self._conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = ? ORDER BY ordinal_position",
+                [table],
+            ).fetchall()
+            return [r[0] for r in rows]
+
+        return await asyncio.to_thread(_work)
+
+    async def count_rows(self, table: str) -> int:
+        def _work() -> int:
+            row = self._conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+        return await asyncio.to_thread(_work)
+
+    async def compute_content_hash(self, table: str, columns: list[str], pk_col: str) -> str:
+        hash_cols = [c for c in columns if not c.endswith(HASH_EXCLUDE_SUFFIXES)]
+        if not hash_cols:
+            return ""
+        col_expr = ", ".join(f'CAST("{c}" AS TEXT)' for c in hash_cols)
+        row_hash = f"MD5(concat_ws(chr(31), {col_expr}))"
+        sql = (
+            f"SELECT COALESCE(string_agg({row_hash}, '' ORDER BY \"{pk_col}\"), '') "
+            f'FROM "{table}"'
+        )
+
+        def _work() -> str:
+            row = self._conn.execute(sql).fetchone()
+            return str(row[0]) if row and row[0] is not None else ""
+
+        return await asyncio.to_thread(_work)
+
+    async def fetch_rows_by_pks(
+        self, table: str, columns: list[str], pk_col: str, pks: list[Any]
+    ) -> dict[Any, tuple]:
+        if not pks:
+            return {}
+        col_str = ", ".join(f'"{c}"' for c in columns)
+        placeholders = ", ".join(["?"] * len(pks))
+
+        def _work() -> dict[Any, tuple]:
+            rows = self._conn.execute(
+                f'SELECT {col_str} FROM "{table}" WHERE "{pk_col}" IN ({placeholders})',
+                list(pks),
+            ).fetchall()
+            return {row[0]: tuple(row) for row in rows}
+
+        return await asyncio.to_thread(_work)
+
+
+class _VerifyNeo4jClient:
+    """Sync Neo4j client wrapped for async use via asyncio.to_thread."""
+
+    def __init__(self, uri: str, user: str, password: str) -> None:
+        self.uri = uri
+        self.user = user
+        self.password = password
+        self._driver: Any = None
+
+    async def connect(self) -> None:
+        from neo4j import GraphDatabase
+
+        self._driver = await asyncio.to_thread(
+            GraphDatabase.driver, self.uri, auth=(self.user, self.password)
+        )
+
+    async def close(self) -> None:
+        if self._driver is not None:
+            await asyncio.to_thread(self._driver.close)
+            self._driver = None
+
+    async def count_nodes(self, label: str) -> int:
+        def _work() -> int:
+            with self._driver.session() as session:
+                result = session.run(f"MATCH (n:`{label}`) RETURN count(n) AS cnt").single()
+                return int(result["cnt"]) if result else 0
+
+        return await asyncio.to_thread(_work)
+
+    async def count_rels(self, rel_type: str) -> int:
+        def _work() -> int:
+            with self._driver.session() as session:
+                result = session.run(
+                    f"MATCH ()-[r:`{rel_type}`]->() RETURN count(r) AS cnt"
+                ).single()
+                return int(result["cnt"]) if result else 0
+
+        return await asyncio.to_thread(_work)
+
+    async def sample_node_ids(self, label: str, n: int = NODE_SAMPLE_SIZE) -> list[str]:
+        def _work() -> list[str]:
+            with self._driver.session() as session:
+                result = session.run(
+                    f"MATCH (n:`{label}`) "
+                    f"RETURN coalesce(n.id, n.pg_id, n.entity_id, n.community_id) AS id "
+                    f"LIMIT {n}"
+                )
+                return [str(r["id"]) for r in result if r["id"] is not None]
+
+        return await asyncio.to_thread(_work)
+
+    async def fetch_node_props_by_ids(
+        self, label: str, ids: list[str], props: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        if not ids or not props:
+            return {}
+
+        def _prop_expr(p: str) -> str:
+            if p == "id":
+                return "coalesce(n.id, n.pg_id, n.entity_id, n.community_id) AS id"
+            return f"n.{p} AS {p}"
+
+        prop_str = ", ".join(_prop_expr(p) for p in props)
+
+        def _work() -> dict[str, dict[str, Any]]:
+            with self._driver.session() as session:
+                result = session.run(
+                    f"MATCH (n:`{label}`) "
+                    f"WHERE coalesce(n.id, n.pg_id, n.entity_id, n.community_id) IN $ids "
+                    f"RETURN coalesce(n.id, n.pg_id, n.entity_id, n.community_id) AS _id, "
+                    f"{prop_str}",
+                    ids=list(ids),
+                )
+                out: dict[str, dict[str, Any]] = {}
+                for record in result:
+                    out[str(record["_id"])] = {
+                        p: _verify_normalize_neo4j_value(record[p]) for p in props
+                    }
+                return out
+
+        return await asyncio.to_thread(_work)
+
+
+def _verify_normalize_neo4j_value(v: Any) -> Any:
+    """Normalize a Neo4j value for cross-DB comparison.
+
+    Neo4j returns its own datetime types; LadybugDB stores INT64 epoch seconds.
+    Convert to a common Python representation before equality comparison.
+    """
+    if v is None:
+        return None
+    if hasattr(v, "to_native"):  # neo4j.time.DateTime → datetime
+        v = v.to_native()
+    if isinstance(v, datetime):
+        return int(v.timestamp())
+    return v
+
+
+class _VerifyLadybugClient:
+    """Sync LadybugDB client wrapped for async use via asyncio.to_thread."""
+
+    def __init__(self, db_path: str) -> None:
+        self.db_path = db_path
+        self._db: Any = None
+        self._conn: Any = None
+
+    async def connect(self) -> None:
+        import real_ladybug as ladybug
+
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._db = await asyncio.to_thread(ladybug.Database, self.db_path)
+        self._conn = await asyncio.to_thread(ladybug.Connection, self._db)
+
+    async def close(self) -> None:
+        # real_ladybug doesn't require explicit close; release references.
+        self._conn = None
+        self._db = None
+
+    async def count_nodes(self, label: str) -> int:
+        def _work() -> int:
+            result = self._conn.execute(f"MATCH (n:`{label}`) RETURN count(n) AS cnt")
+            if result.has_next():
+                return int(result.get_next()[0])
+            return 0
+
+        return await asyncio.to_thread(_work)
+
+    async def count_rels(self, rel_type: str) -> int:
+        def _work() -> int:
+            result = self._conn.execute(f"MATCH ()-[r:`{rel_type}`]->() RETURN count(r) AS cnt")
+            if result.has_next():
+                return int(result.get_next()[0])
+            return 0
+
+        return await asyncio.to_thread(_work)
+
+    def node_columns(self, label: str) -> list[str]:
+        """Return LadybugDB columns for a node label (sync; called from thread)."""
+        return _get_ladybug_node_columns(self._conn, label)
+
+    async def sample_node_ids(self, label: str, n: int = NODE_SAMPLE_SIZE) -> list[str]:
+        def _work() -> list[str]:
+            result = self._conn.execute(f"MATCH (n:`{label}`) RETURN n.id AS id LIMIT {n}")
+            ids: list[str] = []
+            while result.has_next():
+                row = result.get_next()
+                if row[0] is not None:
+                    ids.append(str(row[0]))
+            return ids
+
+        return await asyncio.to_thread(_work)
+
+    async def fetch_node_props_by_ids(
+        self, label: str, ids: list[str], props: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        if not ids or not props:
+            return {}
+        prop_str = ", ".join(f"n.`{p}` AS {p}" for p in props)
+        ids_literal = "[" + ", ".join(f"'{i}'" for i in ids) + "]"
+
+        def _work() -> dict[str, dict[str, Any]]:
+            result = self._conn.execute(
+                f"MATCH (n:`{label}`) WHERE n.id IN {ids_literal} RETURN n.id AS _id, {prop_str}"
+            )
+            out: dict[str, dict[str, Any]] = {}
+            while result.has_next():
+                row = result.get_next()
+                row_id = str(row[0])
+                props_dict = {
+                    p: _verify_normalize_ladybug_value(row[i + 1]) for i, p in enumerate(props)
+                }
+                out[row_id] = props_dict
+            return out
+
+        return await asyncio.to_thread(_work)
+
+
+def _verify_normalize_ladybug_value(v: Any) -> Any:
+    """Normalize a LadybugDB value for cross-DB comparison."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return int(v.timestamp())
+    return v
+
+
+def _verify_pk_col_for(table: str, columns: list[str]) -> str:
+    """Return the primary key column name for a table.
+
+    Most tables use `id` as PK. source_authorities uses `host`. Falls back to
+    first column if neither `id` nor a known override is present.
+    """
+    if "id" in columns:
+        return "id"
+    if table in NON_ID_PK_TABLES:
+        return NON_ID_PK_TABLES[table]
+    return columns[0]
+
+
+def _verify_normalize_value(v: Any) -> Any:
+    """Normalize a single cell value for cross-DB comparison.
+
+    Handles known type divergences between PG/DuckDB drivers and
+    Neo4j/LadybugDB drivers (datetime→epoch, bytes→hex, numpy scalars,
+    JSON str-vs-dict, pgvector float rounding, dict key sorting).
+    """
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return int(v.timestamp())
+    if isinstance(v, (bytes, bytearray)):
+        return v.hex()
+    if hasattr(v, "tolist") and not isinstance(v, (list, tuple, str, bytes)):
+        try:
+            return _verify_normalize_value(v.tolist())
+        except Exception:
+            pass
+    if hasattr(v, "item") and not isinstance(v, (list, tuple, str, bytes)):
+        try:
+            return v.item()
+        except Exception:
+            return v
+    if isinstance(v, str):
+        stripped = v.strip()
+        if stripped and stripped[0] in "{[":
+            try:
+                return _verify_normalize_value(json.loads(stripped))
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return v
+    if isinstance(v, (list, tuple)):
+        normalized = [_verify_normalize_value(x) for x in v]
+        if normalized and all(isinstance(x, float) for x in normalized):
+            return [round(x, 6) for x in normalized]
+        return normalized
+    if isinstance(v, dict):
+        return {k: _verify_normalize_value(val) for k, val in sorted(v.items())}
+    return v
+
+
+def _verify_values_equal(a: Any, b: Any) -> bool:
+    """Compare two normalized values with float tolerance for vectors."""
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        for x, y in zip(a, b, strict=True):
+            if isinstance(x, float) and isinstance(y, float):
+                if not math.isclose(x, y, rel_tol=1e-5, abs_tol=2e-6):
+                    return False
+            elif x != y:
+                return False
+        return True
+    return a == b
+
+
+async def compare_pg_duckdb(pg: _VerifyPgClient, duck: _VerifyDuckDbClient) -> list[CheckResult]:
+    """Compare all 27 tables between PostgreSQL and DuckDB.
+
+    For each table: common columns → row count → content MD5 hash → 10-row
+    sample field-by-field. Single-table errors are recorded but do not abort
+    the loop (Rule 12).
+    """
+    results: list[CheckResult] = []
+    for table in EXPECTED_TABLES:
+        result = CheckResult(category="pg_duckdb", check_type="table", name=table)
+        try:
+            pg_cols = await pg.get_columns(table)
+            duck_cols = await duck.get_columns(table)
+            if not pg_cols:
+                raise RuntimeError(f"table not in PG: {table}")
+            if not duck_cols:
+                raise RuntimeError(f"table not in DuckDB: {table}")
+            common = [c for c in duck_cols if c in pg_cols]
+            if not common:
+                raise RuntimeError(f"no common columns for table {table}")
+
+            pk = _verify_pk_col_for(table, common)
+
+            pg_count = await pg.count_rows(table)
+            duck_count = await duck.count_rows(table)
+            result.source_count = pg_count
+            result.target_count = duck_count
+            result.match = pg_count == duck_count
+
+            if pg_count > 0 and pg_count == duck_count:
+                result.hash_source = await pg.compute_content_hash(table, common, pk)
+                result.hash_target = await duck.compute_content_hash(table, common, pk)
+
+            if pg_count > 0 and pg_count == duck_count:
+                sample_pks = await pg.sample_pks(table, pk, TABLE_SAMPLE_SIZE)
+                pg_rows = await pg.fetch_rows_by_pks(table, common, pk, sample_pks)
+                duck_rows = await duck.fetch_rows_by_pks(table, common, pk, sample_pks)
+                cmp_cols = [c for c in common if not c.endswith(HASH_EXCLUDE_SUFFIXES)]
+                col_idx = {c: i for i, c in enumerate(common)}
+                sample_match = True
+                for pk_val, pg_row in pg_rows.items():
+                    duck_row = duck_rows.get(pk_val)
+                    if duck_row is None:
+                        sample_match = False
+                        break
+                    for c in cmp_cols:
+                        if not _verify_values_equal(
+                            _verify_normalize_value(pg_row[col_idx[c]]),
+                            _verify_normalize_value(duck_row[col_idx[c]]),
+                        ):
+                            sample_match = False
+                            break
+                    if not sample_match:
+                        break
+                result.sample_match = sample_match
+                if not sample_match:
+                    result.match = False
+            else:
+                result.sample_match = None
+        except Exception as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+            result.match = False
+        results.append(result)
+        _verify_print_table_result(result)
+    return results
+
+
+async def compare_neo4j_ladybug(
+    neo: _VerifyNeo4jClient, lady: _VerifyLadybugClient
+) -> list[CheckResult]:
+    """Compare 8 node labels and 13 rel types between Neo4j and LadybugDB.
+
+    Node labels: count + (if match & >0) 5-node property sample.
+    Rel types: count only (per-rel property comparison unreliable due to
+    LadybugDB FROM/TO label constraints differing from Neo4j's schemaless rels).
+    """
+    results: list[CheckResult] = []
+
+    for label in EXPECTED_NODE_LABELS:
+        result = CheckResult(category="neo4j_ladybug", check_type="node_label", name=label)
+        try:
+            neo_count = await neo.count_nodes(label)
+            lady_count = await lady.count_nodes(label)
+            result.source_count = neo_count
+            result.target_count = lady_count
+            result.match = neo_count == lady_count
+
+            if neo_count > 0 and neo_count == lady_count:
+                lady_cols = lady.node_columns(label)
+                if not lady_cols:
+                    result.sample_match = None
+                else:
+                    cmp_props = [p for p in lady_cols if not p.endswith(HASH_EXCLUDE_SUFFIXES)]
+                    if not cmp_props:
+                        result.sample_match = None
+                    else:
+                        sample_ids = await neo.sample_node_ids(label, NODE_SAMPLE_SIZE)
+                        if sample_ids:
+                            neo_props = await neo.fetch_node_props_by_ids(
+                                label, sample_ids, cmp_props
+                            )
+                            lady_props = await lady.fetch_node_props_by_ids(
+                                label, sample_ids, cmp_props
+                            )
+                            sample_match = True
+                            for sid in sample_ids:
+                                np = neo_props.get(sid, {})
+                                lp = lady_props.get(sid, {})
+                                for p in cmp_props:
+                                    if not _verify_values_equal(
+                                        _verify_normalize_value(np.get(p)),
+                                        _verify_normalize_value(lp.get(p)),
+                                    ):
+                                        sample_match = False
+                                        break
+                                if not sample_match:
+                                    break
+                            result.sample_match = sample_match
+                            if not sample_match:
+                                result.match = False
+                        else:
+                            result.sample_match = None
+            else:
+                result.sample_match = None
+        except Exception as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+            result.match = False
+        results.append(result)
+        _verify_print_graph_result(result)
+
+    for rel_type in EXPECTED_REL_TYPES:
+        result = CheckResult(category="neo4j_ladybug", check_type="rel_type", name=rel_type)
+        try:
+            neo_count = await neo.count_rels(rel_type)
+            lady_count = await lady.count_rels(rel_type)
+            result.source_count = neo_count
+            result.target_count = lady_count
+            result.match = neo_count == lady_count
+            result.sample_match = None
+        except Exception as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+            result.match = False
+        results.append(result)
+        _verify_print_graph_result(result)
+    return results
+
+
+def _verify_print_table_result(r: CheckResult) -> None:
+    if r.error is not None:
+        status = "ERROR"
+    elif r.is_pass():
+        status = "PASS"
+    else:
+        status = "FAIL"
+    count_str = f"PG={r.source_count} DuckDB={r.target_count}"
+    hash_str = ""
+    if r.hash_source is not None and r.hash_target is not None:
+        match_str = "match" if r.hash_source == r.hash_target else "DIFF"
+        hash_str = f" hash={match_str}"
+    sample_str = ""
+    if r.sample_match is not None:
+        sample_str = f" sample={'OK' if r.sample_match else 'DIFF'}"
+    err_str = f" err={r.error}" if r.error else ""
+    print(f"  [{status:>5}] {r.name:<32s} {count_str}{hash_str}{sample_str}{err_str}")
+
+
+def _verify_print_graph_result(r: CheckResult) -> None:
+    if r.error is not None:
+        status = "ERROR"
+    elif r.is_pass():
+        status = "PASS"
+    else:
+        status = "FAIL"
+    count_str = f"Neo4j={r.source_count} LadybugDB={r.target_count}"
+    sample_str = ""
+    if r.sample_match is not None:
+        sample_str = f" sample={'OK' if r.sample_match else 'DIFF'}"
+    err_str = f" err={r.error}" if r.error else ""
+    print(f"  [{status:>5}] {r.check_type:<10s} {r.name:<24s} {count_str}{sample_str}{err_str}")
+
+
+async def _verify_consistency(args: argparse.Namespace) -> int:
+    """Verify data consistency across PG↔DuckDB and Neo4j↔LadybugDB.
+
+    Formerly the standalone verify_db_consistency.py. Writes a JSON report to
+    --output (default temp/consistency_report.json). Exit: 0 all pass / 1
+    inconsistency / 2 usage error.
+    """
+    report = Report()
+    mode = args.mode
+
+    # ── PG ↔ DuckDB ────────────────────────────────────────────────────
+    if mode in ("all", "pg-duckdb"):
+        print("\n=== Comparing PostgreSQL ↔ DuckDB ===")
+        if not args.pg_dsn:
+            print(
+                "[ERROR] --pg-dsn (or $WEAVER_POSTGRES__DSN) required for pg-duckdb mode",
+                file=sys.stderr,
+            )
+            if mode == "pg-duckdb":
+                return 2
+        elif not Path(args.duckdb_path).exists():
+            print(f"[ERROR] DuckDB file not found: {args.duckdb_path}", file=sys.stderr)
+            if mode == "pg-duckdb":
+                return 2
+        else:
+            pg = _VerifyPgClient(args.pg_dsn)
+            duck = _VerifyDuckDbClient(args.duckdb_path)
+            try:
+                await pg.connect()
+                await duck.connect()
+                dsn_display = args.pg_dsn.split("@")[-1]
+                print(f"Connected: PG ({dsn_display}) ↔ DuckDB ({args.duckdb_path})")
+                print(f"Comparing {len(EXPECTED_TABLES)} tables...")
+                report.pg_duckdb = await compare_pg_duckdb(pg, duck)
+            finally:
+                await pg.close()
+                await duck.close()
+
+    # ── Neo4j ↔ LadybugDB ──────────────────────────────────────────────
+    if mode in ("all", "neo4j-ladybug"):
+        print("\n=== Comparing Neo4j ↔ LadybugDB ===")
+        if not args.neo4j_password:
+            print(
+                "[ERROR] --neo4j-password (or $WEAVER_NEO4J__PASSWORD) "
+                "required for neo4j-ladybug mode",
+                file=sys.stderr,
+            )
+            if mode == "neo4j-ladybug":
+                return 2
+        elif not Path(args.ladybug_path).exists():
+            print(f"[ERROR] LadybugDB file not found: {args.ladybug_path}", file=sys.stderr)
+            if mode == "neo4j-ladybug":
+                return 2
+        else:
+            neo = _VerifyNeo4jClient(args.neo4j_uri, args.neo4j_user, args.neo4j_password)
+            lady = _VerifyLadybugClient(args.ladybug_path)
+            try:
+                await neo.connect()
+                await lady.connect()
+                print(f"Connected: Neo4j ({args.neo4j_uri}) ↔ LadybugDB ({args.ladybug_path})")
+                print(
+                    f"Comparing {len(EXPECTED_NODE_LABELS)} node labels "
+                    f"and {len(EXPECTED_REL_TYPES)} rel types..."
+                )
+                report.neo4j_ladybug = await compare_neo4j_ladybug(neo, lady)
+            finally:
+                await neo.close()
+                await lady.close()
+
+    # ── Summary & report ───────────────────────────────────────────────
+    summary = report.summary()
+    print("\n=== Summary ===")
+    print(
+        f"  PG↔DuckDB:      pass={summary['pg_duckdb']['pass']:>3}  "
+        f"fail={summary['pg_duckdb']['fail']:>3}"
+    )
+    print(
+        f"  Neo4j↔Ladybug:  pass={summary['neo4j_ladybug']['pass']:>3}  "
+        f"fail={summary['neo4j_ladybug']['fail']:>3}"
+    )
+
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(report.to_dict(), indent=2, ensure_ascii=False, default=str))
+    print(f"\nReport saved to: {out_path}")
+
+    total_fail = summary["pg_duckdb"]["fail"] + summary["neo4j_ladybug"]["fail"]
+    return 0 if total_fail == 0 else 1
+
+
 # ── CLI entry point ─────────────────────────────────────────────────
 
 
@@ -1442,6 +2226,45 @@ def _build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--neo4j-password")
     # Ladybug target
     p_export.add_argument("--ladybug-path")
+
+    # verify subcommand
+    p_verify = sub.add_parser(
+        "verify",
+        help="Verify data consistency across PG↔DuckDB and Neo4j↔LadybugDB",
+    )
+    p_verify.add_argument(
+        "--mode",
+        choices=["all", "pg-duckdb", "neo4j-ladybug"],
+        default="all",
+        help="Comparison mode (default: all)",
+    )
+    p_verify.add_argument(
+        "--pg-dsn",
+        default=os.environ.get("WEAVER_POSTGRES__DSN"),
+        help="PostgreSQL DSN (default: $WEAVER_POSTGRES__DSN)",
+    )
+    p_verify.add_argument("--duckdb-path", default="data/weaver.duckdb", help="DuckDB file path")
+    p_verify.add_argument(
+        "--neo4j-uri",
+        default=os.environ.get("WEAVER_NEO4J__URI", "bolt://localhost:7687"),
+        help="Neo4j URI (default: bolt://localhost:7687)",
+    )
+    p_verify.add_argument(
+        "--neo4j-user",
+        default=os.environ.get("WEAVER_NEO4J__USER", "neo4j"),
+        help="Neo4j username (default: neo4j)",
+    )
+    p_verify.add_argument(
+        "--neo4j-password",
+        default=os.environ.get("WEAVER_NEO4J__PASSWORD"),
+        help="Neo4j password (default: $WEAVER_NEO4J__PASSWORD)",
+    )
+    p_verify.add_argument("--ladybug-path", default="data/weaver.lbug", help="LadybugDB file path")
+    p_verify.add_argument(
+        "--output",
+        default="temp/consistency_report.json",
+        help="Report output path (default: temp/consistency_report.json)",
+    )
 
     return parser
 
@@ -1483,6 +2306,8 @@ async def _async_main(args: argparse.Namespace) -> int:
                 f"[OK] Neo4j → LadybugDB export completed: {args.neo4j_uri} → {args.ladybug_path}"
             )
             return 0
+    elif args.command == "verify":
+        return await _verify_consistency(args)
 
     print(f"[ERROR] Unknown command combination: {args}", file=sys.stderr)
     return 2

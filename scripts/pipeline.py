@@ -59,7 +59,8 @@ import httpx
 _project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, f"{_project_root}/src")
 sys.path.insert(0, _project_root)
-
+# Source definitions (NEWSNOW_IDS, RSS_FEEDS, build_*_config) are inlined
+# below in the "Source Configurations" section — no sys.path import hack.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Processing Mode Enum
@@ -84,24 +85,13 @@ class ProcessingMode(enum.StrEnum):
     DEEP = "deep"
 
 
-def get_mode_config(mode: ProcessingMode) -> dict[str, Any]:
-    """Get mode-specific configuration overrides.
-
-    Args:
-        mode: Processing mode.
-
-    Returns:
-        Dictionary of configuration overrides for the mode.
-    """
-    if mode == ProcessingMode.FAST:
-        return {
-            "skip_entities": True,
-            "skip_quality": True,
-            "skip_credibility": True,
-            "skip_batch_merger": True,
-            "skip_phase3": True,
-        }
-    return {}
+# Bridge CLI --processing-mode to the backend worker.
+# PipelineWorker reads settings.pipeline_process.processing_mode once at
+# startup (container/services.py) and dispatches to process_batch_fast /
+# process_batch. pydantic-settings loads that field from this env var
+# (env_prefix="WEAVER_", env_nested_delimiter="__"). The worker has no
+# per-request mode, so the env var must be set before Settings() init.
+PROCESSING_MODE_ENV = "WEAVER_PIPELINE_PROCESS__PROCESSING_MODE"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -306,45 +296,216 @@ class PipelineAPIClient:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Source Configurations
+# Source Configurations (inlined — single source of truth)
 # ─────────────────────────────────────────────────────────────────────────────
 
-
-KNOWN_NEWSNOW_SOURCES: list[str] = [
+NEWSNOW_IDS = [
     "36kr",
-    "solidot",
-    "ithome",
+    "zhihu",
+    "weibo",
+    "bilibili",
+    "douyin",
+    "baidu",
+    "toutiao",
     "hupu",
+    "tieba",
+    "douban",
+    "thepaper",
+    "ifeng",
+    "nowcoder",
+    "juejin",
+    "sspai",
+    "ithome",
+    "coolapk",
+    "v2ex",
+    "github",
+    "hackernews",
+    "solidot",
+    "producthunt",
+    "xueqiu",
+    "wallstreetcn",
+    "gelonghui",
+    "cls",
+    "jin10",
+    "fastbull",
+    "zaobao",
+    "sputniknewscn",
+    "cankaoxiaoxi",
+    "kaopu",
+    "steam",
+    "freebuf",
+    "chongbuluo",
+    "tencent",
+    "qqvideo",
+    "iqiyi",
 ]
 
-RSS_SOURCES: dict[str, dict[str, Any]] = {
-    "solidot": {
-        "url": "https://www.solidot.org/index.rss",
-        "name": "Solidot",
-        "credibility": 0.70,
-        "tier": 2,
-    },
-    "cnbeta": {
-        "url": "https://plink.anyfeeder.com/cnbeta",
-        "name": "CNBeta",
-        "credibility": 0.70,
-        "tier": 2,
-    },
-    "huxiu": {
-        "url": "https://plink.anyfeeder.com/huxiu",
-        "name": "Huxiu",
-        "credibility": 0.70,
-        "tier": 2,
-    },
+RSS_FEEDS: dict[str, str] = {
+    "solidot": "https://www.solidot.org/index.rss",
+    "cnbeta": "https://plink.anyfeeder.com/cnbeta",
+    "huxiu": "https://plink.anyfeeder.com/huxiu",
+    "sixcolors": "https://feedpress.me/sixcolors",
+    "36kr": "https://plink.anyfeeder.com/36kr",
+    "aljazeera_news": "https://plink.anyfeeder.com/aljazeera/news",
+    "appinn": "https://plink.anyfeeder.com/appinn",
+    "arstechnica": "https://plink.anyfeeder.com/arstechnica",
+    "bbc": "https://plink.anyfeeder.com/bbc",
+    "bbc_business": "https://plink.anyfeeder.com/bbc/business",
+    "bbc_education": "https://plink.anyfeeder.com/bbc/education",
+    "bbc_entertainment": "https://plink.anyfeeder.com/bbc/entertainment_and_arts",
+    "bbc_health": "https://plink.anyfeeder.com/bbc/health",
+    "bbc_learningenglish": "https://plink.anyfeeder.com/bbc/learningenglish",
+    "bbc_politics": "https://plink.anyfeeder.com/bbc/politics",
+    "bbc_science": "https://plink.anyfeeder.com/bbc/science_and_environment",
+    "bbc_technology": "https://plink.anyfeeder.com/bbc/technology",
+    "bbc_uk": "https://plink.anyfeeder.com/bbc/uk",
+    "bbc_world": "https://plink.anyfeeder.com/bbc/world",
+    "businessinsider": "https://plink.anyfeeder.com/businessinsider",
+    "chinadaily_caijing": "https://plink.anyfeeder.com/chinadaily/caijing",
+    "chinadaily_china": "https://plink.anyfeeder.com/chinadaily/china",
+    "chinadaily_column": "https://plink.anyfeeder.com/chinadaily/column",
+    "chinadaily_dual": "https://plink.anyfeeder.com/chinadaily/dual",
+    "chinadaily_world": "https://plink.anyfeeder.com/chinadaily/world",
+    "dapenti_caijing": "https://plink.anyfeeder.com/dapenti/caijing",
+    "dapenti_xilei": "https://plink.anyfeeder.com/dapenti/xilei",
+    "douban_review_book": "https://plink.anyfeeder.com/douban/review/book",
+    "fortunechina": "https://plink.anyfeeder.com/fortunechina",
+    "fortunechina_keji": "https://plink.anyfeeder.com/fortunechina/keji",
+    "fortunechina_shangye": "https://plink.anyfeeder.com/fortunechina/shangye",
+    "freebuf": "https://plink.anyfeeder.com/freebuf",
+    "gcores": "https://plink.anyfeeder.com/gcores",
+    "guokr_scientific": "https://plink.anyfeeder.com/guokr/scientific",
+    "idaily_today": "https://plink.anyfeeder.com/idaily/today",
+    "ifanr": "https://plink.anyfeeder.com/ifanr",
+    "infoq_recommend": "https://plink.anyfeeder.com/infoq/recommend",
+    "infzm_news": "https://plink.anyfeeder.com/infzm/news",
+    "infzm_recommends": "https://plink.anyfeeder.com/infzm/recommends",
+    "ithome_it": "https://plink.anyfeeder.com/ithome/it",
+    "jianshu_home": "https://plink.anyfeeder.com/jianshu/home",
+    "jiemian_business": "https://plink.anyfeeder.com/jiemian/business",
+    "jiemian_finance": "https://plink.anyfeeder.com/jiemian/finance",
+    "jiemian_news": "https://plink.anyfeeder.com/jiemian/news",
+    "jingjiribao": "https://plink.anyfeeder.com/jingjiribao",
+    "leiphone": "https://plink.anyfeeder.com/leiphone",
+    "longreads": "https://plink.anyfeeder.com/longreads",
+    "mittrchina_hot": "https://plink.anyfeeder.com/mittrchina/hot",
+    "mydrivers": "https://plink.anyfeeder.com/mydrivers",
+    "newscn_whxw": "https://plink.anyfeeder.com/newscn/whxw",
+    "nytimes_cn": "https://plink.anyfeeder.com/nytimes/cn",
+    "nytimes_dual": "https://plink.anyfeeder.com/nytimes/dual",
+    "pentitugua": "https://plink.anyfeeder.com/pentitugua",
+    "people": "https://plink.anyfeeder.com/people",
+    "people_daily": "https://plink.anyfeeder.com/people-daily",
+    "people_politics": "https://plink.anyfeeder.com/people/politics",
+    "people_world": "https://plink.anyfeeder.com/people/world",
+    "qstheory": "https://plink.anyfeeder.com/qstheory",
+    "rfi_cn": "https://plink.anyfeeder.com/rfi/cn",
+    "sina_csj": "https://plink.anyfeeder.com/sina/csj",
+    "ssapi_matrix": "https://plink.anyfeeder.com/ssapi/matrix",
+    "sspai": "https://plink.anyfeeder.com/sspai",
+    "techcrunch": "https://plink.anyfeeder.com/techcrunch",
+    "time": "https://plink.anyfeeder.com/time",
+    "tmtpost": "https://plink.anyfeeder.com/tmtpost",
+    "toodaylab": "https://plink.anyfeeder.com/toodaylab",
+    "vice": "https://plink.anyfeeder.com/vice",
+    "weibo_search_hot": "https://plink.anyfeeder.com/weibo/search/hot",
+    "weixin_AI_era": "https://plink.anyfeeder.com/weixin/AI_era",
+    "weixin_CBNweekly": "https://plink.anyfeeder.com/weixin/CBNweekly2008",
+    "weixin_DJ00123987": "https://plink.anyfeeder.com/weixin/DJ00123987",
+    "weixin_DingXiangMaMi": "https://plink.anyfeeder.com/weixin/DingXiangMaMi",
+    "weixin_DingXiangYiSheng": "https://plink.anyfeeder.com/weixin/DingXiangYiSheng",
+    "weixin_Economist": "https://plink.anyfeeder.com/weixin/Economist_fans",
+    "weixin_Guokr42": "https://plink.anyfeeder.com/weixin/Guokr42",
+    "weixin_IrisMagazine": "https://plink.anyfeeder.com/weixin/IrisMagazine",
+    "weixin_MSRAsia": "https://plink.anyfeeder.com/weixin/MSRAsia",
+    "weixin_Notesman": "https://plink.anyfeeder.com/weixin/Notesman",
+    "weixin_ScientificAmerican": "https://plink.anyfeeder.com/weixin/ScientificAmerican",
+    "weixin_TheIntellectual": "https://plink.anyfeeder.com/weixin/The-Intellectual",
+    "weixin_almosthuman": "https://plink.anyfeeder.com/weixin/almosthuman2014",
+    "weixin_banyuetan": "https://plink.anyfeeder.com/weixin/banyuetan-weixin",
+    "weixin_banzhuan": "https://plink.anyfeeder.com/weixin/banzhuanxiaozu",
+    "weixin_bitsea": "https://plink.anyfeeder.com/weixin/bitsea",
+    "weixin_caixinwang": "https://plink.anyfeeder.com/weixin/caixinwang",
+    "weixin_caozsay": "https://plink.anyfeeder.com/weixin/caozsay",
+    "weixin_capitalnews": "https://plink.anyfeeder.com/weixin/capitalnews",
+    "weixin_cctvnewscenter": "https://plink.anyfeeder.com/weixin/cctvnewscenter",
+    "weixin_cctvyscj": "https://plink.anyfeeder.com/weixin/cctvyscj",
+    "weixin_ckxxwx": "https://plink.anyfeeder.com/weixin/ckxxwx",
+    "weixin_dandureading": "https://plink.anyfeeder.com/weixin/dandureading",
+    "weixin_delinshe": "https://plink.anyfeeder.com/weixin/delinshe",
+    "weixin_dgjdds": "https://plink.anyfeeder.com/weixin/dgjdds",
+    "weixin_dili360": "https://plink.anyfeeder.com/weixin/dili360",
+    "weixin_diqiuzhishiju": "https://plink.anyfeeder.com/weixin/diqiuzhishiju",
+    "weixin_doctorx666": "https://plink.anyfeeder.com/weixin/doctorx666",
+    "weixin_duhaoshu": "https://plink.anyfeeder.com/weixin/duhaoshu",
+    "weixin_dujinyong6": "https://plink.anyfeeder.com/weixin/dujinyong6",
+    "weixin_eeo": "https://plink.anyfeeder.com/weixin/eeo-com-cn",
+    "weixin_forbes": "https://plink.anyfeeder.com/weixin/forbes_china",
+    "weixin_gh_10a6b96351a9": "https://plink.anyfeeder.com/weixin/gh_10a6b96351a9",
+    "weixin_gjrwls": "https://plink.anyfeeder.com/weixin/gjrwls",
+    "weixin_guokrpac": "https://plink.anyfeeder.com/weixin/guokrpac",
+    "weixin_hbrchinese": "https://plink.anyfeeder.com/weixin/hbrchinese",
+    "weixin_hqsbwx": "https://plink.anyfeeder.com/weixin/hqsbwx",
+    "weixin_huxiu": "https://plink.anyfeeder.com/weixin/huxiu_com",
+    "weixin_ibookreview": "https://plink.anyfeeder.com/weixin/ibookreview",
+    "weixin_iceo": "https://plink.anyfeeder.com/weixin/iceo-com-cn",
+    "weixin_ikanlixiang": "https://plink.anyfeeder.com/weixin/ikanlixiang",
+    "weixin_ilianyue": "https://plink.anyfeeder.com/weixin/ilianyue",
+    "weixin_importnew": "https://plink.anyfeeder.com/weixin/importnew",
+    "weixin_jianshuio": "https://plink.anyfeeder.com/weixin/jianshuio",
+    "weixin_jingjixue": "https://plink.anyfeeder.com/weixin/jingjixue_yuanli",
+    "weixin_jjbd21": "https://plink.anyfeeder.com/weixin/jjbd21",
+    "weixin_kejimx": "https://plink.anyfeeder.com/weixin/kejimx",
+    "weixin_knowyourself": "https://plink.anyfeeder.com/weixin/knowyourself2015",
+    "weixin_lengjing": "https://plink.anyfeeder.com/weixin/lengjing_qqfinance",
+    "weixin_lifeweek": "https://plink.anyfeeder.com/weixin/lifeweek",
+    "weixin_liweitan": "https://plink.anyfeeder.com/weixin/liweitan2014",
+    "weixin_luojisw": "https://plink.anyfeeder.com/weixin/luojisw",
+    "weixin_mao_talk": "https://plink.anyfeeder.com/weixin/mao-talk",
+    "weixin_meigushe": "https://plink.anyfeeder.com/weixin/meigushe",
+    "weixin_nanfangzhoumo": "https://plink.anyfeeder.com/weixin/nanfangzhoumo",
+    "weixin_nbweekly": "https://plink.anyfeeder.com/weixin/nbweekly",
+    "weixin_ndgs233": "https://plink.anyfeeder.com/weixin/ndgs233",
+    "weixin_newfortune": "https://plink.anyfeeder.com/weixin/newfortune",
+    "weixin_newsxinhua": "https://plink.anyfeeder.com/weixin/newsxinhua",
+    "weixin_people_rmw": "https://plink.anyfeeder.com/weixin/people_rmw",
+    "weixin_phoenixweekly": "https://plink.anyfeeder.com/weixin/phoenixweekly",
+    "weixin_qnwzwx": "https://plink.anyfeeder.com/weixin/qnwzwx",
+    "weixin_qqtech": "https://plink.anyfeeder.com/weixin/qqtech",
+    "weixin_renwumag": "https://plink.anyfeeder.com/weixin/renwumag1980",
+    "weixin_rmrbwx": "https://plink.anyfeeder.com/weixin/rmrbwx",
+    "weixin_runliu": "https://plink.anyfeeder.com/weixin/runliu-pub",
+    "weixin_sagacity": "https://plink.anyfeeder.com/weixin/sagacity-mac",
+    "weixin_sanjieke01": "https://plink.anyfeeder.com/weixin/sanjieke01",
+    "weixin_shudanlaile": "https://plink.anyfeeder.com/weixin/shudanlaile",
+    "weixin_sports_sina": "https://plink.anyfeeder.com/weixin/sports_sina",
+    "weixin_tancaijing": "https://plink.anyfeeder.com/weixin/tancaijing",
+    "weixin_techread": "https://plink.anyfeeder.com/weixin/techread",
+    "weixin_theeconomist": "https://plink.anyfeeder.com/weixin/theeconomist",
+    "weixin_thefair2": "https://plink.anyfeeder.com/weixin/thefair2",
+    "weixin_thepapernews": "https://plink.anyfeeder.com/weixin/thepapernews",
+    "weixin_vistaweek": "https://plink.anyfeeder.com/weixin/vistaweek",
+    "weixin_wallstreetcn": "https://plink.anyfeeder.com/weixin/wallstreetcn",
+    "weixin_woshipm": "https://plink.anyfeeder.com/weixin/woshipm",
+    "weixin_wowjiemian": "https://plink.anyfeeder.com/weixin/wowjiemian",
+    "weixin_wuxiaobopd": "https://plink.anyfeeder.com/weixin/wuxiaobopd",
+    "weixin_xiake_island": "https://plink.anyfeeder.com/weixin/xiake_island",
+    "weixin_xueqiujinghua": "https://plink.anyfeeder.com/weixin/xueqiujinghua",
+    "weixin_yeeyancom": "https://plink.anyfeeder.com/weixin/yeeyancom",
+    "weixin_yixuejiezazhi": "https://plink.anyfeeder.com/weixin/yixuejiezazhi",
+    "weixin_youshucc": "https://plink.anyfeeder.com/weixin/youshucc",
+    "weixin_zhangjiawei": "https://plink.anyfeeder.com/weixin/zhangjiawei_1983",
+    "woshipm_popular": "https://plink.anyfeeder.com/woshipm/popular",
+    "zerohedge": "https://plink.anyfeeder.com/zerohedge",
+    "zhihu_daily": "https://plink.anyfeeder.com/zhihu/daily",
 }
 
 
-def build_newsnow_source_config(source_id: str) -> dict[str, Any]:
-    """Build NewsNow source configuration."""
+def build_newsnow_config(source_id: str) -> dict[str, Any]:
     return {
         "id": f"newsnow-{source_id}",
         "name": f"NewsNow {source_id}",
-        "url": f"https://www.newsnow.world/api/s?id={source_id}",
+        "url": f"https://newsnow.czl.net/api/s?id={source_id}",
         "source_type": "newsnow",
         "enabled": True,
         "interval_minutes": 30,
@@ -353,22 +514,103 @@ def build_newsnow_source_config(source_id: str) -> dict[str, Any]:
     }
 
 
-def build_rss_source_config(source: str) -> dict[str, Any]:
-    """Build RSS source configuration."""
-    if source not in RSS_SOURCES:
-        raise ValueError(f"Unknown RSS source: {source}. Available: {list(RSS_SOURCES.keys())}")
-
-    src = RSS_SOURCES[source]
+def build_rss_config(sid: str, url: str) -> dict[str, Any]:
+    name = sid.replace("_", " ").replace("-", " ").title()
     return {
-        "id": f"rss-{source}",
-        "name": src["name"],
-        "url": src["url"],
+        "id": f"rss-{sid}",
+        "name": name,
+        "url": url,
         "source_type": "rss",
         "enabled": True,
         "interval_minutes": 30,
-        "credibility": src["credibility"],
-        "tier": src["tier"],
+        "credibility": 0.70,
+        "tier": 2,
     }
+
+
+# Re-export for backward compatibility with any code that imports these names
+# from pipeline.py directly.
+KNOWN_NEWSNOW_SOURCES: list[str] = NEWSNOW_IDS
+
+
+def build_newsnow_source_config(source_id: str) -> dict[str, Any]:
+    """Build NewsNow source configuration."""
+    return build_newsnow_config(source_id)
+
+
+def build_rss_source_config(source: str) -> dict[str, Any]:
+    """Build RSS source configuration. Raises KeyError if source ID is unknown."""
+    if source not in RSS_FEEDS:
+        raise KeyError(f"Unknown RSS source: {source}. Available: {list(RSS_FEEDS.keys())}")
+    return build_rss_config(source, RSS_FEEDS[source])
+
+
+async def cmd_seed_sources(args) -> int:
+    """Create all NewsNow + RSS source configurations, optionally trigger pipeline.
+
+    Merged from the standalone seed_sources.py. Sequential upsert with optional
+    pipeline trigger; triggers may be parallelized later if throughput demands.
+    """
+    from config.settings import Settings
+    from container import Container
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+
+    try:
+        from modules.ingestion.domain.models import SourceConfig as SourceConfigModel
+
+        repo = container.source_config_repo()
+        scheduler = container.source_scheduler()
+
+        all_configs: list[SourceConfigModel] = []
+        for sid in NEWSNOW_IDS:
+            all_configs.append(SourceConfigModel(**build_newsnow_config(sid)))
+        for sid, url in RSS_FEEDS.items():
+            all_configs.append(SourceConfigModel(**build_rss_config(sid, url)))
+
+        print(f"Total sources to create: {len(all_configs)}")
+        print(f"  NewsNow: {len(NEWSNOW_IDS)}")
+        print(f"  RSS:     {len(RSS_FEEDS)}")
+
+        if args.dry_run:
+            print("\nDry-run: no changes made")
+            return 0
+
+        added = 0
+        skipped = 0
+        batches = [all_configs[i : i + args.batch] for i in range(0, len(all_configs), args.batch)]
+        for batch_num, batch in enumerate(batches, 1):
+            print(f"\nBatch {batch_num}/{len(batches)} ({len(batch)} sources)...")
+            for cfg in batch:
+                try:
+                    await repo.upsert(cfg)
+                    added += 1
+                except Exception:
+                    skipped += 1
+            await asyncio.sleep(0.5)
+
+        print(f"\nDone: {added} created, {skipped} skipped")
+
+        if args.pipeline:
+            print("\nTriggering pipeline...")
+            triggered = 0
+            failed = 0
+            for sc in all_configs:
+                try:
+                    await scheduler.trigger_now(sc.id, max_items=args.max_items)
+                    triggered += 1
+                    print(f"  ✓ {sc.id}")
+                except Exception as e:
+                    failed += 1
+                    print(f"  ✗ {sc.id}: {e}")
+            print(f"Pipeline triggered: {triggered} succeeded, {failed} failed")
+
+        return 0
+
+    finally:
+        await container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -577,8 +819,8 @@ async def run_all_sources(
     # Collect all source configs
     all_sources: list[dict[str, Any]] = []
 
-    # RSS sources
-    for source_key in RSS_SOURCES:
+    # RSS sources (single source of truth: seed_sources.RSS_FEEDS)
+    for source_key, _url in RSS_FEEDS.items():
         try:
             config = build_rss_source_config(source_key)
             all_sources.append(config)
@@ -891,13 +1133,15 @@ async def cmd_test(args: argparse.Namespace) -> int:
     """Run pipeline test."""
     # Convert processing_mode string to enum
     processing_mode = ProcessingMode(args.processing_mode)
-    mode_config = get_mode_config(processing_mode)
+
+    # Bridge CLI --processing-mode to the backend worker. PipelineWorker
+    # reads settings.pipeline_process.processing_mode once at startup, so the
+    # env var MUST be set before Settings() is instantiated in setup_*_mode().
+    os.environ[PROCESSING_MODE_ENV] = processing_mode.value
 
     print("=" * 60)
     print(f"  Pipeline Test: {args.mode.upper()} mode")
     print(f"  Processing: {processing_mode.value.upper()} mode")
-    if mode_config:
-        print(f"  Config overrides: {', '.join(k for k, v in mode_config.items() if v)}")
     print("=" * 60)
 
     start_time = time.time()
@@ -912,6 +1156,18 @@ async def cmd_test(args: argparse.Namespace) -> int:
             server_ctx = await setup_strategy_mode(debug=args.debug)
         else:
             server_ctx = await setup_normal_mode(debug=args.debug)
+
+        # Fail loud if the env bridge silently fell back to the default.
+        # pydantic-settings does not error on an unrecognized env name — it
+        # just uses the default ("deep"), which is exactly the bug fixed here.
+        effective_mode = server_ctx.container._settings.pipeline_process.processing_mode
+        if effective_mode != processing_mode.value:
+            raise RuntimeError(
+                f"processing_mode env bridge failed: CLI={processing_mode.value} "
+                f"but settings.pipeline_process.processing_mode={effective_mode!r} "
+                f"(verify {PROCESSING_MODE_ENV})"
+            )
+        step(f"Processing mode bridged", True, processing_mode.value)
 
         step(
             f"Database: {server_ctx.relational_type} + {server_ctx.graph_type}",
@@ -1443,6 +1699,21 @@ Examples:
         help="Delay between batches in seconds (default: 60)",
     )
 
+    # seed-sources subcommand
+    seed_parser = subparsers.add_parser(
+        "seed-sources", help="Create all NewsNow + RSS source configurations"
+    )
+    seed_parser.add_argument(
+        "--pipeline", action="store_true", help="Trigger pipeline after creating sources"
+    )
+    seed_parser.add_argument(
+        "--max-items", type=int, default=None, help="Max items per source when triggering"
+    )
+    seed_parser.add_argument("--dry-run", action="store_true", help="Preview only, no changes")
+    seed_parser.add_argument(
+        "--batch", type=int, default=10, help="Sources per batch (default: 10)"
+    )
+
     args = parser.parse_args()
 
     if args.command == "test":
@@ -1451,6 +1722,8 @@ Examples:
         return asyncio.run(cmd_process_pending(args))
     elif args.command == "reprocess":
         return asyncio.run(cmd_reprocess(args))
+    elif args.command == "seed-sources":
+        return asyncio.run(cmd_seed_sources(args))
     else:
         parser.print_help()
         return 1

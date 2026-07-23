@@ -22,6 +22,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from dotenv import load_dotenv
+
+# 加载项目 .env 到 os.environ，使 admin_headers 等 fixture 能读到
+# WEAVER_API__API_KEY / WEAVER_API__ADMIN_API_KEY 等配置（与 create_app
+# 内 pydantic-settings 的 .env 加载保持一致），避免 403 Invalid API Key。
+load_dotenv()
 
 
 def get_postgres_dsn():
@@ -782,3 +788,321 @@ def pytest_collection_modifyitems(config, items):
                     f"║  如需 mock，请将测试移至 tests/unit/ 目录。                 ║\n"
                     f"╚════════════════════════════════════════════════════════════╝\n"
                 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T001: 4 套 DB 组合 fixture 工厂
+# 通过 pytest.mark.db_combo 标记切换；fixture 读取 WEAVER__DB__TYPE 和
+# WEAVER__GRAPH__TYPE 环境变量，不匹配时 skip。
+# ─────────────────────────────────────────────────────────────────────────────
+
+DB_COMBOS = {
+    "pg_ladybug": ("postgres", "ladybug"),
+    "duckdb_neo4j": ("duckdb", "neo4j"),
+    "pg_neo4j": ("postgres", "neo4j"),
+    "duckdb_ladybug": ("duckdb", "ladybug"),
+}
+
+
+def pytest_configure(config):
+    """注册集成测试 markers（--strict-markers 兼容）。"""
+    config.addinivalue_line("markers", "db_combo: 4 套 DB 组合矩阵测试")
+    config.addinivalue_line("markers", "bing_live: 真实 Bing 网络调用测试")
+    config.addinivalue_line("markers", "db_failover: 数据库故障转移测试")
+    config.addinivalue_line("markers", "slow: 慢速测试（Deep 阶段）")
+
+
+def _check_db_combo(expected_rel: str, expected_graph: str) -> str:
+    """验证当前环境变量的 DB 组合是否匹配，不匹配则 skip。
+
+    Returns:
+        匹配时返回组合名称（如 "pg_ladybug"）。
+    """
+    actual_rel = os.getenv("WEAVER__DB__TYPE", "postgres")
+    actual_graph = os.getenv("WEAVER__GRAPH__TYPE", "ladybug")
+    if actual_rel != expected_rel or actual_graph != expected_graph:
+        pytest.skip(
+            f"DB 组合不匹配：期望 {expected_rel}+{expected_graph}，实际 {actual_rel}+{actual_graph}"
+        )
+    return f"{expected_rel}_{expected_graph}"
+
+
+@pytest.fixture
+def pg_ladybug():
+    """PG + LadybugDB 组合 fixture。"""
+    return _check_db_combo("postgres", "ladybug")
+
+
+@pytest.fixture
+def duckdb_neo4j():
+    """DuckDB + Neo4j 组合 fixture。"""
+    return _check_db_combo("duckdb", "neo4j")
+
+
+@pytest.fixture
+def pg_neo4j():
+    """PG + Neo4j 组合 fixture。"""
+    return _check_db_combo("postgres", "neo4j")
+
+
+@pytest.fixture
+def duckdb_ladybug():
+    """DuckDB + LadybugDB 组合 fixture。"""
+    return _check_db_combo("duckdb", "ladybug")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T002/T003: API key fixture + 动态数据获取 fixture
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _generate_api_key(suffix: str = "") -> str:
+    """生成符合项目规范的 API key：32 字符 + weaver 前缀。"""
+    import hashlib
+
+    base = f"weaver-{suffix}-{uuid.uuid4().hex}"
+    hashed = hashlib.sha256(base.encode()).hexdigest()[:32]
+    return hashed
+
+
+@pytest.fixture(scope="session")
+def admin_headers():
+    """Admin API key headers（从环境变量读取，回退到测试默认值）。
+
+    使用 ``WEAVER_API__ADMIN_API_KEY``（admin 专用 key），而非普通
+    ``WEAVER_API__API_KEY``——admin 端点会校验 key 的 admin 标记，
+    普通 key 会触发 403 "Admin access required"。
+    """
+    api_key = os.getenv(
+        "WEAVER_API__ADMIN_API_KEY",
+        "test-admin-key-32chars-long!!!!!",
+    )
+    return {"X-API-Key": api_key}
+
+
+@pytest.fixture(scope="session")
+async def test_api_keys(async_client):
+    """通过 /api/v1/admin/api-keys 创建 4 个测试 API key 并持久化到数据库。
+
+    创建 4 个 key：
+    - normal: scopes=["search:read"], 90 天有效期
+    - admin: scopes=["admin:all"], 90 天有效期
+    - expired: scopes=["search:read"], 1 天有效期（最短）
+    - revoked: 创建后立即撤销
+
+    Returns:
+        dict: {"normal": key_value, "admin": key_value, "expired": key_value, "revoked": key_value}
+    """
+    keys: dict[str, str] = {}
+
+    # 创建普通 key
+    resp = await async_client.post(
+        "/api/v1/admin/api-keys",
+        json={
+            "scopes": ["search:read"],
+            "rate_limit_per_min": 100,
+            "expires_in_days": 90,
+            "created_by": "test-normal",
+        },
+    )
+    if resp.status_code == 200:
+        keys["normal"] = resp.json()["data"]["key_value"]
+
+    # 创建 admin key
+    resp = await async_client.post(
+        "/api/v1/admin/api-keys",
+        json={
+            "scopes": ["admin:all"],
+            "rate_limit_per_min": 1000,
+            "expires_in_days": 90,
+            "created_by": "test-admin",
+        },
+    )
+    if resp.status_code == 200:
+        keys["admin"] = resp.json()["data"]["key_value"]
+
+    # 创建过期 key（最短 1 天）
+    resp = await async_client.post(
+        "/api/v1/admin/api-keys",
+        json={
+            "scopes": ["search:read"],
+            "rate_limit_per_min": 10,
+            "expires_in_days": 1,
+            "created_by": "test-expired",
+        },
+    )
+    if resp.status_code == 200:
+        keys["expired"] = resp.json()["data"]["key_value"]
+
+    # 创建撤销 key
+    resp = await async_client.post(
+        "/api/v1/admin/api-keys",
+        json={
+            "scopes": ["search:read"],
+            "rate_limit_per_min": 100,
+            "expires_in_days": 90,
+            "created_by": "test-revoked",
+        },
+    )
+    if resp.status_code == 200:
+        data = resp.json()["data"]
+        keys["revoked"] = data["key_value"]
+        # 立即撤销
+        await async_client.delete(f"/api/v1/admin/api-keys/{data['key_id']}")
+
+    return keys
+
+
+@pytest.fixture
+def normal_headers(test_api_keys):
+    """普通 API key headers（从 test_api_keys 获取持久化的 key）。"""
+    key = test_api_keys.get("normal", _generate_api_key("normal"))
+    return {"X-API-Key": key}
+
+
+@pytest.fixture
+def expired_headers(test_api_keys):
+    """过期 API key headers（从 test_api_keys 获取持久化的 key）。"""
+    key = test_api_keys.get("expired", _generate_api_key("expired"))
+    return {"X-API-Key": key}
+
+
+@pytest.fixture
+def revoked_headers(test_api_keys):
+    """撤销 API key headers（从 test_api_keys 获取持久化的 key）。"""
+    key = test_api_keys.get("revoked", _generate_api_key("revoked"))
+    return {"X-API-Key": key}
+
+
+@pytest.fixture(scope="session")
+async def async_client(admin_headers):
+    """HTTP AsyncClient 通过 ASGITransport 直连 FastAPI app。
+
+    使用 create_app() 创建完整应用（含全部路由），通过 ASGITransport
+    绕过网络层进行进程内 HTTP 测试。认证 header 默认注入 admin_headers。
+    Session 级复用避免重复创建 app 实例。
+
+    关键：必须通过 ``app.router.lifespan_context(app)`` 显式触发 ASGI
+    lifespan startup，否则 ``container.startup()`` / ``set_container()``
+    不会执行，端点会返回 503 "Service not initialized"。
+    httpx.ASGITransport 默认不触发 lifespan 事件（与 TestClient 不同）。
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from main import create_app
+
+    app = create_app()
+    # 显式进入 lifespan 上下文，触发 container.startup() + set_container()
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            client.headers.update(admin_headers)
+            yield client
+
+
+@pytest.fixture(scope="session")
+async def real_entity_name(async_client, real_source_id):
+    """从 /graph/entities 取真实实体名，不足则先灌数据。
+
+    实体数 < 3 时自动触发 /pipeline/trigger 灌数据（使用 real_source_id），
+    轮询 /pipeline/tasks/{task_id} 直到 COMPLETED（超时 300s）。
+    """
+    resp = await async_client.get("/api/v1/graph/entities?limit=10")
+    entities = resp.json().get("data", [])
+
+    if len(entities) < 3:
+        if real_source_id is None:
+            pytest.skip("无可用 source，无法灌数据")
+        # 触发 pipeline 灌数据
+        trigger_resp = await async_client.post(
+            "/api/v1/pipeline/trigger",
+            json={"source_ids": [real_source_id]},
+        )
+        if trigger_resp.status_code != 200:
+            pytest.skip(f"pipeline trigger 失败: {trigger_resp.status_code}")
+        task_id = trigger_resp.json().get("data", {}).get("task_id")
+        if not task_id:
+            pytest.skip("pipeline trigger 未返回 task_id")
+
+        # 轮询任务状态（超时 240s，留 60s 余量给 pytest --timeout=300）
+        import asyncio
+
+        deadline = asyncio.get_event_loop().time() + 240
+        while asyncio.get_event_loop().time() < deadline:
+            status_resp = await async_client.get(f"/api/v1/pipeline/tasks/{task_id}")
+            if status_resp.status_code == 200:
+                status = status_resp.json().get("data", {}).get("status")
+                if status == "COMPLETED":
+                    break
+                if status == "FAILED":
+                    pytest.skip("pipeline 灌数据失败")
+            await asyncio.sleep(5)
+        else:
+            pytest.skip("pipeline 灌数据超时 240s")
+
+        # 重新获取实体
+        resp = await async_client.get("/api/v1/graph/entities?limit=10")
+        entities = resp.json().get("data", [])
+
+    assert len(entities) >= 1, "无法获取真实实体"
+    return entities[0]["name"]
+
+
+@pytest.fixture(scope="session")
+async def real_article_id(async_client):
+    """从 /articles 取真实文章 ID。
+
+    `/articles` 返回 `{"data": {"items": [...], "total": N}}` 结构，
+    因此需经 ``data["items"]`` 取列表，而非直接对 ``data`` 索引。
+    """
+    resp = await async_client.get("/api/v1/articles?limit=1")
+    data = resp.json().get("data", {})
+    items = data.get("items", []) if isinstance(data, dict) else data
+    if not items:
+        pytest.skip("无可用文章")
+    return str(items[0]["id"])
+
+
+@pytest.fixture(scope="session")
+async def real_source_id(async_client):
+    """从 /sources 取首个 enabled source ID，无则返回 None。"""
+    resp = await async_client.get("/api/v1/sources?enabled_only=true&limit=1")
+    data = resp.json().get("data", [])
+    if not data:
+        return None
+    return str(data[0]["id"])
+
+
+@pytest.fixture(scope="session")
+async def real_community_id(async_client):
+    """从 /admin/communities 取首个社区 ID。"""
+    resp = await async_client.get("/api/v1/admin/communities?limit=1")
+    data = resp.json().get("data", [])
+    if not data:
+        pytest.skip("无可用社区")
+    return str(data[0]["id"])
+
+
+@pytest.fixture(scope="session")
+async def cleanup_test_data(async_client):
+    """Session 级清理 fixture：测试结束后清理测试数据。
+
+    按 FK 反向顺序删除：alert_events → alert_rules → api_keys →
+    articles_core → article_bodies → article_analysis → article_processing →
+    article_vectors。通过 API 删除测试创建的 API key（created_by 前缀 "test-"）。
+    """
+    yield
+    # Best-effort cleanup — 不阻塞测试失败
+    try:
+        # 列出所有 API key，删除测试创建的
+        resp = await async_client.get("/api/v1/admin/api-keys")
+        if resp.status_code == 200:
+            keys = resp.json().get("data", [])
+            for key in keys:
+                created_by = key.get("created_by", "")
+                if created_by.startswith("test-"):
+                    key_id = key.get("key_id")
+                    if key_id:
+                        await async_client.delete(f"/api/v1/admin/api-keys/{key_id}")
+    except Exception:
+        pass
