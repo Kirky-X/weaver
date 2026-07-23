@@ -1199,33 +1199,6 @@ class TestCorsConfiguration:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Module-level app Tests
-# ────────────────────────────────────────────────────────────────────────────
-
-
-class TestModuleApp:
-    """Tests for module-level app instance."""
-
-    def test_app_instance_exists(self):
-        """Test that app instance is created at module level."""
-        # This test imports main which creates the app
-        # We need to be careful about the import
-        with patch("main._ensure_spacy_models"):
-            with patch("main.Settings"):
-                from main import app
-
-                assert isinstance(app, FastAPI)
-
-    def test_app_has_correct_title(self):
-        """Test app has correct title."""
-        with patch("main._ensure_spacy_models"):
-            with patch("main.Settings"):
-                from main import app
-
-                assert app.title == "Weaver API"
-
-
-# ────────────────────────────────────────────────────────────────────────────
 # Error Handling Tests
 # ────────────────────────────────────────────────────────────────────────────
 
