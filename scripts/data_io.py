@@ -113,6 +113,20 @@ EXPECTED_REL_TYPES: list[str] = [
 BATCH_SIZE = 1000
 
 
+def _ensure_src_path() -> None:
+    """Insert src/ into sys.path for lazy imports of core.db.* modules.
+
+    Consolidates the 4 repeated ``sys.path.insert`` blocks that previously
+    appeared inside individual functions. Idempotent: safe to call multiple
+    times.
+    """
+    import sys
+
+    src_path = str(Path(__file__).resolve().parent.parent / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
@@ -249,12 +263,7 @@ def _init_duckdb_schema(duck_conn) -> None:
     Reuses schema definitions from src/core/db/duckdb_schema.py to guarantee
     parity with the application's normal schema initialization.
     """
-    import sys
-
-    # Add src/ to sys.path to import schema module
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
 
     from core.db.duckdb_schema import (
         SCHEMA_QUERIES,
@@ -278,11 +287,7 @@ def _init_ladybug_schema(ladybug_conn) -> None:
     Reuses schema definitions from src/core/db/ladybug_schema.py to guarantee
     parity with the application's normal schema initialization.
     """
-    import sys
-
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
 
     from core.db.ladybug_schema import SCHEMA_QUERIES
 
@@ -382,11 +387,7 @@ def _reset_duckdb_sequences(duck_conn) -> None:
     raised at the end so the script exits non-zero and the user sees
     every failing sequence in one run.
     """
-    import sys
-
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
     from core.db.duckdb_schema import BIGINT_PK_TABLES
 
     failed_sequences: list[tuple[str, str]] = []
@@ -556,9 +557,7 @@ async def import_duckdb_to_postgres(duckdb_path: str, pg_dsn: str) -> None:
     # BIGINT_PK_TABLES is needed for sequence reset (phase 3). It is
     # imported here rather than at module top to keep --help fast (the
     # src/ package is heavy to load).
-    src_path = str(Path(__file__).resolve().parent.parent / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    _ensure_src_path()
     from core.db.duckdb_schema import BIGINT_PK_TABLES
 
     if not os.path.exists(duckdb_path):

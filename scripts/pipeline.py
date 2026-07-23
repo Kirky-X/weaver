@@ -59,7 +59,15 @@ import httpx
 _project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, f"{_project_root}/src")
 sys.path.insert(0, _project_root)
+# Allow importing shared source definitions from seed_sources.py
+sys.path.insert(0, str(Path(__file__).parent))
 
+from seed_sources import (  # noqa: E402
+    NEWSNOW_IDS,
+    RSS_FEEDS,
+    build_newsnow_config as _build_newsnow_config,
+    build_rss_config as _build_rss_config,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Processing Mode Enum
@@ -295,69 +303,32 @@ class PipelineAPIClient:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Source Configurations
+# Source Configurations (imported from seed_sources.py — single source of truth)
 # ─────────────────────────────────────────────────────────────────────────────
 
-
-KNOWN_NEWSNOW_SOURCES: list[str] = [
-    "36kr",
-    "solidot",
-    "ithome",
-    "hupu",
-]
-
-RSS_SOURCES: dict[str, dict[str, Any]] = {
-    "solidot": {
-        "url": "https://www.solidot.org/index.rss",
-        "name": "Solidot",
-        "credibility": 0.70,
-        "tier": 2,
-    },
-    "cnbeta": {
-        "url": "https://plink.anyfeeder.com/cnbeta",
-        "name": "CNBeta",
-        "credibility": 0.70,
-        "tier": 2,
-    },
-    "huxiu": {
-        "url": "https://plink.anyfeeder.com/huxiu",
-        "name": "Huxiu",
-        "credibility": 0.70,
-        "tier": 2,
-    },
-}
+# Re-export for backward compatibility with any code that imports these names
+# from pipeline.py directly.
+KNOWN_NEWSNOW_SOURCES: list[str] = NEWSNOW_IDS
 
 
 def build_newsnow_source_config(source_id: str) -> dict[str, Any]:
-    """Build NewsNow source configuration."""
-    return {
-        "id": f"newsnow-{source_id}",
-        "name": f"NewsNow {source_id}",
-        "url": f"https://www.newsnow.world/api/s?id={source_id}",
-        "source_type": "newsnow",
-        "enabled": True,
-        "interval_minutes": 30,
-        "credibility": 0.70,
-        "tier": 2,
-    }
+    """Build NewsNow source configuration.
+
+    Delegates to seed_sources.build_newsnow_config to keep a single source
+    of truth for NewsNow URL pattern and metadata.
+    """
+    return _build_newsnow_config(source_id)
 
 
 def build_rss_source_config(source: str) -> dict[str, Any]:
-    """Build RSS source configuration."""
-    if source not in RSS_SOURCES:
-        raise ValueError(f"Unknown RSS source: {source}. Available: {list(RSS_SOURCES.keys())}")
+    """Build RSS source configuration.
 
-    src = RSS_SOURCES[source]
-    return {
-        "id": f"rss-{source}",
-        "name": src["name"],
-        "url": src["url"],
-        "source_type": "rss",
-        "enabled": True,
-        "interval_minutes": 30,
-        "credibility": src["credibility"],
-        "tier": src["tier"],
-    }
+    Delegates to seed_sources.build_rss_config. Raises KeyError if the
+    source ID is not in RSS_FEEDS.
+    """
+    if source not in RSS_FEEDS:
+        raise KeyError(f"Unknown RSS source: {source}. Available: {list(RSS_FEEDS.keys())}")
+    return _build_rss_config(source, RSS_FEEDS[source])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -566,8 +537,8 @@ async def run_all_sources(
     # Collect all source configs
     all_sources: list[dict[str, Any]] = []
 
-    # RSS sources
-    for source_key in RSS_SOURCES:
+    # RSS sources (single source of truth: seed_sources.RSS_FEEDS)
+    for source_key, _url in RSS_FEEDS.items():
         try:
             config = build_rss_source_config(source_key)
             all_sources.append(config)
