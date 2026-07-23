@@ -2,23 +2,24 @@
 
 统一的开发和运维脚本目录。
 
-## 脚本列表
+## 目录结构
 
-| 脚本                | 描述                                 |
-|-------------------|------------------------------------|
-| `pipeline.py`     | 管道测试、待处理文章处理、重新处理                  |
-| `db.py`           | 数据库查询、检查、数据质量检查、修复工具              |
-| `tools.py`        | 性能评估、环境验证、数据库种子、代码检查              |
-| `build_nuitka.py` | Nuitka 编译构建                        |
-| `data_io.py`      | PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移 |
-| `dedup_article_graph.py` | Article 图节点残留字段清理迁移（Neo4j + LadybugDB） |
-| `_common.py`      | 共享工具（init_script_container 等，非独立运行） |
+| 脚本                      | 描述                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `pipeline.py`             | 管道测试、待处理文章处理、重新处理、**源初始化**（`seed-sources` 子命令）     |
+| `db.py`                   | 数据库查询、检查、**DuckDB 综合审计**（`audit` 子命令）、修复工具             |
+| `data_io.py`              | PG↔DuckDB / Neo4j↔LadybugDB 导入/导出 + **跨库一致性校验**（`verify` 子命令） |
+| `tools.py`                | 性能评估、环境验证、数据库种子、代码检查                                      |
+| `build_nuitka.py`         | Nuitka 生产编译构建                                                           |
+| `run_4db_combinations.sh` | 双故障转移架构下 4 种 DB 组合的实例启停/状态/健康检查                         |
+| `_common.py`              | 共享工具（`init_script_container`，非独立运行，被其他脚本 import）            |
+| `specmark/`               | specmark 工作流归档工具子目录（`archive_change.sh` + `merge_delta_spec.py`）  |
 
 ---
 
 ## pipeline.py
 
-统一的管道管理脚本,支持管道测试、待处理文章处理和重新处理不完整文章。
+统一的管道管理脚本,支持管道测试、待处理文章处理、重新处理不完整文章,以及数据源初始化。
 
 ### 用法
 
@@ -40,78 +41,53 @@ uv run scripts/pipeline.py process-pending
 
 # 重新处理不完整文章
 uv run scripts/pipeline.py reprocess --incomplete
-
-# 预览不完整文章（不实际处理）
 uv run scripts/pipeline.py reprocess --incomplete --dry-run
-
-# 批量重新处理（自定义批次大小和延迟）
 uv run scripts/pipeline.py reprocess --incomplete --batch-size 5 --delay 30
-
-# 重新处理指定文章
 uv run scripts/pipeline.py reprocess --article-id <uuid>
+
+# 初始化所有数据源（原 seed_sources.py，已合并）
+uv run scripts/pipeline.py seed-sources                    # 创建所有源配置
+uv run scripts/pipeline.py seed-sources --pipeline         # 创建并触发管道
+uv run scripts/pipeline.py seed-sources --dry-run          # 仅预览
 ```
 
 ### 子命令
 
-#### test
-
-管道测试。
-
-| 参数            | 默认值     | 描述                                   |
-|---------------|---------|--------------------------------------|
-| `--mode`      | newsnow | 测试模式: newsnow / rss / strategy / all |
-| `--source`    | solidot | RSS 源名称 (rss 模式)                     |
-| `--source-id` | 36kr    | NewsNow 源 ID (newsnow 模式)            |
-| `--max-items` | 5       | 最大处理条目数                              |
-| `--clear-db`  | false   | 测试前清空数据库                             |
-| `--timeout`   | 300     | 管道超时时间(秒)                            |
-| `--port`      | 8000    | API 服务器端口                            |
-
-#### process-pending
-
-处理所有 persist_status='pending' 的文章。
-
-#### reprocess
-
-重新处理不完整的文章。
-
-| 参数             | 默认值  | 描述                      |
-|----------------|------|-------------------------|
-| `--incomplete` | -    | 重新处理所有不完整文章             |
-| `--article-id` | -    | 重新处理指定 ID 的文章           |
-| `--dry-run`    | -    | 预览不完整文章列表，不实际处理         |
-| `--batch-size` | 10   | 每批处理的文章数量               |
-| `--delay`      | 60   | 批次间隔秒数（避免429限流）         |
+| 子命令            | 描述                                                                              |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `test`            | 管道端到端测试（`--mode newsnow/rss/strategy/all`）                               |
+| `process-pending` | 处理所有 `persist_status='pending'` 的文章                                        |
+| `reprocess`       | 重新处理不完整文章（`--incomplete`/`--article-id`/`--dry-run`）                   |
+| `seed-sources`    | 创建所有 NewsNow + RSS 源配置，可选触发管道（`--pipeline`/`--dry-run`/`--batch`） |
 
 ---
 
 ## db.py
 
-数据库查询和检查工具,支持 PostgreSQL、DuckDB、Neo4j、LadybugDB。
+数据库查询和检查工具,支持 PostgreSQL、DuckDB、Neo4j、LadybugDB,并集成 DuckDB 综合数据质量审计。
 
 ### 用法
 
 ```bash
-# 查看所有数据库表统计
+# 表统计
 uv run scripts/db.py stats
-
-# 查看特定数据库
 uv run scripts/db.py stats --db duckdb
-uv run scripts/db.py stats --db postgres --db duckdb
 
-# 查询文章详情
+# 文章查询
 uv run scripts/db.py article --id <article-uuid>
-
-# 随机查询文章
 uv run scripts/db.py random --limit 3
 
 # 分页查询表数据
 uv run scripts/db.py rows articles --limit 20 --page 1
-uv run scripts/db.py rows Article --db neo4j --columns name,type
 
 # LadybugDB 数据质量检查
 uv run scripts/db.py dq-check
-uv run scripts/db.py dq-check --db-path data/weaver.lbug
+
+# DuckDB 综合审计（原 audit_db.py，已合并）
+uv run scripts/db.py audit                              # 全部 5 个 phase
+uv run scripts/db.py audit --db-path data/weaver.duckdb
+uv run scripts/db.py audit --phase 1a                   # 仅 NOT NULL 检查
+uv run scripts/db.py audit --output ./report.json
 
 # 修复损坏的 model_id
 uv run scripts/db.py fix-model-id --dry-run
@@ -120,184 +96,22 @@ uv run scripts/db.py fix-model-id --execute
 
 ### 子命令
 
-#### stats
-
-显示数据库表记录数。
-
-| 参数     | 描述                                          |
-|--------|---------------------------------------------|
-| `--db` | 指定数据库(可多次指定): postgres/duckdb/neo4j/ladybug |
-
-#### article
-
-查询文章完整信息。
-
-| 参数     | 描述                   |
-|--------|----------------------|
-| `--id` | 文章 UUID (必需)         |
-| `--db` | 数据库: postgres/duckdb |
-
-#### random
-
-随机查询文章及实体关系。
-
-| 参数        | 默认值   | 描述                 |
-|-----------|-------|--------------------|
-| `--limit` | 2     | 文章数量               |
-| `--db`    | neo4j | 数据库: neo4j/ladybug |
-
-#### rows
-
-分页查询表数据。
-
-| 参数           | 默认值      | 描述                           |
-|--------------|----------|------------------------------|
-| `table`      | -        | 表名(必需)                       |
-| `--db`       | postgres | 数据库                          |
-| `--columns`  | -        | 列名(逗号分隔)                     |
-| `--limit`    | 20       | 每页行数                         |
-| `--page`     | 1        | 页码                           |
-| `--order-by` | -        | 排序: column:asc 或 column:desc |
-| `--format`   | table    | 输出格式: table/json             |
-
-#### null-fields
-
-检查数据库表中的 NULL/空字段。
-
-#### dq-check
-
-LadybugDB 数据质量检查。
-
-| 参数          | 默认值                | 描述                    |
-|-------------|--------------------|-----------------------|
-| `--db-path` | data/weaver.lbug   | LadybugDB 数据库路径       |
-
-#### fix-model-id
-
-修复 article_vectors 中损坏的 model_id 值。
-
-| 参数          | 默认值                  | 描述             |
-|-------------|----------------------|----------------|
-| `--db-path` | data/weaver.duckdb   | DuckDB 数据库路径   |
-| `--dry-run` | -                    | 预览变更，不实际执行     |
-| `--execute` | -                    | 执行修复           |
-
----
-
-## tools.py
-
-统一的工具脚本,包含性能评估、环境验证、数据库种子和代码质量检查。
-
-### 用法
-
-```bash
-# HNSW 向量索引性能测试
-uv run scripts/tools.py evaluate hnsw
-
-# HNSW 测试 - 指定向量数量
-uv run scripts/tools.py evaluate hnsw --num-vectors 2000
-
-# HNSW 测试 - JSON 输出
-uv run scripts/tools.py evaluate hnsw --output json
-
-# BM25 搜索质量评估
-uv run scripts/tools.py evaluate search
-
-# 搜索评估 - 指定 K 值
-uv run scripts/tools.py evaluate search --k-values 5,10,20
-
-# 搜索评估 - 保存结果
-uv run scripts/tools.py evaluate search --output json --output-path ./results/
-
-# 验证所有服务
-uv run scripts/tools.py validate
-
-# 验证特定服务
-uv run scripts/tools.py validate --service postgres --service redis
-
-# 种子数据库
-uv run scripts/tools.py seed
-
-# 种子数据库 - 重置
-uv run scripts/tools.py seed --reset
-
-# 检查日志规范
-uv run scripts/tools.py check-logging
-
-# 检查日志规范 - 显示修复提示
-uv run scripts/tools.py check-logging --fix-hint
-```
-
-### 子命令
-
-#### evaluate hnsw
-
-HNSW 向量索引性能测试。
-
-| 参数              | 默认值      | 描述                    |
-|-----------------|----------|-----------------------|
-| `--num-vectors` | 1000     | 批量插入测试的向量数量           |
-| `--num-queries` | 20       | 查询性能测试的查询次数           |
-| `--output`      | markdown | 输出格式: json / markdown |
-
-#### evaluate search
-
-BM25 搜索质量评估。
-
-| 参数              | 默认值      | 描述                           |
-|-----------------|----------|------------------------------|
-| `--k-values`    | 5,10,20  | Recall@K 和 Precision@K 的 K 值 |
-| `--output`      | markdown | 输出格式: json / markdown        |
-| `--output-path` | -        | 结果保存目录                       |
-
-#### validate
-
-验证环境服务。
-
-| 参数          | 描述             |
-|-------------|----------------|
-| `--service` | 指定验证的服务(可多次指定) |
-
-可用服务: `postgres`、`neo4j`、`redis`、`llm`、`embedding`
-
-#### seed
-
-种子数据库关系类型和别名。
-
-| 参数        | 描述          |
-|-----------|-------------|
-| `--reset` | 清空现有数据后重新插入 |
-
-#### check-logging
-
-检查禁止的 logging 模块使用。
-
-| 参数           | 描述                                  |
-|--------------|-------------------------------------|
-| `files`      | 要检查的文件或目录(默认: src/ tests/ scripts/) |
-| `--fix-hint` | 显示修复提示                              |
-
----
-
-## build_nuitka.py
-
-Nuitka 编译构建脚本,用于生成独立的二进制文件。
-
-### 用法
-
-```bash
-uv run scripts/build_nuitka.py
-```
-
-### 输出
-
-编译产物位于 `dist/` 目录。
+| 子命令         | 描述                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `stats`        | 显示各库表记录数                                                                            |
+| `article`      | 按 ID 查询文章完整信息                                                                      |
+| `random`       | 随机查询文章及实体关系                                                                      |
+| `rows`         | 分页+排序查询表行                                                                           |
+| `null-fields`  | 检查 PG/DuckDB 表的 NULL/空字段                                                             |
+| `dq-check`     | LadybugDB 数据质量检查                                                                      |
+| `audit`        | **DuckDB 综合数据质量审计**（NOT NULL/业务字段/FK/枚举规则/50% 抽样，`--phase 1a..1e/all`） |
+| `fix-model-id` | 修复 article_vectors 中损坏的 model_id（`--dry-run`/`--execute`）                           |
 
 ---
 
 ## data_io.py
 
-PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移工具,用于备份、验证和双数据库故障转移架构下的数据一致性检查。
+PG↔DuckDB / Neo4j↔LadybugDB 数据导入/导出迁移工具,并集成跨 4 库数据一致性校验（用于备份、恢复和双数据库故障转移架构下的数据对账）。
 
 ### 用法
 
@@ -316,98 +130,109 @@ uv run python scripts/data_io.py import --from duckdb --to postgres \
 uv run python scripts/data_io.py export --from neo4j --to ladybug \
     --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j \
     --neo4j-password weavertest --ladybug-path data/weaver_graph.ladybug
+
+# 跨库一致性校验（原 verify_db_consistency.py，已合并）
+uv run python scripts/data_io.py verify --mode all
+uv run python scripts/data_io.py verify --mode pg-duckdb \
+    --pg-dsn 'postgresql+asyncpg://...' --duckdb-path data/weaver.duckdb
+uv run python scripts/data_io.py verify --mode neo4j-ladybug \
+    --neo4j-uri bolt://localhost:7687 --neo4j-password "$WEAVER_NEO4J__PASSWORD"
 ```
 
 ### 子命令
 
-#### export
-
-主库 → 备库数据导出。
-
-| 参数              | 默认值 | 描述                                       |
-|-----------------|-----|------------------------------------------|
-| `--from`        | -   | 源数据库: postgres / neo4j                   |
-| `--to`          | -   | 目标数据库: duckdb / ladybug                 |
-| `--pg-dsn`      | -   | PostgreSQL DSN（from postgres 时必需）         |
-| `--duckdb-path` | -   | DuckDB 文件路径（to duckdb 时必需）               |
-| `--neo4j-uri`   | -   | Neo4j Bolt URI（from neo4j 时必需）            |
-| `--neo4j-user`  | -   | Neo4j 用户名                                 |
-| `--neo4j-password` | - | Neo4j 密码                                  |
-| `--ladybug-path` | -  | LadybugDB 目录路径（to ladybug 时必需）            |
-
-#### import
-
-备库 → 主库数据导入（恢复）。
-
-| 参数              | 默认值 | 描述                                       |
-|-----------------|-----|------------------------------------------|
-| `--from`        | -   | 源数据库: duckdb                              |
-| `--to`          | -   | 目标数据库: postgres                           |
-| `--duckdb-path` | -   | DuckDB 文件路径（from duckdb 时必需）              |
-| `--pg-dsn`      | -   | PostgreSQL DSN（to postgres 时必需）           |
+| 子命令   | 描述                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `export` | 主库 → 备库（postgres→duckdb、neo4j→ladybug），原子文件替换                                                                             |
+| `import` | 备库 → 主库（duckdb→postgres）                                                                                                          |
+| `verify` | **跨 4 库一致性校验**：PG↔DuckDB（27 表行数+MD5+抽样）、Neo4j↔Ladybug（8 标签+13 关系计数+抽样）。退出码 0 全过 / 1 不一致 / 2 用法错误 |
 
 ### 特性
 
 - **27 张 PG/DuckDB 表**: FK 安全的截断/导入顺序,逐表行数验证
 - **8 个 LadybugDB 节点标签 + 13 种关系类型**: 与 `ladybug_schema.py` 保持一致
-- **原子文件替换** (PG→DuckDB): 写入 `.tmp` 文件,验证后 `os.replace()` 原子替换,失败时保留原文件
-- **快照一致性** (Bug 3 修复): PG 导出使用 `REPEATABLE READ` 隔离级别,所有 SELECT 在同一事务快照中执行,避免并发写入导致表间行数漂移
-- **序列重置** (Bug 1+2 修复): PG→DuckDB 导入后调用 `_reset_duckdb_sequences` 将 BIGINT PK 序列重置为 `MAX(id)+1`,通过 `ALTER COLUMN id DROP DEFAULT` → `DROP SEQUENCE` → `CREATE SEQUENCE` → `ALTER COLUMN id SET DEFAULT` 四步避免 DuckDB 不支持 `ALTER SEQUENCE RESTART WITH` 的限制
-- **BIGINT_PK_TABLES 导入** (Bug 1 修复): 从 `core.db.duckdb_schema` 延迟导入,保持 `--help` 快速响应
-- **行数验证**: 每张表导出/导入后断言 PG 与 DuckDB 行数一致,不匹配则 `RuntimeError` 非零退出
-- **Schema 漂移检测**: PK 类型不兼容时(DuckDB UUID vs PG BIGINT)跳过表并警告,而非损坏数据
+- **原子文件替换** (PG→DuckDB): 写入 `.tmp` 文件,验证后 `os.replace()` 原子替换
+- **快照一致性**: PG 导出/校验使用 `REPEATABLE READ` 隔离级别,避免并发写入导致表间漂移
+- **序列重置**: PG→DuckDB 导入后重置 BIGINT PK 序列为 `MAX(id)+1`
+- **行数验证**: 每张表导出/导入后断言行数一致,不匹配则非零退出
+- **Schema 漂移检测**: PK 类型不兼容时跳过表并警告
 
 ---
 
-## dedup_article_graph.py
+## tools.py
 
-Article 图节点残留字段清理迁移脚本,用于在 T025-T030 Article 节点精简（`{id, pg_id}`）后,清理图数据库中可能残留的业务字段（`title`/`category`/`publish_time`/`score`）。
-
-支持 Neo4j 和 LadybugDB 两种图后端,通过 `GraphPool` Protocol 接口操作,不直接 import `neo4j`/`kuzu`。
+统一的工具脚本,包含性能评估、环境验证、数据库种子和代码质量检查。
 
 ### 用法
 
 ```bash
-# 执行迁移（跳过确认）
-uv run python scripts/dedup_article_graph.py migrate --yes
+# HNSW 向量索引性能测试
+uv run scripts/tools.py evaluate hnsw --num-vectors 2000
 
-# 预览模式（仅备份，不执行清理查询）
-uv run python scripts/dedup_article_graph.py migrate --dry-run
+# BM25 搜索质量评估
+uv run scripts/tools.py evaluate search --k-values 5,10,20
 
-# 指定备份文件路径
-uv run python scripts/dedup_article_graph.py migrate --yes \
-    --backup-path /tmp/article_fields_backup.json
+# 验证环境服务
+uv run scripts/tools.py validate --service postgres --service redis
 
-# 不指定子命令时默认使用 migrate
-uv run python scripts/dedup_article_graph.py --yes
+# 种子关系类型字典（注意：种的是知识图谱关系类型，与 pipeline.py seed-sources 的数据源配置不同）
+uv run scripts/tools.py seed
+uv run scripts/tools.py seed --reset
+
+# 检查日志规范（禁止 logging 模块，改用 loguru）
+uv run scripts/tools.py check-logging
+uv run scripts/tools.py check-logging --fix-hint
 ```
 
 ### 子命令
 
-#### migrate
+| 子命令              | 描述                                                |
+| ------------------- | --------------------------------------------------- |
+| `evaluate hnsw`     | HNSW 向量索引性能测试（插入/查询/索引使用）         |
+| `evaluate search`   | BM25 搜索质量评估（Recall@K/Precision@K/MRR）       |
+| `validate`          | 验证环境服务（postgres/neo4j/redis/llm/embedding）  |
+| `seed`              | 种子知识图谱关系类型与别名到 RelationType 表        |
+| `check-logging`     | 扫描违禁 `logging` 模块用法（pre-commit hook 调用） |
+| `monitor`           | 数据库索引监控（查未使用索引）                      |
+| `regenerate-titles` | 用 LLM 重生成社区（community）标题                  |
 
-执行 Article 图节点残留字段清理迁移。
+---
 
-| 参数               | 默认值                            | 描述                  |
-|------------------|--------------------------------|---------------------|
-| `--yes` / `-y`   | false                          | 跳过确认提示              |
-| `--dry-run`      | false                          | 仅执行备份,不执行清理查询       |
-| `--backup-path`  | `data/article_fields_backup.json` | JSON 备份文件路径         |
+## build_nuitka.py
 
-### 迁移流程
+Nuitka 编译构建脚本,用于生成独立的二进制文件。
 
-1. **备份**: 查询所有 Article 节点的残留字段,原子写入 JSON 备份文件（临时文件 + `os.replace()`）
-2. **清理**: 根据 `graph_pool_type` 分派后端清理操作
-   - **LadybugDB**: `ALTER TABLE Article DROP COLUMN {field}` × 4,每个 try/except 幂等
-   - **Neo4j**: 先执行 count 查询获取影响节点数,再执行 `MATCH (a:Article) REMOVE a.title, a.category, a.publish_time, a.score`
-3. **影响范围**: 打印备份文章数和修改节点数
-4. **用户确认**: 提示用户确认（除非 `--yes`）
-5. **执行**: 在活跃的图后端上执行清理
+```bash
+uv run scripts/build_nuitka.py
+```
 
-### 特性
+编译产物位于 `dist/` 目录。
 
-- **双后端支持**: 自动检测 `container.graph_pool_type`（`neo4j` 或 `ladybug`）,分派对应的清理逻辑
-- **幂等清理**: LadybugDB 的 `DROP COLUMN` 对不存在的列静默忽略; Neo4j 的 `REMOVE` 对不存在的属性同样安全
-- **原子备份**: 备份 JSON 文件通过临时文件 + `os.replace()` 原子写入,避免写入中断导致文件损坏
-- **`--dry-run` 模式**: 仅执行只读的备份查询,不执行任何修改性 Cypher（`ALTER TABLE` / `REMOVE`）
-- **简化 Container 初始化**: 仅调用 `init_strategy()`,不初始化 LLM/pipeline,减少启动开销
+---
+
+## run_4db_combinations.sh
+
+双故障转移架构下 4 种 DB 后端组合（pg-neo4j / pg-ladybug / duckdb-neo4j / duckdb-ladybug，端口 18001–18004）的实例生命周期管理。
+
+```bash
+bash scripts/run_4db_combinations.sh start all       # 启动全部 4 个组合
+bash scripts/run_4db_combinations.sh status          # 查看运行状态
+bash scripts/run_4db_combinations.sh health pg-neo4j # 健康检查单个组合
+bash scripts/run_4db_combinations.sh stop all        # 停止全部
+```
+
+该脚本不修改 `.env` 或 `src/` 下任何文件；通过 `WEAVER_POSTGRES__ENABLED` / `WEAVER_NEO4J__ENABLED` 环境变量切换后端。
+
+---
+
+## specmark/ 子目录
+
+specmark 工作流归档工具（语义上属于 specmark skill 配套，放在此处便于项目级调用）:
+
+- `archive_change.sh` — specmark archive 阶段的确定性执行器（flock 保护 + commit SHA 锚定归档）
+- `merge_delta_spec.py` — delta spec 的确定性三路合并器（`archive_change.sh --sync` 调用）
+
+```bash
+bash scripts/specmark/archive_change.sh <change-name> [--sync]
+python scripts/specmark/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
+```
