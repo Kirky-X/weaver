@@ -9,8 +9,8 @@ Phases:
   - Phase 3: PG + LadybugDB (hybrid: relational primary, graph fallback)
   - Phase 4: DuckDB + Neo4j (hybrid: graph primary, relational fallback)
 
-Reads each phase's summary.json (produced by aggregate_phase{1,2}_results.py
-for Phase 1/2 and by pytest --json-report for Phase 3/4), then compares:
+Reads each phase's summary.json (produced by aggregate_results.py --phase
+{1,2} for Phase 1/2 and by pytest --json-report for Phase 3/4), then compares:
   1. Per-phase totals (total/pass/fail/skip)
   2. Core endpoint response consistency across phases
   3. Slim-down contract verification (Phase 3/4 specific)
