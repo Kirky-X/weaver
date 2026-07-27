@@ -38,7 +38,7 @@ dependencies = [
     "trafilatura>=2.1.0",
     "beautifulsoup4>=4.15.0",
     "uvicorn[standard]>=0.42.0",
-    "opentelemetry-exporter-otlp>=1.40.0",
+    "opentelemetry-exporter-otlp>=1.44.0",
     "tenacity>=9.1.4",
     "ntplib>=0.4.0",
     # ── Search Enhancement ─────────────────────────────────
@@ -83,7 +83,7 @@ search-enhancement = [
     "flashrank>=0.2.10",
 ]
 # NOTE: PaddleNLP SKEP sentiment analysis (paddlenlp>=2.7.0) is NOT declared
-# as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.40.0
+# as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.44.0
 # via protobuf version pin (paddlenlp→protobuf==3.20.2 vs otel→protobuf>=5.0,<7.0).
 # To enable SKEP sentiment analysis, manually install in a separate environment:
 #   pip install paddlenlp>=2.7.0
