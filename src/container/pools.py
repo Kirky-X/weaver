@@ -37,6 +37,7 @@ class ContainerPoolsMixin:
                 neo4j_settings=self._settings.neo4j,
                 duckdb_settings=self._settings.duckdb,
                 ladybug_settings=self._settings.ladybug,
+                pgbouncer_settings=self._settings.pgbouncer,
             )
             from core.observability import get_logger
 
