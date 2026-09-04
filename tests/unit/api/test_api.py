@@ -552,7 +552,6 @@ class TestPipelineEndpoint:
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="get_queue_stats endpoint not implemented yet")
     async def test_get_queue_stats(self, mock_postgres_pool):
         """Test GET /pipeline/queue/stats endpoint."""
         from api.endpoints.content.pipeline import get_queue_stats

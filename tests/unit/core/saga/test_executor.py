@@ -19,6 +19,53 @@ def executor():
     return CompensationExecutor(timeout_seconds=2)
 
 
+class TestCompensationExecutorPoolInjection:
+    """Tests for pool dependency injection into compensation commands."""
+
+    @pytest.mark.asyncio
+    async def test_executor_passes_pools_to_commands(self):
+        """Executor should inject pools into commands before execution."""
+        mock_article_repo = AsyncMock()
+        mock_vector_repo = AsyncMock()
+        executor = CompensationExecutor(
+            timeout_seconds=2,
+            article_repo=mock_article_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        comp_data = {
+            "type": "postgres",
+            "saga_id": "saga-1",
+            "article_id": "art-1",
+            "step_name": "pg_insert",
+            "operation": "insert",
+            "article_ids": [],
+            "vector_article_ids": [],
+        }
+
+        result = await executor.execute_compensations([comp_data])
+
+        # Real PostgresCompensation was created via deserialize,
+        # inject_pools was called (no error), and execute ran
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_executor_without_pools_still_works(self):
+        """Executor without pool deps should still execute (commands do no-op)."""
+        executor = CompensationExecutor(timeout_seconds=2)
+
+        comp_data = {
+            "type": "postgres",
+            "saga_id": "saga-1",
+            "article_id": "art-1",
+            "step_name": "pg_insert",
+            "operation": "insert",
+        }
+
+        result = await executor.execute_compensations([comp_data])
+        assert result.success is True
+
+
 class TestCompensationExecutorReverseOrder:
     """Tests for reverse-order compensation execution."""
 

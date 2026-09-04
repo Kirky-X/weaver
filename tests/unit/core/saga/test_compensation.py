@@ -4,8 +4,12 @@
 
 from __future__ import annotations
 
+import uuid
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
+from core.db import PersistStatus
 from core.saga.compensation import (
     CompensationCommand,
     Neo4jCompensation,
@@ -93,15 +97,101 @@ class TestPostgresCompensation:
         assert restored.backup_data == original.backup_data
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_raise(self):
-        """Execute should not raise — actual DB ops delegated to executor."""
+    async def test_execute_insert_marks_failed_and_cleans_vectors(self):
+        """Execute with insert operation should mark articles failed and clean vectors."""
+        aid1, aid2 = uuid.uuid4(), uuid.uuid4()
+        vid1 = uuid.uuid4()
         cmd = PostgresCompensation(
             saga_id="saga-1",
             article_id="art-1",
             step_name="pg_insert",
             operation="insert",
+            article_ids=[str(aid1), str(aid2)],
+            vector_article_ids=[str(vid1)],
         )
-        await cmd.execute()  # Should not raise
+        mock_article_repo = AsyncMock()
+        mock_vector_repo = AsyncMock()
+        mock_vector_repo.delete_article_vectors_by_article_ids = AsyncMock(return_value=1)
+        cmd.inject_pools(
+            article_repo=mock_article_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        await cmd.execute()
+
+        assert mock_article_repo.mark_failed.call_count == 2
+        mock_vector_repo.delete_article_vectors_by_article_ids.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_status_change_updates_status(self):
+        """Execute with status_change should update persist status to FAILED."""
+        aid1 = uuid.uuid4()
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="pg_status",
+            operation="status_change",
+            article_ids=[str(aid1)],
+        )
+        mock_article_repo = AsyncMock()
+        cmd.inject_pools(article_repo=mock_article_repo)
+
+        await cmd.execute()
+
+        mock_article_repo.update_persist_status.assert_called_once_with(
+            aid1,
+            PersistStatus.FAILED,
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_without_pools_is_safe_noop(self):
+        """Execute without injected pools should not raise."""
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="pg_insert",
+            operation="insert",
+            article_ids=["some-id"],
+        )
+        await cmd.execute()  # No pools → no-op, should not raise
+
+    def test_serialize_includes_batch_fields(self):
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="pg_insert",
+            operation="insert",
+            article_ids=["a1", "a2"],
+            vector_article_ids=["v1"],
+        )
+        data = cmd.serialize()
+        assert data["article_ids"] == ["a1", "a2"]
+        assert data["vector_article_ids"] == ["v1"]
+
+    def test_serialize_converts_uuid_to_str(self):
+        aid = uuid.uuid4()
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="pg_insert",
+            operation="insert",
+            article_ids=[aid],
+        )
+        data = cmd.serialize()
+        assert data["article_ids"] == [str(aid)]
+
+    def test_deserialize_backward_compatible(self):
+        """Deserialize old format without article_ids should default to empty lists."""
+        data = {
+            "type": "postgres",
+            "saga_id": "saga-1",
+            "article_id": "art-1",
+            "step_name": "pg_insert",
+            "operation": "insert",
+        }
+        cmd = PostgresCompensation.deserialize(data)
+        assert cmd.article_ids == []
+        assert cmd.vector_article_ids == []
 
 
 class TestNeo4jCompensation:
@@ -170,15 +260,64 @@ class TestNeo4jCompensation:
         assert restored.relationship_ids == original.relationship_ids
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_raise(self):
+    async def test_execute_marks_articles_failed_with_pools(self):
+        """Execute should mark article_ids as FAILED when pools are injected."""
+        aid1 = uuid.uuid4()
         cmd = Neo4jCompensation(
             saga_id="saga-1",
             article_id="art-1",
             step_name="neo4j_entity",
             operation="entity_create",
             entity_ids=["e1"],
+            article_ids=[str(aid1)],
         )
+        mock_article_repo = AsyncMock()
+        cmd.inject_pools(article_repo=mock_article_repo)
+
         await cmd.execute()
+
+        mock_article_repo.update_persist_status.assert_called_once_with(
+            aid1,
+            PersistStatus.FAILED,
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_without_pools_is_safe_noop(self):
+        cmd = Neo4jCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="neo4j_entity",
+            operation="entity_create",
+            entity_ids=["e1"],
+            article_ids=["some-id"],
+        )
+        await cmd.execute()  # No pools → no-op
+
+    def test_serialize_includes_article_ids(self):
+        cmd = Neo4jCompensation(
+            saga_id="saga-1",
+            article_id="art-1",
+            step_name="neo4j_entity",
+            operation="entity_create",
+            entity_ids=["e1"],
+            article_ids=["a1", "a2"],
+        )
+        data = cmd.serialize()
+        assert data["article_ids"] == ["a1", "a2"]
+
+    def test_deserialize_backward_compatible(self):
+        """Deserialize old format without article_ids should default to empty list."""
+        data = {
+            "type": "neo4j",
+            "saga_id": "saga-1",
+            "article_id": "art-1",
+            "step_name": "neo4j_entity",
+            "operation": "entity_create",
+            "entity_ids": [],
+            "relationship_ids": [],
+        }
+        cmd = Neo4jCompensation.deserialize(data)
+        assert cmd.article_ids == []
 
 
 class TestDeserializeCompensation:
@@ -217,3 +356,58 @@ class TestDeserializeCompensation:
         data = {"saga_id": "saga-1"}
         with pytest.raises(ValueError, match="Unknown compensation type"):
             deserialize_compensation(data)
+
+
+class TestBatchMergerCompensationDataFormat:
+    """Regression tests: compensation data from batch_merger must deserialize.
+
+    The orchestrated saga path in batch_merger builds compensation_data dicts
+    with batch-level fields (article_ids list) and no single article_id.
+    These must deserialize without KeyError.
+    """
+
+    def test_postgres_batch_compensation_data_deserializes(self):
+        """pg_compensation_data from _run_orchestrated_saga must deserialize."""
+        # This is the exact format batch_merger produces
+        batch_comp_data = {
+            "type": "postgres",
+            "step_name": "persist_postgresql",
+            "operation": "insert",
+            "saga_id": "",
+            "article_id": "",
+            "article_ids": [],
+            "vector_article_ids": [],
+        }
+        cmd = deserialize_compensation(batch_comp_data)
+        assert isinstance(cmd, PostgresCompensation)
+        assert cmd.article_ids == []
+        assert cmd.vector_article_ids == []
+
+    def test_neo4j_batch_compensation_data_deserializes(self):
+        """neo4j_compensation_data from _run_orchestrated_saga must deserialize."""
+        batch_comp_data = {
+            "type": "neo4j",
+            "step_name": "persist_neo4j",
+            "operation": "entity_create",
+            "saga_id": "",
+            "article_id": "",
+            "article_ids": [],
+        }
+        cmd = deserialize_compensation(batch_comp_data)
+        assert isinstance(cmd, Neo4jCompensation)
+        assert cmd.article_ids == []
+
+    def test_postgres_batch_compensation_without_article_id_still_works(self):
+        """Defense-in-depth: even without article_id, deserialize should not crash."""
+        batch_comp_data = {
+            "type": "postgres",
+            "step_name": "persist_postgresql",
+            "operation": "insert",
+            "saga_id": "",
+            "article_ids": ["a1"],
+            "vector_article_ids": ["v1"],
+        }
+        cmd = deserialize_compensation(batch_comp_data)
+        assert isinstance(cmd, PostgresCompensation)
+        assert cmd.article_id == ""
+        assert cmd.article_ids == ["a1"]
