@@ -55,8 +55,6 @@ __all__ = [
     "IncrementalCommunityUpdater",
     "IncrementalUpdateResult",
     "IssueType",
-    "LocationHierarchy",
-    "LocationNode",
     "LocationResolver",
     "LocationResult",
     "MatchType",

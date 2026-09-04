@@ -135,9 +135,13 @@ class FallbackCachePool:
                     "fallback_cache_primary_recovered",
                     message="Redis recovered — switching back to primary",
                 )
-        except Exception:
+        except Exception as exc:
             # Primary still unhealthy, stay degraded
-            pass
+            log.debug(
+                "fallback_cache_health_probe_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
 
     def _degrade_to_fallback(self, operation: str, error: Exception) -> None:
         """Switch to fallback client and record metrics."""
