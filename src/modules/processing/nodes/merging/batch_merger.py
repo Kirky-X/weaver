@@ -569,8 +569,8 @@ class BatchMergerNode:
         - persist_neo4j: Phase 2 (Neo4j)
 
         After saga completes, maps SagaResult to the existing return format.
-        Manual compensation is performed when CompensationCommand.execute()
-        is not yet fully implemented.
+        Compensation is handled by CompensationCommand.execute() via the
+        CompensationExecutor with injected pool dependencies.
         """
         from core.saga.orchestrator import SagaStatus, SagaStep
 
@@ -583,21 +583,27 @@ class BatchMergerNode:
             "neo4j_errors": [],
         }
 
-        # Compensation data references saga_context lists (mutable)
+        # Compensation data references saga_context lists (mutable).
+        # article_id is empty for batch operations (real IDs are in article_ids list).
         pg_compensation_data: dict[str, Any] = {
             "type": "postgres",
             "step_name": "persist_postgresql",
             "operation": "insert",
-            "saga_id": "",  # populated after saga starts
+            "saga_id": "",
+            "article_id": "",
             "article_ids": saga_context["article_ids"],
             "vector_article_ids": saga_context["vector_article_ids"],
         }
 
         async def execute_persist_postgresql() -> None:
             """Phase 1: Persist to PostgreSQL + vectors."""
-            saga_context["article_ids"] = await self._persist_to_pg(
-                new_states, saga_context["vector_article_ids"]
-            )
+            # Use in-place list operations to keep compensation_data references valid
+            pg_ids = await self._persist_to_pg(new_states, saga_context["vector_article_ids"])
+            saga_context["article_ids"].clear()
+            saga_context["article_ids"].extend(pg_ids)
+            # Sync compensation data (step may have replaced the list reference)
+            pg_compensation_data["article_ids"] = saga_context["article_ids"]
+            pg_compensation_data["vector_article_ids"] = saga_context["vector_article_ids"]
 
         async def execute_persist_neo4j() -> None:
             """Phase 2: Persist to Neo4j using batch write."""
@@ -605,6 +611,8 @@ class BatchMergerNode:
             saga_context["neo4j_ids"] = batch_result.get("neo4j_ids", [])
             saga_context["neo4j_article_ids"] = batch_result.get("article_ids", [])
             saga_context["neo4j_errors"] = batch_result.get("errors", [])
+            # Sync compensation data with actual Neo4j article IDs
+            neo4j_compensation_data["article_ids"] = saga_context["neo4j_article_ids"]
 
         # Build saga steps
         steps = [
@@ -621,6 +629,7 @@ class BatchMergerNode:
                 "step_name": "persist_neo4j",
                 "operation": "entity_create",
                 "saga_id": "",
+                "article_id": "",
                 "article_ids": saga_context["neo4j_article_ids"],
             }
             steps.append(
@@ -662,53 +671,8 @@ class BatchMergerNode:
             result["success"] = False
             result["compensation_executed"] = True
             result["error"] = saga_result.error
-
-            # Manual compensation: CompensationCommand.execute() is currently
-            # a no-op, so we perform actual rollback here.
-            if saga_result.failed_step == "persist_postgresql":
-                # Phase 1 failed — mark articles with IDs as failed, clean vectors
-                for state in new_states:
-                    if state.get("article_id") and self._article_repo:
-                        try:
-                            await self._article_repo.mark_failed(
-                                uuid.UUID(state["article_id"]),
-                                saga_result.error or "Phase 1 failed",
-                            )
-                        except Exception as mark_exc:
-                            log.error(
-                                "saga_phase1_mark_failed_error",
-                                article_id=state.get("article_id"),
-                                error=str(mark_exc),
-                            )
-                vector_article_ids = saga_context.get("vector_article_ids", [])
-                if vector_article_ids and self._vector_repo:
-                    try:
-                        # Helper already stores UUIDs directly (no string conversion needed)
-                        deleted = await self._vector_repo.delete_article_vectors_by_article_ids(
-                            vector_article_ids
-                        )
-                        log.info("saga_phase1_vectors_cleaned", count=deleted)
-                    except Exception as vec_exc:
-                        log.warning(
-                            "saga_phase1_vector_cleanup_failed",
-                            error=str(vec_exc),
-                            article_ids=[str(a) for a in vector_article_ids],
-                        )
-            else:
-                # Phase 2 failed — mark all articles as FAILED
-                for state in new_states:
-                    if state.get("article_id") and self._article_repo:
-                        try:
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]),
-                                PersistStatus.FAILED,
-                            )
-                        except Exception as mark_exc:
-                            log.warning(
-                                "saga_phase2_mark_all_failed_error",
-                                article_id=state.get("article_id"),
-                                error=str(mark_exc),
-                            )
+            # Compensation is handled by CompensationCommand.execute()
+            # via the CompensationExecutor with injected pool dependencies.
 
         return result
 

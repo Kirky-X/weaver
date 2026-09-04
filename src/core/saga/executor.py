@@ -51,10 +51,35 @@ class CompensationExecutor:
 
     Args:
         timeout_seconds: Timeout for each individual compensation operation.
+        relational_pool: SQL database pool for article operations.
+        graph_pool: Graph database pool for entity operations.
+        article_repo: Article repository for mark_failed/update_persist_status.
+        vector_repo: Vector repository for vector cleanup.
     """
 
-    def __init__(self, timeout_seconds: int = DEFAULT_COMPENSATION_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        timeout_seconds: int = DEFAULT_COMPENSATION_TIMEOUT_SECONDS,
+        relational_pool: Any = None,
+        graph_pool: Any = None,
+        article_repo: Any = None,
+        vector_repo: Any = None,
+    ) -> None:
         self._timeout_seconds = timeout_seconds
+        self._relational_pool = relational_pool
+        self._graph_pool = graph_pool
+        self._article_repo = article_repo
+        self._vector_repo = vector_repo
+
+    def _inject_pools(self, command: Any) -> None:
+        """Inject pool dependencies into a compensation command if supported."""
+        if hasattr(command, "inject_pools"):
+            command.inject_pools(
+                relational_pool=self._relational_pool,
+                graph_pool=self._graph_pool,
+                article_repo=self._article_repo,
+                vector_repo=self._vector_repo,
+            )
 
     async def execute_compensations(
         self,
@@ -83,6 +108,7 @@ class CompensationExecutor:
             step_name = comp_data.get("step_name", "unknown")
             try:
                 command = deserialize_compensation(comp_data)
+                self._inject_pools(command)
                 await asyncio.wait_for(
                     command.execute(),
                     timeout=self._timeout_seconds,
@@ -144,6 +170,7 @@ class CompensationExecutor:
         step_name = compensation_data.get("step_name", "unknown")
         try:
             command = deserialize_compensation(compensation_data)
+            self._inject_pools(command)
             await asyncio.wait_for(
                 command.execute(),
                 timeout=self._timeout_seconds,
