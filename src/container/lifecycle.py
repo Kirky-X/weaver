@@ -1006,6 +1006,7 @@ class ContainerLifecycleMixin:
         await self.init_source_scheduler(processor.on_items_discovered)
 
         await self.init_ml_components()
+        await self.init_knowledge_cache()
         await self.init_pipeline()
         worker = self.pipeline_worker()
         if worker:
