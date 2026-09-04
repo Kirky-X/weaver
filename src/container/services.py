@@ -903,6 +903,10 @@ class ContainerServicesMixin:
                 max_retries=saga_config.max_retries,
                 retry_base_delay=saga_config.retry_base_delay,
                 retry_max_delay=saga_config.retry_max_delay,
+                relational_pool=self.relational_pool(),
+                graph_pool=self.graph_pool(),
+                article_repo=self.article_repo(),
+                vector_repo=self.vector_repo(),
             )
         return self._saga_orchestrator
 

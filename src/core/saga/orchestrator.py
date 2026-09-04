@@ -106,13 +106,22 @@ class SagaOrchestrator:
         retry_base_delay: float = DEFAULT_RETRY_BASE_DELAY_SECONDS,
         retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY_SECONDS,
         alert_service: SagaAlertService | None = None,
+        relational_pool: Any = None,
+        graph_pool: Any = None,
+        article_repo: Any = None,
+        vector_repo: Any = None,
     ) -> None:
         self._log_repo = log_repo
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
         self._retry_max_delay = retry_max_delay
-        self._compensation_executor = CompensationExecutor()
+        self._compensation_executor = CompensationExecutor(
+            relational_pool=relational_pool,
+            graph_pool=graph_pool,
+            article_repo=article_repo,
+            vector_repo=vector_repo,
+        )
         self._alert_service = alert_service or SagaAlertService()
 
     async def start_saga(
