@@ -542,36 +542,6 @@ class TrafficAnomalySettings(BaseModel):
     ip_ban_duration_seconds: int = 900
 
 
-class VaultSettings(BaseModel):
-    """HashiCorp Vault integration configuration.
-
-    When enabled, sensitive configuration values (passwords, API keys)
-    are retrieved from Vault instead of environment variables.
-
-    Environment variables: WEAVER_VAULT__ENABLED, WEAVER_VAULT__URL, WEAVER_VAULT__TOKEN, etc.
-
-    Deployment:
-        1. Start Vault server: vault server -dev (dev) or production config
-        2. Store secrets: vault kv put secret/weaver/postgres password=xxx
-        3. Configure Weaver: set WEAVER_VAULT__ENABLED=true and WEAVER_VAULT__TOKEN
-        4. Weaver will fetch secrets from Vault at startup
-    """
-
-    enabled: bool = False
-    url: str = "http://localhost:8200"
-    token: str = ""  # Set via WEAVER_VAULT__TOKEN
-    mount_path: str = "secret/weaver"
-    secret_keys: list[str] = Field(
-        default_factory=lambda: [
-            "postgres/password",
-            "neo4j/password",
-            "redis/password",
-            "api/api_key",
-            "api/admin_api_key",
-        ]
-    )
-
-
 class PgBouncerSettings(BaseModel):
     """PgBouncer connection pooler configuration.
 
