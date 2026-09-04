@@ -42,6 +42,7 @@ from config.subconfigs import (
     FakeNewsDetectorSettings,
     FetcherSettings,
     HealthCheckSettings,
+    KnowledgeCacheSettings,
     LadybugSettings,
     MemorySettings,
     Neo4jSettings,
@@ -123,6 +124,7 @@ class Settings(BaseSettings):
     )
     fake_news_detector: FakeNewsDetectorSettings = Field(default_factory=FakeNewsDetectorSettings)
     traffic_anomaly: TrafficAnomalySettings = Field(default_factory=TrafficAnomalySettings)
+    knowledge_cache: KnowledgeCacheSettings = Field(default_factory=KnowledgeCacheSettings)
 
     # Infrastructure integration settings (disabled by default)
     pgbouncer: PgBouncerSettings = Field(default_factory=PgBouncerSettings)
