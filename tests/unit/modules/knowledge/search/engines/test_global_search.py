@@ -245,78 +245,6 @@ class TestGlobalSearchEngineSearch:
         assert result["metadata"].get("fallback_from_global") is True
 
 
-class TestGlobalSearchEngineSearchSimple:
-    """Tests for search_simple() method."""
-
-    @pytest.mark.asyncio
-    async def test_search_simple_without_llm(self):
-        """Test search_simple with use_llm=False."""
-        context_builder = _make_mock_context_builder()
-        llm = _make_mock_llm()
-
-        mock_context = MockContext(
-            query="test",
-            sections=[],
-            total_tokens=500,
-            max_tokens=8000,
-            metadata={"total_communities": 3, "search_method": "vector"},
-        )
-
-        engine = GlobalSearchEngine(context_builder=context_builder, llm=llm)
-        engine._context_builder.build = AsyncMock(return_value=mock_context)
-
-        result = await engine.search_simple("test query", use_llm=False)
-
-        assert "3 communities" in result.answer
-        assert result.metadata["llm_used"] is False
-
-    @pytest.mark.asyncio
-    async def test_search_simple_with_llm(self):
-        """Test search_simple with LLM generation."""
-        context_builder = _make_mock_context_builder()
-        llm = _make_mock_llm()
-
-        mock_context = MockContext(
-            query="test",
-            sections=[MagicMock()],
-            total_tokens=1000,
-            max_tokens=8000,
-            metadata={"total_communities": 2},
-        )
-
-        engine = GlobalSearchEngine(context_builder=context_builder, llm=llm)
-        engine._context_builder.build = AsyncMock(return_value=mock_context)
-        llm.call = AsyncMock(return_value="LLM generated answer")
-
-        result = await engine.search_simple("test query", use_llm=True)
-
-        assert result.answer == "LLM generated answer"
-        assert result.metadata["llm_used"] is True
-
-    @pytest.mark.asyncio
-    async def test_search_simple_handles_llm_error(self):
-        """Test search_simple handles LLM errors gracefully."""
-        context_builder = _make_mock_context_builder()
-        llm = _make_mock_llm()
-
-        mock_context = MockContext(
-            query="test",
-            sections=[],
-            total_tokens=100,
-            max_tokens=8000,
-            metadata={},
-        )
-
-        engine = GlobalSearchEngine(context_builder=context_builder, llm=llm)
-        engine._context_builder.build = AsyncMock(return_value=mock_context)
-        llm.call = AsyncMock(side_effect=Exception("LLM failed"))
-
-        result = await engine.search_simple("test query", use_llm=True)
-
-        assert "failed" in result.answer.lower()
-        assert result.confidence == 0.0
-
-
 class TestGlobalSearchEngineEstimateConfidence:
     """Tests for _estimate_confidence method."""
 
@@ -404,54 +332,6 @@ class TestGlobalSearchEngineEstimateConfidence:
         assert confidence >= 0.0
 
 
-class TestGlobalSearchEngineEstimateSimpleConfidence:
-    """Tests for _estimate_simple_confidence method."""
-
-    def test_empty_sections(self):
-        """Test confidence with empty sections."""
-        engine = GlobalSearchEngine(context_builder=MagicMock(), llm=MagicMock())
-
-        ctx = MockContext(
-            query="test",
-            sections=[],
-            total_tokens=0,
-            max_tokens=8000,
-            metadata={"total_communities": 0},
-        )
-
-        assert engine._estimate_simple_confidence(ctx) == 0.0
-
-    def test_many_communities_high_tokens(self):
-        """Test confidence with many communities and high tokens."""
-        engine = GlobalSearchEngine(context_builder=MagicMock(), llm=MagicMock())
-
-        ctx = MockContext(
-            query="test",
-            sections=[MagicMock()],
-            total_tokens=1500,
-            max_tokens=8000,
-            metadata={"total_communities": 3},
-        )
-
-        # Base 0.4 + 0.2 for >=3 communities + 0.2 for >1000 tokens
-        assert engine._estimate_simple_confidence(ctx) == 0.8
-
-    def test_one_community(self):
-        """Test confidence with one community."""
-        engine = GlobalSearchEngine(context_builder=MagicMock(), llm=MagicMock())
-
-        ctx = MockContext(
-            query="test",
-            sections=[MagicMock()],
-            total_tokens=500,
-            max_tokens=8000,
-            metadata={"total_communities": 1},
-        )
-
-        # Base 0.4 + 0.1 for >=1 community
-        assert engine._estimate_simple_confidence(ctx) == 0.5
-
-
 class TestGlobalSearchEnginePromptBuilding:
     """Tests for prompt building methods."""
 
@@ -519,23 +399,6 @@ class TestGlobalSearchEnginePromptBuilding:
         prompt = engine._build_reduce_prompt("Query", ["Answer"], [])
 
         assert "Most Relevant Community: N/A" in prompt
-
-    def test_build_simple_prompt(self):
-        """Test _build_simple_prompt builds correct prompt."""
-        engine = GlobalSearchEngine(context_builder=MagicMock(), llm=MagicMock())
-
-        mock_context = MockContext(
-            query="test",
-            sections=[],
-            total_tokens=100,
-            max_tokens=8000,
-            metadata={},
-        )
-
-        prompt = engine._build_simple_prompt("What is the topic?", mock_context)
-
-        assert "What is the topic?" in prompt
-        assert "Mock context prompt" in prompt
 
 
 class TestGlobalSearchEngineCollectEntities:
