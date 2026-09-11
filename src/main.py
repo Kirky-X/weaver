@@ -204,7 +204,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     app = FastAPI(
         title="Weaver API",
         description="Weaver - Intelligent news discovery and knowledge graph platform",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 
