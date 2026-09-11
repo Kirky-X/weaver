@@ -179,3 +179,7 @@ candidate_models = ["chat.anthropic.claude-sonnet-4-20250514"]
 input = 0.0
 output = 0.0
 cached = 1.0
+
+[call-points.evidence_sampling]
+primary = "chat.agnes.agnes-2.0-flash"
+fallbacks = []
