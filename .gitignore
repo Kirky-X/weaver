@@ -38,7 +38,6 @@ config/settings.toml
 config/llm.toml
 
 # Project specific ignores
-openspec/
 .claude/
 docs/report/
 docs/36kr_pipeline_test.md

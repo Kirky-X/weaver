@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for Saga-related ORM models and PersistStatus state machine extension.
 
-Design doc references:
-- openspec/changes/saga-compensation-implementation/specs/saga-logging/spec.md
-- openspec/changes/saga-compensation-implementation/specs/persist-status/spec.md
+Design doc references (openspec 已合并入 specmark 归档):
+- specmark/archive/2026-06-13-saga-compensation-implementation/specs/saga-logging/spec.md
+- specmark/archive/2026-06-13-saga-compensation-implementation/specs/persist-status/spec.md
 - Migration 20_create_saga_logs
 """
 
