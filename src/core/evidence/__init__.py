@@ -7,10 +7,10 @@ processing long documents by extracting the most relevant regions.
 """
 
 from core.evidence.mc_sampler import MCSampler
-from core.evidence.models import EvidenceScoreOutput, ROISummaryOutput
+from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
 
 __all__ = [
+    "EvidenceBatchScoreOutput",
     "EvidenceScoreOutput",
     "MCSampler",
-    "ROISummaryOutput",
 ]

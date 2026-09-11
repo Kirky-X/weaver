@@ -40,8 +40,10 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.CAUSAL_INFERENCE: 4000,
     CallPoint.NARRATIVE_SYNTHESIS: 8000,
     CallPoint.NARRATIVE_SCHEMA: 8000,
-    CallPoint.EVIDENCE_SAMPLING: 2000,
-    CallPoint.ROI_SUMMARY: 4000,
+    # 批量评分 per-region 防御网上限。整批体量由构造参数约束
+    # （sample_size × region_size = 5×2000 字符；中文最坏 ~1.5 token/字符
+    # 即整批可达 ~15k tokens），不依赖此限额做总量守门。
+    CallPoint.EVIDENCE_SAMPLING: 4000,
     CallPoint.SENTIMENT: 1000,
     CallPoint.CLAIM_EXTRACTION: 3000,
 }

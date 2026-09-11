@@ -89,12 +89,12 @@ class TestMCSamplerSampleEvidence:
         mock_score2.confidence = 0.7
         mock_score2.key_facts = []
 
-        async def mock_score(region, title):
-            return mock_score1 if "region1" in region else mock_score2
+        async def mock_batch(regions, title):
+            return [(r, mock_score1 if "region1" in r else mock_score2) for r in regions]
 
         with patch.object(sampler, "_find_anchor_points", return_value=[100, 200, 300]):
             with patch.object(sampler, "_extract_regions", return_value=["region1", "region2"]):
-                with patch.object(sampler, "_score_region", side_effect=mock_score):
+                with patch.object(sampler, "_score_regions_batch", side_effect=mock_batch):
                     with patch.object(
                         sampler, "_synthesize_regions", return_value="synthesized text"
                     ):
@@ -115,12 +115,12 @@ class TestMCSamplerSampleEvidence:
         mock_score.confidence = 0.1
         mock_score.key_facts = []
 
-        async def mock_score_region(region, title):
-            return mock_score
+        async def mock_batch(regions, title):
+            return [(r, mock_score) for r in regions]
 
         with patch.object(sampler, "_find_anchor_points", return_value=[100, 200]):
             with patch.object(sampler, "_extract_regions", return_value=["region1"]):
-                with patch.object(sampler, "_score_region", side_effect=mock_score_region):
+                with patch.object(sampler, "_score_regions_batch", side_effect=mock_batch):
                     sampled_text, confidence = await sampler.sample_evidence(document, title="Test")
 
                     # Should fall back to truncation
@@ -201,47 +201,63 @@ class TestMCSamplerSampleRegions:
         assert len(regions[0]) <= sampler._region_size + 100  # Some tolerance
 
 
-class TestMCSamplerScoreRegion:
-    """Test MCSampler._score_region method."""
+class TestMCSamplerBatchCallContract:
+    """批量评分的 call_at 契约：EVIDENCE_SAMPLING 调用点 + 批量输出模型."""
 
     @pytest.fixture
     def sampler(self):
         """Create MCSampler instance with async LLM."""
         llm_client = AsyncMock()
         token_budget = MagicMock()
+        token_budget.truncate = MagicMock(side_effect=lambda text, *a, **k: text)
         return MCSampler(llm_client, token_budget)
 
     @pytest.mark.asyncio
-    async def test_score_region_calls_llm(self, sampler):
-        """Test _score_region calls LLM for scoring a single region."""
-        from core.evidence.models import EvidenceScoreOutput
+    async def test_batch_call_uses_evidence_sampling_call_point_and_model(self, sampler):
+        """call_at 以 EVIDENCE_SAMPLING 调用点 + EvidenceBatchScoreOutput 模型发起."""
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
+        from core.llm.types import CallPoint
 
-        mock_output = EvidenceScoreOutput(
-            relevance_score=0.8,
-            information_density=0.7,
-            confidence=0.75,
-            key_facts=["fact1"],
+        sampler._llm.call_at = AsyncMock(
+            return_value=EvidenceBatchScoreOutput(
+                scores=[
+                    EvidenceScoreOutput(
+                        relevance_score=0.8,
+                        information_density=0.7,
+                        confidence=0.75,
+                        key_facts=["fact1"],
+                    )
+                ]
+            )
         )
-        sampler._llm.call_at = AsyncMock(return_value=mock_output)
 
-        score = await sampler._score_region("Test region text", title="Test Doc")
+        result = await sampler._score_regions_batch(["Test region text"], title="Test Doc")
 
-        assert isinstance(score, EvidenceScoreOutput)
-        assert score.relevance_score == 0.8
-        sampler._llm.call_at.assert_called_once()
+        sampler._llm.call_at.assert_awaited_once()
+        call_point_arg = sampler._llm.call_at.await_args.args[0]
+        output_model_kw = sampler._llm.call_at.await_args.kwargs["output_model"]
+        assert call_point_arg == CallPoint.EVIDENCE_SAMPLING
+        assert output_model_kw is EvidenceBatchScoreOutput
+        assert result[0][1].relevance_score == 0.8
 
     @pytest.mark.asyncio
-    async def test_score_region_handles_llm_failure(self, sampler):
-        """Test _score_region handles LLM failure gracefully."""
-        from core.evidence.models import EvidenceScoreOutput
+    async def test_batch_regions_truncated_via_budget(self, sampler):
+        """每个区域经 TokenBudgetManager.truncate 后进入 payload."""
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
 
-        sampler._llm.call_at = AsyncMock(side_effect=Exception("LLM error"))
+        sampler._llm.call_at = AsyncMock(
+            return_value=EvidenceBatchScoreOutput(
+                scores=[
+                    EvidenceScoreOutput(
+                        relevance_score=0.5, information_density=0.5, confidence=0.5
+                    )
+                ]
+            )
+        )
 
-        score = await sampler._score_region("Test region text", title="Test Doc")
+        await sampler._score_regions_batch(["raw region text"], title="T")
 
-        # Should return default low score
-        assert isinstance(score, EvidenceScoreOutput)
-        assert score.relevance_score == 0.3
+        sampler._budget.truncate.assert_called_once()
 
 
 class TestMCSamplerSynthesizeRegions:
@@ -319,15 +335,25 @@ class TestMCSamplerIntegration:
 
         llm_client = AsyncMock()
         token_budget = MagicMock()
-        token_budget.truncate = MagicMock(side_effect=lambda text, **kwargs: text[:2000])
+        token_budget.truncate = MagicMock(side_effect=lambda text, *a, **k: text[:2000])
 
-        mock_output = EvidenceScoreOutput(
-            relevance_score=0.8,
-            information_density=0.7,
-            confidence=0.75,
-            key_facts=["key fact"],
-        )
-        llm_client.call_at = AsyncMock(return_value=mock_output)
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
+
+        async def fake_call_at(call_point, payload, **kwargs):
+            n = len(payload["regions"])
+            return EvidenceBatchScoreOutput(
+                scores=[
+                    EvidenceScoreOutput(
+                        relevance_score=0.8,
+                        information_density=0.7,
+                        confidence=0.75,
+                        key_facts=["key fact"],
+                    )
+                    for _ in range(n)
+                ]
+            )
+
+        llm_client.call_at = AsyncMock(side_effect=fake_call_at)
 
         sampler = MCSampler(llm_client, token_budget, threshold=1000)
 
@@ -339,3 +365,137 @@ class TestMCSamplerIntegration:
         assert isinstance(sampled_text, str)
         assert isinstance(confidence, float)
         assert len(sampled_text) > 0
+
+
+class TestMCSamplerBatchScoring:
+    """区域评分批量化：N 次 LLM 调用合并为 1 次（R-evidence-001）."""
+
+    @pytest.fixture
+    def sampler(self):
+        llm_client = AsyncMock()
+        token_budget = MagicMock()
+        token_budget.truncate = MagicMock(side_effect=lambda text, *a, **k: text)
+        return MCSampler(llm_client, token_budget)
+
+    @staticmethod
+    def _batch_output(score_triples):
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
+
+        return EvidenceBatchScoreOutput(
+            scores=[
+                EvidenceScoreOutput(
+                    relevance_score=r, information_density=d, confidence=c, key_facts=[]
+                )
+                for (r, d, c) in score_triples
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_five_regions_scored_in_single_llm_call(self, sampler):
+        """5 区域采样全程只发起 1 次 LLM 调用，payload 携带编号区域."""
+        document = "Long document. " * 1000
+
+        with patch.object(sampler, "_find_anchor_points", return_value=[100, 200, 300, 400, 500]):
+            with patch.object(
+                sampler, "_extract_regions", return_value=["r1", "r2", "r3", "r4", "r5"]
+            ):
+                with patch.object(sampler, "_synthesize_regions", return_value="synth"):
+                    sampler._llm.call_at.return_value = self._batch_output([(0.8, 0.7, 0.7)] * 5)
+                    await sampler.sample_evidence(document, title="T")
+
+        assert sampler._llm.call_at.await_count == 1
+        payload = sampler._llm.call_at.await_args.args[1]
+        assert set(payload["regions"].keys()) == {"R1", "R2", "R3", "R4", "R5"}
+        assert payload["regions"]["R1"] == "r1"
+
+    @pytest.mark.asyncio
+    async def test_scores_align_by_region_index(self, sampler):
+        """批量返回的评分按索引对齐回各区域."""
+        sampler._llm.call_at.return_value = self._batch_output([(0.9, 0.8, 0.7), (0.1, 0.2, 0.3)])
+
+        result = await sampler._score_regions_batch(["regionA", "regionB"], "T")
+
+        assert sampler._llm.call_at.await_count == 1
+        assert result[0] == ("regionA", result[0][1])
+        assert result[0][1].relevance_score == 0.9
+        assert result[1][0] == "regionB"
+        assert result[1][1].relevance_score == 0.1
+
+    @pytest.mark.asyncio
+    async def test_length_mismatch_retries_then_degrades(self, sampler):
+        """数组长度与区域数不符：重试 1 次后仍不符 → 全部区域取默认低分."""
+        sampler._llm.call_at.return_value = self._batch_output([(0.9, 0.9, 0.9)])
+
+        result = await sampler._score_regions_batch(["r1", "r2"], "T")
+
+        assert sampler._llm.call_at.await_count == 2
+        for _, score in result:
+            assert score.relevance_score == 0.3
+            assert score.information_density == 0.3
+            assert score.confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_length_mismatch_second_attempt_aligned(self, sampler):
+        """首次长度不符、重试成功 → 采用重试结果正常对齐."""
+        sampler._llm.call_at.side_effect = [
+            self._batch_output([(0.9, 0.9, 0.9)]),
+            self._batch_output([(0.8, 0.8, 0.8), (0.6, 0.6, 0.6)]),
+        ]
+
+        result = await sampler._score_regions_batch(["r1", "r2"], "T")
+
+        assert sampler._llm.call_at.await_count == 2
+        assert result[0][1].relevance_score == 0.8
+        assert result[1][1].relevance_score == 0.6
+
+    @pytest.mark.asyncio
+    async def test_region_id_echo_aligns_out_of_order_scores(self, sampler):
+        """模型回显 region_id 但乱序 → 按 region_id 映射而非数组顺序."""
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
+
+        scores = [
+            EvidenceScoreOutput(
+                region_id="R2", relevance_score=0.2, information_density=0.2, confidence=0.2
+            ),
+            EvidenceScoreOutput(
+                region_id="R1", relevance_score=0.8, information_density=0.8, confidence=0.8
+            ),
+        ]
+        sampler._llm.call_at.return_value = EvidenceBatchScoreOutput(scores=scores)
+
+        result = await sampler._score_regions_batch(["regionA", "regionB"], "T")
+
+        assert result[0] == ("regionA", scores[1])
+        assert result[1] == ("regionB", scores[0])
+
+    @pytest.mark.asyncio
+    async def test_incomplete_region_id_echo_falls_back_to_order(self, sampler):
+        """region_id 回显不完整 → 回退数组顺序对齐."""
+        from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
+
+        scores = [
+            EvidenceScoreOutput(
+                region_id="R1", relevance_score=0.7, information_density=0.7, confidence=0.7
+            ),
+            EvidenceScoreOutput(
+                region_id="", relevance_score=0.4, information_density=0.4, confidence=0.4
+            ),
+        ]
+        sampler._llm.call_at.return_value = EvidenceBatchScoreOutput(scores=scores)
+
+        result = await sampler._score_regions_batch(["regionA", "regionB"], "T")
+
+        assert result[0][1].relevance_score == 0.7
+        assert result[1][1].relevance_score == 0.4
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_degrades_all_regions(self, sampler):
+        """LLM 调用异常 → 全部区域默认低分，不向上传播."""
+        sampler._llm.call_at.side_effect = RuntimeError("api down")
+
+        result = await sampler._score_regions_batch(["r1", "r2"], "T")
+
+        assert sampler._llm.call_at.await_count == 2
+        for _, score in result:
+            assert score.relevance_score == 0.3
+            assert score.confidence == 0.0

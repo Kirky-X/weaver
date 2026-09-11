@@ -43,7 +43,6 @@ class CallPoint(str, Enum):
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
     NARRATIVE_SCHEMA = "narrative_schema"
     EVIDENCE_SAMPLING = "evidence_sampling"
-    ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"
     CLAIM_EXTRACTION = "claim_extraction"
     # T004: BriefingGenerator — daily per-category briefing summary generation.

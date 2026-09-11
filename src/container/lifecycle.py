@@ -296,6 +296,7 @@ class ContainerLifecycleMixin:
     async def init_mc_sampler(self) -> Any:
         """Initialize the Monte Carlo sampler."""
         from core.evidence import MCSampler
+        from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
 
         log = get_logger(__name__)
@@ -304,9 +305,11 @@ class ContainerLifecycleMixin:
                 await self.init_llm()
             mc_config = self._settings.pipeline.monte_carlo
             if mc_config.enabled:
+                # 批量评分热路径依赖 truncate(EVIDENCE_SAMPLING 预算),
+                # 注入 None 会让超限文档的 MC 采样在主路径直接 AttributeError。
                 self._mc_sampler = MCSampler(
                     llm_client=self._llm_client,
-                    token_budget_manager=None,
+                    token_budget_manager=TokenBudgetManager(),
                     threshold=mc_config.threshold,
                     sample_size=mc_config.sample_size,
                     region_size=mc_config.region_size,

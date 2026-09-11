@@ -9,11 +9,10 @@ relevant regions while staying within token budgets.
 
 from __future__ import annotations
 
-import asyncio
 import random
 from typing import TYPE_CHECKING
 
-from core.evidence.models import EvidenceScoreOutput
+from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
 from core.llm.types import CallPoint
 from core.observability import get_logger
 
@@ -100,41 +99,11 @@ class MCSampler:
         # Step 2: Extract regions around anchor points
         regions = self._extract_regions(document, anchors)
 
-        # Step 3: Score all regions concurrently using LLM (P1-2 fix).
-        # Previously a sequential for-loop: N regions x LLM latency
-        # (e.g. 5 x 0.3s = 1.5s). Now asyncio.gather runs them in
-        # parallel, cutting total time to ~max(single_region_time).
-        async def _safe_score(idx: int, region: str) -> tuple[str, EvidenceScoreOutput]:
-            try:
-                score = await self._score_region(region, title)
-                log.debug(
-                    "region_scored",
-                    region_index=idx,
-                    relevance=score.relevance_score,
-                    density=score.information_density,
-                    confidence=score.confidence,
-                )
-                return region, score
-            except Exception as e:
-                log.warning(
-                    "region_scoring_failed",
-                    region_index=idx,
-                    error=str(e),
-                )
-                # Use default low score for failed regions
-                return (
-                    region,
-                    EvidenceScoreOutput(
-                        relevance_score=0.3,
-                        information_density=0.3,
-                        confidence=0.0,
-                        key_facts=[],
-                    ),
-                )
-
-        scored_regions = list(
-            await asyncio.gather(*[_safe_score(i, r) for i, r in enumerate(regions)])
-        )
+        # Step 3: Score all regions in a single batched LLM call.
+        # Previously N parallel calls (asyncio.gather, one per region) — each
+        # carried full prompt overhead and multiplied rate-limit pressure on
+        # the free tier (rpm=5). One batched call amortizes the fixed cost.
+        scored_regions = await self._score_regions_batch(regions, title)
 
         # Step 4: Calculate overall confidence
         if not scored_regions:
@@ -373,38 +342,95 @@ class MCSampler:
 
         return regions
 
-    async def _score_region(
+    async def _score_regions_batch(
         self,
-        region: str,
+        regions: list[str],
         title: str,
-    ) -> EvidenceScoreOutput:
-        """Score a text region using LLM.
+    ) -> list[tuple[str, EvidenceScoreOutput]]:
+        """Score all sampled regions in a single LLM call.
+
+        Payload carries numbered regions (R1..Rn); the LLM returns one JSON
+        object whose ``scores`` elements echo ``region_id``. Alignment uses
+        region_id when the model echoes them all, else falls back to array
+        order. Length mismatch retries once; any failure degrades ALL
+        regions to default low scores — the caller's low-confidence
+        fallback (truncate original) then applies.
 
         Args:
-            region: The text region to score.
+            regions: Sampled text regions.
             title: Document title for context.
 
         Returns:
-            EvidenceScoreOutput with relevance, density, and confidence.
+            List of (region, EvidenceScoreOutput) tuples, index-aligned.
         """
-        try:
-            result: EvidenceScoreOutput = await self._llm.call_at(
-                CallPoint.EVIDENCE_SAMPLING,
-                {
-                    "title": title,
-                    "sample_text": region,
-                },
-                output_model=EvidenceScoreOutput,
+        regions_payload = {
+            f"R{i}": self._budget.truncate(region, CallPoint.EVIDENCE_SAMPLING)
+            for i, region in enumerate(regions, start=1)
+        }
+
+        scores: list[EvidenceScoreOutput] | None = None
+        for attempt in (1, 2):
+            try:
+                result: EvidenceBatchScoreOutput = await self._llm.call_at(
+                    CallPoint.EVIDENCE_SAMPLING,
+                    {
+                        "title": title,
+                        "regions": regions_payload,
+                    },
+                    output_model=EvidenceBatchScoreOutput,
+                )
+                scores = list(result.scores)
+            except Exception:
+                log.warning(
+                    "batch_region_scoring_failed",
+                    attempt=attempt,
+                    exc_info=True,
+                )
+                scores = None
+            if scores is not None and len(scores) == len(regions):
+                break
+            log.warning(
+                "region_scores_length_mismatch",
+                attempt=attempt,
+                expected=len(regions),
+                got=len(scores) if scores is not None else -1,
             )
-            return result
-        except Exception:
-            log.warning("LLM evidence scoring failed, returning fallback scores", exc_info=True)
-            return EvidenceScoreOutput(
-                relevance_score=0.3,
-                information_density=0.3,
-                confidence=0.0,
-                key_facts=[],
-            )
+            scores = None
+
+        if scores is None:
+            return [(region, self._default_score()) for region in regions]
+        return self._align_scores(regions, scores)
+
+    @staticmethod
+    def _align_scores(
+        regions: list[str],
+        scores: list[EvidenceScoreOutput],
+    ) -> list[tuple[str, EvidenceScoreOutput]]:
+        """Align batch scores to regions: by echoed region_id when complete.
+
+        LLM batch outputs can arrive out of order — array order is only a
+        fallback for models that skip the region_id echo. If region_ids are
+        present but don't cover exactly R1..Rn, degrade to defaults rather
+        than risk attributing a score to the wrong region.
+        """
+        expected_ids = [f"R{i}" for i in range(1, len(regions) + 1)]
+        echoed = [s.region_id for s in scores]
+        if all(echoed) and sorted(echoed) == sorted(expected_ids):
+            by_id = {s.region_id: s for s in scores}
+            return [(region, by_id[rid]) for region, rid in zip(regions, expected_ids, strict=True)]
+        if any(echoed):
+            log.warning("region_id_echo_incomplete", echoed=sum(1 for e in echoed if e))
+        return list(zip(regions, scores, strict=True))
+
+    @staticmethod
+    def _default_score() -> EvidenceScoreOutput:
+        """Default low-confidence score for degraded regions."""
+        return EvidenceScoreOutput(
+            relevance_score=0.3,
+            information_density=0.3,
+            confidence=0.0,
+            key_facts=[],
+        )
 
     def _synthesize_regions(
         self,
