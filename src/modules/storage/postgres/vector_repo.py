@@ -23,6 +23,15 @@ from core.protocols import RelationalPool
 
 log = get_logger(__name__)
 
+# search_mode -> hnsw.ef_search mapping (audit-cleanup-optimal).
+_SEARCH_MODE_EF: dict[str, int] = {"fast": 50, "balanced": 100, "accurate": 200}
+
+
+def _resolve_ef_search(search_mode: str | None) -> int:
+    """Resolve ef_search with clamp 10-1000. Unknown/None -> 100."""
+    ef = _SEARCH_MODE_EF.get((search_mode or "balanced").lower(), 100)
+    return max(10, min(1000, int(ef)))
+
 
 class VectorRepo:
     """Unified repository for vector embedding operations.
@@ -225,12 +234,12 @@ class VectorRepo:
         async with self._pool.session() as session:
             # Set ef_search dynamically in the SAME session as the query
             if self._query_builder.database_type == DatabaseType.POSTGRES:
-                ef_value = 100  # Default fallback
+                ef_value = _resolve_ef_search(search_mode)
                 # PostgreSQL SET command does not support parameter binding
                 # (asyncpg converts :value to $1, but SET rejects placeholders).
-                # ef_value is the hardcoded default 100 — int() cast guarantees safety.
+                # int() clamp in _resolve_ef_search guarantees safety.
                 await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
-                log.debug("ef_search_set_in_session", ef_search=ef_value)
+                log.debug("ef_search_set_in_session", ef_search=ef_value, search_mode=search_mode)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))
 
@@ -376,7 +385,8 @@ class VectorRepo:
 
         async with self._pool.session() as session:
             # Set ef_search dynamically for PostgreSQL
-            await session.execute(text("SET hnsw.ef_search = 100"))
+            ef_value = _resolve_ef_search(None)
+            await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
 
             # Build query configurations for parallel execution
             async def execute_single_query(
@@ -636,7 +646,8 @@ class VectorRepo:
         async with self._pool.session() as session:
             # Set ef_search dynamically for PostgreSQL
             if self._query_builder.database_type == DatabaseType.POSTGRES:
-                await session.execute(text("SET hnsw.ef_search = 100"))
+                ef_value = _resolve_ef_search(None)
+                await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
 
             query = text(self._query_builder.build_find_similar_entities_query(config))
             formatted_emb = self._query_builder.format_embedding_param(embedding)

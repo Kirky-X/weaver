@@ -5,43 +5,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db import Article, EmotionType, PersistStatus
+from core.db import Article, PersistStatus
 from core.exceptions import InvalidStateTransitionError
-from modules.storage.postgres.article_repo import (
-    STATE_TO_ARTICLE_FIELDS,
-    ArticleRepo,
-)
-
-
-class TestStateToArticleFieldsMapping:
-    """Tests for STATE_TO_ARTICLE_FIELDS constant."""
-
-    def test_field_mapping_exists(self):
-        """Test all expected field mappings exist."""
-        expected_fields = [
-            "category",
-            "language",
-            "region",
-            "score",
-            "quality_score",
-            "is_merged",
-            "prompt_versions",
-        ]
-        for field in expected_fields:
-            assert field in STATE_TO_ARTICLE_FIELDS
-            assert len(STATE_TO_ARTICLE_FIELDS[field]) == 2
-
-    def test_field_mapping_structure(self):
-        """Test field mapping tuple structure."""
-        for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
-            assert isinstance(state_key, str)
-            assert isinstance(attr_name, str)
-            assert callable(extractor)
+from modules.storage.postgres.article_repo import ArticleRepo
 
 
 class TestArticleRepoInit:

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +24,7 @@ from core.db import (
     PersistStatus,
 )
 from core.exceptions import InvalidStateTransitionError
-from core.mappers.article_state_mapper import ArticleStateMapper, _to_emotion
+from core.mappers.article_state_mapper import ArticleStateMapper
 from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.types.pipeline_state import PipelineState
@@ -35,61 +34,6 @@ if TYPE_CHECKING:
     from core.protocols.types import ArticleTitleMeta
 
 log = get_logger(__name__)
-
-# Field mapping: state key -> (article_attr, extractor function)
-# This centralizes all field mappings for consistency
-STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, Callable[[Any], Any]]] = {
-    "category": ("category", lambda v: v),
-    "language": ("language", lambda v: v.strip()[:10]),
-    "region": ("region", lambda v: v.strip()[:50]),
-    "score": ("score", lambda v: v),
-    "quality_score": ("quality_score", lambda v: v),
-    "is_merged": ("is_merged", lambda v: v),
-    "prompt_versions": ("prompt_versions", lambda v: v),
-}
-
-
-def _apply_state_to_core(core: ArticleCore, state: PipelineState) -> None:
-    """Apply pipeline state fields to an ArticleCore object.
-
-    Args:
-        core: The ArticleCore model instance to update.
-        state: Pipeline state containing article data.
-    """
-    # Simple field mappings for core fields
-    core_fields = {"category", "language", "region", "score", "is_merged"}
-    for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
-        if state_key in state and state_key in core_fields:
-            setattr(core, attr_name, extractor(state[state_key]))
-
-    # Sentiment mapping (score goes to core)
-    if "sentiment" in state:
-        sent = state["sentiment"]
-        core.sentiment_score = sent.get("sentiment_score")
-
-    # Credibility mapping (score goes to core)
-    if "credibility" in state:
-        cred = state["credibility"]
-        core.credibility_score = cred.get("score")
-
-    # Merged source IDs conversion
-    if "merged_source_ids" in state:
-        cleaned_ids = []
-        for sid in state["merged_source_ids"]:
-            try:
-                cleaned_ids.append(uuid.UUID(sid) if isinstance(sid, str) else sid)
-            except (ValueError, AttributeError) as exc:
-                log.warning("invalid_merged_source_id", source_id=sid, error=str(exc))
-        core.merged_source_ids = cleaned_ids
-
-    # Set common fields
-    raw = state.get("raw")
-    if raw:
-        core.publish_time = getattr(raw, "publish_time", None)
-
-    core.updated_at = datetime.now(UTC)
-    core.persist_status = PersistStatus.PG_DONE
-
 
 # Minimum body length to consider a fetch successful (vs anti-bot error page)
 _MIN_BODY_LENGTH = 200
@@ -139,93 +83,6 @@ def _build_core_body_values(
 
     body_kwargs: dict[str, Any] = {"body": effective_body}
     return core_kwargs, body_kwargs, body_source
-
-
-def _apply_state_to_body(body: ArticleBody, state: PipelineState) -> None:
-    """Apply pipeline state fields to an ArticleBody object.
-
-    Args:
-        body: The ArticleBody model instance to update.
-        state: Pipeline state containing article data.
-    """
-    # Summary info mapping
-    if "summary_info" in state:
-        si = state["summary_info"]
-        body.summary = si.get("summary")
-    elif state.get("merged_source_ids"):
-        # Article was merged — clear stale summary
-        body.summary = None
-
-
-def _apply_state_to_analysis(analysis: ArticleAnalysis, state: PipelineState) -> None:
-    """Apply pipeline state fields to an ArticleAnalysis object.
-
-    Args:
-        analysis: The ArticleAnalysis model instance to update.
-        state: Pipeline state containing article data.
-    """
-    if "is_news" in state:
-        analysis.is_news = state["is_news"]
-
-    # Summary info mapping
-    if "summary_info" in state:
-        si = state["summary_info"]
-        analysis.subjects = si.get("subjects")
-        analysis.key_data = si.get("key_data")
-        analysis.impact = si.get("impact")
-        analysis.has_data = si.get("has_data")
-        if si.get("event_time"):
-            try:
-                analysis.event_time = datetime.fromisoformat(si["event_time"])
-            except (ValueError, TypeError):
-                pass
-        # Fallback: use publish_time when LLM didn't extract event_time
-        if analysis.event_time is None and state.get("cleaned", {}).get("publish_time"):
-            pt = state["cleaned"]["publish_time"]
-            try:
-                if isinstance(pt, datetime):
-                    analysis.event_time = pt
-                else:
-                    analysis.event_time = datetime.fromisoformat(str(pt))
-            except (ValueError, TypeError):
-                pass
-    elif state.get("merged_source_ids"):
-        # Article was merged — clear stale analysis
-        analysis.subjects = None
-        analysis.key_data = None
-        analysis.impact = None
-        analysis.has_data = None
-
-    # Sentiment mapping
-    if "sentiment" in state:
-        sent = state["sentiment"]
-        sentiment_value = sent.get("sentiment")
-        analysis.sentiment = (
-            sentiment_value.strip()[:10] if isinstance(sentiment_value, str) else sentiment_value
-        )
-        analysis.primary_emotion = _to_emotion(sent.get("primary_emotion"))
-        analysis.emotion_targets = sent.get("emotion_targets")
-
-    # Credibility mapping
-    if "credibility" in state:
-        cred = state["credibility"]
-        analysis.source_credibility = cred.get("source_credibility")
-        analysis.cross_verification = cred.get("cross_verification")
-        analysis.content_check_score = cred.get("content_check")
-        analysis.credibility_flags = cred.get("flags")
-        analysis.verified_by_sources = cred.get("verified_by_sources", 0)
-
-    # Quality score
-    if "quality_score" in state:
-        analysis.quality_score = state["quality_score"]
-
-    # Data conflicts
-    if "data_conflicts" in state:
-        analysis.data_conflicts = state["data_conflicts"]
-
-    # Prompt versions
-    if "prompt_versions" in state:
-        analysis.prompt_versions = state["prompt_versions"]
 
 
 class ArticleRepo:

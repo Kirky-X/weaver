@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_REAL="$(readlink -f "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 err()  { printf '[ERROR] %s\n' "$*" >&2; }
 info() { printf '[INFO] %s\n' "$*" >&2; }

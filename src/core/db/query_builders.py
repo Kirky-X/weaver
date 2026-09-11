@@ -25,8 +25,6 @@ class DatabaseType(str, Enum):
     DUCKDB = "duckdb"
 
 
-# Re-exported from safe_query for backward compatibility:
-# - validate_sql_identifier (canonical: core.db.safe_query)
 # Re-exported from models for backward compatibility:
 # - VectorType (canonical: core.db.models)
 
