@@ -227,12 +227,13 @@ bash scripts/run_4db_combinations.sh stop all        # 停止全部
 
 ## specmark/ 子目录
 
-specmark 工作流归档工具（语义上属于 specmark skill 配套，放在此处便于项目级调用）:
+specmark 工作流脚本已迁移至 `specmark/scripts/`（与 specmark 工作目录同仓管理）:
 
-- `archive_change.sh` — specmark archive 阶段的确定性执行器（flock 保护 + commit SHA 锚定归档）
-- `merge_delta_spec.py` — delta spec 的确定性三路合并器（`archive_change.sh --sync` 调用）
+- `specmark/scripts/archive_change.sh` — specmark archive 阶段的确定性执行器（flock 保护 + commit SHA 锚定归档）
+- `specmark/scripts/merge_delta_spec.py` — delta spec 的确定性三路合并器（`archive_change.sh --sync` 调用）
+- `specmark/scripts/check_phase.sh` / `check_refs.py` — 阶段判定与引用一致性检查（本地副本，gitignored，缺失时从 specmark skill 目录复制）
 
 ```bash
-bash scripts/specmark/archive_change.sh <change-name> [--sync]
-python scripts/specmark/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
+bash specmark/scripts/archive_change.sh <change-name> [--sync]
+python specmark/scripts/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
 ```
