@@ -167,7 +167,7 @@ Host: api.weaver.example.com
 
 ### GET /health
 
-健康检查端点用于监控服务及其依赖项的运行状态，支持 Kubernetes 探针和负载均衡器健康检查。
+公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖详情（CWE-200：避免向未认证调用者泄露内部拓扑/驱动版本信息）。返回体统一包装在 `APIResponse`（`{code, message, data}`）中，始终 HTTP 200。
 
 #### 请求
 
@@ -184,59 +184,31 @@ Host: api.weaver.example.com
 
 **成功响应 (200 OK)**
 
-当所有依赖项健康时返回：
-
 ```json
 {
-  "status": "healthy",
-  "checks": {
-    "postgres": {
-      "status": "ok",
-      "latency_ms": 12.34
-    },
-    "neo4j": {
-      "status": "ok",
-      "latency_ms": 23.45
-    },
-    "redis": {
-      "status": "ok",
-      "latency_ms": 5.67
-    }
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "healthy"
   }
 }
 ```
 
-**失败响应 (503 Service Unavailable)**
-
-当任一依赖项不健康时返回：
+不健康时仍返回 HTTP 200，仅 `data.status` 变为 `"unhealthy"`：
 
 ```json
 {
-  "status": "unhealthy",
-  "checks": {
-    "postgres": {
-      "status": "ok",
-      "latency_ms": 10.23
-    },
-    "neo4j": {
-      "status": "error",
-      "latency_ms": 5001.23,
-      "error": "Connection refused"
-    },
-    "redis": {
-      "status": "ok",
-      "latency_ms": 3.45
-    }
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "unhealthy"
   }
 }
 ```
 
-#### 状态码
-
-| 状态码                     | 说明         |
-|-------------------------|------------|
-| 200 OK                  | 所有依赖项健康    |
-| 503 Service Unavailable | 至少一个依赖项不健康 |
+> 需要各依赖明细请使用 `GET /api/v1/health/dependencies`（需 Admin API Key；`system_router` 无额外前缀，实际路径就是该地址，不存在 `/api/v1/system/health/dependencies`——见 `tests/integration/fast/test_monitoring_fast.py:F-M-02`）。
+> 该端点返回 `data.dependencies`（键为 `relational/graph/cache/llm`），整体状态为 `healthy`/`degraded`；失败项仅暴露 `error_type`（异常类名），完整错误文本只记服务端日志（CWE-200）。
+> 注意：`src/api/endpoints/health.py` 中另有一个同路径的 API-Key 版本，但因 `system_router` 先注册而被遮蔽，实际不可达；以 Admin 版本为准。
 
 #### 检查状态说明
 
@@ -253,18 +225,20 @@ Host: api.weaver.example.com
 
 | 字段                         | 类型     | 说明                             |
 |----------------------------|--------|--------------------------------|
-| `status`                   | string | 整体健康状态：`healthy` 或 `unhealthy` |
-| `checks`                   | object | 各依赖项检查结果                       |
-| `checks.<name>.status`     | string | 该依赖项的健康状态                      |
-| `checks.<name>.latency_ms` | number | 检查耗时（毫秒）                       |
-| `checks.<name>.error`      | string | 错误信息（仅失败时存在）                   |
+| `code`                     | int    | 成功时固定 `0`（`ResponseCode.SUCCESS`，见 `src/api/schemas/response.py`） |
+| `message`                  | string | 成功时固定 `"success"`              |
+| `data.status`              | string | 整体健康状态：`healthy` 或 `unhealthy` |
+| 明细端点 `dependencies.<name>.status` | string | 该依赖项状态：`ok` 或 `error`（仅 Admin 明细端点返回） |
+| 明细端点 `dependencies.<name>.latency_ms` | number | 检查耗时（毫秒，仅成功项携带） |
+| 明细端点 `dependencies.<name>.type` | string | 后端类型（如 `postgres/duckdb`、`neo4j/ladybug`、缓存 `cache_type`、LLM 提供商列表为 `providers`） |
+| 明细端点 `dependencies.<name>.error_type` | string | 失败项的异常类名（仅类名，无错误文本，CWE-200） |
 
 #### 使用示例
 
 **cURL 示例**
 
 ```bash
-# 健康检查
+# 健康检查（仅整体状态）
 curl -i https://api.weaver.example.com/health
 
 # 输出示例
@@ -272,14 +246,33 @@ HTTP/2 200
 content-type: application/json
 
 {
-  "status": "healthy",
-  "checks": {
-    "postgres": {"status": "ok", "latency_ms": 8.12},
-    "neo4j": {"status": "ok", "latency_ms": 15.34},
-    "redis": {"status": "ok", "latency_ms": 2.56}
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "healthy"
   }
 }
 ```
+
+**需 Admin Key 的明细端点示例**
+
+```bash
+# 各依赖明细（需 Admin API Key）
+curl -s https://api.weaver.example.com/api/v1/health/dependencies \
+  -H "X-API-Key: your-admin-api-key" | jq '.data'
+
+# 输出示例
+{
+  "status": "healthy",
+  "dependencies": {
+    "relational": {"type": "postgres", "status": "ok", "latency_ms": 2.34},
+    "graph": {"type": "neo4j", "status": "ok", "latency_ms": 5.67},
+    "cache": {"type": "redis", "status": "ok", "latency_ms": 1.23},
+    "llm": {"status": "ok", "providers": ["openai"], "provider_count": 1}
+  }
+}
+```
+（`providers` 取决于 `config/llm.toml` 实际配置）
 
 **Python 示例**
 
@@ -292,10 +285,9 @@ async def check_health():
         response = await client.get("https://api.weaver.example.com/health")
 
         if response.status_code == 200:
-            data = response.json()
+            data = response.json()["data"]
             print(f"服务健康: {data['status']}")
-            for name, check in data["checks"].items():
-                print(f"  {name}: {check['status']} ({check['latency_ms']:.2f}ms)")
+            print("注：/health 仅返回整体状态，明细请调用 /api/v1/health/dependencies")
         else:
             print(f"服务不健康: {response.status_code}")
             print(response.json())
@@ -381,44 +373,29 @@ Accept: text/plain
 # TYPE python_info gauge
 python_info{implementation="CPython",major="3",minor="11",version="3.11.5"} 1.0
 
-# HELP process_cpu_seconds_total Total user and system CPU seconds spent
-# TYPE process_cpu_seconds_total counter
-process_cpu_seconds_total 1234.56
-
-# HELP process_resident_memory_bytes Resident memory size in bytes
-# TYPE process_resident_memory_bytes gauge
-process_resident_memory_bytes 1.342148e+08
-
 # HELP http_requests_total Total HTTP requests
 # TYPE http_requests_total counter
-http_requests_total{method="GET",endpoint="/health",status="200"} 1523
-http_requests_total{method="GET",endpoint="/metrics",status="200"} 892
+http_requests_total{method="GET",path="/health",status="200"} 1523
 
-# HELP http_request_duration_seconds HTTP request latency
+# HELP http_request_duration_seconds HTTP request duration in seconds
 # TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="0.005"} 1200
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="0.01"} 1450
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="0.025"} 1510
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="0.05"} 1520
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="0.1"} 1522
-http_request_duration_seconds_bucket{method="GET",endpoint="/health",le="+Inf"} 1523
-http_request_duration_seconds_sum{method="GET",endpoint="/health"} 4.567
-http_request_duration_seconds_count{method="GET",endpoint="/health"} 1523
+http_request_duration_seconds_bucket{method="GET",path="/health",status="200",le="0.01"} 1200
+http_request_duration_seconds_bucket{method="GET",path="/health",status="200",le="0.05"} 1510
+http_request_duration_seconds_bucket{method="GET",path="/health",status="200",le="+Inf"} 1523
+http_request_duration_seconds_sum{method="GET",path="/health",status="200"} 4.567
+http_request_duration_seconds_count{method="GET",path="/health",status="200"} 1523
 
-# HELP circuit_breaker_state Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)
+# HELP circuit_breaker_state 熔断器状态 (0=closed, 1=open, 2=half_open)
 # TYPE circuit_breaker_state gauge
-circuit_breaker_state{service="neo4j"} 0
-circuit_breaker_state{service="llm"} 0
+circuit_breaker_state{provider="openai"} 0
 
-# HELP db_connection_pool_size Database connection pool size
-# TYPE db_connection_pool_size gauge
-db_connection_pool_size{database="postgres"} 10
-db_connection_pool_size{database="neo4j"} 5
+# HELP db_pool_size 数据库连接池大小
+# TYPE db_pool_size gauge
+db_pool_size{pool="postgres"} 20
 
-# HELP articles_processed_total Total articles processed by pipeline
-# TYPE articles_processed_total counter
-articles_processed_total{status="success"} 45678
-articles_processed_total{status="failed"} 123
+# HELP weaver_articles_processed_total 处理的文章总数
+# TYPE weaver_articles_processed_total counter
+weaver_articles_processed_total 45678
 ```
 
 **Content-Type**
@@ -440,52 +417,49 @@ Content-Type: text/plain; version=0.0.4; charset=utf-8
 | 指标名称                            | 类型      | 说明               |
 |---------------------------------|---------|------------------|
 | `python_info`                   | Gauge   | Python 版本信息      |
-| `process_cpu_seconds_total`     | Counter | CPU 使用总时间（秒）     |
-| `process_resident_memory_bytes` | Gauge   | 驻留内存大小（字节）       |
-| `process_start_time_seconds`    | Gauge   | 进程启动时间（Unix 时间戳） |
+| `process_cpu_seconds_total`     | Counter | CPU 使用总时间（秒，prometheus-client 默认进程指标） |
+| `process_resident_memory_bytes` | Gauge   | 驻留内存大小（字节，prometheus-client 默认进程指标） |
 
-##### 2. HTTP 指标
+##### 2. HTTP 指标（实际生效，`src/api/middleware/prometheus_metrics.py` 经 `PerformanceMonitoringMiddleware` 写入）
 
-| 指标名称                            | 类型        | 标签                             | 说明          |
-|---------------------------------|-----------|--------------------------------|-------------|
-| `http_requests_total`           | Counter   | `method`, `endpoint`, `status` | HTTP 请求总数   |
-| `http_request_duration_seconds` | Histogram | `method`, `endpoint`           | HTTP 请求延迟分布 |
-| `http_requests_in_progress`     | Gauge     | `method`, `endpoint`           | 正在处理的请求数    |
+| 指标名称                      | 类型        | 标签                             | 说明          |
+|---------------------------|-----------|--------------------------------|-------------|
+| `http_requests_total`       | Counter   | `method`, `path`, `status` | HTTP 请求总数（注意标签是 `path` 不是 `endpoint`） |
+| `http_request_duration_seconds` | Histogram | `method`, `path`, `status` | HTTP 请求延迟分布 |
 
-##### 3. Circuit Breaker 指标
+> `src/core/observability/metrics.py` 中另定义了 `api_request_total` / `api_request_latency_seconds`，但代码库中无任何递增调用（dead metric），`/metrics` 输出以中间件的 `http_*` 为准。
+
+##### 3. Circuit Breaker 指标（标签为 `provider`，见 `metrics.py`）
 
 | 指标名称                              | 类型      | 标签        | 说明                                    |
 |-----------------------------------|---------|-----------|---------------------------------------|
-| `circuit_breaker_state`           | Gauge   | `service` | 熔断器状态 (0=CLOSED, 1=OPEN, 2=HALF_OPEN) |
-| `circuit_breaker_fail_count`      | Gauge   | `service` | 当前失败计数                                |
-| `circuit_breaker_open_total`      | Counter | `service` | 熔断器打开总次数                              |
-| `circuit_breaker_half_open_total` | Counter | `service` | 进入半开状态总次数                             |
+| `circuit_breaker_state`           | Gauge   | `provider` | 熔断器状态 (0=closed, 1=open, 2=half_open) |
+| `circuit_breaker_failures_total`  | Counter | `provider` | 熔断器失败次数                              |
 
-##### 4. 数据库连接池指标
+##### 4. 数据库连接池指标（标签为 `pool`，见 `metrics.py`）
 
-| 指标名称                             | 类型      | 标签                       | 说明     |
-|----------------------------------|---------|--------------------------|--------|
-| `db_connection_pool_size`        | Gauge   | `database`               | 连接池大小  |
-| `db_connection_pool_available`   | Gauge   | `database`               | 可用连接数  |
-| `db_connection_pool_checked_out` | Gauge   | `database`               | 已检出连接数 |
-| `db_connection_errors_total`     | Counter | `database`, `error_type` | 连接错误总数 |
+| 指标名称                  | 类型    | 标签      | 说明     |
+|-----------------------|-------|---------|--------|
+| `db_pool_size`        | Gauge | `pool`  | 连接池大小  |
+| `db_pool_checked_out` | Gauge | `pool`  | 已检出连接数 |
+| `db_pool_utilization` | Gauge | `pool`  | 连接池利用率 |
 
-##### 5. Pipeline 指标
+##### 5. Pipeline 指标（实际名称见 `metrics.py`）
 
 | 指标名称                              | 类型        | 标签                | 说明         |
 |-----------------------------------|-----------|-------------------|------------|
-| `articles_processed_total`        | Counter   | `status`          | 处理的文章总数    |
-| `pipeline_stage_duration_seconds` | Histogram | `stage`           | 各阶段处理时长    |
-| `llm_calls_total`                 | Counter   | `model`, `status` | LLM 调用总数   |
-| `llm_call_duration_seconds`       | Histogram | `model`           | LLM 调用延迟分布 |
+| `weaver_articles_processed_total` | Counter   | 无                 | 处理的文章总数    |
+| `pipeline_stage_latency_seconds`  | Histogram | `stage`           | 各阶段处理时长    |
+| `llm_call_total`                  | Counter   | `call_point`, `provider`, `status` | LLM 调用总数   |
+| `llm_call_latency_seconds`        | Histogram | `call_point`, `provider` | LLM 调用延迟分布 |
 
-##### 6. 数据一致性指标
+##### 6. 数据一致性指标（实际名称见 `metrics.py`）
 
 | 指标名称                      | 类型      | 标签       | 说明        |
 |---------------------------|---------|----------|-----------|
-| `saga_transactions_total` | Counter | `status` | Saga 事务总数 |
-| `saga_compensation_total` | Counter | `reason` | 补偿事务总数    |
-| `persist_status_articles` | Gauge   | `status` | 各状态文章数量   |
+| `saga_total` | Counter | `status` | Saga 执行总数（`completed/compensated/failed/timed_out`） |
+| `saga_compensation_total` | Counter | `step_name`, `status` | 补偿执行总数    |
+| `persist_status_count` | Gauge   | `status` | 各持久化状态文章数量   |
 
 #### 使用示例
 
@@ -509,18 +483,16 @@ rate(http_requests_total[5m])
 # P95 请求延迟
 histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
 
-# Circuit Breaker 熔断次数
-rate(circuit_breaker_open_total[1h])
+# 熔断器打开状态（值为 1 即 OPEN）
+circuit_breaker_state{provider="openai"} == 1
 
-# 文章处理成功率
-sum(rate(articles_processed_total{status="success"}[1h]))
-/
-sum(rate(articles_processed_total[1h]))
+# 文章处理总量
+weaver_articles_processed_total
 
 # 数据库连接池使用率
-db_connection_pool_checked_out{database="postgres"}
+db_pool_checked_out{pool="postgres"}
 /
-db_connection_pool_size{database="postgres"}
+db_pool_size{pool="postgres"}
 ```
 
 **Python 客户端示例**
@@ -2969,21 +2941,41 @@ Content-Type: application/json
 
 ### 统一错误响应结构
 
-所有 API 错误响应使用统一格式：
+所有 API 错误经全局异常处理器（`src/api/middleware/api_response.py:register_exception_handlers`，在 `setup_middleware` 中注册）转为统一格式，HTTP 状态码保持原语义：
 
 ```json
 {
-  "code": 1001,
-  "message": "文章不存在"
+  "code": 10004,
+  "message": "文章不存在: article_id=550e8400-e29b-41d4-a716-446655440000",
+  "data": null
+}
+```
+
+参数校验失败（422）时额外携带 `details.errors`；错误体末尾带 `timestamp`：
+
+```json
+{
+  "code": 10001,
+  "message": "Validation failed: query: Input should be a valid string",
+  "data": null,
+  "details": {
+    "errors": [
+      {"loc": ["query"], "msg": "Input should be a valid string", "type": "string_type"}
+    ]
+  },
+  "timestamp": "2026-01-15T10:30:00.123456"
 }
 ```
 
 #### 字段说明
 
-| 字段        | 类型      | 说明           |
-|-----------|---------|--------------|
-| `code`    | integer | 业务错误码，用于程序识别 |
-| `message` | string  | 人类可读的错误描述    |
+| 字段        | 类型      | 说明                          |
+|-----------|---------|-----------------------------|
+| `code`    | integer | 业务错误码，成功为 `0`，失败为下表 `ResponseCode`（`src/api/schemas/response.py`） |
+| `message` | string  | 人类可读的错误描述（`HTTPException.detail` 原文） |
+| `data`    | null    | 错误时固定为 `null`              |
+| `details` | object  | 仅 422 校验错误携带 `{errors: [...]}` |
+| `timestamp` | string | 错误发生时间（ISO 8601）          |
 
 ### HTTP 状态码规范
 
@@ -3002,52 +2994,35 @@ Content-Type: application/json
 | 500 Internal Server Error | 服务器内部错误 | 未预期的异常               |
 | 503 Service Unavailable   | 服务不可用   | 依赖服务不健康              |
 
-### 业务错误码
+### 业务错误码（`ResponseCode`，以 `src/api/schemas/response.py` 为准）
 
-#### 通用错误 (1000-1999)
+HTTP 状态 → 业务码映射（`HTTP_STATUS_TO_RESPONSE_CODE`，未列出的状态码映射为 `10099`）：
 
-| 错误码  | HTTP 状态码 | 说明       |
-|------|----------|----------|
-| 1000 | 400      | 请求参数错误   |
-| 1001 | 404      | 资源不存在    |
-| 1002 | 409      | 资源已存在    |
-| 1003 | 422      | 业务逻辑验证失败 |
+| HTTP 状态码 | 业务码   | 说明       |
+|----------|-------|----------|
+| 400      | 10001 | 请求参数错误   |
+| 401      | 10002 | 未提供/无效认证信息 |
+| 403      | 10003 | 权限不足     |
+| 404      | 10004 | 资源不存在    |
+| 409      | 10005 | 资源冲突（违反唯一性约束） |
+| 422      | 10001 | 业务逻辑验证失败（Validation failed） |
+| 503      | 50001 | 搜索服务不可用  |
+| 500      | 10099 | 服务器内部错误  |
+| 429      | 10099 | 请求速率超限（无专用码，归入内部错误码） |
 
-#### 认证授权错误 (2000-2999)
+#### 领域错误码
 
-| 错误码  | HTTP 状态码 | 说明        |
-|------|----------|-----------|
-| 2000 | 401      | 未提供认证信息   |
-| 2001 | 401      | 认证信息无效    |
-| 2002 | 403      | 权限不足      |
-| 2003 | 401      | Token 已过期 |
-
-#### Pipeline 错误 (3000-3999)
-
-| 错误码  | HTTP 状态码 | 说明            |
-|------|----------|---------------|
-| 3000 | 422      | Pipeline 执行失败 |
-| 3001 | 422      | 文章解析失败        |
-| 3002 | 422      | LLM 调用失败      |
-| 3003 | 422      | 向量生成失败        |
-| 3004 | 422      | 实体抽取失败        |
-| 3005 | 422      | Neo4j 写入失败    |
-
-#### 数据库错误 (4000-4999)
-
-| 错误码  | HTTP 状态码 | 说明      |
-|------|----------|---------|
-| 4000 | 503      | 数据库连接失败 |
-| 4001 | 500      | 数据库查询错误 |
-| 4002 | 500      | 数据库写入错误 |
-| 4003 | 422      | 状态转换非法  |
-
-#### 限流错误 (5000-5999)
-
-| 错误码  | HTTP 状态码 | 说明      |
-|------|----------|---------|
-| 5000 | 429      | 请求速率超限  |
-| 5001 | 429      | 并发请求数超限 |
+| 错误码   | 说明                |
+|-------|-------------------|
+| 20001 | Pipeline 触发失败     |
+| 20002 | Pipeline 任务不存在    |
+| 30001 | 文章不存在             |
+| 30002 | 非法文章 ID           |
+| 40001 | 新闻源不存在            |
+| 40002 | 新闻源已存在（冲突）        |
+| 40010 | 图服务不可用            |
+| 50001 | 搜索服务不可用           |
+| 50002 | 搜索失败              |
 
 ### 错误响应示例
 
@@ -3058,8 +3033,15 @@ HTTP/1.1 400 Bad Request
 Content-Type: application/json
 
 {
-  "code": 1000,
-  "message": "参数验证失败: 'category' 必须是 ['政治', '军事', '经济'] 之一"
+  "code": 10001,
+  "message": "Validation failed: category: Input should be 'politics', 'military' or 'economy'",
+  "data": null,
+  "details": {
+    "errors": [
+      {"loc": ["category"], "msg": "Input should be 'politics', 'military' or 'economy'", "type": "literal_error"}
+    ]
+  },
+  "timestamp": "2026-01-15T10:30:00.123456"
 }
 ```
 
@@ -3070,8 +3052,9 @@ HTTP/1.1 404 Not Found
 Content-Type: application/json
 
 {
-  "code": 1001,
-  "message": "文章不存在: article_id=550e8400-e29b-41d4-a716-446655440000"
+  "code": 10004,
+  "message": "文章不存在: article_id=550e8400-e29b-41d4-a716-446655440000",
+  "data": null
 }
 ```
 
@@ -3082,8 +3065,9 @@ HTTP/1.1 401 Unauthorized
 Content-Type: application/json
 
 {
-  "code": 2000,
-  "message": "未提供 API Key，请在请求头中添加 X-API-Key"
+  "code": 10002,
+  "message": "Missing API key. Provide X-API-Key header.",
+  "data": null
 }
 ```
 
@@ -3094,8 +3078,9 @@ HTTP/1.1 403 Forbidden
 Content-Type: application/json
 
 {
-  "code": 2002,
-  "message": "权限不足: 需要 'admin' 角色"
+  "code": 10003,
+  "message": "Invalid API Key",
+  "data": null
 }
 ```
 
@@ -3104,16 +3089,14 @@ Content-Type: application/json
 ```http
 HTTP/1.1 429 Too Many Requests
 Content-Type: application/json
-Retry-After: 60
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1609459200
+Retry-After: 1
 
 {
-  "code": 5000,
-  "message": "请求速率超限，请 60 秒后重试"
+  "detail": "Rate limit exceeded"
 }
 ```
+
+> 注意：网关层限流（`src/api/middleware/rate_limit.py`）直接返回原生 `{"detail": ...}` 而不经过统一错误包装；认证链内的限流（`auth.py`，429）则走统一格式，`code` 为 `10099`（429 无专用映射，见上表）。
 
 #### 服务器内部错误
 
@@ -3122,8 +3105,9 @@ HTTP/1.1 500 Internal Server Error
 Content-Type: application/json
 
 {
-  "code": 500,
-  "message": "内部服务器错误，请稍后重试"
+  "code": 10099,
+  "message": "Internal server error",
+  "data": null
 }
 ```
 
@@ -3134,13 +3118,15 @@ Content-Type: application/json
 ```http
 HTTP/1.1 503 Service Unavailable
 Content-Type: application/json
-Retry-After: 120
 
 {
-  "code": 4000,
-  "message": "数据库服务不可用，请稍后重试"
+  "code": 50001,
+  "message": "Relational pool not initialized",
+  "data": null
 }
 ```
+
+> 注意：503 的统一 `code` 固定映射为 `50001`（`ERR_SEARCH_SERVICE_UNAVAILABLE`），`message` 取 `HTTPException.detail` 原文（如各依赖未初始化提示）；处理器不附加 `Retry-After` 头。
 
 ### 异常处理最佳实践
 
