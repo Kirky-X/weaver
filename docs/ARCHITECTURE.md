@@ -544,6 +544,19 @@ async def structured_call(
 
 `LLMClient._schema_cache` (TTLCache, maxsize=64, ttl=300s) 缓存 schema 查询结果,避免同一 `schema_node_id` 重复查询图数据库。SchemaNode 由 SchemaExtractorNode 偶发更新,5 分钟 TTL 是合理的 freshness/perf 折中。
 
+### 响应缓存与 Prompt 稳定性
+
+LLM 响应缓存（内存 TTLCache + Redis, TTL 按 call_point 1-7 天）的 key 由 `LLMClient._build_cache_key` 统一生成（单次 `call` 与 `batch_call` 同源）,默认使用 v2 稳定 key（`cache:llm:v2:{call_point}:{sha256[:16]}`,剥离 `article_id`/`task_id` 等非语义字段;设 `LLM_CACHE_KEY_V2_ENABLED=false` 可回退旧格式）。
+
+Prompt 侧的时间锚定采用**日粒度 + 尾置**：`call_at` 在 system prompt 模板尾部追加 `当前日期: YYYY-MM-DD`,而非前缀注入秒级时间戳。这保证同一自然日内 request_payload 逐字节稳定——客户端缓存 key 可命中、服务端前缀缓存自当日第二次调用起命中；跨日自然轮换,保留缓存新鲜度。
+
+成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.agnes.agnes-2.0-flash`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。免费档费率记 0.0。
+
+### Token 消耗控制
+
+- **briefing 输入 summary 优先**：每日简报与叙事简报的 LLM payload 优先渲染每篇文章的 `ArticleBody.summary`（analyze 产物）,缺失时回退 body 前 500 字符；body JOIN 仅用于 AI 分类关键词过滤。
+- **MC 采样批量评分**：长文档（>10k 字符）的采样区域评分合并为单次 LLM 调用（payload 携带 `R1..Rn` 编号区域,返回 `{"scores": [...]}` 数组,按索引对齐）；数组长度不符或调用失败时全部区域降级默认低分,由低置信度 fallback（返回截断原文）兜底。
+
 ### Container Wiring
 
 `container/lifecycle.py` 在创建 `LLMClient` 后注入 `_graph_pool`:

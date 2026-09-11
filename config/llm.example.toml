@@ -169,3 +169,13 @@ sample_rate = 0.1                  # 10% of requests trigger shadow calls
 target_call_points = ["classifier", "entity_extractor"]
 baseline_model = "chat.openai.gpt-4o"
 candidate_models = ["chat.anthropic.claude-sonnet-4-20250514"]
+# ============================================================
+# Cost Rates (USD per 1K tokens)
+# ============================================================
+# agnes 为免费档，费率记 0.0——rates 非空即激活 CostCalculator 接线，
+# 使 cost_usd 走真实计算链路（当前恒为 0.0）。接入付费 provider 时
+# 在此填写真实费率（禁止编造价格）。
+[cost.rates."chat.agnes.agnes-2.0-flash"]
+input = 0.0
+output = 0.0
+cached = 1.0

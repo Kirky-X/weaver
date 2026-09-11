@@ -289,3 +289,56 @@ class TestCreateFromSettingsWiresCostCalculator:
 
         event = event_bus.publish.call_args.args[0]
         assert event.cost_usd == 0.0
+
+
+class TestZeroRateCostWiring:
+    """免费档零费率接线（llm-token-optimization T006 / R-llm-cost-001）."""
+
+    def test_llm_tomls_declare_agnes_zero_rates(self):
+        """config/llm.toml 与 llm.example.toml 必须声明 agnes 零费率 [cost] 段."""
+        import tomllib
+
+        for path in ("config/llm.toml", "config/llm.example.toml"):
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+            assert "cost" in data, f"{path} missing [cost] section"
+            rates = data["cost"]["rates"]
+            agnes_rate = rates["chat.agnes.agnes-2.0-flash"]
+            assert agnes_rate["input"] == 0.0
+            assert agnes_rate["output"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_zero_rates_still_wire_calculator(self):
+        """rates 非空但全 0 → CostCalculator 接线，cost_usd 计算得 0.0 而非跳过."""
+        from core.llm.client import LLMClient
+
+        settings = MagicMock()
+        settings.providers = {}
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {}
+        settings.cost = CostConfig(
+            rates={
+                "chat.agnes.agnes-2.0-flash": CostRate(input=0.0, output=0.0, cached=1.0),
+            }
+        )
+
+        event_bus = _make_event_bus()
+        client = await LLMClient.create_from_settings(llm_settings=settings, event_bus=event_bus)
+
+        assert client._cost_calculator is not None
+
+        label = Label(llm_type=LLMType.CHAT, provider="agnes", model="agnes-2.0-flash")
+        tokens = TokenUsage(input_tokens=1000, output_tokens=500)
+        await client._emit_usage_event(
+            label=label,
+            call_point=CallPoint.CLASSIFIER,
+            latency_ms=200.0,
+            token_usage=tokens,
+            success=True,
+        )
+
+        event = event_bus.publish.call_args.args[0]
+        assert event.cost_usd == 0.0
