@@ -106,3 +106,74 @@ class TestBuildStableCacheKey:
         # cache:llm:v2:classifier:hash → parts = ["cache", "llm", "v2", "classifier", "hash"]
         stable_hash = parts[-1]
         assert len(stable_hash) == 16
+
+
+class TestBatchCallCacheKeyConsistency:
+    """batch_call 与单次 call() 必须使用同一 _build_cache_key（R-llm-cache-002）."""
+
+    @pytest.mark.asyncio
+    async def test_batch_call_uses_build_cache_key(self):
+        """batch_call 生成的 Redis key 与 _build_cache_key 输出逐字节一致."""
+        import os
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from core.llm.types import GlobalConfig, Label, LLMType, ProviderConfig, TokenUsage
+
+        def _make_client():
+            from core.llm.client import LLMClient
+
+            providers = [
+                ProviderConfig(
+                    name="openai",
+                    type="openai",
+                    base_url="https://api.openai.com/v1",
+                    api_key="test-key",
+                    rpm_limit=100,
+                    concurrency=5,
+                    timeout=30.0,
+                    priority=100,
+                    weight=100,
+                    models={},
+                )
+            ]
+            global_config = GlobalConfig(
+                circuit_breaker_threshold=5,
+                circuit_breaker_timeout=60.0,
+                default_timeout=120.0,
+            )
+            event_bus = MagicMock()
+            event_bus.publish = AsyncMock()
+            return LLMClient(
+                providers=providers,
+                global_config=global_config,
+                event_bus=event_bus,
+            )
+
+        client = _make_client()
+        mock_redis = MagicMock()
+        mock_redis.mget = AsyncMock(return_value=[None])
+        mock_redis.mset = AsyncMock(return_value=True)
+        client._redis = mock_redis
+
+        mock_resp = MagicMock()
+        mock_resp.content = "batch result"
+        mock_resp.token_usage = TokenUsage(input_tokens=1, output_tokens=1)
+        mock_resp.label = Label(llm_type=LLMType.CHAT, provider="openai", model="gpt-4o")
+        mock_resp.latency_ms = 10.0
+        mock_resp.model = "gpt-4o"
+        mock_resp.cache_usage = None
+
+        payload = {"content": "batch content"}
+
+        # 显式开启 v2：_build_cache_key 产 v2 key，硬编码 v1 的 batch_call 将失配（判别性）
+        with patch.dict(os.environ, {"LLM_CACHE_KEY_V2_ENABLED": "true"}):
+            with patch.object(
+                client._pools["openai"], "execute", new=AsyncMock(return_value=mock_resp)
+            ):
+                await client.batch_call("chat.openai.gpt-4o", [payload], call_point="classifier")
+                mget_keys = mock_redis.mget.call_args[0][0]
+                expected_key = client._build_cache_key("classifier", payload)
+
+        assert mget_keys == [expected_key], (
+            f"batch_call key {mget_keys[0]!r} != _build_cache_key {expected_key!r}"
+        )

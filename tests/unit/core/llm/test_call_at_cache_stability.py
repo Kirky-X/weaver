@@ -14,9 +14,11 @@ cache key is stable, while tracing fields still flow through to
 self.call() as kwargs.
 """
 
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from core.llm.types import CallPoint, GlobalConfig, Label, LLMType, ProviderConfig
 
@@ -52,6 +54,72 @@ def _wire_client(client: "LLMClient") -> None:
     prompts = MagicMock()
     prompts.get.return_value = "system prompt"
     client._prompts = prompts
+
+
+class TestSystemPromptDateStability:
+    """system_prompt 不得含秒级时间戳前缀；同日逐字节稳定（R-llm-cache-001）。
+
+    秒级时间戳会同时打穿客户端缓存 key（对 request_payload 哈希）与服务端
+    前缀缓存；日期粒度且尾置后，同日内 system_prompt 逐字节稳定。
+    """
+
+    @pytest.mark.asyncio
+    async def test_same_day_calls_produce_identical_system_prompt(self):
+        client = _make_client()
+        _wire_client(client)
+
+        with patch.object(client, "call", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = "result"
+            await client.call_at(CallPoint.ANALYZE, {"body": "同日内容一"})
+            await client.call_at(CallPoint.ANALYZE, {"body": "同日内容一"})
+            sp1 = mock_call.call_args_list[0].args[1]["system_prompt"]
+            sp2 = mock_call.call_args_list[1].args[1]["system_prompt"]
+            assert sp1 == sp2
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_has_date_line_not_prefix_timestamp(self):
+        client = _make_client()
+        _wire_client(client)
+
+        with patch.object(client, "call", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = "result"
+            await client.call_at(CallPoint.ANALYZE, {"body": "内容"})
+            system_prompt = mock_call.call_args.args[1]["system_prompt"]
+            assert system_prompt.startswith("system prompt")
+            assert "当前时间:" not in system_prompt
+            assert re.search(r"当前日期: \d{4}-\d{2}-\d{2}", system_prompt)
+
+    @pytest.mark.asyncio
+    async def test_date_line_precedes_json_tail_for_structured_calls(self):
+        client = _make_client()
+        _wire_client(client)
+
+        class _Out(BaseModel):
+            ok: bool = True
+
+        with patch.object(client, "call", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = "result"
+            await client.call_at(CallPoint.ANALYZE, {"body": "内容"}, output_model=_Out)
+            system_prompt = mock_call.call_args.args[1]["system_prompt"]
+            assert system_prompt.index("当前日期:") < system_prompt.index("【输出格式·强制】")
+            assert system_prompt.endswith("禁止 JSON 以外任何文字。")
+
+    @pytest.mark.asyncio
+    async def test_cross_day_calls_differ_in_date_line(self):
+        client = _make_client()
+        _wire_client(client)
+
+        with patch.object(client, "call", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = "result"
+            with patch("core.llm.client.get_current_date", return_value="2026-09-11"):
+                await client.call_at(CallPoint.ANALYZE, {"body": "内容"})
+            with patch("core.llm.client.get_current_date", return_value="2026-09-12"):
+                await client.call_at(CallPoint.ANALYZE, {"body": "内容"})
+            sp1 = mock_call.call_args_list[0].args[1]["system_prompt"]
+            sp2 = mock_call.call_args_list[1].args[1]["system_prompt"]
+            assert sp1 != sp2
+            assert "2026-09-11" in sp1
+            assert "2026-09-12" in sp2
 
 
 class TestCallAtCacheStability:

@@ -32,7 +32,7 @@ from core.llm.types import (
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.observability.metrics import metrics
-from core.utils.time_utils import get_current_time_with_timezone
+from core.utils.time_utils import get_current_date, get_current_time_with_timezone
 
 if TYPE_CHECKING:
     from core.event import EventBus
@@ -568,11 +568,9 @@ class LLMClient:
 
         ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
 
-        # Generate cache keys for all payloads
-        cache_keys = [
-            f"cache:llm:{cp.value}:{hashlib.sha256(json.dumps(p, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
-            for p in payloads
-        ]
+        # Generate cache keys for all payloads — 与单次 call() 同源，
+        # 避免 batch 路径 key 格式与灰度开关脱节。
+        cache_keys = [self._build_cache_key(cp.value, p) for p in payloads]
 
         # Batch cache lookup via MGET
         results: list[T | str | None] = [None] * len(payloads)
@@ -702,8 +700,10 @@ class LLMClient:
             # Extract string value from CallPoint enum if needed
             prompt_name = call_point.value if isinstance(call_point, CallPoint) else str(call_point)
             system_prompt = self._prompts.get(prompt_name)
-            current_time = get_current_time_with_timezone()
-            system_prompt = f"当前时间: {current_time}\n\n{system_prompt}"
+            # 日期锚定放在模板尾部而非前缀：秒级时间戳前缀会让 request_payload
+            # 每秒变化 → 客户端缓存 key 永不命中，且服务端前缀缓存全 miss。
+            # 日粒度 + 尾置使同日内 prompt 逐字节稳定，跨日自然轮换保留新鲜度。
+            system_prompt = f"{system_prompt}\n\n当前日期: {get_current_date()}"
 
             # 构建user_content — 剥离 NON_SEMANTIC_FIELDS 使 cache key 稳定。
             # 追踪字段（article_id/task_id 等）不影响 LLM 输出语义，但若烘进
@@ -1253,7 +1253,9 @@ class LLMClient:
         Returns:
             Cache key string.
         """
-        if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "false").lower() == "true":
+        # v2 默认开启（2026-09 翻转）：稳定 key 使重处理/相似内容复用缓存。
+        # 显式设 LLM_CACHE_KEY_V2_ENABLED=false 可回退 legacy 格式（灰度保留）。
+        if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "true").lower() == "true":
             return build_stable_cache_key(call_point, payload)
 
         return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"

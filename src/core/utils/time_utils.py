@@ -65,6 +65,16 @@ def get_current_time_with_timezone() -> str:
     return datetime.now(local_tz).isoformat()
 
 
+def get_current_date() -> str:
+    """获取当前本地日期（YYYY-MM-DD）。
+
+    供 LLM system_prompt 尾部时间锚定使用：日粒度保证同一自然日内
+    prompt 逐字节稳定（客户端缓存 key 与服务端前缀缓存均可用），
+    因此刻意不走 NTP——秒级精度对日期无意义且会破坏日内稳定性。
+    """
+    return datetime.now().astimezone().date().isoformat()
+
+
 def convert_timestamp(ts: Any) -> str | None:
     """Convert timestamp from Neo4j DateTime, LadybugDB INT64, or string to ISO format.
 
