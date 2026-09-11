@@ -95,18 +95,14 @@ db = 0
 **推荐方式**: 在 `config/llm.toml` 中配置 Provider 和模型,在 `.env` 中配置 API Key。
 
 ```bash
-# LLM Provider API Keys (通过环境变量覆盖 llm.toml 中的配置)
+# LLM Provider API Keys（通过环境变量覆盖 llm.toml 中的配置，env > TOML）
 export WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
 export WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
 # Ollama 不需要真实 API Key
 # export WEAVER_LLM__PROVIDERS__OLLAMA__API_KEY=ollama
-
-# 也可以使用标准的 API Key 环境变量 (在 llm.toml 中通过 ${VAR_NAME} 引用)
-# export OPENAI_API_KEY=your_openai_api_key
-# export ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
-**对应的 llm.toml 配置**:
+**对应的 llm.toml 配置**（注意：TOML 不展开 `${VAR}` 占位符，不要在 `llm.toml` 内写 `${...}`；密钥一律走环境变量 `WEAVER_LLM__PROVIDERS__<NAME>__API_KEY`，env > TOML）：
 
 ```toml
 # config/llm.toml
@@ -118,7 +114,7 @@ default_timeout = 120.0
 [providers.openai]
 type = "openai"
 base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"  # 会使用环境变量 OPENAI_API_KEY
+api_key = ""  # via WEAVER_LLM__PROVIDERS__OPENAI__API_KEY
 rpm_limit = 500
 concurrency = 10
 timeout = 120.0
@@ -138,7 +134,7 @@ weight = 100
 [providers.anthropic]
 type = "anthropic"
 base_url = ""
-api_key = "${ANTHROPIC_API_KEY}"
+api_key = ""  # via WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY
 rpm_limit = 60
 concurrency = 5
 timeout = 300.0
@@ -358,7 +354,7 @@ LIMIT 10;
 
 ### `/health` 端点
 
-Weaver 提供完整的健康检查端点，用于监控服务依赖状态。
+Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；明细请调用 `GET /api/v1/health/dependencies`（需 Admin API Key，返回 `data.dependencies`）。
 
 #### 请求示例
 
@@ -368,60 +364,24 @@ curl http://localhost:8000/health
 
 #### 成功响应 (HTTP 200)
 
-响应被包装在 `APIResponse` 格式中：
-
 ```json
 {
-  "code": 200,
+  "code": 0,
   "message": "success",
   "data": {
-    "status": "healthy",
-    "checks": {
-      "postgres": {
-        "status": "ok",
-        "latency_ms": 2.34,
-        "error": null
-      },
-      "neo4j": {
-        "status": "ok",
-        "latency_ms": 5.67,
-        "error": null
-      },
-      "redis": {
-        "status": "ok",
-        "latency_ms": 1.23,
-        "error": null
-      }
-    }
+    "status": "healthy"
   }
 }
 ```
 
-#### 失败响应 (HTTP 200, 但 status 为 "unhealthy")
+#### 失败响应 (HTTP 200, 但 `data.status` 为 `"unhealthy"`)
 
 ```json
 {
-  "code": 200,
+  "code": 0,
   "message": "success",
   "data": {
-    "status": "unhealthy",
-    "checks": {
-      "postgres": {
-        "status": "error",
-        "latency_ms": 5003.45,
-        "error": "Connection refused"
-      },
-      "neo4j": {
-        "status": "timeout",
-        "latency_ms": 5001.23,
-        "error": null
-      },
-      "redis": {
-        "status": "ok",
-        "latency_ms": 1.23,
-        "error": null
-      }
-    }
+    "status": "unhealthy"
   }
 }
 ```
@@ -434,6 +394,8 @@ curl http://localhost:8000/health
 | `error`       | 连接或查询错误 | 检查服务状态和网络连接 |
 | `timeout`     | 5 秒超时   | 检查服务性能和网络延迟 |
 | `unavailable` | 连接池未初始化 | 检查应用启动日志    |
+
+（以上明细状态仅出现在 `GET /api/v1/health/dependencies`（Admin Key，返回 `data.dependencies`，不存在 `/api/v1/system/health/dependencies`）返回中；公开 `/health` 仅返回整体 `healthy/unhealthy`。明细失败项仅暴露 `error_type`（异常类名），完整错误仅记服务端日志。）
 
 #### 超时配置
 
@@ -509,14 +471,14 @@ curl http://localhost:8000/metrics
 #### 响应格式
 
 ```
-# HELP api_request_latency_seconds API 请求延迟
-# TYPE api_request_latency_seconds histogram
-api_request_latency_seconds_bucket{endpoint="/health",method="GET",status="200",le="0.01"} 45
-api_request_latency_seconds_bucket{endpoint="/health",method="GET",status="200",le="0.05"} 89
+# HELP http_request_duration_seconds HTTP request duration in seconds
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",path="/health",status="200",le="0.01"} 45
+http_request_duration_seconds_bucket{method="GET",path="/health",status="200",le="0.05"} 89
 
-# HELP api_request_total API 请求总数
-# TYPE api_request_total counter
-api_request_total{endpoint="/health",method="GET",status="200"} 1523
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/health",status="200"} 1523
 
 # HELP llm_call_total LLM 调用次数
 # TYPE llm_call_total counter
@@ -739,13 +701,16 @@ http://jaeger:16686
 
 **症状:** `/health` 返回的 `data.status` 为 `unhealthy`
 
-> **注意**: `/health` 端点始终返回 HTTP 200 状态码。需要检查响应体中的 `data.status` 字段来判断服务健康状况。
+> **注意**: `/health` 端点始终返回 HTTP 200 状态码，且仅返回整体状态。需要检查响应体中的 `data.status` 字段；各依赖明细请调用需认证的 `/api/v1/health/dependencies`。
 
 #### 诊断步骤:
 
 ```bash
-# 检查具体失败的依赖
-curl -s http://localhost:8000/health | jq '.data.checks'
+# 检查整体状态
+curl -s http://localhost:8000/health | jq '.data.status'
+
+# 检查各依赖明细（需 Admin API Key）
+curl -s http://localhost:8000/api/v1/health/dependencies -H "X-API-Key: $WEAVER_API__ADMIN_API_KEY" | jq '.data.dependencies'
 
 # 检查 PostgreSQL 连接
 psql -h localhost -U postgres -d weaver -c "SELECT 1"
@@ -932,8 +897,8 @@ export $(cat .env | xargs)
 
 如遇到问题，请参考：
 
-- [监控文档](../monitoring/README.md)
-- [开发文档](../development/README.md) (如果存在)
-- [API 文档](../api/README.md) (如果存在)
+- [API 文档](./API.md)
+- [架构文档](./ARCHITECTURE.md)
+- [用户指南](./USER_GUIDE.md)
 - [项目 README](../README.md)
-- 项目 Issues: https://github.com/your-org/weaver/issues
+- 项目 Issues: https://github.com/Kirky-X/weaver/issues
