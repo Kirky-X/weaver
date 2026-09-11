@@ -13,7 +13,7 @@
 <p>
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/badge/license-Apache--2.0-yellow.svg" alt="License" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
 </p>
 
@@ -123,7 +123,7 @@
 
 ```bash
 # 克隆项目
-git clone <repository-url>
+git clone https://github.com/Kirky-X/weaver.git
 cd weaver
 
 # 安装依赖 (使用 uv; --all-extras 启用故障转移依赖, --all-groups 启用 dev/test 组)
@@ -206,7 +206,7 @@ default_timeout = 120.0
 [providers.openai]
 type = "openai"
 base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"
+api_key = ""  # 通过环境变量 WEAVER_LLM__PROVIDERS__OPENAI__API_KEY 设置（env > TOML，TOML 不展开 ${VAR}）
 rpm_limit = 500
 concurrency = 10
 timeout = 120.0
@@ -371,7 +371,7 @@ uv run alembic upgrade head
 
 ```bash
 # 开发模式
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.main:get_app --factory --reload --host 0.0.0.0 --port 8000
 
 # 生产模式
 uv run python -m src.main
@@ -885,7 +885,7 @@ uv run alembic downgrade -1
 ### 🐛 报告 Bug
 
 发现问题？<br>
-<a href="https://github.com/your-org/weaver/issues/new">创建 Issue</a>
+<a href="https://github.com/Kirky-X/weaver/issues/new">创建 Issue</a>
 
 </td>
 <td width="33%" align="center" style="padding: 16px">
@@ -893,7 +893,7 @@ uv run alembic downgrade -1
 ### 💡 功能建议
 
 有好想法？<br>
-<a href="https://github.com/your-org/weaver/discussions">开始讨论</a>
+<a href="https://github.com/Kirky-X/weaver/discussions">开始讨论</a>
 
 </td>
 <td width="33%" align="center" style="padding: 16px">
@@ -901,7 +901,7 @@ uv run alembic downgrade -1
 ### 🔧 提交 PR
 
 想贡献代码？<br>
-<a href="https://github.com/your-org/weaver/pulls">Fork 并提交 PR</a>
+<a href="https://github.com/Kirky-X/weaver/pulls">Fork 并提交 PR</a>
 
 </td>
 </tr>
@@ -913,7 +913,7 @@ uv run alembic downgrade -1
 ### 🚀 如何贡献
 
 1. **Fork** 本仓库
-2. **Clone** 你的 fork：`git clone https://github.com/yourusername/weaver.git`
+2. **Clone** 你的 fork：`git clone https://github.com/<你的用户名>/weaver.git`（将 `<你的用户名>` 替换为你的 GitHub 用户名）
 3. **创建** 分支：`git checkout -b feature/amazing-feature`
 4. **进行** 修改
 5. **测试** 修改：
@@ -960,9 +960,9 @@ uv run alembic downgrade -1
 
 ## <span id="license">📄 许可证</span>
 
-本项目采用 **MIT 许可证**：
+本项目采用 **Apache-2.0 许可证**：
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-yellow.svg)](LICENSE)
 
 ---
 

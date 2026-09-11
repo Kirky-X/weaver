@@ -39,7 +39,7 @@
 
 ### 报告 Bug
 
-如果您发现了 Bug，请通过 [GitHub Issues](https://github.com/your-org/weaver/issues) 报告，并包含以下信息：
+如果您发现了 Bug，请通过 [GitHub Issues](https://github.com/Kirky-X/weaver/issues) 报告，并包含以下信息：
 
 1. **问题描述**：清晰简洁地描述 Bug
 2. **复现步骤**：详细说明如何复现该问题
@@ -68,9 +68,10 @@
 
 1. **Fork 仓库**
    ```bash
-   git clone https://github.com/yourusername/weaver.git
+   git clone https://github.com/<你的用户名>/weaver.git
    cd weaver
    ```
+   （将 `<你的用户名>` 替换为你的 GitHub 用户名，对应你 Fork 后的仓库）
 
 2. **创建分支**
    ```bash
@@ -106,8 +107,8 @@
 
 ### 前提条件
 
-- Python 3.12+
-- PostgreSQL 15+ (带 pgvector 扩展)
+- Python 3.12+ (要求 `>=3.12,<3.14`，见 `pyproject.toml`)
+- PostgreSQL 16+ (带 pgvector 扩展)
 - Neo4j 5+
 - Redis 7+
 
@@ -115,7 +116,7 @@
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/your-org/weaver.git
+   git clone https://github.com/Kirky-X/weaver.git
    cd weaver
    ```
 
@@ -163,7 +164,7 @@
 
 ```bash
 # 启动开发服务器
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.main:get_app --factory --reload --host 0.0.0.0 --port 8000
 
 # 或使用脚本
 uv run python -m src.main
@@ -577,15 +578,15 @@ MAJOR.MINOR.PATCH
 如果您在贡献过程中遇到问题：
 
 1. 查看 [README](../README.md)
-2. 搜索 [Issues](https://github.com/your-org/weaver/issues)
-3. 发起 [Discussion](https://github.com/your-org/weaver/discussions)
+2. 搜索 [Issues](https://github.com/Kirky-X/weaver/issues)
+3. 发起 [Discussion](https://github.com/Kirky-X/weaver/discussions)
 4. 联系维护者
 
 ---
 
 ## 许可证
 
-通过提交代码，您同意您的贡献将在 [MIT 许可证](./LICENSE) 下发布。
+通过提交代码，您同意您的贡献将在 [Apache-2.0 许可证](../LICENSE) 下发布。
 
 ---
 

@@ -121,7 +121,7 @@
 
 ```bash
 # Clone
-git clone <repository-url>
+git clone https://github.com/Kirky-X/weaver.git
 cd weaver
 
 # Install dependencies
@@ -188,7 +188,7 @@ uv run alembic upgrade head
 
 ```bash
 # Development
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.main:get_app --factory --reload --host 0.0.0.0 --port 8000
 
 # Production
 uv run python -m src.main
