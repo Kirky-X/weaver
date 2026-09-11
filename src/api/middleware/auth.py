@@ -31,7 +31,8 @@ async def _get_api_key_manager():
         from core.security import ApiKeyManager
 
         return ApiKeyManager(container.relational_pool())
-    except Exception:
+    except Exception as exc:
+        log.warning("auth_manager_init_failed", error=str(exc), exc_info=True)
         return None
 
 
@@ -45,7 +46,8 @@ async def _get_traffic_detector():
 
         cache = container.cache_client()
         return TrafficAnomalyDetector(cache)
-    except Exception:
+    except Exception as exc:
+        log.warning("traffic_detector_init_failed", error=str(exc), exc_info=True)
         return None
 
 

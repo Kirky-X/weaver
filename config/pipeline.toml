@@ -3,6 +3,12 @@
 # News processing pipeline configuration
 # Environment variables can override any value:
 #   WEAVER__PIPELINE__PHASE1__CONCURRENCY=10
+# ------------------------------------------------------------
+# DEPRECATED NOTICE (audit-cleanup-optimal):
+# Only [phase1].concurrency / [phase3].concurrency are consumed
+# (see Pipeline.read from PipelineSettings). All [[stages]].class_path
+# and [batch].merger_class entries below are DEAD CONFIG — kept only
+# for backward compatibility, editing them has no effect.
 # ============================================================
 
 version = "1.0"

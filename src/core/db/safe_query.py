@@ -5,8 +5,7 @@
 This module provides validation functions and safe query building utilities
 that enforce parameterized queries and input validation.
 
-This is the canonical module for identifier validation. The deprecated
-core.security.validation.identifier_validator module re-exports from here.
+This is the canonical module for identifier validation.
 """
 
 from __future__ import annotations

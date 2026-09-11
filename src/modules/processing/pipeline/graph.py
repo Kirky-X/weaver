@@ -311,53 +311,6 @@ class Pipeline:
                 for failed_id in ids:
                     pending_updates.append((str(failed_id), stage))
 
-    async def _publish_memory_events(self, states: list[PipelineState]) -> None:
-        """Publish memory ingest events for successfully processed articles.
-
-        Delegates to :class:`MemoryEventPublisher`.
-
-        Args:
-            states: List of completed pipeline states.
-        """
-        await self._memory_publisher.publish(states)
-
-    # ── Content hash cache methods (delegate to ContentHashCacheService) ──
-
-    async def _check_content_hash_cache(
-        self, articles: list[RawArticle]
-    ) -> list[dict[str, Any] | None]:
-        """Check content hash cache for a batch of articles.
-
-        Delegates to :class:`ContentHashCacheService`.
-
-        Args:
-            articles: List of raw articles to check.
-
-        Returns:
-            List of cached results (None for cache misses).
-        """
-        return await self._content_hash_cache.check(articles)
-
-    async def _write_content_hash_cache(self, state: PipelineState) -> None:
-        """Write processing result to content hash cache.
-
-        Delegates to :class:`ContentHashCacheService`.
-
-        Args:
-            state: Completed pipeline state to cache.
-        """
-        await self._content_hash_cache.write(state)
-
-    async def _write_content_hash_cache_batch(self, states: list[PipelineState]) -> None:
-        """Write multiple processing results to content hash cache.
-
-        Delegates to :class:`ContentHashCacheService`.
-
-        Args:
-            states: List of completed pipeline states to cache.
-        """
-        await self._content_hash_cache.write_batch(states)
-
     async def process_batch(
         self,
         articles: list[RawArticle],

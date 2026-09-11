@@ -161,6 +161,9 @@ class PipelinePersistence:
                 insert_state.setdefault("language", "zh")
                 insert_state.setdefault("region", "unknown")
                 insert_state.setdefault("score", 0.0)
+                # Log-only marker distinguishing "not analyzed" from genuine
+                # low score (bulk_upsert mappers ignore this key; not persisted).
+                insert_state.setdefault("is_analyzed", False)
                 if "sentiment" not in insert_state:
                     insert_state["sentiment"] = {"sentiment_score": 0.0}
                 if "credibility" not in insert_state:
@@ -171,6 +174,7 @@ class PipelinePersistence:
                         "terminal_article_inserted",
                         url=source_url[:50],
                         article_id=str(article_ids[0]),
+                        is_analyzed=insert_state.get("is_analyzed", False),
                     )
                 else:
                     log.error(

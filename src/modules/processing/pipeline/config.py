@@ -60,6 +60,8 @@ class PhaseConfig(BaseModel):
 class BatchConfig(BaseModel):
     """Configuration for batch processing."""
 
+    # DEAD CONFIG (audit-cleanup-optimal): no dynamic loader consumes this;
+    # graph.py hard-codes BatchMergerNode wiring. Kept for compat only.
     merger_class: str = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
     enabled: bool = True
     timeout: int = 180
@@ -67,6 +69,12 @@ class BatchConfig(BaseModel):
 
 class PipelineSettings(BaseSettings):
     """Pipeline configuration loaded from config/pipeline.toml.
+
+    Only phase1/phase3 concurrency values are consumed at runtime.
+    NOTE: stage class_path entries and batch.merger_class in the TOML are
+    dead config (no dynamic loader; graph.py hard-codes node wiring).
+    They are kept for backward compatibility and must not be edited
+    expecting behavior change.
 
     Environment variables can override any setting using WEAVER_PIPELINE__ prefix.
     Example: WEAVER_PIPELINE__PHASE1__CONCURRENCY=10
