@@ -2,7 +2,9 @@
 # ============================================================
 # Two-layer nested configuration: Provider + Model
 # Copy this file to config/llm.toml and configure your providers.
-# API keys must use environment variable reference: ${ENV_VAR}
+# API keys are NOT read from ${VAR} placeholders in this file.
+# Set them via environment variables: WEAVER_LLM__PROVIDERS__<NAME>__API_KEY
+# (env > TOML). Leave api_key empty here when using env vars.
 # ============================================================
 
 # ============================================================
@@ -19,7 +21,7 @@ default_timeout = 120.0             # Default timeout for all LLM calls (seconds
 [providers.openai]
 type = "openai"
 base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"
+api_key = ""  # via WEAVER_LLM__PROVIDERS__OPENAI__API_KEY
 rpm_limit = 500
 concurrency = 10
 timeout = 120.0
@@ -42,7 +44,7 @@ capabilities = ["embedding"]
 [providers.anthropic]
 type = "anthropic"
 base_url = ""                       # Use official endpoint
-api_key = "${ANTHROPIC_API_KEY}"
+api_key = ""  # via WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY
 rpm_limit = 60
 concurrency = 5
 timeout = 300.0
