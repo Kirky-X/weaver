@@ -273,8 +273,9 @@ class AnalyticsStorage:
             category: Briefing category — one of {finance, tech, ai, general}.
 
         Returns:
-            List of article dicts with article_id/title/body/category/score/
-            sentiment_score/credibility_score/quality_score/publish_time.
+            List of article dicts with article_id/title/body/summary/category/
+            score/sentiment_score/credibility_score/quality_score/publish_time.
+            summary may be None (articles not yet analyzed).
 
         Raises:
             ValueError: If category is not in {finance, tech, ai, general}.
@@ -300,10 +301,13 @@ class AnalyticsStorage:
             end_dt = dt(briefing_date.year, briefing_date.month, briefing_date.day, 23, 59, 59)
 
             # LEFT JOIN article_bodies to fetch body in the same query
-            # (vertical split per §9.1). Body is required by spec R-briefing-003
-            # for LLM summary input — returning body="" was a Rule 24 violation.
+            # (vertical split per §9.1). Body serves the AI-category keyword
+            # filter below; ArticleBody.summary (written by analyze) is the
+            # primary LLM input for briefing generation — supersedes
+            # R-briefing-003 full-body input (token optimization, see change
+            # llm-token-optimization).
             query = (
-                select(ArticleCore, ArticleBody.body)
+                select(ArticleCore, ArticleBody.body, ArticleBody.summary)
                 .outerjoin(ArticleBody, ArticleBody.article_id == ArticleCore.id)
                 .where(
                     ArticleCore.publish_time >= start_dt,
@@ -333,6 +337,7 @@ class AnalyticsStorage:
                     "article_id": str(r.ArticleCore.id),
                     "title": r.ArticleCore.title,
                     "body": r.body or "",
+                    "summary": r.summary,
                     "category": r.ArticleCore.category,
                     "score": float(r.ArticleCore.score) if r.ArticleCore.score else 0.0,
                     "sentiment_score": (

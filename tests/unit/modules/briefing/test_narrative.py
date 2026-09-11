@@ -669,3 +669,45 @@ class TestNarrativeBriefingGeneratorReturnShape:
         assert result["total_items"] == 1
         assert isinstance(result["items"], list)
         assert isinstance(result["generated_at"], datetime)
+
+
+class TestNarrativeFormatSummaryFirst:
+    """narrative payload 与 generator 同规则：summary 优先，body[:500] 兜底."""
+
+    def test_article_with_summary_renders_summary_not_body(self):
+        from modules.briefing.narrative import NarrativeBriefingGenerator
+
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "文章一",
+                "body": "这是很长的正文" * 100,
+                "summary": "150字叙事摘要",
+                "score": 0.9,
+                "category": "科技",
+            }
+        ]
+        text = NarrativeBriefingGenerator._format_articles_with_narratives(
+            articles=articles, narratives_by_article={}
+        )
+        assert "150字叙事摘要" in text
+        assert "这是很长的正文" not in text
+
+    def test_article_without_summary_falls_back_to_body_500(self):
+        from modules.briefing.narrative import NarrativeBriefingGenerator
+
+        long_body = "字" * 800
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "文章一",
+                "body": long_body,
+                "summary": None,
+                "score": 0.9,
+                "category": "科技",
+            }
+        ]
+        text = NarrativeBriefingGenerator._format_articles_with_narratives(
+            articles=articles, narratives_by_article={}
+        )
+        assert text.count("字") == 500

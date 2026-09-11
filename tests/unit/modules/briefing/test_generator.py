@@ -394,3 +394,77 @@ class TestBriefingGeneratorResultShape:
         }
         assert required_keys.issubset(result.keys())
         assert isinstance(result["generated_at"], datetime)
+
+
+class TestFormatArticlesSummaryFirst:
+    """LLM payload summary 优先（R-briefing-002，token 优化）."""
+
+    def test_article_with_summary_renders_summary_not_body(self):
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "文章一",
+                "body": "这是很长的正文" * 100,
+                "summary": "这是一篇关于央行的150字摘要",
+                "score": 0.9,
+                "category": "经济",
+            }
+        ]
+        text = BriefingGenerator._format_articles_for_llm(articles)
+        assert "这是一篇关于央行的150字摘要" in text
+        assert "这是很长的正文" not in text
+
+    def test_article_without_summary_falls_back_to_body_500(self):
+        long_body = "字" * 800
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "文章一",
+                "body": long_body,
+                "summary": None,
+                "score": 0.9,
+                "category": "经济",
+            }
+        ]
+        text = BriefingGenerator._format_articles_for_llm(articles)
+        assert text.count("字") == 500
+        assert long_body not in text
+
+    def test_empty_string_summary_falls_back_to_body(self):
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "文章一",
+                "body": "短正文",
+                "summary": "",
+                "score": 0.9,
+                "category": "经济",
+            }
+        ]
+        text = BriefingGenerator._format_articles_for_llm(articles)
+        assert "短正文" in text
+
+    def test_mixed_list_selects_source_per_article(self):
+        articles = [
+            {
+                "article_id": "a1",
+                "title": "有摘要",
+                "body": "全文甲" * 200,
+                "summary": "摘要甲",
+                "score": 0.9,
+                "category": "经济",
+            },
+            {
+                "article_id": "a2",
+                "title": "无摘要",
+                "body": "全文乙" * 200,
+                "summary": None,
+                "score": 0.8,
+                "category": "经济",
+            },
+        ]
+        text = BriefingGenerator._format_articles_for_llm(articles)
+        assert "摘要甲" in text
+        assert "全文甲" not in text
+        assert "全文乙" in text
+        assert "[1] 有摘要" in text and "[2] 无摘要" in text

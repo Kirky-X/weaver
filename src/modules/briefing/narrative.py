@@ -399,7 +399,7 @@ class NarrativeBriefingGenerator:
             bugs must surface (Rule 12).
 
         Args:
-            articles: List of article dicts (title/body/score/category).
+            articles: List of article dicts (title/body/summary/score/category).
             narratives_by_article: Dict mapping article_id → list of
                 NarrativeNode framing dicts.
             category: Briefing category (for category-specific prompt).
@@ -453,14 +453,18 @@ class NarrativeBriefingGenerator:
 
         Each article is rendered as:
             [N] title (score=X.XX, category=Y)
-            body
+            content
             [Narrative Framing]
             - Source bias: <bias1>, <bias2>, ...
             - Frame: <frame1>, <frame2>, ...
             - Tone: <tone1>, <tone2>, ...
             - Emphasis: <emphasis1>, <emphasis2>, ...
 
-        Articles without narratives are still included (body only, no
+        Content source mirrors ``BriefingGenerator._format_articles_for_llm``:
+        per-article ``summary`` when present, else the first 500 chars of
+        ``body`` (token optimization).
+
+        Articles without narratives are still included (content only, no
         framing section) — they contribute to the article context but do
         not count toward the narrative threshold (already checked in
         ``generate()``).
@@ -470,12 +474,14 @@ class NarrativeBriefingGenerator:
         parts: list[str] = []
         for i, article in enumerate(articles, start=1):
             title = article.get("title", "(untitled)")
+            summary = article.get("summary")
             body = article.get("body", "")
+            content = summary if summary else body[:500]
             score = article.get("score", 0.0)
             category = article.get("category", "unknown")
             article_id = article.get("article_id") or article.get("id")
 
-            section = f"[{i}] {title} (score={score:.2f}, category={category})\n{body}"
+            section = f"[{i}] {title} (score={score:.2f}, category={category})\n{content}"
 
             # Append narrative framing if available for this article.
             framings = narratives_by_article.get(article_id, []) if article_id else []

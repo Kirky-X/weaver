@@ -245,15 +245,22 @@ class BriefingGenerator:
 
         Each article is rendered as:
             [N] title (score=X.XX, category=Y)
-            body
+            content
+
+        Content source: per-article ``summary`` when present (analyze
+        product, ~150 chars); otherwise the first 500 chars of ``body``.
+        Summary-first keeps every article represented in the same token
+        budget where full-body concatenation truncated away the tail.
 
         Concatenated with double newlines between articles.
         """
         parts: list[str] = []
         for i, article in enumerate(articles, start=1):
             title = article.get("title", "(untitled)")
+            summary = article.get("summary")
             body = article.get("body", "")
+            content = summary if summary else body[:500]
             score = article.get("score", 0.0)
             category = article.get("category", "unknown")
-            parts.append(f"[{i}] {title} (score={score:.2f}, category={category})\n{body}")
+            parts.append(f"[{i}] {title} (score={score:.2f}, category={category})\n{content}")
         return "\n\n".join(parts)
