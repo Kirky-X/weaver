@@ -24,7 +24,7 @@ Weaver 支持端口自动检测，当配置的端口被占用时会自动寻找�
 
 ```bash
 # 开发模式（端口自动检测默认启用）
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.main:get_app --factory --reload --host 0.0.0.0 --port 8000
 
 # 生产模式（使用 main.py 的 lifespan 管理）
 uv run python -m src.main
@@ -44,7 +44,7 @@ uv run python -m src.main
 # config/settings.toml
 [api]
 port = 8000              # 默认端口
-port_auto_detect = true  # 启用自动检测(生产环境默认 false)
+port_auto_detect = true  # 启用自动检测（代码默认值 true，见 src/config/subconfigs.py）
 ```
 
 如果需要禁用自动检测（例如在固定端口环境）：
@@ -146,7 +146,7 @@ LLM 配置使用两层嵌套结构: **Provider + Models**。
 [providers.openai]
 type = "openai"
 base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"  # 引用环境变量
+api_key = ""  # 通过环境变量 WEAVER_LLM__PROVIDERS__OPENAI__API_KEY 设置（env > TOML，TOML 不展开 ${VAR}）
 rpm_limit = 500
 concurrency = 10
 
@@ -938,4 +938,4 @@ simhash_hamming_threshold = 3          # 最大汉明距离（0-64，越低越�
 
 ---
 
-如有其他问题，请通过 [GitHub Issues](https://github.com/your-org/weaver/issues) 反馈。
+如有其他问题，请通过 [GitHub Issues](https://github.com/Kirky-X/weaver/issues) 反馈。
