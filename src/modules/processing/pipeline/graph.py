@@ -182,13 +182,14 @@ class Pipeline:
             ),
         )
         self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
-        self._vectorize = VectorizeNode(llm)
+
+        # Get embedding model from configuration
+        embedding_model = self._extract_embedding_model_id(settings)
+        self._vectorize = VectorizeNode(llm, embedding_model)
         self._batch_merger = BatchMergerNode(
             llm, prompt_loader, vector_repo, saga_orchestrator=saga_orchestrator
         )
 
-        # Get embedding model from configuration
-        embedding_model = self._extract_embedding_model_id(settings)
         self._re_vectorize = ReVectorizeNode(llm, embedding_model)
 
         self._analyze = AnalyzeNode(
