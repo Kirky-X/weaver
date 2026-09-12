@@ -186,12 +186,17 @@ class Pipeline:
 
         # Get embedding model from configuration
         embedding_model = self._extract_embedding_model_id(settings)
-        self._vectorize = VectorizeNode(llm, embedding_model)
+        text_limit = (
+            settings.pipeline_process.embedding_text_limit
+            if settings and hasattr(settings, "pipeline_process")
+            else 2000
+        )
+        self._vectorize = VectorizeNode(llm, embedding_model, text_limit=text_limit)
         self._batch_merger = BatchMergerNode(
             llm, prompt_loader, vector_repo, saga_orchestrator=saga_orchestrator
         )
 
-        self._re_vectorize = ReVectorizeNode(llm, embedding_model)
+        self._re_vectorize = ReVectorizeNode(llm, embedding_model, text_limit=text_limit)
 
         self._analyze = AnalyzeNode(
             llm,
@@ -959,12 +964,34 @@ class Pipeline:
 
             # Update processing stages serially after concurrent completion
             # to preserve stage ordering (fake_news → conflict →
-            # narrative_schema). Skip exceptions (when self._debug=False,
-            # gather returns Exception objects for failed nodes; log them
-            # via stage update).
-            for stage_key in concurrent_results:
-                if not isinstance(stage_key, str):
+            # narrative_schema).
+            stage_runners = {
+                "fake_news_detector": "phase3_fake_news_detector",
+                "conflict_detector": "phase3_conflict_detector",
+                "narrative_schema": "phase3_narrative_schema",
+            }
+            for runner, stage_key in zip(concurrent_results, stage_runners):
+                if isinstance(runner, BaseException):
+                    # Exception from gather: record it like the other phase
+                    # gather blocks do — silently skipping here would leave
+                    # the article persisted with missing analysis data and
+                    # no trace in metrics.
+                    raw = state.get("raw")
+                    log.error(
+                        "phase3_concurrent_stage_failed",
+                        stage=stage_key,
+                        article_id=state.get("article_id"),
+                        url=getattr(raw, "url", None) if raw else None,
+                        error=str(runner),
+                        error_type=type(runner).__name__,
+                    )
+                    MetricsCollector.pipeline_failure_count.labels(
+                        stage="phase3",
+                        error_type=type(runner).__name__,
+                    ).inc()
                     continue
+                if runner is None:
+                    continue  # stage disabled or node unavailable
                 await self._update_processing_stage(
                     state, PHASE3_STAGES[stage_key], pending_updates
                 )

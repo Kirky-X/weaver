@@ -125,6 +125,7 @@ class LLMClient:
         tiered_router: TieredRouter | None = None,
         graph_pool: GraphPool | None = None,
         cost_calculator: CostCalculator | None = None,
+        input_limits: dict[str, int] | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -186,6 +187,12 @@ class LLMClient:
                 global_config=global_config,
             )
             self._pools[provider_cfg.name] = pool
+
+        # Per-call-point input truncation limits (characters); injectable so
+        # deployments can tune the prompt budget without code changes.
+        self._input_limits = dict(_INPUT_LIMITS)
+        if input_limits:
+            self._input_limits.update(input_limits)
 
         log.info(
             "llm_client_initialized",
@@ -365,7 +372,7 @@ class LLMClient:
         # Truncate input body based on call point limits
         if "body" in payload:
             truncated_payload = dict(payload)
-            limit = _INPUT_LIMITS.get(cp.value, _INPUT_LIMITS["default"])
+            limit = self._input_limits.get(cp.value, self._input_limits["default"])
             body = payload["body"]
             title = payload.get("title")
             if title:
@@ -1345,4 +1352,5 @@ class LLMClient:
             cache_client,
             prompt_loader,
             cost_calculator=cost_calculator,
+            input_limits=dict(getattr(llm_settings, "input_limits", None) or {}),
         )

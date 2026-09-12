@@ -38,8 +38,12 @@ class _DuckDBAsyncSession:
     code that uses `async with session() as session:`.
     """
 
-    def __init__(self, sync_session: Session):
+    def __init__(self, sync_session: Session, lock: asyncio.Lock | None = None):
         self._sync_session = sync_session
+        # Serialises access when multiple sessions share one underlying
+        # DuckDB connection (:memory: mode) — that connection is not
+        # thread-safe across concurrent to_thread workers.
+        self._lock = lock
 
     async def __aenter__(self) -> _DuckDBAsyncSession:
         """Enter async context manager."""
@@ -55,18 +59,31 @@ class _DuckDBAsyncSession:
 
     async def execute(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
         """Execute a statement asynchronously."""
+        if self._lock is not None:
+            async with self._lock:
+                return await asyncio.to_thread(self._sync_session.execute, statement, params or {})
         return await asyncio.to_thread(self._sync_session.execute, statement, params or {})
 
     async def scalars(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
         """Execute statement and return scalar results."""
+        if self._lock is not None:
+            async with self._lock:
+                return await asyncio.to_thread(self._sync_session.scalars, statement, params or {})
         return await asyncio.to_thread(self._sync_session.scalars, statement, params or {})
 
     async def scalar(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
         """Execute statement and return single scalar result."""
+        if self._lock is not None:
+            async with self._lock:
+                return await asyncio.to_thread(self._sync_session.scalar, statement, params or {})
         return await asyncio.to_thread(self._sync_session.scalar, statement, params or {})
 
     async def commit(self) -> None:
         """Commit the transaction."""
+        if self._lock is not None:
+            async with self._lock:
+                await asyncio.to_thread(self._sync_session.commit)
+            return
         await asyncio.to_thread(self._sync_session.commit)
 
     async def rollback(self) -> None:
@@ -121,6 +138,8 @@ class DuckDBPool:
         self._async_engine: AsyncEngine | None = None
         # For :memory: mode, shared connection used by all sessions
         self._shared_connection: Any = None
+        # Serialises :memory: shared-connection access across sessions
+        self._shared_connection_lock = asyncio.Lock()
 
     async def startup(self) -> None:
         """Initialize the DuckDB engine."""
@@ -194,8 +213,8 @@ class DuckDBPool:
         # For :memory: mode, bind session to shared connection
         if self._is_memory and self._shared_connection is not None:
             sync_session = Session(bind=self._shared_connection, expire_on_commit=False)
-        else:
-            sync_session = Session(self._engine, expire_on_commit=False)
+            return _DuckDBAsyncSession(sync_session, lock=self._shared_connection_lock)
+        sync_session = Session(self._engine, expire_on_commit=False)
         return _DuckDBAsyncSession(sync_session)
 
     @asynccontextmanager

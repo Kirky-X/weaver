@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from core.observability import get_logger
-from core.resilience.circuit_breaker import CircuitBreaker
+from core.resilience.circuit_breaker import CBState, CircuitBreaker
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 from modules.ingestion.fetching.exceptions import CircuitOpenError
@@ -107,6 +107,7 @@ class SmartFetcher(BaseFetcher):
         self._circuit_breaker_timeout = circuit_breaker_timeout
         self._url_validator = url_validator
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._BREAKER_CAP = 10_000
 
     def _get_breaker(self, host: str) -> CircuitBreaker:
         """Get or create a circuit breaker for the given host.
@@ -118,6 +119,13 @@ class SmartFetcher(BaseFetcher):
             CircuitBreaker instance for the host.
         """
         if host not in self._breakers:
+            # Bound growth: a large crawl touches hundreds of thousands of
+            # hosts; evict closed breakers of evicted entries via simple
+            # periodic sweep once the map exceeds 2× the cap.
+            if len(self._breakers) >= self._BREAKER_CAP * 2:
+                closed = [h for h, b in self._breakers.items() if b.state == CBState.CLOSED]
+                for h in closed[: len(self._breakers) - self._BREAKER_CAP]:
+                    del self._breakers[h]
             self._breakers[host] = CircuitBreaker(
                 threshold=self._circuit_breaker_threshold,
                 timeout_secs=self._circuit_breaker_timeout,

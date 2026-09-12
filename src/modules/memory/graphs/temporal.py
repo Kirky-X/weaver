@@ -271,7 +271,10 @@ class TemporalGraphRepo(BaseGraphRepo):
                 try:
                     record["attributes"] = json.loads(attr)
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    # Keep the raw string rather than crash, but leave a
+                    # trace — downstream dict-style access on attributes
+                    # would otherwise fail far from the root cause.
+                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
         return results
 
     async def search_temporal_events(
@@ -359,7 +362,10 @@ class TemporalGraphRepo(BaseGraphRepo):
                 try:
                     record["attributes"] = json.loads(attr)
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    # Keep the raw string rather than crash, but leave a
+                    # trace — downstream dict-style access on attributes
+                    # would otherwise fail far from the root cause.
+                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
 
         # D1 / Task 2.3-2.5: semantic re-ranking when query_embedding provided.
         # When query_embedding is None (Task 2.4), keep legacy behavior:
@@ -517,7 +523,10 @@ class TemporalGraphRepo(BaseGraphRepo):
                 try:
                     record["attributes"] = json.loads(attr)
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    # Keep the raw string rather than crash, but leave a
+                    # trace — downstream dict-style access on attributes
+                    # would otherwise fail far from the root cause.
+                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
         return results
 
     async def count_events(self) -> int:

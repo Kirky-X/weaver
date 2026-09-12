@@ -21,9 +21,10 @@ class VectorizeNode:
     re-vectorize) would otherwise silently lose all embeddings.
     """
 
-    def __init__(self, llm: LLMClient, model_id: str | None = None) -> None:
+    def __init__(self, llm: LLMClient, model_id: str | None = None, text_limit: int = 2000) -> None:
         self._llm = llm
         self._model_id = model_id or "unknown"
+        self._text_limit = text_limit
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Generate title and content embeddings."""

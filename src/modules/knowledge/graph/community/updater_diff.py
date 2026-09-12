@@ -331,6 +331,13 @@ class DiffWriter:
                 await self._create_community_with_entities(community_id, component_entities)
                 created += 1
 
+            if created:
+                log.info(
+                    "incremental_communities_created",
+                    count=created,
+                    note="unoptimised components flagged incremental for full rebuild",
+                )
+
             return created
 
         except Exception as exc:
@@ -348,12 +355,16 @@ class DiffWriter:
             community_id: Community ID to create.
             entity_names: List of entity names to assign.
         """
+        # `incremental = true` flags communities formed per connected
+        # component without Leiden optimisation — the periodic full rebuild
+        # uses this to re-cluster them at the proper granularity.
         query = """
         MERGE (c:Community {id: $community_id})
         ON CREATE SET
             c.created_at = datetime(),
             c.level = 0,
-            c.entity_count = 0
+            c.entity_count = 0,
+            c.incremental = true
         WITH c
         MATCH (e:Entity)
         WHERE e.canonical_name IN $names

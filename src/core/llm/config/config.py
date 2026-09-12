@@ -58,6 +58,10 @@ class LLMSettings(BaseSettings):
     # Default routing
     defaults: dict[str, RoutingConfig] = {}
 
+    # Per-call-point input truncation limits (characters), overrides the
+    # built-in defaults by call-point name (see core.llm.client._INPUT_LIMITS).
+    input_limits: dict[str, int] = {}
+
     # Call-point routing (maps from TOML "call-points" key)
     call_points: dict[str, RoutingConfig] = {}
 

@@ -444,6 +444,8 @@ class PipelineProcessSettings(BaseModel):
     # "fast" runs only Phase 1 (classification + vectorization), skipping
     # batch merger and deep analysis. See temp/report.md D2.
     processing_mode: Literal["fast", "deep"] = "deep"
+    # Body character cap for embedding inputs (vectorize / re_vectorize)
+    embedding_text_limit: int = 2000
 
 
 class KnowledgeCacheSettings(BaseModel):

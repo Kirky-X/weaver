@@ -122,6 +122,10 @@ class LiteLLMCaller:
     提供统一的chat、embedding、rerank调用接口.
     """
 
+    def __init__(self) -> None:
+        # (api_base, api_key) -> AsyncOpenAI client for custom rerank posts.
+        self._rerank_clients: dict[tuple[str, str], AsyncOpenAI] = {}
+
     @staticmethod
     def _build_model_name(provider_type: str, model_id: str) -> str:
         """构建LiteLLM格式的模型名称.
@@ -513,6 +517,22 @@ class LiteLLMCaller:
             log.error("rerank_call_failed", provider_type=provider_type, error=str(exc))
             raise
 
+    def _get_rerank_client(self, api_base: str, api_key: str, timeout: float) -> AsyncOpenAI:
+        """Return a cached AsyncOpenAI client for the endpoint credential pair.
+
+        Avoids a fresh TLS handshake per rerank call under load.
+        """
+        cache_key = (api_base.rstrip("/"), api_key)
+        client = self._rerank_clients.get(cache_key)
+        if client is None:
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=cache_key[0],
+                timeout=timeout,
+            )
+            self._rerank_clients[cache_key] = client
+        return client
+
     async def _rerank_openai_compatible(
         self,
         api_base: str,
@@ -543,12 +563,9 @@ class LiteLLMCaller:
         if not documents:
             return []
 
-        # 使用 OpenAI 库的 AsyncOpenAI 客户端
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=api_base.rstrip("/"),
-            timeout=timeout,
-        )
+        # Reuse a cached AsyncOpenAI client per endpoint credential pair to
+        # keep the HTTP connection (and TLS session) warm across calls.
+        client = self._get_rerank_client(api_base, api_key, timeout)
 
         # 使用 client.post() 发送自定义请求
         response = await client.post(
