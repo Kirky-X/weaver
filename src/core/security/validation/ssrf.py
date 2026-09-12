@@ -13,6 +13,7 @@ This module provides SSRF protection by blocking requests to:
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
@@ -24,6 +25,63 @@ from core.observability import get_logger
 log = get_logger(__name__)
 
 MAX_REDIRECT_HOPS = 5
+
+# Hostnames that consist purely of numeric components (decimal, hex 0x…,
+# octal 0…, or bare integer) — inet_aton-style obfuscated IPv4 forms such as
+# 0177.0.0.1 or 0x7f000001. These must be resolved in-process because the
+# system resolver may refuse them (fail-open would let them slip through).
+_NUMERIC_HOST_RE = re.compile(r"^[0-9]+(\.[0-9]+)*$|^(0[xX][0-9a-fA-F]+)$")
+
+
+def _parse_numeric_part(part: str) -> int:
+    """Parse one dotted component using inet_aton radix rules."""
+    lowered = part.lower()
+    if lowered.startswith("0x"):
+        return int(lowered, 16)
+    if len(lowered) > 1 and lowered.startswith("0"):
+        return int(lowered, 8)  # 0177 → 127
+    return int(lowered)
+
+
+def parse_obfuscated_ipv4(hostname: str) -> ipaddress.IPv4Address | None:
+    """Resolve an inet_aton-style numeric hostname to an IPv4 address.
+
+    Handles the four classic forms (a.b.c.d, a.b.c, a.b, bare 32-bit int)
+    with per-component radix detection. Returns None when the hostname is
+    not a pure numeric form (a real domain name).
+    """
+    if not _NUMERIC_HOST_RE.match(hostname):
+        return None
+
+    parts = hostname.split(".")
+    try:
+        nums = [_parse_numeric_part(p) for p in parts]
+    except ValueError:
+        # Malformed numeric junk (e.g. 999..1) — treat as unparseable.
+        return None
+
+    try:
+        if len(nums) == 4:
+            if any(n > 255 for n in nums):
+                return None
+            return ipaddress.IPv4Address(
+                (nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]
+            )
+        if len(nums) == 1:
+            if nums[0] > 0xFFFFFFFF:
+                return None
+            return ipaddress.IPv4Address(nums[0])
+        if len(nums) == 2:
+            if nums[0] > 255 or nums[1] > 0xFFFFFF:
+                return None
+            return ipaddress.IPv4Address((nums[0] << 24) | nums[1])
+        if len(nums) == 3:
+            if nums[0] > 255 or nums[1] > 255 or nums[2] > 0xFFFF:
+                return None
+            return ipaddress.IPv4Address((nums[0] << 24) | (nums[1] << 16) | nums[2])
+    except ValueError:
+        return None
+    return None
 
 
 class SSRFError(Exception):
@@ -184,6 +242,15 @@ class SSRFChecker:
         Raises:
             SSRFError: If IP address is in blocked range.
         """
+        # Try inet_aton-style numeric forms first (0177.0.0.1, 0x7f000001,
+        # 2130706433, …): the system resolver may refuse them on some
+        # platforms and the DNS branch below fails open, so these MUST be
+        # evaluated in-process.
+        obfuscated = parse_obfuscated_ipv4(hostname)
+        if obfuscated is not None:
+            self._check_blocked_ip(obfuscated, url)
+            return
+
         # Try to parse as IP address directly
         try:
             ip = ipaddress.ip_address(hostname)
@@ -321,9 +388,17 @@ class SSRFChecker:
             self._validate_scheme(parsed.scheme, url)
             self._validate_metadata_host(parsed.hostname or "", url)
 
+            hostname = parsed.hostname or ""
+            # inet_aton-style numeric forms first (same rationale as
+            # _validate_ip_address: fail-open DNS must not bypass them).
+            obfuscated = parse_obfuscated_ipv4(hostname)
+            if obfuscated is not None:
+                self._check_blocked_ip(obfuscated, url)
+                return True
+
             # Check if hostname is a direct IP address
             try:
-                ip = ipaddress.ip_address(parsed.hostname or "")
+                ip = ipaddress.ip_address(hostname)
                 self._check_blocked_ip(ip, url)
             except ValueError:
                 pass  # Not an IP address
