@@ -169,18 +169,19 @@ class PipelinePersistence:
                 if "credibility" not in insert_state:
                     insert_state["credibility"] = {"score": 0.0}
                 article_ids = await self._article_repo.bulk_upsert([insert_state])
-                if article_ids:
+                inserted_id = article_ids[0] if article_ids else None
+                if inserted_id is not None:
                     log.info(
                         "terminal_article_inserted",
                         url=source_url[:50],
-                        article_id=str(article_ids[0]),
+                        article_id=str(inserted_id),
                         is_analyzed=insert_state.get("is_analyzed", False),
                     )
                 else:
                     log.error(
                         "terminal_article_insert_failed",
                         url=source_url[:50],
-                        reason="bulk_upsert returned empty article_ids",
+                        reason="upsert failed after retries",
                     )
             except Exception as exc:
                 log.error(
@@ -198,17 +199,29 @@ class PipelinePersistence:
                 is responsible for calling _handle_pg_persist_failure.
         """
         article_ids = await self._article_repo.bulk_upsert(valid_states)
+        failed_states = [state for state, aid in zip(valid_states, article_ids) if aid is None]
+        if failed_states:
+            log.error(
+                "persist_articles_partial_failure",
+                failed_count=len(failed_states),
+                failed_urls=[getattr(s.get("raw"), "url", "unknown") for s in failed_states],
+            )
         log.info(
             "persist_articles_committed",
-            article_ids=[str(aid) for aid in article_ids],
-            count=len(article_ids),
+            article_ids=[str(aid) for aid in article_ids if aid is not None],
+            count=len(article_ids) - len(failed_states),
         )
         for state, aid in zip(valid_states, article_ids):
+            if aid is None:
+                # Failed upsert: leave article_id unset so downstream
+                # (vectors, graph, status) skips this state instead of
+                # writing another article's id.
+                continue
             state["article_id"] = str(aid)
             # persist_status is set to STORED in bulk_upsert._upsert_chunk
 
         await self._persist_vectors(valid_states)
-        log.info("batch_pg_persisted", count=len(article_ids))
+        log.info("batch_pg_persisted", count=len(article_ids) - len(failed_states))
 
     async def _persist_vectors(self, valid_states: list[PipelineState]) -> None:
         """Persist article vectors to the vector repository."""
@@ -218,21 +231,28 @@ class PipelinePersistence:
         for state in valid_states:
             if "vectors" in state:
                 vectors = state["vectors"]
+                article_id = state.get("article_id")
                 log.debug(
                     "persist_vectors_check",
-                    article_id=state.get("article_id"),
+                    article_id=article_id,
                     has_title=("title" in vectors if isinstance(vectors, dict) else False),
                     has_content=("content" in vectors if isinstance(vectors, dict) else False),
                 )
-                if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
-                    vector_data.append(
-                        (
-                            uuid.UUID(state["article_id"]),
-                            vectors.get("title"),
-                            vectors.get("content"),
-                            vectors.get("model_id", "unknown"),
-                        )
+                if (
+                    article_id is None
+                    or not isinstance(vectors, dict)
+                    or "title" not in vectors
+                    or "content" not in vectors
+                ):
+                    continue
+                vector_data.append(
+                    (
+                        uuid.UUID(article_id),
+                        vectors.get("title"),
+                        vectors.get("content"),
+                        vectors.get("model_id", "unknown"),
                     )
+                )
             else:
                 log.debug("persist_vectors_missing", article_id=state.get("article_id"))
         if vector_data:

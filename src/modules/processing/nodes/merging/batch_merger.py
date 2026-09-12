@@ -419,10 +419,22 @@ class BatchMergerNode:
             raise RuntimeError("Article repository not configured")
 
         article_ids = await self._article_repo.bulk_upsert(new_states)
-        pg_ids = [str(aid) for aid in article_ids]
+        failed_states = [s for s, aid in zip(new_states, article_ids) if aid is None]
+        if failed_states:
+            log.error(
+                "saga_phase1_partial_upsert_failure",
+                failed_count=len(failed_states),
+                failed_urls=[getattr(s.get("raw"), "url", "unknown") for s in failed_states],
+            )
+        pg_ids = [str(aid) for aid in article_ids if aid is not None]
 
         # Update persist status and link IDs to states
         for state, aid in zip(new_states, article_ids):
+            if aid is None:
+                # Failed upsert: leave article_id unset so downstream steps
+                # (vectors, graph) skip this state instead of writing
+                # another article's id.
+                continue
             state["article_id"] = str(aid)
             await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
 
@@ -432,21 +444,31 @@ class BatchMergerNode:
             for state in new_states:
                 if "vectors" in state:
                     vectors = state["vectors"]
-                    if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
-                        art_id = uuid.UUID(state["article_id"])
-                        vector_data.append(
-                            (
-                                art_id,
-                                vectors.get("title"),
-                                vectors.get("content"),
-                                vectors.get("model_id", "unknown"),
-                            )
+                    art_id_str = state.get("article_id")
+                    if (
+                        art_id_str is None
+                        or not isinstance(vectors, dict)
+                        or "title" not in vectors
+                        or "content" not in vectors
+                    ):
+                        continue
+                    art_id = uuid.UUID(art_id_str)
+                    vector_data.append(
+                        (
+                            art_id,
+                            vectors.get("title"),
+                            vectors.get("content"),
+                            vectors.get("model_id", "unknown"),
                         )
-                        vector_article_ids.append(art_id)
+                    )
+                    vector_article_ids.append(art_id)
             if vector_data:
                 await self._vector_repo.bulk_upsert_article_vectors(vector_data)
 
-        log.info("saga_phase1_complete", pg_count=len(article_ids))
+        log.info(
+            "saga_phase1_complete",
+            pg_count=len(article_ids) - len(failed_states),
+        )
         return pg_ids
 
     async def _persist_to_neo4j(

@@ -130,7 +130,7 @@ class ArticleRepo:
             return verify.fetchone() is not None
         return False
 
-    async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:
+    async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID | None]:
         """Bulk upsert articles from pipeline states.
 
         Uses INSERT ... ON CONFLICT for efficient batch operations.
@@ -140,7 +140,8 @@ class ArticleRepo:
             states: List of pipeline states containing article data.
 
         Returns:
-            List of article UUIDs.
+            Article UUIDs position-aligned with ``states``; ``None`` marks a
+            state that failed all retries (callers must not shift ids).
         """
         if not states:
             return []
@@ -156,7 +157,7 @@ class ArticleRepo:
 
         return all_article_ids
 
-    async def _upsert_chunk(self, states: list[PipelineState]) -> list[uuid.UUID]:
+    async def _upsert_chunk(self, states: list[PipelineState]) -> list[uuid.UUID | None]:
         """Upsert a chunk of articles, each in its own transaction.
 
         Uses INSERT ... ON CONFLICT DO UPDATE for each state individually,
@@ -174,12 +175,15 @@ class ArticleRepo:
             states: List of pipeline states to upsert.
 
         Returns:
-            List of article UUIDs for successfully upserted articles.
+            Article UUIDs position-aligned with ``states``; ``None`` at a
+            position means that state failed all retries and must be treated
+            as not persisted (never collapse the list — callers rely on
+            index alignment).
         """
         if not states:
             return []
 
-        article_ids: list[uuid.UUID] = []
+        article_ids: list[uuid.UUID | None] = []
 
         # DuckDB single-writer conflicts (TransactionContext Error: Conflict on
         # update/deletion) happen when the scheduler's retry_pipeline_processing
@@ -212,6 +216,7 @@ class ArticleRepo:
                             raw = state.get("raw")
                             url = getattr(raw, "url", "unknown") if raw else "unknown"
                             log.error("bulk_upsert_single_failed", url=url, error=str(exc))
+                            article_ids.append(None)
 
         log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
         return article_ids

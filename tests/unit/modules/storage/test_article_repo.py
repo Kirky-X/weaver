@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -62,6 +62,67 @@ class TestArticleRepoBulkUpsert:
         result = await article_repo.bulk_upsert(states)
         # Should not process terminal state
         assert isinstance(result, list)
+
+
+class TestArticleRepoBulkUpsertAlignment:
+    """bulk_upsert results must stay position-aligned with input states."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        """Create mock PostgresPool."""
+        return MagicMock()
+
+    @pytest.fixture
+    def article_repo(self, mock_pool):
+        """Create ArticleRepo instance."""
+        return ArticleRepo(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_failed_state_yields_none_placeholder(self, article_repo, mock_pool):
+        """A state failing all retries yields None at its position, not a shifted id."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        ok_id = uuid.uuid4()
+        failing = {"raw": MagicMock(url="https://example.com/fail")}
+        succeeding = {"raw": MagicMock(url="https://example.com/ok")}
+
+        async def fake_upsert_single(session, state):
+            if state is failing:
+                raise RuntimeError("db down")
+            return ok_id
+
+        with (
+            patch.object(article_repo, "_upsert_single", side_effect=fake_upsert_single),
+            patch("modules.storage.postgres.article_repo.asyncio.sleep", new=AsyncMock()),
+        ):
+            result = await article_repo.bulk_upsert([failing, succeeding])
+
+        assert len(result) == 2
+        assert result[0] is None
+        assert result[1] == ok_id
+
+    @pytest.mark.asyncio
+    async def test_bulk_upsert_result_length_matches_input(self, article_repo, mock_pool):
+        """Result length always equals input length regardless of failures."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        states = [{"raw": MagicMock(url=f"https://example.com/{i}")} for i in range(3)]
+
+        async def fake_upsert_single(session, state):
+            raise RuntimeError("db down")
+
+        with (
+            patch.object(article_repo, "_upsert_single", side_effect=fake_upsert_single),
+            patch("modules.storage.postgres.article_repo.asyncio.sleep", new=AsyncMock()),
+        ):
+            result = await article_repo.bulk_upsert(states)
+
+        assert len(result) == 3
+        assert all(aid is None for aid in result)
 
 
 class TestArticleRepoGetExistingUrls:

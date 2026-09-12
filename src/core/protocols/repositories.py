@@ -290,14 +290,15 @@ class ArticleRepository(Protocol):
     async def bulk_upsert(
         self,
         states: list[dict[str, Any]],
-    ) -> list[uuid.UUID]:
+    ) -> list[uuid.UUID | None]:
         """Bulk upsert articles.
 
         Args:
             states: List of pipeline states to persist.
 
         Returns:
-            List of article UUIDs.
+            Article UUIDs position-aligned with ``states``; ``None`` marks a
+            state that failed persistence.
         """
         ...
 

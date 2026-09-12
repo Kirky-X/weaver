@@ -808,6 +808,73 @@ class TestPipelinePersistBatch:
         mock_vector_repo.bulk_upsert_article_vectors.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_persist_batch_partial_failure_keeps_alignment(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """None placeholders from bulk_upsert must not shift article_ids onto wrong states."""
+        import uuid
+
+        ok_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[None, ok_id])
+
+        pipeline = make_pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+        )
+
+        states = [PipelineState(raw=MagicMock()) for _ in range(2)]
+        for state in states:
+            state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist_batch(states, len(states), 0, 0)
+
+        assert states[0].get("article_id") is None
+        assert states[1].get("article_id") == str(ok_id)
+
+    @pytest.mark.asyncio
+    async def test_persist_vectors_skips_states_without_article_id(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """States whose PG upsert failed must not crash vector persistence."""
+        import uuid
+
+        ok_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[None, ok_id])
+
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.bulk_upsert_article_vectors = AsyncMock(return_value=1)
+
+        pipeline = make_pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        states = [PipelineState(raw=MagicMock()) for _ in range(2)]
+        for state in states:
+            state["cleaned"] = {"title": "Title", "body": "Body"}
+            state["vectors"] = {
+                "title": [0.1] * 1024,
+                "content": [0.2] * 1024,
+                "model_id": "test-model",
+            }
+
+        await pipeline._persist_batch(states, len(states), 0, 0)
+
+        # Only the successfully upserted state's vector is persisted.
+        persisted = mock_vector_repo.bulk_upsert_article_vectors.call_args[0][0]
+        assert len(persisted) == 1
+        assert persisted[0][0] == ok_id
+
+    @pytest.mark.asyncio
     async def test_persist_batch_with_neo4j(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
