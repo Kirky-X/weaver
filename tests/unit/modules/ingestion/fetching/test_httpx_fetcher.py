@@ -515,6 +515,52 @@ class TestHttpxFetcherUserAgent:
         assert fetcher._user_agents == ["CustomBot/2.0"]
 
 
+class TestHttpxFetcherMetrics:
+    """Tests for metrics collection in HttpxFetcher."""
+
+    @pytest.mark.asyncio
+    async def test_metrics_on_success(self):
+        """Test metrics are recorded on success."""
+        from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+
+        fetcher = HttpxFetcher()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "content"
+        mock_response.headers = {}
+        mock_response.history = []
+
+        with patch.object(fetcher._client, "send", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = mock_response
+
+            with patch("modules.ingestion.fetching.httpx_fetcher.MetricsCollector") as mock_metrics:
+                await fetcher.fetch("https://example.com")
+
+                mock_metrics.fetch_total.labels.assert_called()
+                mock_metrics.fetch_latency.labels.assert_called()
+
+        await fetcher.close()
+
+    @pytest.mark.asyncio
+    async def test_metrics_on_error(self):
+        """Test metrics are recorded on error."""
+        from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+
+        fetcher = HttpxFetcher()
+
+        with patch.object(fetcher._client, "send", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = httpx.TransportError("Connection failed")
+
+            with patch("modules.ingestion.fetching.httpx_fetcher.MetricsCollector") as mock_metrics:
+                with pytest.raises(httpx.TransportError):
+                    await fetcher.fetch("https://example.com")
+
+                mock_metrics.fetch_total.labels.assert_called()
+
+        await fetcher.close()
+
+
 class TestHttpxFetcherPost:
     """Tests for HttpxFetcher.post()."""
 

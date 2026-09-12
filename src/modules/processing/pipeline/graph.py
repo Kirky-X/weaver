@@ -12,6 +12,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from core.constants import EmbeddingModel
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
@@ -1158,20 +1159,12 @@ class Pipeline:
     def _extract_embedding_model_id(settings: Any) -> str:
         """Extract embedding model ID from settings.
 
-        Parses defaults.embedding.primary from LLM config.
-        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
-
-        The label format is "<type>.<provider>.<model_id>" where model_id may
-        contain dots (e.g., Qwen3-Embedding-0.6B). We split on first 2 dots only.
+        Delegates to the shared helper in ``core.utils.model_id`` — the
+        single implementation backing container, pipeline and memory wiring.
         """
-        try:
-            if settings and hasattr(settings, "llm"):
-                embedding_config = settings.llm.defaults.get("embedding")
-                if embedding_config and embedding_config.primary:
-                    # Split only on first 2 dots to preserve model_id with dots
-                    parts = embedding_config.primary.split(".", 2)
-                    if len(parts) >= 3:
-                        return parts[2]  # Return model_id (third part)
-        except (AttributeError, KeyError, IndexError) as exc:
-            log.debug("extract_embedding_model_id_failed", error=str(exc))
-        return "Qwen3-Embedding-0.6B"
+        from core.utils.model_id import extract_embedding_model_id
+
+        llm_settings = getattr(settings, "llm", None)
+        if llm_settings is None:
+            return EmbeddingModel.DEFAULT
+        return extract_embedding_model_id(llm_settings)

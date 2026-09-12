@@ -14,6 +14,7 @@ from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability import get_logger
+from core.constants import EmbeddingModel
 from core.prompt.loader import PromptLoader
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.extraction.gliner_extractor import GLiNERExtractor
@@ -175,7 +176,7 @@ class EntityExtractorNode:
                             model_id = (
                                 self._llm.default_embedding_label
                                 if self._llm
-                                else "Qwen3-Embedding-0.6B"
+                                else EmbeddingModel.DEFAULT
                             )
                             await self._vector_repo.upsert_entity_vectors(
                                 list(
@@ -363,7 +364,7 @@ class EntityExtractorNode:
                             model_id = (
                                 self._llm.default_embedding_label
                                 if self._llm
-                                else "Qwen3-Embedding-0.6B"
+                                else EmbeddingModel.DEFAULT
                             )
                             await self._vector_repo.upsert_entity_vectors(
                                 entity_vectors_to_upsert,

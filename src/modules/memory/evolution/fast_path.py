@@ -20,6 +20,7 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability import get_logger
+from core.constants import EmbeddingModel
 from core.protocols import VectorRepository
 from modules.memory.core.event_node import EventNode
 
@@ -55,7 +56,7 @@ class SynapticIngestionService:
         vector_repo: VectorRepository | None = None,
         entity_repo: EntityGraphRepoProtocol | None = None,
         consolidation_queue: ConsolidationQueueProtocol | None = None,
-        embedding_model: str = "Qwen3-Embedding-0.6B",
+        embedding_model: str = EmbeddingModel.DEFAULT,
     ) -> None:
         """Initialize the synaptic ingestion service.
 

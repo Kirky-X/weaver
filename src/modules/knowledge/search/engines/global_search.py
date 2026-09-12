@@ -271,7 +271,7 @@ class GlobalSearchEngine:
                         # Add timeout to individual LLM call
                         response = await asyncio.wait_for(
                             self._llm.call(
-                                label="chat.agnes.agnes-2.0-flash",
+                                label=self._llm.default_chat_label,
                                 call_point=CallPoint.SEARCH_GLOBAL,
                                 payload={
                                     "system_prompt": (
@@ -340,7 +340,7 @@ class GlobalSearchEngine:
             try:
                 final_response = await asyncio.wait_for(
                     self._llm.call(
-                        label="chat.agnes.agnes-2.0-flash",
+                        label=self._llm.default_chat_label,
                         call_point=CallPoint.SEARCH_GLOBAL,
                         payload={
                             "system_prompt": (

@@ -17,7 +17,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from core.constants import EntityType
+from core.constants import EmbeddingModel, EntityType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger
@@ -108,7 +108,7 @@ class EntityResolver:
         resolution_rules: EntityResolutionRules | None = None,
         name_normalizer: NameNormalizer | None = None,
         disable_data_metrics: bool = False,
-        embedding_model: str = "Qwen3-Embedding-0.6B",
+        embedding_model: str = EmbeddingModel.DEFAULT,
     ) -> None:
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo

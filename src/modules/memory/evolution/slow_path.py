@@ -195,7 +195,7 @@ class StructuralConsolidationWorker:
 3. evidence 是支持该因果关系的证据描述"""
 
             response = await self._llm.call(
-                label="chat.agnes.agnes-2.0-flash",
+                label=self._llm.default_chat_label,
                 call_point="CAUSAL_INFERENCE",
                 payload={
                     "system_prompt": (

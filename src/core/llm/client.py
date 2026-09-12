@@ -197,6 +197,16 @@ class LLMClient:
         """Return the default embedding model label string."""
         return str(self._router.get_default(LLMType.EMBEDDING))
 
+    @property
+    def default_chat_label(self) -> str:
+        """Return the default chat model label string.
+
+        Sourced from llm.toml ``[defaults.chat]`` — components must use this
+        instead of hardcoding provider-specific labels so the router
+        configuration stays the single source of truth.
+        """
+        return str(self._router.get_default(LLMType.CHAT))
+
     async def _emit_usage_event(
         self,
         label: Label,

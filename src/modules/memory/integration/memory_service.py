@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from core.constants import EmbeddingModel
 from core.protocols import EmbeddingServiceProtocol
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import IntentType
@@ -137,7 +138,7 @@ class MemoryIntegrationService:
         config: MemoryServiceConfig | None = None,
         vector_repo: VectorRepository | None = None,
         entity_repo: EntityRepository | None = None,
-        embedding_model: str = "Qwen3-Embedding-0.6B",
+        embedding_model: str = EmbeddingModel.DEFAULT,
     ) -> None:
         """Initialize the memory integration service.
 
