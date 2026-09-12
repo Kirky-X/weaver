@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for Pipeline graph."""
 
+import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -132,7 +133,7 @@ class TestPipelineStopAccepting:
 
 
 class TestPipelineDrain:
-    """Test drain method."""
+    """drain() must wait for in-flight batches before returning."""
 
     @pytest.fixture
     def pipeline(self):
@@ -146,8 +147,70 @@ class TestPipelineDrain:
 
     @pytest.mark.asyncio
     async def test_drain(self, pipeline):
-        """Test drain completes without error."""
-        await pipeline.drain()
+        """Test drain completes without error when idle."""
+        await asyncio.wait_for(pipeline.drain(), timeout=1.0)
+
+    @pytest.mark.asyncio
+    async def test_drain_blocks_until_in_flight_batch_released(self, pipeline):
+        """drain() must not return while a batch is still running."""
+        acquired = asyncio.Event()
+        release = asyncio.Event()
+
+        async def in_flight_batch():
+            async with pipeline._batch_slot():
+                acquired.set()
+                await release.wait()
+
+        batch_task = asyncio.create_task(in_flight_batch())
+        await acquired.wait()
+
+        drain_task = asyncio.create_task(pipeline.drain())
+        await asyncio.sleep(0.02)
+        assert not drain_task.done()
+
+        release.set()
+        await asyncio.wait_for(asyncio.gather(batch_task, drain_task), timeout=2.0)
+
+    @pytest.mark.asyncio
+    async def test_drain_waits_for_all_concurrent_batches(self, pipeline):
+        """drain() waits until every in-flight batch has left its slot."""
+        release = asyncio.Event()
+
+        async def in_flight_batch():
+            async with pipeline._batch_slot():
+                await release.wait()
+
+        tasks = [asyncio.create_task(in_flight_batch()) for _ in range(3)]
+        await asyncio.sleep(0.02)
+        assert pipeline._active_batches == 3
+
+        drain_task = asyncio.create_task(pipeline.drain())
+        await asyncio.sleep(0.02)
+        assert not drain_task.done()
+
+        release.set()
+        await asyncio.wait_for(drain_task, timeout=2.0)
+        await asyncio.gather(*tasks)
+
+    @pytest.mark.asyncio
+    async def test_batch_slot_rejects_after_stop_accepting(self, pipeline):
+        """New batches are refused once stop_accepting() was called."""
+        await pipeline.stop_accepting()
+        with pytest.raises(RuntimeError, match="not accepting"):
+            async with pipeline._batch_slot():
+                pass
+
+    @pytest.mark.asyncio
+    async def test_batch_slot_released_on_error(self, pipeline):
+        """A crashing batch must release its slot so drain() can complete."""
+        with patch.object(
+            pipeline._content_hash_cache, "check", new_callable=AsyncMock
+        ) as mock_check:
+            mock_check.side_effect = RuntimeError("boom")
+            with pytest.raises(RuntimeError, match="boom"):
+                await pipeline.process_batch([])
+
+        await asyncio.wait_for(pipeline.drain(), timeout=1.0)
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning:torch.jit")

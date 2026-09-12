@@ -9,6 +9,7 @@ import time
 import traceback
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from core.llm.resilience.pool import AllProvidersFailedError
@@ -107,6 +108,10 @@ class Pipeline:
         debug: bool = False,
     ) -> None:
         self._accepting = True
+        # In-flight batch tracking for graceful shutdown: drain() waits on
+        # this counter reaching zero before the container tears down pools.
+        self._active_batches = 0
+        self._batch_slot_lock = asyncio.Condition()
         self._deps = deps
         self._settings = settings
         self._debug = debug
@@ -319,6 +324,9 @@ class Pipeline:
     ) -> list[PipelineState]:
         """Process a batch of articles through the full pipeline.
 
+        Tracks the batch as in-flight so ``drain()`` (graceful shutdown)
+        waits for it; refuses new batches after ``stop_accepting()``.
+
         Args:
             articles: List of raw articles to process.
             article_ids: Optional list of article UUIDs aligned with articles list.
@@ -327,9 +335,16 @@ class Pipeline:
         Returns:
             List of completed pipeline states.
         """
-        if not self._accepting:
-            raise RuntimeError("Pipeline is not accepting new tasks")
+        async with self._batch_slot():
+            return await self._process_batch_impl(articles, article_ids, task_id)
 
+    async def _process_batch_impl(
+        self,
+        articles: list[RawArticle],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
+        """Run the full pipeline over a batch (caller holds a batch slot)."""
         log.info("pipeline_batch_start", batch_size=len(articles))
 
         # Batch-local progress counters (not instance variables — safe for concurrent batches)
@@ -549,9 +564,16 @@ class Pipeline:
         Returns:
             List of completed pipeline states (Phase 1 only).
         """
-        if not self._accepting:
-            raise RuntimeError("Pipeline is not accepting new tasks")
+        async with self._batch_slot():
+            return await self._process_batch_fast_impl(articles, article_ids, task_id)
 
+    async def _process_batch_fast_impl(
+        self,
+        articles: list[RawArticle],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
+        """Run the Phase-1-only pipeline over a batch (caller holds a slot)."""
         log.info("pipeline_batch_fast_start", batch_size=len(articles))
 
         # Batch-local progress counters (not instance variables — safe for concurrent batches)
@@ -1003,9 +1025,34 @@ class Pipeline:
         self._accepting = False
         log.info("pipeline_stop_accepting")
 
+    @asynccontextmanager
+    async def _batch_slot(self):
+        """Claim a batch slot: reject when not accepting, track in-flight.
+
+        The accept check and the counter increment share the condition lock
+        so a batch cannot slip in between stop_accepting() and drain().
+        """
+        async with self._batch_slot_lock:
+            if not self._accepting:
+                raise RuntimeError("Pipeline is not accepting new tasks")
+            self._active_batches += 1
+        try:
+            yield
+        finally:
+            async with self._batch_slot_lock:
+                self._active_batches -= 1
+                self._batch_slot_lock.notify_all()
+
     async def drain(self) -> None:
-        """Wait for all in-progress tasks to complete."""
-        # In a production implementation, this would track in-flight tasks.
+        """Wait for all in-progress batches to complete.
+
+        Used by graceful shutdown: after ``stop_accepting()`` refuses new
+        batches, this returns only once every already-running batch has
+        finished, so the container never closes DB pools under a writing
+        batch.
+        """
+        async with self._batch_slot_lock:
+            await self._batch_slot_lock.wait_for(lambda: self._active_batches == 0)
         log.info("pipeline_drained")
 
     async def process_article_phase3(
