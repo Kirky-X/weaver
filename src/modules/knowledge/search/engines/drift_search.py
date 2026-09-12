@@ -160,7 +160,7 @@ class DRIFTSearchEngine:
             return DriftResult(
                 query=query,
                 answer=final_result.get("answer", ""),
-                confidence=final_result.get("confidence", 0.5),
+                confidence=final_result.get("confidence", 0.0),
                 hierarchy=hierarchy,
                 primer_communities=primer_result.get("community_count", 0),
                 follow_up_iterations=len(hierarchy.follow_ups),
@@ -328,13 +328,16 @@ class DRIFTSearchEngine:
         )
         response_text = str(result) if result else ""
 
-        # Extract confidence
+        # Extract confidence — a failed parse must NOT fabricate a fake
+        # mid-range score; surface it explicitly so callers can tell
+        # "unknown" apart from a genuine 0.5.
         confidence = self._extract_confidence(response_text)
         answer = self._remove_confidence_marker(response_text)
 
         return {
             "answer": answer,
-            "confidence": confidence,
+            "confidence": confidence if confidence is not None else 0.0,
+            "confidence_parsed": confidence is not None,
         }
 
     def _extract_follow_up_questions(self, text: str) -> list[str]:
@@ -375,8 +378,12 @@ class DRIFTSearchEngine:
                 return text[:idx].strip()
         return text.strip()
 
-    def _extract_confidence(self, text: str) -> float:
-        """Extract confidence score from text."""
+    def _extract_confidence(self, text: str) -> float | None:
+        """Extract confidence score from text.
+
+        Returns None when no confidence marker is present — callers must
+        not treat the absence of a marker as a mid-range score.
+        """
         import re
 
         # Look for [置信度: X.X] or similar patterns
@@ -394,7 +401,7 @@ class DRIFTSearchEngine:
                 except ValueError:
                     pass
 
-        return 0.5  # Default confidence
+        return None
 
     def _remove_confidence_marker(self, text: str) -> str:
         """Remove confidence marker from text."""

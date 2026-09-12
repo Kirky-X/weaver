@@ -470,14 +470,15 @@ class TestIntentClassifierAdapter:
         assert result.intent == IntentType.OPEN
 
     @pytest.mark.asyncio
-    async def test_classify_multi_hop_maps_to_open(self):
+    async def test_classify_multi_hop_maps_to_multi_hop(self):
+        """multi_hop queries keep their dedicated intent (no OPEN demotion)."""
         classifier = MagicMock()
         classifier.classify = AsyncMock(return_value=MagicMock(intent=MagicMock(value="multi_hop")))
 
         adapter = IntentClassifierAdapter(classifier)
         result = await adapter.classify("Multi-hop query")
 
-        assert result.intent == IntentType.OPEN
+        assert result.intent == IntentType.MULTI_HOP
 
 
 class TestMemoryServiceConfig:

@@ -408,7 +408,7 @@ class TestDriftSearchEngineAggregateResults:
             follow_ups=[],
         )
 
-        assert result["confidence"] == 0.5  # default
+        assert result["confidence"] == 0.0  # unparseable → honest zero, flagged in metadata
 
     @pytest.mark.asyncio
     async def test_aggregate_multiple_follow_ups(self):
@@ -508,11 +508,11 @@ class TestDriftSearchEngineExtractMethods:
 
     def test_extract_confidence_no_marker(self, engine):
         """Test confidence extraction without marker returns default."""
-        assert engine._extract_confidence("Answer without confidence") == 0.5
+        assert engine._extract_confidence("Answer without confidence") is None
 
     def test_extract_confidence_invalid_value(self, engine):
         """Test confidence extraction with invalid value returns default."""
-        assert engine._extract_confidence("Answer [置信度: invalid]") == 0.5
+        assert engine._extract_confidence("Answer [置信度: invalid]") is None
 
     def test_extract_confidence_standalone(self, engine):
         """Test confidence extraction with standalone pattern."""

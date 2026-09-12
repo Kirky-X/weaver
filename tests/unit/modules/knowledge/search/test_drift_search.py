@@ -372,7 +372,7 @@ class TestDRIFTSearchEngine:
 
         confidence = engine._extract_confidence(text)
 
-        assert confidence == 0.5  # Default confidence
+        assert confidence is None  # No marker — never fabricate a score
 
     def test_extract_confidence_invalid_value(self, engine):
         """Test confidence extraction with invalid value."""
@@ -380,7 +380,7 @@ class TestDRIFTSearchEngine:
 
         confidence = engine._extract_confidence(text)
 
-        assert confidence == 0.5  # Default on parsing error
+        assert confidence is None  # Unparseable marker — never fabricate
 
     def test_remove_confidence_marker_chinese(self, engine):
         """Test removal of Chinese confidence marker."""

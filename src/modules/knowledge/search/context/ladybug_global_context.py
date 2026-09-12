@@ -19,6 +19,18 @@ from modules.knowledge.search.context.base_global_context import BaseGlobalConte
 log = get_logger(__name__)
 
 
+def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    """Cosine similarity between two equal-length vectors (0.0 on degenerate input)."""
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = sum(a * a for a in vec_a) ** 0.5
+    norm_b = sum(b * b for b in vec_b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
 class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
     """Builds global context using community reports from LadybugDB.
 
@@ -71,7 +83,14 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
         query: str,
         level: int,
     ) -> list[dict[str, Any]]:
-        """LadybugDB doesn't support vector search, falls back to text search."""
+        """Vector search via in-process cosine re-ranking.
+
+        LadybugDB lacks ``vector.similarity.cosine``, but CommunityReport
+        nodes persist ``full_content_embedding`` — so fetch candidates with
+        embeddings and score them in Python. This keeps parity with the
+        Neo4j builder instead of silently degrading to text search (and
+        paying for a query embedding that is then thrown away).
+        """
         if not self._llm_client:
             return []
 
@@ -79,10 +98,53 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
             embeddings = await self._llm_client.embed_default([query])
             if not embeddings or not embeddings[0]:
                 return []
+            query_embedding = embeddings[0]
 
-            # LadybugDB doesn't support vector.similarity.cosine
-            # Fall back to text search for now
-            return await self._text_search_communities(query, level)
+            cypher = """
+            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+            WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
+            RETURN c.id AS id,
+                   c.title AS title,
+                   COALESCE(r.summary, '') AS summary,
+                   c.rank AS rank,
+                   c.entity_count AS entity_count,
+                   r.full_content AS full_content,
+                   r.key_entities AS key_entities,
+                   r.full_content_embedding AS embedding
+            """
+
+            results = await self._pool.execute_query(cypher, {"level": level})
+
+            scored: list[tuple[float, dict[str, Any]]] = []
+            for r in results:
+                emb = r.get("embedding")
+                if not isinstance(emb, list) or not emb:
+                    continue
+                sim = _cosine_similarity(emb, query_embedding)
+                if sim > 0.3:
+                    scored.append((sim, r))
+
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+
+            if scored:
+                log.debug(
+                    "ladybug_vector_search_communities_found",
+                    count=len(scored),
+                    top_score=scored[0][0],
+                )
+            return [
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title", ""),
+                    "summary": r.get("summary", ""),
+                    "rank": r.get("rank", 1.0),
+                    "entity_count": r.get("entity_count", 0),
+                    "full_content": r.get("full_content", ""),
+                    "key_entities": r.get("key_entities", []),
+                    "similarity_score": round(sim, 4),
+                }
+                for sim, r in scored[: self._max_communities]
+            ]
 
         except Exception as exc:
             log.warning("vector_search_communities_failed", error=str(exc))

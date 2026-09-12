@@ -45,7 +45,7 @@ _QUERY_INTENT_TO_MEMORY_INTENT: dict[str, IntentType] = {
     "when": IntentType.WHEN,
     "entity": IntentType.ENTITY,
     "open": IntentType.OPEN,
-    "multi_hop": IntentType.OPEN,  # Map MULTI_HOP to OPEN for now
+    "multi_hop": IntentType.MULTI_HOP,
 }
 
 

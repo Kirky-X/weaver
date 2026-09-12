@@ -31,6 +31,8 @@ _INTENT_TO_ANCHOR_EDGE_TYPE: dict[IntentType, EdgeType] = {
     IntentType.WHEN: EdgeType.TEMPORAL,
     IntentType.ENTITY: EdgeType.ENTITY,
     IntentType.OPEN: EdgeType.SEMANTIC,
+    # Multi-hop queries traverse entity chains across intermediate nodes.
+    IntentType.MULTI_HOP: EdgeType.ENTITY,
 }
 
 if TYPE_CHECKING:
