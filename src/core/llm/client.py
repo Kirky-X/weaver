@@ -619,11 +619,12 @@ class LLMClient:
                 try:
                     mapping: dict[str, str] = {}
                     for idx, result in uncached_results.items():
-                        content = (
-                            result
-                            if isinstance(result, str)
-                            else json.dumps(result, ensure_ascii=False)
-                        )
+                        if isinstance(result, str):
+                            content = result
+                        elif isinstance(result, BaseModel):
+                            content = result.model_dump_json()
+                        else:
+                            content = json.dumps(result, ensure_ascii=False)
                         mapping[cache_keys[idx]] = json.dumps(
                             {"content": content},
                             ensure_ascii=False,
@@ -635,7 +636,11 @@ class LLMClient:
                             with contextlib.suppress(Exception):
                                 await self._redis.expire(key, ttl)
                 except Exception as exc:
-                    log.debug("batch_cache_mset_failed", error=str(exc))
+                    log.warning(
+                        "batch_cache_mset_failed",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
 
         return results  # type: ignore[return-value]
 

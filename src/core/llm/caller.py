@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -145,7 +146,7 @@ class LiteLLMCaller:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         think: bool | None = None,
-        response_format: str | None = None,
+        response_format: str | dict[str, Any] | None = None,
         timeout: float = 120.0,
     ) -> LLMResponse:
         """执行chat调用.
@@ -160,7 +161,9 @@ class LiteLLMCaller:
             temperature: 采样温度
             max_tokens: 最大token数
             think: 是否启用思考模式(None=不传递,由模型默认)
-            response_format: 响应格式("json" for Ollama JSON mode)
+            response_format: 响应格式约束。字符串 "json" 启用 OpenAI 兼容
+                JSON mode；dict 表示 JSON Schema —— 以指令形式注入
+                user_content（provider 无关，SchemaNode 校验闭环依赖它）。
             timeout: 超时时间
 
         Returns:
@@ -191,13 +194,29 @@ class LiteLLMCaller:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
 
-        # Ollama JSON mode via OpenAI-compatible response_format
-        if response_format == "json":
+        if isinstance(response_format, str) and response_format == "json":
+            # Ollama JSON mode via OpenAI-compatible response_format
             kwargs["response_format"] = {"type": "json_object"}
             log.debug(
                 "json_mode_enabled", provider_type=provider_type, model=model, max_tokens=max_tokens
             )
-            kwargs["max_tokens"] = max_tokens
+        elif isinstance(response_format, dict):
+            # JSON Schema constraint: inject it as an explicit instruction so
+            # providers without response_format support (e.g. Agnes) still
+            # receive it. The schema-validation retry lives in
+            # LLMClient.structured_call.
+            schema_instruction = (
+                "\n\n你的输出必须是符合以下 JSON Schema 的单个 JSON 对象，"
+                "不得包含任何解释文字或额外字段：\n"
+                f"{json.dumps(response_format, ensure_ascii=False)}"
+            )
+            messages[1]["content"] += schema_instruction
+            log.debug(
+                "json_schema_injected",
+                provider_type=provider_type,
+                model=model,
+                schema_keys=sorted(response_format.keys()),
+            )
 
         try:
             response = await acompletion(**kwargs)
