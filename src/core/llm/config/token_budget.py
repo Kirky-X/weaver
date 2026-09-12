@@ -25,7 +25,9 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.QUALITY_SCORER: 3000,
     # Entity extraction & resolution
     CallPoint.ENTITY_EXTRACTOR: 4000,
-    CallPoint.ENTITY_RESOLVER: 2000,
+    # entity-resolver-batch-select: 文档性额度（该 call_point 无 truncate 消费点）。
+    # 批量 payload 体量由 MAX_BATCH_LLM_ENTITIES(20) x 候选数(<=5) 约束。
+    CallPoint.ENTITY_RESOLVER: 3000,
     # Embedding & reranking
     CallPoint.EMBEDDING: 500,
     CallPoint.RERANK: 500,

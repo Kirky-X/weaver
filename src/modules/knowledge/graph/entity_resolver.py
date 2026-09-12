@@ -20,7 +20,6 @@ from tenacity import (
 from core.constants import EntityType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
-from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.protocols import EntityRepository, VectorRepository
 from modules.knowledge.graph.name_normalizer import (
@@ -30,6 +29,7 @@ from modules.knowledge.graph.resolution_rules import (
     EntityResolutionRules,
     MatchType,
 )
+from pydantic import BaseModel, Field
 
 log = get_logger(__name__)
 
@@ -52,6 +52,22 @@ class ConstraintError(Exception):
     """Exception raised when Neo4j constraint is violated."""
 
     pass
+
+
+class EntityBatchDecision(BaseModel):
+    """批量消解中单个实体的 LLM 决策（entity_index 回显，乱序安全）."""
+
+    entity_index: int = Field(ge=0, description="待决实体编号（0-based，回显）")
+    should_merge: bool
+    target_neo4j_id: str | None = Field(default=None, description="仅 should_merge=true 时提供")
+    target_canonical_name: str | None = Field(default=None)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class EntityBatchDedupOutput(BaseModel):
+    """批量消解 LLM 响应：每个待决实体恰好一个 decision."""
+
+    decisions: list[EntityBatchDecision] = Field(description="与输入实体一一对应")
 
 
 def _is_constraint_error(exc: Exception) -> bool:
@@ -82,6 +98,7 @@ class EntityResolver:
     MAX_MERGE_RETRIES = 3
     HIGH_CONFIDENCE_THRESHOLD = 0.9
     RESOLUTION_CANDIDATE_LIMIT = 10
+    MAX_BATCH_LLM_ENTITIES = 20
 
     def __init__(
         self,
@@ -530,40 +547,45 @@ class EntityResolver:
     ) -> dict[str, Any]:
         """Use LLM to determine if entities should be merged.
 
+        Delegates to the batched decision call with a single-entity chunk so
+        the single-entity path and ``resolve_entities_batch`` share one
+        prompt contract (v1.2.0 batch schema — a shared CallPoint prompt
+        cannot serve two different payload shapes).
+
         Routed via ``call_at(CallPoint.ENTITY_RESOLVER)`` so the call
-        participates in routing / cache / resilience / usage accounting
-        (P2 fix — previously bypassed via ``self._llm.chat()``, which
-        skipped prompt-loader, router, and failure recording).
+        participates in routing / cache / resilience / usage accounting.
         """
         if not self._llm:
             return {"should_merge": False}
 
-        # Build candidate summary (top 5 by similarity)
-        candidate_text = "\n".join(
+        decisions = await self._llm_deduplicate_batch(
             [
-                f"- {c.get('canonical_name', 'unknown')} "
-                f"(type: {c.get('type', 'unknown')}, "
-                f"similarity: {c.get('similarity', 0):.2f})"
-                for c in candidates[:5]
+                {
+                    "name": query_name,
+                    "entity_type": entity_type,
+                    "candidates": candidates,
+                }
             ]
         )
-
-        try:
-            content = await self._llm.call_at(
-                CallPoint.ENTITY_RESOLVER,
-                {
-                    "query_name": query_name,
-                    "entity_type": entity_type,
-                    "candidates": candidate_text,
-                },
+        decision = decisions[0]
+        if decision is None or not decision.should_merge:
+            return {"should_merge": False, "confidence": decision.confidence if decision else 0.0}
+        valid_ids = {c.get("neo4j_id") for c in candidates}
+        if not decision.target_neo4j_id or decision.target_neo4j_id not in valid_ids:
+            log.warning(
+                "llm_dedupe_merge_invalid_target",
+                query_name=query_name,
+                target_neo4j_id=decision.target_neo4j_id,
             )
-            # call_at may return a model instance or raw string; coerce to str
-            text = content if isinstance(content, str) else str(content)
-            return parse_llm_json(text)
-        except Exception as e:
-            log.warning("llm_dedupe_failed", error=str(e))
-
-        return {"should_merge": False}
+            return {"should_merge": False, "confidence": decision.confidence}
+        return {
+            "should_merge": True,
+            "confidence": decision.confidence,
+            "target_entity": {
+                "neo4j_id": decision.target_neo4j_id,
+                "canonical_name": decision.target_canonical_name,
+            },
+        }
 
     def _looks_like_metric_string(self, name: str) -> bool:
         """Check if a name is a metric string rather than a stable entity name.
@@ -636,7 +658,13 @@ class EntityResolver:
         self,
         entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Resolve a batch of entities in parallel.
+        """Resolve a batch of entities with two-phase batched LLM decisions.
+
+        Phase A runs per-entity local stages (normalize/exact/vector/rule) in
+        order and collects the entities that would reach the LLM dedup stage.
+        Phase B issues a SINGLE batched decision call for all pending
+        entities (ComEM Select strategy — one call instead of N). Phase C
+        applies decisions in original entity order.
 
         Args:
             entities: List of entity dicts with 'name', 'type', 'embedding'.
@@ -644,18 +672,226 @@ class EntityResolver:
         Returns:
             List of resolved entity dicts.
         """
-        import asyncio
+        results: list[dict[str, Any] | None] = [None] * len(entities)
+        llm_pending: list[tuple[int, dict[str, Any]]] = []
 
-        tasks = [
-            self.resolve_entity(
-                name=entity.get("name", ""),
-                entity_type=entity.get("type", EntityType.UNKNOWN.value),
-                embedding=entity.get("embedding", []),
-                description=entity.get("description"),
+        for i, entity in enumerate(entities):
+            name = entity.get("name", "")
+            entity_type = entity.get("type", EntityType.UNKNOWN.value)
+            embedding = entity.get("embedding", [])
+            description = entity.get("description")
+
+            if entity_type == EntityType.DATA_METRIC.value and (
+                self._disable_data_metrics or self._looks_like_metric_string(name)
+            ):
+                results[i] = self._filtered_metric_result(name)
+                continue
+
+            norm_result = self._normalizer.normalize(name, entity_type)
+            exact_match = await self._try_exact_match(name, norm_result.normalized, entity_type)
+            if exact_match:
+                results[i] = exact_match
+                continue
+
+            if not embedding:
+                results[i] = await self._create_without_embedding(name, entity_type, description)
+                continue
+
+            candidates = await self._find_similar_candidates(embedding)
+            if not candidates:
+                results[i] = await self._create_without_embedding(name, entity_type, description)
+                continue
+
+            rule_result = self._rules.resolve(name, entity_type, candidates)
+            if rule_result.match_type != MatchType.NONE:
+                merge_result = await self._try_rule_merge(
+                    name, entity_type, candidates, rule_result, embedding
+                )
+                if merge_result:
+                    results[i] = merge_result
+                    continue
+
+            if not self._llm:
+                results[i] = await self._resolve_and_create(
+                    name, entity_type, candidates, embedding, description
+                )
+                continue
+
+            llm_pending.append(
+                (
+                    i,
+                    {
+                        "name": name,
+                        "entity_type": entity_type,
+                        "candidates": candidates,
+                        "embedding": embedding,
+                        "description": description,
+                    },
+                )
             )
-            for entity in entities
+
+        if llm_pending:
+            decisions = await self._decide_pending(llm_pending)
+            for (idx, info), decision in zip(llm_pending, decisions, strict=True):
+                # H3 校验：target_neo4j_id 必须来自该实体的候选集，防幻觉 id 写悬空向量
+                valid_ids = {c.get("neo4j_id") for c in info["candidates"]}
+                merge_ok = (
+                    decision is not None
+                    and decision.should_merge
+                    and decision.target_neo4j_id in valid_ids
+                )
+                if merge_ok:
+                    target_name = decision.target_canonical_name
+                    if not target_name:
+                        target_name = next(
+                            c.get("canonical_name")
+                            for c in info["candidates"]
+                            if c.get("neo4j_id") == decision.target_neo4j_id
+                        )
+                    results[idx] = await self._merge_with_existing(
+                        new_name=info["name"],
+                        entity_type=info["entity_type"],
+                        target={
+                            "neo4j_id": decision.target_neo4j_id,
+                            "canonical_name": target_name,
+                        },
+                        embedding=info["embedding"],
+                        match_type="llm_dedup",
+                        confidence=decision.confidence,
+                    )
+                    continue
+                if decision is not None and decision.should_merge:
+                    log.warning(
+                        "entity_batch_merge_invalid_target",
+                        entity_index=idx,
+                        target_neo4j_id=decision.target_neo4j_id,
+                    )
+                if decision is None and self._llm:
+                    # 逐实体回退：批量决策不可用时保持原单实体语义（正确性优先）
+                    merged = await self._try_llm_merge(
+                        info["name"], info["entity_type"], info["candidates"], info["embedding"]
+                    )
+                    results[idx] = merged or await self._resolve_and_create(
+                        info["name"],
+                        info["entity_type"],
+                        info["candidates"],
+                        info["embedding"],
+                        info["description"],
+                    )
+                else:
+                    results[idx] = await self._resolve_and_create(
+                        info["name"],
+                        info["entity_type"],
+                        info["candidates"],
+                        info["embedding"],
+                        info["description"],
+                    )
+
+        unresolved = [i for i, r in enumerate(results) if r is None]
+        if unresolved:
+            raise RuntimeError(f"entity resolution left unresolved slots: {unresolved}")
+        return results
+
+    async def _decide_pending(
+        self,
+        llm_pending: list[tuple[int, dict[str, Any]]],
+    ) -> list[EntityBatchDecision | None]:
+        """Batched LLM decisions, chunked by MAX_BATCH_LLM_ENTITIES.
+
+        Returns decisions aligned with ``llm_pending``; None slots mark
+        degraded entities (batch unusable after retry — caller falls back
+        to per-entity resolution).
+        """
+        pending_infos = [info for _, info in llm_pending]
+        decisions: list[EntityBatchDecision | None] = [None] * len(pending_infos)
+
+        for start in range(0, len(pending_infos), self.MAX_BATCH_LLM_ENTITIES):
+            chunk = pending_infos[start : start + self.MAX_BATCH_LLM_ENTITIES]
+            chunk_decisions = await self._llm_deduplicate_batch(chunk)
+            for j, d in enumerate(chunk_decisions):
+                decisions[start + j] = d
+
+        degraded = sum(1 for d in decisions if d is None)
+        if degraded:
+            log.warning("entity_batch_llm_degraded", degraded=degraded, total=len(pending_infos))
+        return decisions
+
+    async def _llm_deduplicate_batch(
+        self,
+        chunk: list[dict[str, Any]],
+    ) -> list[EntityBatchDecision | None]:
+        """Single batched LLM call deciding a whole chunk of pending entities.
+
+        Alignment prefers the echoed ``entity_index`` (order-safe), falling
+        back to array order. Length mismatch or failure retries once; a
+        second failure returns all-None (caller degrades per entity).
+        """
+        payload_entities = [
+            {
+                "index": j,
+                "name": info["name"],
+                "type": info["entity_type"],
+                "candidates": [
+                    {
+                        "neo4j_id": c.get("neo4j_id", ""),
+                        "canonical_name": c.get("canonical_name", "unknown"),
+                        "type": c.get("type", "unknown"),
+                        "similarity": round(float(c.get("similarity", 0)), 2),
+                    }
+                    for c in info["candidates"][:5]
+                ],
+            }
+            for j, info in enumerate(chunk)
         ]
-        return await asyncio.gather(*tasks)
+
+        for attempt in (1, 2):
+            decisions: list[EntityBatchDecision] | None = None
+            try:
+                output: EntityBatchDedupOutput = await self._llm.call_at(
+                    CallPoint.ENTITY_RESOLVER,
+                    {"entities": payload_entities},
+                    output_model=EntityBatchDedupOutput,
+                )
+                decisions = list(output.decisions)
+            except Exception as exc:
+                log.warning(
+                    "entity_batch_llm_failed",
+                    attempt=attempt,
+                    error=str(exc),
+                )
+
+            if decisions:
+                aligned = self._align_batch_decisions(len(chunk), decisions)
+                if any(a is not None for a in aligned):
+                    # 部分对齐也接受：未对齐槽位由调用方逐实体回退（避免整批作废）
+                    return aligned
+            log.warning(
+                "entity_batch_decision_mismatch",
+                attempt=attempt,
+                expected=len(chunk),
+                got=len(decisions) if decisions is not None else -1,
+            )
+
+        return [None] * len(chunk)
+
+    @staticmethod
+    def _align_batch_decisions(
+        expected: int,
+        decisions: list[EntityBatchDecision],
+    ) -> list[EntityBatchDecision | None]:
+        """Align decisions to pending entities: echoed index first, order fallback.
+
+        Returns per-slot results; None slots (no valid decision for that
+        entity) degrade individually at the caller.
+        """
+        by_index = {d.entity_index: d for d in decisions if 0 <= d.entity_index < expected}
+        if by_index:
+            # 回显可信：按 index 映射，缺失槽位降级
+            return [by_index.get(i) for i in range(expected)]
+        if len(decisions) == expected:
+            # 模型未回显 index 但数量吻合 → 按数组顺序对齐
+            return list(decisions)
+        return [None] * expected
 
     async def pre_resolve_check(
         self,

@@ -556,6 +556,7 @@ Prompt 侧的时间锚定采用**日粒度 + 尾置**：`call_at` 在 system pro
 
 - **briefing 输入 summary 优先**：每日简报与叙事简报的 LLM payload 优先渲染每篇文章的 `ArticleBody.summary`（analyze 产物）,缺失时回退 body 前 500 字符；body JOIN 仅用于 AI 分类关键词过滤。
 - **MC 采样批量评分**：长文档（>10k 字符）的采样区域评分合并为单次 LLM 调用（payload 携带 `R1..Rn` 编号区域,返回 `{"scores": [...]}` 数组,按索引对齐）；数组长度不符或调用失败时全部区域降级默认低分,由低置信度 fallback（返回截断原文）兜底。
+- **实体消解批量 Select**：`resolve_entities_batch` 两阶段执行——本地阶段（归一化/精确匹配/向量候选/规则合并）逐实体顺序处理后,将未决实体合并为**单次批量决策调用**（`call_at(ENTITY_RESOLVER, output_model=EntityBatchDedupOutput)`,每实体 ≤5 候选,按 `entity_index` 回显对齐）；长度不符重试 1 次,仍失败逐实体回退到原单实体路径（正确性优先）。每篇 LLM 消解调用从 O(触发实体数) 降为 ⌈待决/20⌉ 次。
 
 ### Container Wiring
 
