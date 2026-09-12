@@ -1151,8 +1151,19 @@ class LLMClient:
             computed=len(uncached_texts),
         )
 
-        # 返回结果,未计算的返回零向量
-        return [e or [0.0] * 1024 for e in all_embeddings]
+        # Fail-loud: a missing or empty embedding must never be silently
+        # substituted with a zero vector — zero vectors make all texts
+        # equally (dis)similar and poison similarity search and entity
+        # dedup once persisted. Surface the shortfall to the caller's
+        # error handling instead.
+        missing_indices = [i for i, e in enumerate(all_embeddings) if not e]
+        if missing_indices:
+            raise ValueError(
+                f"embedding_result_incomplete: {len(missing_indices)}/{len(texts)} "
+                f"embeddings missing (indices {missing_indices[:10]})"
+            )
+
+        return [e for e in all_embeddings if e is not None]
 
     async def embed_default(
         self,
