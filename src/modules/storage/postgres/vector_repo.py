@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import String, delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.db import Article, ArticleVector, EntityVector, VectorType
 from core.db.query_builders import DatabaseType, VectorQueryBuilder
@@ -350,7 +351,9 @@ class VectorRepo:
     ) -> dict[uuid.UUID, list[ArticleSearchResultView]]:
         """Batch find similar articles for multiple embeddings.
 
-        Uses a single database session with concurrent queries for efficiency.
+        Runs all similarity queries sequentially on a single session —
+        SQLAlchemy AsyncSession forbids concurrent use (the DuckDB branch
+        follows the same pattern).
 
         Args:
             queries: List of (query_id, embedding) tuples.
@@ -388,11 +391,9 @@ class VectorRepo:
             ef_value = _resolve_ef_search(None)
             await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
 
-            # Build query configurations for parallel execution
-            async def execute_single_query(
-                qid: uuid.UUID, embedding: list[float]
-            ) -> tuple[uuid.UUID, list[ArticleSearchResultView]]:
-                query = text(self._query_builder.build_find_similar_articles_query(config))
+            query = text(self._query_builder.build_find_similar_articles_query(config))
+
+            for query_id, embedding in queries:
                 formatted_emb = self._query_builder.format_embedding_param(embedding)
 
                 # Build params dict with required and optional values
@@ -407,27 +408,14 @@ class VectorRepo:
                     params["model_id"] = model_id
 
                 rows = await session.execute(query, params)
-                return (
-                    qid,
-                    [
-                        ArticleSearchResultView(
-                            article_id=row.article_id,
-                            category=row.category,
-                            similarity=row.similarity,
-                        )
-                        for row in rows
-                    ],
-                )
-
-            # Execute all queries in parallel using asyncio.gather
-            query_tasks = [
-                execute_single_query(query_id, embedding) for query_id, embedding in queries
-            ]
-            query_results = await asyncio.gather(*query_tasks)
-
-            # Build results dict from parallel execution results
-            for qid, articles in query_results:
-                results[qid] = articles
+                results[query_id] = [
+                    ArticleSearchResultView(
+                        article_id=row.article_id,
+                        category=row.category,
+                        similarity=row.similarity,
+                    )
+                    for row in rows
+                ]
 
         return results
 
@@ -506,27 +494,27 @@ class VectorRepo:
         if self._query_builder.database_type == DatabaseType.DUCKDB:
             await self._upsert_entity_vectors_duckdb(entities, model_id, use_temp_key)
         else:
-            # PostgreSQL: use ORM approach
+            # PostgreSQL: one bulk ON CONFLICT upsert — neo4j_id carries a
+            # unique constraint, so concurrent batches can never race into
+            # duplicate rows or UniqueViolation the way select-then-insert did.
             async with self._pool.session() as session:
-                for name, embedding in entities:
-                    # Use temp key for deferred UUID assignment
-                    key = f"temp:{name}" if use_temp_key else name
-                    result = await session.execute(
-                        select(EntityVector).where(EntityVector.neo4j_id == key)
-                    )
-                    existing = result.scalar_one_or_none()
-
-                    if existing:
-                        existing.embedding = embedding
-                        existing.model_id = model_id
-                    else:
-                        ev = EntityVector(
-                            neo4j_id=key,
-                            embedding=embedding,
-                            model_id=model_id,
-                        )
-                        session.add(ev)
-
+                values = [
+                    {
+                        "neo4j_id": f"temp:{name}" if use_temp_key else name,
+                        "embedding": embedding,
+                        "model_id": model_id,
+                    }
+                    for name, embedding in entities
+                ]
+                stmt = pg_insert(EntityVector).values(values)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["neo4j_id"],
+                    set_={
+                        "embedding": stmt.excluded.embedding,
+                        "model_id": stmt.excluded.model_id,
+                    },
+                )
+                await session.execute(stmt)
                 await session.commit()
 
     async def _upsert_entity_vectors_duckdb(

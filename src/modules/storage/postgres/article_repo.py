@@ -306,7 +306,12 @@ class ArticleRepo:
                     (ArticleCore.content_hash != content_hash, stmt.excluded.title),
                     else_=ArticleCore.title,
                 ),
-                "category": stmt.excluded.category,
+                "category": case(
+                    # A degraded re-run may lack a category — never NULL out
+                    # an existing classification (same guard as publish_time).
+                    (stmt.excluded.category.isnot(None), stmt.excluded.category),
+                    else_=ArticleCore.category,
+                ),
                 "language": stmt.excluded.language,
                 "region": stmt.excluded.region,
                 "score": stmt.excluded.score,

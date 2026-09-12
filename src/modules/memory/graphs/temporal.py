@@ -319,6 +319,12 @@ class TemporalGraphRepo(BaseGraphRepo):
         if start_time is not None and end_time is not None:
             time_predicate = f" AND e.{time_field} >= $start_time AND e.{time_field} <= $end_time"
 
+        # Semantic mode re-ranks in memory, so it must fetch a WIDER
+        # candidate window than ``limit`` — with LIMIT == limit only the
+        # oldest CONTAINS hits are ever considered and newer events can
+        # never enter the top-N regardless of their similarity.
+        candidate_limit = max(limit * 5, 50) if query_embedding is not None else limit
+
         # Simple content-based search (CONTAINS is case-sensitive in Neo4j)
         # Use toLower for case-insensitive matching.
         # D2: RETURN e.embedding AS embedding so callers can construct
@@ -332,10 +338,10 @@ class TemporalGraphRepo(BaseGraphRepo):
                e.attributes AS attributes,
                e.embedding AS embedding
         ORDER BY e.{time_field} ASC
-        LIMIT $limit
+        LIMIT $candidate_limit
         """
 
-        params: dict[str, Any] = {"query": query, "limit": limit}
+        params: dict[str, Any] = {"query": query, "candidate_limit": candidate_limit}
         if start_time is not None and end_time is not None:
             # Neo4j timestamp is datetime type — convert int params to datetime
             if self._is_ladybug:
