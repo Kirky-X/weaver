@@ -81,6 +81,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     instrument_fastapi(app)
     log.debug("fastapi_instrumented")
 
+    # Pre-startup environment validation (non-blocking): the container
+    # strategy supports degraded startup (e.g. Neo4j → LadybugDB), so
+    # validation failures are surfaced loudly here instead of aborting —
+    # they would otherwise only appear as confusing request-time errors.
+    from core.health import validate_environment
+
+    all_healthy, validation_results = await validate_environment(
+        container.settings, print_report=False
+    )
+    if all_healthy:
+        log.info("environment_validated", services=sorted(validation_results))
+    else:
+        log.warning(
+            "environment_validation_failed_services",
+            failed=sorted(name for name, r in validation_results.items() if not r.healthy),
+            details={
+                name: [d for d in r.details if d.startswith("✗")][:3]
+                for name, r in validation_results.items()
+                if not r.healthy
+            },
+        )
+
     await container.startup()
 
     # Register services for API endpoints

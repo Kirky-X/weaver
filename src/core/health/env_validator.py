@@ -439,6 +439,23 @@ class EnvironmentValidator:
         self._cache.set(cache_key, result)
         return result
 
+    def _resolve_embedding_route(self) -> tuple[str | None, str | None]:
+        """Return (provider, model) from llm.toml [defaults.embedding].primary.
+
+        Label format: "embedding.<provider>.<model>" where model may contain
+        dots — split on the first two dots only.
+        """
+        try:
+            routing = self._settings.llm.defaults.get("embedding")
+            primary = routing.primary if routing else None
+            if primary:
+                parts = primary.split(".", 2)
+                if len(parts) >= 3:
+                    return parts[1], parts[2]
+        except (AttributeError, KeyError):  # pragma: no cover - malformed settings
+            log.warning("embedding_route_resolution_failed", exc_info=True)
+        return None, None
+
     async def validate_embedding(self) -> ValidationResult:
         """Validate embedding model accessibility.
 
@@ -452,11 +469,18 @@ class EnvironmentValidator:
         start_time = time.monotonic()
         result = ValidationResult(service="Embedding", healthy=False)
 
-        embedding_provider = self._settings.llm.embedding_provider
-        embedding_model = self._settings.llm.embedding_model
+        # Resolve the embedding provider/model from the routing defaults —
+        # the same label embed_default() actually uses at runtime
+        # ([defaults.embedding].primary, "embedding.<provider>.<model>").
+        embedding_provider, embedding_model = self._resolve_embedding_route()
 
-        result.details.append(f"Provider: {embedding_provider}")
-        result.details.append(f"Model: {embedding_model}")
+        result.details.append(f"Provider: {embedding_provider or 'not configured'}")
+        result.details.append(f"Model: {embedding_model or 'not configured'}")
+
+        if not embedding_provider or not embedding_model:
+            result.details.append("✗ No default embedding route configured")
+            result.suggestions.append("Set [defaults.embedding].primary in config/llm.toml")
+            return result
 
         providers = self._settings.llm.providers
         if embedding_provider not in providers:

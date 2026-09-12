@@ -230,8 +230,9 @@ class TestEnvironmentValidatorInit:
         settings.redis.url = "redis://localhost:6379/0"
         settings.llm = MagicMock()
         settings.llm.providers = {}
-        settings.llm.embedding_provider = "openai"
-        settings.llm.embedding_model = "text-embedding-3-small"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+        }
         return settings
 
     def test_initialization(self, mock_settings):
@@ -261,8 +262,9 @@ def _create_mock_settings():
     settings.redis.url = "redis://localhost:6379/0"
     settings.llm = MagicMock()
     settings.llm.providers = {}
-    settings.llm.embedding_provider = "openai"
-    settings.llm.embedding_model = "text-embedding-3-small"
+    settings.llm.defaults = {
+        "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+    }
 
     # Health check settings (now used by env_validator)
     settings.health_check = MagicMock()
@@ -907,8 +909,9 @@ class TestValidateEmbedding:
                 "api_key": "test-api-key",
             }
         }
-        settings.llm.embedding_provider = "openai"
-        settings.llm.embedding_model = "text-embedding-3-small"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+        }
         return settings
 
     @pytest.fixture
@@ -921,17 +924,19 @@ class TestValidateEmbedding:
                 "base_url": "http://localhost:11434",
             }
         }
-        settings.llm.embedding_provider = "ollama"
-        settings.llm.embedding_model = "nomic-embed-text"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.ollama.nomic-embed-text")
+        }
         return settings
 
     @pytest.fixture
     def mock_settings_provider_not_configured(self):
-        """Create mock settings where embedding provider not in providers dict."""
+        """Create mock settings where the embedding provider is not configured."""
         settings = _create_mock_settings()
         settings.llm.providers = {}
-        settings.llm.embedding_provider = "missing_provider"
-        settings.llm.embedding_model = "some-model"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.missing_provider.some-model")
+        }
         return settings
 
     @pytest.mark.asyncio
@@ -943,6 +948,18 @@ class TestValidateEmbedding:
         assert result.healthy is False
         assert any("Provider 'missing_provider' not configured" in d for d in result.details)
         assert any("Configure 'missing_provider' provider" in s for s in result.suggestions)
+
+    @pytest.mark.asyncio
+    async def test_embedding_route_not_configured(self):
+        """No [defaults.embedding] route → unhealthy with a fix suggestion."""
+        settings = _create_mock_settings()
+        settings.llm.defaults = {}
+        validator = EnvironmentValidator(settings)
+        result = await validator.validate_embedding()
+
+        assert result.healthy is False
+        assert any("No default embedding route configured" in d for d in result.details)
+        assert any("defaults.embedding" in s for s in result.suggestions)
 
     @pytest.mark.asyncio
     async def test_embedding_openai_success(self, mock_settings_openai):
