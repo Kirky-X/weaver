@@ -150,6 +150,16 @@ class ContainerServicesMixin:
                 log.info("items_discovered", count=len(items), source=source.id, force=force)
 
             registry = self.source_registry()
+            # Load external parser plugins (entry points + WEAVER_SOURCE_PLUGINS
+            # directories) before bridging DB sources — without this call the
+            # whole plugin chain was dead code. A broken plugin must not block
+            # scheduler startup.
+            try:
+                loaded_plugins = registry.load_plugins()
+                if loaded_plugins:
+                    log.info("source_plugins_loaded", plugins=loaded_plugins)
+            except Exception as exc:
+                log.warning("source_plugins_load_failed", error=str(exc), exc_info=True)
             # Bridge DB sources into the in-memory registry so the scheduler
             # discovers and crawls all DB-persisted sources on startup.
             db_sources = await self.source_config_repo().list_sources(enabled_only=True)

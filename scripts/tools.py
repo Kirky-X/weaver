@@ -489,7 +489,8 @@ async def cmd_evaluate_hnsw(args: argparse.Namespace) -> int:
     """Run HNSW performance tests."""
 
     from core.db.postgres import PostgresPool
-    from modules.storage.vector_repo import VectorRepo
+    from core.db.query_builders import create_vector_query_builder
+    from modules.storage.postgres.vector_repo import VectorRepo
 
     print("=" * 80)
     print("HNSW Vector Index Performance Test")
@@ -499,7 +500,7 @@ async def cmd_evaluate_hnsw(args: argparse.Namespace) -> int:
     dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
 
     pool = PostgresPool(dsn)
-    repo = VectorRepo(pool)
+    repo = VectorRepo(pool=pool, query_builder=create_vector_query_builder("postgres"))
 
     report = PerformanceReport()
 
