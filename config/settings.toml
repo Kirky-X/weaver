@@ -70,8 +70,19 @@ temporal_decay_enabled = false
 temporal_decay_half_life_days = 30.0
 
 [dedup]
+# Wired to SimHashDeduplicator (container.simhash_dedup) and
+# DiscoveryProcessor.enable_simhash. threshold = max Hamming distance.
 enable_simhash_dedup = true
 simhash_hamming_threshold = 3
+
+[fake_news_detector]
+# Drives the Phase 3 fake_news_detector stage via FakeNewsDetectorConfig.
+# enabled=false removes the stage from the pipeline entirely.
+enabled = true
+model_path = ""  # Empty = rule-based fallback (no LightGBM model)
+confidence_trusted = 0.8
+confidence_suspicious = 0.4
+exaggeration_keywords = ["震惊", "惊天", "竟然", "不敢相信", "绝密", "曝光"]
 
 [observability]
 otlp_endpoint = ""

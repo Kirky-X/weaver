@@ -1008,6 +1008,7 @@ class ContainerLifecycleMixin:
             article_repo=self.article_repo(),
             deduplicator=self.deduplicator(),
             simhash_dedup=self.simhash_dedup(),
+            enable_simhash=self._settings.dedup.enable_simhash_dedup,
             processing_queue=self.processing_queue(),
         )
         await self.init_source_scheduler(processor.on_items_discovered)

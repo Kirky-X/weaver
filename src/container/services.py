@@ -703,16 +703,23 @@ class ContainerServicesMixin:
             )
         return self._deduplicator
 
-    def simhash_dedup(self) -> SimHashDeduplicator:
+    def simhash_dedup(self) -> SimHashDeduplicator | None:
         """Get SimHash title deduplicator (D1 wiring).
 
         Cross-source title-level deduplication; uses cache pool for
         fingerprint storage. See ``temp/report.md`` D1 dead-code fix.
+        Returns None when disabled via ``settings.dedup.enable_simhash_dedup``.
         """
         from modules.ingestion import SimHashDeduplicator
 
         if self._simhash_dedup is None:
-            self._simhash_dedup = SimHashDeduplicator(cache=self._cache_client)
+            dedup_settings = self._settings.dedup
+            if not dedup_settings.enable_simhash_dedup:
+                return None
+            self._simhash_dedup = SimHashDeduplicator(
+                cache=self._cache_client,
+                threshold=dedup_settings.simhash_hamming_threshold,
+            )
         return self._simhash_dedup
 
     def retry_queue(self) -> RetryQueue:
@@ -793,12 +800,16 @@ class ContainerServicesMixin:
                 llm_client=self._llm_client,
             )
 
-            # Create FakeNewsDetector (zero-cost, reuses pipeline state)
-            fake_news_config = FakeNewsDetectorConfig()
-            fake_news_detector = FakeNewsDetector(
-                config=fake_news_config,
-                llm=self._llm_client,
-            )
+            # Create FakeNewsDetector (zero-cost, reuses pipeline state).
+            # Driven by settings.fake_news_detector; enabled=false removes
+            # the Phase 3 stage entirely (the node is skipped when None).
+            fnd_settings = self._settings.fake_news_detector
+            fake_news_detector = None
+            if fnd_settings.enabled:
+                fake_news_detector = FakeNewsDetector(
+                    config=FakeNewsDetectorConfig.from_settings(fnd_settings),
+                    llm=self._llm_client,
+                )
 
             self._pipeline = Pipeline(
                 deps=PipelineDeps(

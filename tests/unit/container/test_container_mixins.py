@@ -876,6 +876,52 @@ class TestContainerServicesPipeline:
         assert c._pipeline is mock_pipeline
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("fnd_enabled", [True, False])
+    async def test_init_pipeline_wires_fake_news_detector_switch(self, fnd_enabled) -> None:
+        """settings.fake_news_detector.enabled controls the detector wiring."""
+        c = _make_container()
+        c._settings = _make_settings()
+        c._settings.fake_news_detector.enabled = fnd_enabled
+        c._llm_client = MagicMock()
+        c._prompt_loader = MagicMock()
+        c._cache_client = MagicMock()
+        c._event_bus = MagicMock()
+        c._pipeline = None
+        c._debug_mode = False
+        c._strategy = _make_strategy(has_graph=True)
+        c._vector_repo = MagicMock()
+        c._article_repo = MagicMock()
+        c._graph_writer = MagicMock()
+        c._source_authority_repo = MagicMock()
+        c._entity_resolver = MagicMock()
+        c._community_updater = MagicMock()
+        c._relation_type_normalizer = MagicMock()
+
+        mock_pipeline = MagicMock()
+        fake_news_module = "modules.analytics.fake_news_detector"
+        with (
+            patch("core.llm.config.token_budget.TokenBudgetManager", return_value=MagicMock()),
+            patch(
+                "modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=MagicMock()
+            ),
+            patch("modules.processing.pipeline.graph.Pipeline", return_value=mock_pipeline) as p,
+            patch.object(c, "_get_embedding_model_id", return_value="text-embedding-3-small"),
+            patch(
+                f"{fake_news_module}.FakeNewsDetector",
+                return_value=MagicMock(),
+            ) as mock_detector_cls,
+        ):
+            await c.init_pipeline()
+
+        deps = p.call_args[1]["deps"]
+        if fnd_enabled:
+            mock_detector_cls.assert_called_once()
+            assert deps.analyzers.fake_news_detector is mock_detector_cls.return_value
+        else:
+            mock_detector_cls.assert_not_called()
+            assert deps.analyzers.fake_news_detector is None
+
+    @pytest.mark.asyncio
     async def test_init_pipeline_creates_event_bus_if_none(self) -> None:
         c = _make_container()
         c._settings = _make_settings()

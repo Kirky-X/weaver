@@ -73,6 +73,11 @@ class_path = "modules.processing.pipeline.nodes.entity_extractor.EntityExtractor
 enabled = true
 
 [[phase3.stages]]
+name = "fake_news_detector"
+class_path = "modules.processing.nodes.quality.fake_news_node.FakeNewsDetectorNode"
+enabled = true
+
+[[phase3.stages]]
 name = "conflict_detector"
 class_path = "modules.processing.nodes.quality.conflict_detector.ConflictDetectorNode"
 enabled = true

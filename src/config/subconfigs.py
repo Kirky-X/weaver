@@ -500,6 +500,18 @@ class SagaSettings(BaseModel):
     log_retention_days: int = 30  # Days to retain saga logs before archival
 
 
+class DedupSettings(BaseModel):
+    """Cross-source deduplication configuration.
+
+    Environment variables: WEAVER__DEDUP__ENABLE_SIMHASH_DEDUP, etc.
+    Backed by settings.toml [dedup]; consumed by the SimHash title
+    deduplicator wiring in the container.
+    """
+
+    enable_simhash_dedup: bool = True
+    simhash_hamming_threshold: int = 3  # Max Hamming distance for duplicates
+
+
 class FakeNewsDetectorSettings(BaseModel):
     """Fake news detector configuration (5-dimensional feature fusion).
 
@@ -510,7 +522,6 @@ class FakeNewsDetectorSettings(BaseModel):
     model_path: str = ""  # Empty = rule-based fallback
     confidence_trusted: float = 0.8
     confidence_suspicious: float = 0.4
-    clickbait_similarity_threshold: float = 0.5
     exaggeration_keywords: list[str] = Field(
         default_factory=lambda: ["震惊", "惊天", "竟然", "不敢相信", "绝密", "曝光"]
     )

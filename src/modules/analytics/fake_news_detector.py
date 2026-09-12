@@ -118,6 +118,25 @@ class FakeNewsDetectorConfig:
     embedding_model: str | None = None
     lightgbm_model_path: str | None = None
 
+    @classmethod
+    def from_settings(cls, settings: Any) -> FakeNewsDetectorConfig:
+        """Build a config from ``FakeNewsDetectorSettings`` (settings layer).
+
+        Maps the Settings-layer fields onto the runtime dataclass so the
+        TOML/env configuration actually drives detector behaviour:
+
+        - ``confidence_trusted`` → ``trusted_threshold``
+        - ``confidence_suspicious`` → ``fake_threshold``
+        - ``exaggeration_keywords`` → ``exaggeration_words``
+        - ``model_path`` → ``lightgbm_model_path`` (empty = rule-based)
+        """
+        return cls(
+            trusted_threshold=settings.confidence_trusted,
+            fake_threshold=settings.confidence_suspicious,
+            exaggeration_words=list(settings.exaggeration_keywords),
+            lightgbm_model_path=settings.model_path or None,
+        )
+
 
 class FakeNewsDetector:
     """Fake news detector using five-dimensional feature fusion.
