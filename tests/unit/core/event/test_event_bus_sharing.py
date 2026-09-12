@@ -12,11 +12,12 @@ from core.db.query_builders import DatabaseType
 class TestEventBusSharing:
     """Test that init_pipeline() creates EventBus and shares it."""
 
-    def test_init_pipeline_creates_event_bus(self):
-        """Test init_pipeline() creates EventBus as self._event_bus.
+    def test_init_pipeline_reuses_global_event_bus(self):
+        """Test init_pipeline() binds the module-level singleton when unset.
 
-        Verifies that EventBus is created in init_pipeline() when
-        self._event_bus is None.
+        The container must never fork the bus: sync emitters (circuit
+        breakers) publish to ``core.event.event_bus``, so every subscriber
+        must live on that same instance.
         """
         import inspect
 
@@ -28,10 +29,11 @@ class TestEventBusSharing:
 
         source = inspect.getsource(container.init_pipeline)
 
-        # Verify EventBus is created in init_pipeline
-        assert "self._event_bus = EventBus()" in source, (
-            "EventBus must be assigned to self._event_bus in init_pipeline(). "
-            "This allows the pipeline to use a shared instance."
+        assert "from core.event import event_bus" in source, (
+            "init_pipeline() must import the module-level event_bus singleton"
+        )
+        assert "= EventBus()" not in source, (
+            "init_pipeline() must not instantiate a private EventBus"
         )
 
     def test_init_pipeline_checks_existing_event_bus(self):
@@ -52,8 +54,8 @@ class TestEventBusSharing:
         assert "if self._event_bus is None:" in pipeline_source, (
             "init_pipeline must check if self._event_bus already exists before creating one"
         )
-        assert "self._event_bus = EventBus()" in pipeline_source, (
-            "init_pipeline may create EventBus only when self._event_bus is None"
+        assert "self._event_bus = EventBus()" not in pipeline_source, (
+            "init_pipeline must never fork the bus with a private instance"
         )
 
     @pytest.mark.asyncio
@@ -124,17 +126,15 @@ class TestEventBusSharing:
             ),
             patch("modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
             patch("modules.processing.pipeline.graph.Pipeline") as mock_pipeline_cls,
-            patch("core.event.EventBus") as mock_event_bus_cls,
         ):
-            new_bus = MagicMock()
-            mock_event_bus_cls.return_value = new_bus
             mock_pipeline_cls.return_value = MagicMock()
 
             await container.init_pipeline()
 
-            # EventBus SHOULD be instantiated since it was None
-            mock_event_bus_cls.assert_called_once()
-            assert container._event_bus is new_bus
+            # The module-level singleton must be bound, not a fresh instance.
+            from core.event import event_bus as global_event_bus
+
+            assert container._event_bus is global_event_bus
 
     def test_startup_order_passes_event_bus_to_cleanup_handler(self):
         """Test startup() calls subscribe() on the same event_bus used by pipeline."""
