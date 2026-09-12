@@ -35,7 +35,16 @@ class RedirectBlockedError(Exception):
 
 
 class SecureRedirectHandler:
-    """Custom redirect handler that validates redirect URLs for SSRF protection."""
+    """httpx response event-hook validating each redirect target *before*
+    the next hop is requested (pre-request SSRF guard).
+
+    Registered via ``AsyncClient(event_hooks={"response": [...]})``: httpx
+    fires the hook after every hop's response arrives and only then builds
+    and sends the next redirect request, so raising here prevents any
+    request from ever reaching the unvalidated target.
+    """
+
+    _REDIRECT_STATUS = {301, 302, 303, 307, 308}
 
     def __init__(self, validator: URLValidator | None = None) -> None:
         """Initialize with optional URL validator.
@@ -45,32 +54,36 @@ class SecureRedirectHandler:
         """
         self._validator = validator
 
-    async def validate_redirect(self, request: httpx.Request, response: httpx.Response) -> None:
-        """Validate redirect URL before following.
-
-        This is called before each redirect is followed.
+    async def __call__(self, response: httpx.Response) -> None:
+        """Validate the redirect target of a 3xx response before following.
 
         Args:
-            request: The redirect request.
-            response: The response that triggered the redirect.
+            response: The just-received response; when it is a redirect the
+                ``Location`` target is validated against the URL validator.
 
         Raises:
-            RedirectBlockedError: If redirect URL is blocked.
+            RedirectBlockedError: If the redirect target is blocked.
         """
-        if not self._validator:
+        if not self._validator or response.status_code not in self._REDIRECT_STATUS:
             return
 
-        redirect_url = str(request.url)
+        location = response.headers.get("location")
+        if not location:
+            return
+
+        redirect_url = str(response.url.join(location))
 
         try:
-            # Use synchronous check first (faster)
+            # Synchronous checks first (cheap, no DNS)
             if not self._validator.is_safe_url(redirect_url):
                 raise RedirectBlockedError(redirect_url, "URL failed synchronous security check")
 
-            # Full async validation
+            # Full async validation (DNS resolution, private-network checks)
             await self._validator.validate(redirect_url)
             log.debug("redirect_validated", redirect_url=redirect_url)
 
+        except RedirectBlockedError:
+            raise
         except Exception as exc:
             log.warning(
                 "redirect_blocked",
@@ -92,6 +105,8 @@ class HttpxFetcher(BaseFetcher):
         max_connections: Maximum connections in pool.
         max_keepalive: Maximum keepalive connections.
         url_validator: Optional URL validator for SSRF protection.
+        transport: Optional custom httpx transport (tests inject
+            ``httpx.MockTransport``; production leaves it None).
     """
 
     def __init__(
@@ -102,6 +117,7 @@ class HttpxFetcher(BaseFetcher):
         max_connections: int = 100,
         max_keepalive: int = 20,
         url_validator: URLValidator | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         limits = httpx.Limits(
             max_connections=max_connections,
@@ -109,8 +125,9 @@ class HttpxFetcher(BaseFetcher):
             keepalive_expiry=30.0,
         )
 
-        # Configure redirect handling
-        # httpx supports max_redirects, default is 20
+        # Register the redirect guard as a response event-hook: httpx fires
+        # it after each hop's response and before requesting the next hop,
+        # so an unvalidated redirect target is never contacted.
         self._redirect_handler = SecureRedirectHandler(url_validator)
 
         # Per-request UA rotation (P1-4): do NOT set a client-level
@@ -119,13 +136,17 @@ class HttpxFetcher(BaseFetcher):
         # headers still win (see _get_headers).
         self._user_agents = list(user_agents) if user_agents else list(_DEFAULT_USER_AGENTS)
 
-        self._client = httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            max_redirects=10,  # Limit redirects to prevent loops
-            http2=http2,
-            limits=limits,
-        )
+        client_kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            "follow_redirects": True,
+            "max_redirects": 10,  # Limit redirects to prevent loops
+            "http2": http2,
+            "limits": limits,
+            "event_hooks": ({"response": [self._redirect_handler]} if url_validator else None),
+        }
+        if transport is not None:
+            client_kwargs["transport"] = transport
+        self._client = httpx.AsyncClient(**client_kwargs)
         self._http2_enabled = http2
         self._url_validator = url_validator
 
@@ -190,12 +211,9 @@ class HttpxFetcher(BaseFetcher):
                         "GET", url, headers=self._get_headers(headers)
                     )
 
-                    # Send with streaming to intercept redirects
+                    # Redirect targets are validated by the client-level
+                    # event-hook (SecureRedirectHandler) before each hop.
                     response = await self._client.send(request, follow_redirects=True)
-
-                    # Check redirect chain for security - do NOT retry if this fails
-                    if response.history and self._url_validator:
-                        await self._validate_redirect_chain(response.history, url)
 
                     latency = time.monotonic() - start
                     MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
@@ -337,48 +355,6 @@ class HttpxFetcher(BaseFetcher):
             MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
             log.warning("httpx_post_error", url=url, error=str(exc))
             raise
-
-    async def _validate_redirect_chain(
-        self, history: list[httpx.Response], original_url: str
-    ) -> None:
-        """Validate all URLs in redirect chain.
-
-        Args:
-            history: List of redirect responses.
-            original_url: The original URL requested.
-
-        Raises:
-            RedirectBlockedError: If any redirect URL is blocked.
-        """
-        if not self._url_validator:
-            return
-
-        for i, response in enumerate(history):
-            redirect_url = str(response.url)
-
-            # Skip the first URL (original) as it was already validated
-            if i == 0 and redirect_url == original_url:
-                continue
-
-            try:
-                # Quick synchronous check first
-                if not self._url_validator.is_safe_url(redirect_url):
-                    raise RedirectBlockedError(
-                        redirect_url, "Failed security check in redirect chain"
-                    )
-
-                log.debug("redirect_chain_validated", redirect_url=redirect_url, step=i)
-
-            except RedirectBlockedError:
-                raise
-            except Exception as exc:
-                log.warning(
-                    "redirect_chain_blocked",
-                    redirect_url=redirect_url,
-                    step=i,
-                    reason=str(exc),
-                )
-                raise RedirectBlockedError(redirect_url, str(exc)) from exc
 
     async def close(self) -> None:
         """Close the httpx client."""
