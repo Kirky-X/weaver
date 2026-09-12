@@ -894,10 +894,8 @@ class TestContainerServicesPipeline:
         c._community_updater = MagicMock()
         c._relation_type_normalizer = MagicMock()
 
-        mock_event_bus = MagicMock()
         mock_pipeline = MagicMock()
         with (
-            patch("core.event.EventBus", return_value=mock_event_bus),
             patch("core.llm.config.token_budget.TokenBudgetManager", return_value=MagicMock()),
             patch(
                 "modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=MagicMock()
@@ -906,7 +904,10 @@ class TestContainerServicesPipeline:
             patch.object(c, "_get_embedding_model_id", return_value="text-embedding-3-small"),
         ):
             await c.init_pipeline()
-        assert c._event_bus is mock_event_bus
+        # The container reuses the module-level singleton (never forks the bus).
+        from core.event import event_bus as global_event_bus
+
+        assert c._event_bus is global_event_bus
 
 
 class TestContainerServicesProcessingQueue:
@@ -1432,9 +1433,7 @@ class TestContainerLifecycleLLMClient:
         c._cache_client = MagicMock()
         c._eval_runner = None
 
-        mock_event_bus = MagicMock()
         with (
-            patch("core.event.EventBus", return_value=mock_event_bus),
             patch("core.llm.evaluation.experience.ExperienceStore", return_value=MagicMock()),
             patch("core.llm.routing.smart_router.SmartRouter", return_value=MagicMock()),
             patch("core.llm.config.live_config.LiveConfig", return_value=MagicMock()),
@@ -1442,7 +1441,10 @@ class TestContainerLifecycleLLMClient:
             patch.object(c, "prompt_loader", return_value=MagicMock()),
         ):
             await c.init_llm()
-        assert c._event_bus is mock_event_bus
+        # The container reuses the module-level singleton (never forks the bus).
+        from core.event import event_bus as global_event_bus
+
+        assert c._event_bus is global_event_bus
 
     @pytest.mark.asyncio
     async def test_init_llm_reuses_event_bus(self) -> None:

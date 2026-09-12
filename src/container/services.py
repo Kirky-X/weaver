@@ -731,7 +731,6 @@ class ContainerServicesMixin:
 
     async def init_pipeline(self) -> Pipeline:
         """Initialize the processing pipeline."""
-        from core.event import EventBus
         from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
         from modules.analytics.fake_news_detector import (
@@ -757,8 +756,12 @@ class ContainerServicesMixin:
 
         if self._pipeline is None:
             if self._event_bus is None:
-                self._event_bus = EventBus()
-                log.info("event_bus_created_in_pipeline", event_bus_id=id(self._event_bus))
+                # Same singleton as init_llm uses: one bus for the whole
+                # container so emitters and subscribers always meet.
+                from core.event import event_bus as _global_event_bus
+
+                self._event_bus = _global_event_bus
+                log.info("event_bus_reused_global", event_bus_id=id(self._event_bus))
             else:
                 log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()

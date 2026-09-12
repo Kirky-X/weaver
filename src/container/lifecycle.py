@@ -142,7 +142,6 @@ class ContainerLifecycleMixin:
 
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client with smart routing support."""
-        from core.event import EventBus
         from core.llm import LLMClient
         from core.observability import get_logger
 
@@ -150,8 +149,13 @@ class ContainerLifecycleMixin:
 
         if self._llm_client is None:
             if self._event_bus is None:
-                self._event_bus = EventBus()
-                log.info("event_bus_created_in_llm", event_bus_id=id(self._event_bus))
+                # Reuse the module-level singleton: sync emitters deep inside
+                # resilience (CircuitStateEvent) publish to it, so container
+                # subscriptions must live on the same bus to receive them.
+                from core.event import event_bus as _global_event_bus
+
+                self._event_bus = _global_event_bus
+                log.info("event_bus_reused_global", event_bus_id=id(self._event_bus))
 
             from core.llm.evaluation.experience import ExperienceStore
 
@@ -1103,6 +1107,38 @@ class ContainerLifecycleMixin:
         self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
         self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_raw)
         log.info("llm_compare_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        # Circuit breaker observability: the breakers already update their
+        # own gauges/counters; this handler is the central alert hook — a
+        # structured warning the alerting pipeline can match on.
+        from core.event import CircuitStateEvent, CredibilityComputedEvent
+        from core.observability.metrics import metrics
+
+        async def _handle_circuit_state(event: CircuitStateEvent) -> None:
+            if event.to_state == "open":
+                log.warning(
+                    "circuit_breaker_opened",
+                    provider=event.provider,
+                    from_state=event.from_state,
+                    threshold=event.threshold,
+                    timeout_secs=event.timeout_secs,
+                )
+            else:
+                log.info(
+                    "circuit_breaker_state_changed",
+                    provider=event.provider,
+                    from_state=event.from_state,
+                    to_state=event.to_state,
+                )
+
+        self._event_bus.subscribe(CircuitStateEvent, _handle_circuit_state)
+        log.info("circuit_state_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        async def _handle_credibility_computed(event: CredibilityComputedEvent) -> None:
+            metrics.credibility_score_dist.observe(event.score)
+
+        self._event_bus.subscribe(CredibilityComputedEvent, _handle_credibility_computed)
+        log.info("credibility_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         _ = self.pending_sync_repo()
 
