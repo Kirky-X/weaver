@@ -469,29 +469,6 @@ class ArticleRepo:
             )
             return {row[0] for row in result if row[0]}
 
-    async def get_existing_content_hashes(self, content_hashes: set[str]) -> set[str]:
-        """Check which content hashes already exist in the database.
-
-        Cross-source dedup (Level 2.5) — catches same content republished
-        across different sources (different URLs). Especially important
-        when title extraction fails (empty title) and SimHash/DB title
-        dedup both skip the item.
-
-        Args:
-            content_hashes: Set of SHA-256 content hashes to check.
-
-        Returns:
-            Set of content hashes that already exist.
-        """
-        if not content_hashes:
-            return set()
-
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(ArticleCore.content_hash).where(ArticleCore.content_hash.in_(content_hashes))
-            )
-            return {row[0] for row in result if row[0]}
-
     async def update_persist_status(
         self, article_id: uuid.UUID, status: PersistStatus | str
     ) -> None:
@@ -1831,25 +1808,6 @@ class ArticleRepo:
                 log.info("deduplication_complete", removed=removed_count, kept=kept_count)
 
             return {"removed": removed_count, "kept": kept_count}
-
-    async def get_by_status(self, status: PersistStatus, limit: int = 50) -> list[Article]:
-        """Get articles by persist_status.
-
-        Args:
-            status: PersistStatus value to filter by.
-            limit: Maximum number of articles to return.
-
-        Returns:
-            List of articles with the given status.
-        """
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(Article)
-                .where(Article.persist_status == status)
-                .order_by(Article.updated_at.asc())
-                .limit(limit)
-            )
-            return list(result.scalars().all())
 
     async def revert_to_stored(self, article_id: uuid.UUID) -> bool:
         """Revert article persist_status to PG_DONE for retry.

@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from core.observability import get_logger
-from core.observability.metrics import MetricsCollector
 from core.utils.sanitize import sanitize_dsn
 
 log = get_logger(__name__)
@@ -192,16 +191,3 @@ class PostgresPool:
             stats["utilization"] = 0.0
 
         return stats
-
-    async def record_metrics(self) -> None:
-        """Record pool metrics to Prometheus."""
-        stats = self.get_pool_stats()
-
-        MetricsCollector.db_pool_size.labels(pool="postgres").set(stats["pool_size"])
-        MetricsCollector.db_pool_checked_out.labels(pool="postgres").set(stats["checked_out"])
-        MetricsCollector.db_pool_utilization.labels(pool="postgres").set(stats["utilization"])
-
-        log.debug(
-            "postgres_pool_stats",
-            **stats,
-        )

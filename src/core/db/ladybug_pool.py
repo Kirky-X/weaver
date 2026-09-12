@@ -85,19 +85,6 @@ class LadybugPool:
         # This is the primary defense against hung queries.
         self._conn.set_query_timeout(self.DEFAULT_QUERY_TIMEOUT_MS)
 
-    def startup_sync(self) -> None:
-        """Initialize the LadybugDB connection (sync version for fallback use)."""
-        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = ladybug.Database(
-            self._db_path,
-            max_db_size=self._max_db_size,
-            buffer_pool_size=self._buffer_pool_size,
-        )
-        self._conn = ladybug.AsyncConnection(
-            self._db, max_concurrent_queries=self.MAX_CONCURRENT_QUERIES
-        )
-        self._conn.set_query_timeout(self.DEFAULT_QUERY_TIMEOUT_MS)
-
     async def shutdown(self) -> None:
         """Close the connection.
 

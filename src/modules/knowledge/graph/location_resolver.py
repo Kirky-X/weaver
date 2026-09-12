@@ -159,33 +159,3 @@ class LocationResolver:
                 if predicate is None or predicate(name):
                     return name
         return None
-
-    def is_location(self, name: str) -> bool:
-        """Check if a name is a known location.
-
-        Args:
-            name: Name to check.
-
-        Returns:
-            True if name is a known location.
-        """
-        return name.lower() in self._name_to_iso
-
-    def get_hierarchy(self, iso_code: str) -> dict:
-        """Get location hierarchy information.
-
-        Args:
-            iso_code: ISO 3166 alpha-2 country code.
-
-        Returns:
-            Dictionary with hierarchy information.
-        """
-        country = self._country_data.get(iso_code)
-        if not country:
-            return {}
-
-        return {
-            "name": country.get("name"),
-            "iso_code": iso_code,
-            "continent": country.get("continent"),
-        }

@@ -23,7 +23,6 @@ from modules.knowledge.graph.community.updater import (
     IncrementalUpdateResult,
 )
 from modules.knowledge.graph.entity_resolver import EntityResolver
-from modules.knowledge.graph.location_hierarchy import LocationHierarchy, LocationNode
 from modules.knowledge.graph.location_resolver import LocationResolver, LocationResult
 from modules.knowledge.graph.metrics import GraphMetrics, GraphQualityMetrics
 from modules.knowledge.graph.name_normalizer import NameNormalizer, name_normalizer

@@ -100,7 +100,6 @@ class RedisSettings(BaseModel):
     port: int = 6379
     db: int = 0
     password: str = ""  # Set via WEAVER_REDIS__PASSWORD (optional)
-    scan_count: int = 100  # Default Redis SCAN batch size
 
     @property
     def url(self) -> str:
@@ -292,7 +291,6 @@ class FetcherSettings(BaseModel):
     """Fetcher settings."""
 
     default_per_host_concurrency: int = 2
-    global_max_concurrency: int = 32
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
     # User-Agent rotation pool (P1-4 fix). Each request draws a random
@@ -363,11 +361,7 @@ class MemorySettings(BaseModel):
     consolidation_interval_minutes: int = 30
     causal_confidence_threshold: float = 0.7
     consolidation_batch_size: int = 10
-    # Temporal chain query limits for adaptive search
-    temporal_chain_why_limit: int = 5  # WHY query anchor limit
-    temporal_chain_when_limit: int = 3  # WHEN query anchor limit
     temporal_chain_default_limit: int = 3  # Default anchor limit
-    temporal_chain_event_lookup_limit: int = 1000  # Event data lookup limit
     max_traversal_depth: int = 5
     beam_width: int = 10
     token_budget: int = 4000
@@ -394,14 +388,8 @@ class URLSecuritySettings(BaseModel):
     urlhaus_api_timeout: float = 5.0
     phishtank_enabled: bool = True
     phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
-    phishtank_sync_interval_hours: int = 6
-    phishtank_data_path: str = data_path("phishtank.json")
     heuristic_enabled: bool = True
-    heuristic_check_encoded_chars: bool = True
-    heuristic_check_suspicious_keywords: bool = True
-    heuristic_check_domain_structure: bool = True
     ssl_verify_enabled: bool = True
-    ssl_verify_timeout: float = 10.0
     cache_enabled: bool = True
     cache_safe_ttl_seconds: int = 21600
     cache_malicious_ttl_seconds: int = 900
@@ -411,7 +399,6 @@ class EntitySettings(BaseModel):
     """Entity extraction and resolution configuration."""
 
     disable_data_metrics_nodes: bool = False
-    resolution_candidate_limit: int = 10  # Vector search candidate limit for entity resolution
 
 
 class HealthCheckSettings(BaseModel):
@@ -443,14 +430,12 @@ class TemporalMemorySettings(BaseModel):
 class PipelineUrlEndpointSettings(BaseModel):
     """Single URL pipeline processing endpoint configuration."""
 
-    whitelist_enabled: bool = False
     allowed_domains: list[str] = Field(default_factory=list)
 
 
 class PipelineProcessSettings(BaseModel):
     """Pipeline processing configuration."""
 
-    merge_cross_query_limit: int = 20  # Cross-query similar articles limit
     drain_timeout: float = 30.0  # Pipeline drain timeout
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
@@ -473,17 +458,6 @@ class KnowledgeCacheSettings(BaseModel):
     max_queries: int = 5  # FIFO queue size per cluster
     similarity_threshold: float = 0.85  # Minimum similarity for cache hit
     hotness_threshold: float = 0.3  # Minimum hotness to keep cluster
-
-
-class DailyBriefingSettings(BaseModel):
-    """Daily briefing generation configuration.
-
-    Environment variables: WEAVER__DAILY_BRIEFING__MAX_ITEMS, etc.
-    """
-
-    max_items: int = 10
-    max_per_category: int = 3
-    lookback_hours: int = 24
 
 
 class SagaSettings(BaseModel):

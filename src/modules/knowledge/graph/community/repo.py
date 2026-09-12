@@ -779,26 +779,6 @@ class Neo4jCommunityRepo:
         )
         return bool(result)
 
-    async def mark_report_stale(self, community_id: str) -> bool:
-        """Mark a community report as stale.
-
-        Args:
-            community_id: Community UUID.
-
-        Returns:
-            True if marked stale.
-        """
-        if self._database_type == GraphDatabaseType.LADYBUG:
-            # LadybugDB: No stale field in schema, just skip
-            return True
-        query = """
-        MATCH (r:CommunityReport {community_id: $community_id})
-        SET r.stale = true, r.updated_at = datetime()
-        RETURN r.id AS id
-        """
-        result = await self._pool.execute_query(query, {"community_id": community_id})
-        return bool(result)
-
     async def delete_report(self, community_id: str) -> bool:
         """Delete a community report.
 

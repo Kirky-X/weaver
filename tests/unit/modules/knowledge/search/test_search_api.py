@@ -12,7 +12,13 @@ from fastapi import HTTPException
 
 pytestmark = pytest.mark.xdist_group(name="endpoints_deps")
 
-from api.endpoints.deps_registry import Endpoints
+from api.dependencies import (
+    get_container,
+    get_global_search_engine,
+    get_llm_client,
+    get_local_search_engine,
+    get_vector_repo,
+)
 from core.models.shared import ArticleSearchResultView
 from modules.knowledge.search.engines.local_search import SearchResult
 
@@ -318,41 +324,41 @@ class TestSearchUnifiedHTTPAuth:
 
 
 class TestSearchDependencyGetters:
-    """Tests for dependency getter functions via Endpoints."""
+    """Tests for dependency getter functions in api.dependencies."""
 
     @pytest.fixture(autouse=True)
     def reset_state(self):
         """Reset container state before and after each test."""
-        from api.endpoints.deps_registry import Endpoints
+        from container import reset_container
 
-        Endpoints.reset()
+        reset_container()
         yield
-        Endpoints.reset()
+        reset_container()
 
     @pytest.mark.asyncio
     async def test_get_local_search_engine_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_local_search_engine() raises 503 when engine not set."""
+        """Test get_local_search_engine() raises 503 when engine not set."""
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_local_search_engine()
+            get_local_search_engine(container=get_container())
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
     async def test_get_global_search_engine_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_global_search_engine() raises 503 when engine not set."""
+        """Test get_global_search_engine() raises 503 when engine not set."""
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_global_search_engine()
+            get_global_search_engine(container=get_container())
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
     async def test_get_vector_repo_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_vector_repo() raises 503 when repo not set."""
+        """Test get_vector_repo() raises 503 when repo not set."""
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_vector_repo()
+            get_vector_repo(container=get_container())
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
     async def test_get_llm_client_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_llm_client() raises 503 when client not set."""
+        """Test get_llm_client() raises 503 when client not set."""
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_llm_client()
+            get_llm_client(container=get_container())
         assert exc_info.value.status_code == 503

@@ -91,45 +91,11 @@ class GraphQueryBuilder(Protocol):
 
     # === Capability Detection ===
 
-    def supports_element_id(self) -> bool:
-        """Check if database supports elementId() function."""
-        ...
-
-    def supports_datetime_function(self) -> bool:
-        """Check if database supports datetime() function."""
-        ...
-
-    def supports_detach_delete(self) -> bool:
-        """Check if database supports DETACH DELETE syntax."""
-        ...
-
     def supports_list_comprehension(self) -> bool:
         """Check if database supports Cypher list comprehension syntax."""
         ...
 
     # === Expression Builders ===
-
-    def entity_id_expression(self, node_var: str) -> str:
-        """Build entity ID expression.
-
-        Args:
-            node_var: Variable name for the node in Cypher query.
-
-        Returns:
-            Cypher expression for entity ID (elementId(e) or e.id).
-        """
-        ...
-
-    def weight_expression(self, rel_var: str) -> str:
-        """Build weight expression for relationships.
-
-        Args:
-            rel_var: Variable name for the relationship in Cypher query.
-
-        Returns:
-            Cypher expression for relationship weight.
-        """
-        ...
 
     # === Metrics Queries ===
 
@@ -453,31 +419,11 @@ class Neo4jQueryBuilder:
 
     # === Capability Detection ===
 
-    def supports_element_id(self) -> bool:
-        """Neo4j supports elementId()."""
-        return True
-
-    def supports_datetime_function(self) -> bool:
-        """Neo4j supports datetime()."""
-        return True
-
-    def supports_detach_delete(self) -> bool:
-        """Neo4j supports DETACH DELETE."""
-        return True
-
     def supports_list_comprehension(self) -> bool:
         """Neo4j supports Cypher list comprehension."""
         return True
 
     # === Expression Builders ===
-
-    def entity_id_expression(self, node_var: str) -> str:
-        """Neo4j uses elementId() function."""
-        return f"elementId({node_var})"
-
-    def weight_expression(self, rel_var: str) -> str:
-        """Neo4j stores weight on relationship."""
-        return f"coalesce({rel_var}.weight, 1.0)"
 
     # === Metrics Queries ===
 
@@ -1237,31 +1183,11 @@ class LadybugQueryBuilder:
 
     # === Capability Detection ===
 
-    def supports_element_id(self) -> bool:
-        """LadybugDB doesn't support elementId()."""
-        return False
-
-    def supports_datetime_function(self) -> bool:
-        """LadybugDB doesn't support datetime(), uses timestamp integers."""
-        return False
-
-    def supports_detach_delete(self) -> bool:
-        """LadybugDB doesn't support DETACH DELETE."""
-        return False
-
     def supports_list_comprehension(self) -> bool:
         """LadybugDB doesn't support Cypher list comprehension syntax."""
         return False
 
     # === Expression Builders ===
-
-    def entity_id_expression(self, node_var: str) -> str:
-        """LadybugDB uses id property directly."""
-        return f"{node_var}.id"
-
-    def weight_expression(self, rel_var: str) -> str:
-        """LadybugDB stores weight on RELATED_TO relationship."""
-        return f"coalesce({rel_var}.weight, 1.0)"
 
     # === Metrics Queries ===
 

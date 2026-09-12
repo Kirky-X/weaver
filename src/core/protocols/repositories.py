@@ -271,22 +271,6 @@ class ArticleRepository(Protocol):
         """
         ...
 
-    async def get_existing_content_hashes(self, content_hashes: set[str]) -> set[str]:
-        """Check which content hashes already exist in the database.
-
-        Cross-source dedup (Level 2.5) for when the same content is
-        republished across different sources (different URLs). Catches
-        duplicates that URL dedup and title SimHash both miss —
-        especially when title extraction fails (empty title).
-
-        Args:
-            content_hashes: Set of SHA-256 content hashes to check.
-
-        Returns:
-            Set of content hashes that already exist in the database.
-        """
-        ...
-
     async def bulk_upsert(
         self,
         states: list[dict[str, Any]],

@@ -21,25 +21,14 @@ port = 6379
 db = 0
 
 [llm]
-embedding_provider = "ollama"
-embedding_model = "qwen3-embedding:0.6b"
-rerank_provider = ""
-rerank_model = ""
 
 [fetcher]
 default_per_host_concurrency = 2
-global_max_concurrency = 32
 httpx_timeout = 15.0
 user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"
 crawl4ai_headless = true
 crawl4ai_stealth_enabled = true
 crawl4ai_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-crawl4ai_viewport_width = 1920
-crawl4ai_viewport_height = 1080
-crawl4ai_locale = "zh-CN"
-crawl4ai_timezone = "Asia/Shanghai"
-crawl4ai_random_delay_min = 0.5
-crawl4ai_random_delay_max = 2.0
 crawl4ai_timeout = 30.0
 rate_limit_enabled = true
 rate_limit_delay_min = 1.0
@@ -55,8 +44,6 @@ port = 8000
 port_auto_detect = true
 
 [scheduler]
-crawl_interval_minutes = 30
-neo4j_retry_interval_minutes = 10
 retry_flush_interval_seconds = 30
 
 [search]
@@ -65,7 +52,6 @@ rerank_enabled = true
 rerank_model = "tiny"
 mmr_enabled = false
 mmr_lambda = 0.7
-bm25_rebuild_interval = 300
 temporal_decay_enabled = false
 temporal_decay_half_life_days = 30.0
 
@@ -100,14 +86,8 @@ enabled = true
 urlhaus_api_timeout = 5.0
 phishtank_enabled = true
 phishtank_data_url = "https://data.phishtank.com/data/online-valid.json"
-phishtank_sync_interval_hours = 6
-phishtank_data_path = "data/phishtank.json"
 heuristic_enabled = true
-heuristic_check_encoded_chars = true
-heuristic_check_suspicious_keywords = true
-heuristic_check_domain_structure = true
 ssl_verify_enabled = true
-ssl_verify_timeout = 10.0
 cache_enabled = true
 cache_safe_ttl_seconds = 21600
 cache_malicious_ttl_seconds = 900

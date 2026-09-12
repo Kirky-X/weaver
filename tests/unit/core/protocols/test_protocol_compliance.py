@@ -93,9 +93,7 @@ PROTOCOL_IMPLEMENTATIONS = [
     # Knowledge cache
     ("modules.knowledge.cache.storage", "KnowledgeCache", "KnowledgeCacheProtocol"),
     # Mapper implementations
-    ("core.mappers.postgres_article_mapper", "PostgresArticleMapper", "MapperProtocol"),
     ("core.mappers.neo4j_entity_mapper", "Neo4jEntityMapper", "MapperProtocol"),
-    ("core.mappers.community_mapper", "CommunityMapper", "MapperProtocol"),
     (
         "core.mappers.community_search_result_mapper",
         "CommunitySearchResultMapper",

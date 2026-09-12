@@ -51,25 +51,6 @@ class LadybugDialect:
         return "[r]"
 
     @staticmethod
-    def edge_type_filter(database_type: str | None, edge_type: str = "RELATED_TO") -> str:
-        """Get edge type filter condition.
-
-        Neo4j: type(r) = 'RELATED_TO'
-        LadybugDB: r.edge_type = 'RELATED_TO' (or omit if using [r:RELATED_TO] pattern)
-
-        Args:
-            database_type: Database type string.
-            edge_type: Edge type to filter (default: RELATED_TO).
-
-        Returns:
-            Cypher filter condition string, or empty string for LadybugDB
-            (when using typed pattern, filter is redundant).
-        """
-        if LadybugDialect.is_ladybug(database_type):
-            return ""  # Using [r:RELATED_TO] pattern, no need for type filter
-        return f"type(r) = '{edge_type}'"
-
-    @staticmethod
     def pruned_condition(database_type: str | None, var: str = "e") -> str:
         """Get pruned property filter condition for Entity nodes.
 

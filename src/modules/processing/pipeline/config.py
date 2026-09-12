@@ -21,12 +21,10 @@ log = get_logger("pipeline_config")
 
 
 class StageConfig(BaseModel):
-    """Configuration for a single pipeline stage."""
+    """Configuration for a single pipeline stage (name + enabled flag)."""
 
     name: str = ""
-    class_path: str = ""
     enabled: bool = True
-    params: dict[str, Any] = {}
 
 
 class PhaseConfig(BaseModel):
@@ -57,24 +55,13 @@ class PhaseConfig(BaseModel):
         return []
 
 
-class BatchConfig(BaseModel):
-    """Configuration for batch processing."""
-
-    # DEAD CONFIG (audit-cleanup-optimal): no dynamic loader consumes this;
-    # graph.py hard-codes BatchMergerNode wiring. Kept for compat only.
-    merger_class: str = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
-    enabled: bool = True
-    timeout: int = 180
-
-
 class PipelineSettings(BaseSettings):
     """Pipeline configuration loaded from config/pipeline.toml.
 
-    Only phase1/phase3 concurrency values are consumed at runtime.
-    NOTE: stage class_path entries and batch.merger_class in the TOML are
-    dead config (no dynamic loader; graph.py hard-codes node wiring).
-    They are kept for backward compatibility and must not be edited
-    expecting behavior change.
+    Consumed at runtime: phase1/phase3 concurrency, per-stage ``enabled``
+    flags (the disabled set in Pipeline), monte_carlo settings, and the
+    cleaner thresholds. Stage node wiring itself is hard-coded in
+    modules.processing.pipeline.graph (no dynamic class loading).
 
     Environment variables can override any setting using WEAVER_PIPELINE__ prefix.
     Example: WEAVER_PIPELINE__PHASE1__CONCURRENCY=10
@@ -90,7 +77,6 @@ class PipelineSettings(BaseSettings):
     version: str = "1.0"
     phase1: PhaseConfig = PhaseConfig()
     phase3: PhaseConfig = PhaseConfig()
-    batch: BatchConfig = BatchConfig()
 
     # Cleaner settings
     cleaner_min_body_chars: int = 100
@@ -107,18 +93,6 @@ class PipelineSettings(BaseSettings):
         if isinstance(v, dict):
             return PhaseConfig(**v)
         return PhaseConfig()
-
-    @field_validator("batch", mode="before")
-    @classmethod
-    def parse_batch(cls, v: Any) -> BatchConfig:
-        """Parse batch configuration."""
-        if v is None:
-            return BatchConfig()
-        if isinstance(v, BatchConfig):
-            return v
-        if isinstance(v, dict):
-            return BatchConfig(**v)
-        return BatchConfig()
 
     @classmethod
     def settings_customise_sources(

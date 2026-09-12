@@ -76,48 +76,6 @@ class DuckDBLLMUsageRepo:
 
         log.debug("llm_usage_raw_inserted", label=event.label, call_point=event.call_point)
 
-    async def insert_raw_batch(self, events: list[LLMUsageEvent]) -> int:
-        """Insert multiple LLM usage raw records in batch.
-
-        Args:
-            events: List of LLM usage events to persist.
-
-        Returns:
-            Number of records inserted.
-        """
-        if not events:
-            return 0
-
-        records = [
-            LLMUsageRaw(
-                label=event.label,
-                call_point=event.call_point,
-                llm_type=event.llm_type,
-                provider=event.provider,
-                model=event.model,
-                input_tokens=event.tokens.input_tokens,
-                output_tokens=event.tokens.output_tokens,
-                total_tokens=event.tokens.total_tokens,
-                cached_tokens=event.tokens.cached_tokens,
-                reasoning_tokens=event.tokens.reasoning_tokens,
-                cost_usd=event.cost_usd,
-                latency_ms=event.latency_ms,
-                success=event.success,
-                error_type=event.error_type,
-                article_id=uuid.UUID(event.article_id) if event.article_id else None,
-                task_id=event.task_id,
-                created_at=event.timestamp,
-            )
-            for event in events
-        ]
-
-        async with self._pool.session() as session:
-            session.add_all(records)
-            await session.commit()
-
-        log.debug("llm_usage_raw_batch_inserted", count=len(records))
-        return len(records)
-
     async def get_latency_bounds(
         self,
         time_bucket: datetime,
@@ -242,65 +200,6 @@ class DuckDBLLMUsageRepo:
             await session.commit()
 
     # ── Query Operations ──────────────────────────────────────────
-
-    async def get_hourly_stats(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        label: str | None = None,
-        call_point: str | None = None,
-        provider: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Query hourly aggregated statistics.
-
-        Args:
-            start_time: Start of the time range.
-            end_time: End of the time range.
-            label: Optional label filter.
-            call_point: Optional call point filter.
-            provider: Optional provider filter.
-
-        Returns:
-            List of hourly stat dictionaries.
-        """
-        stmt = select(LLMUsageHourly).where(
-            LLMUsageHourly.time_bucket >= start_time,
-            LLMUsageHourly.time_bucket < end_time,
-        )
-
-        if label:
-            stmt = stmt.where(LLMUsageHourly.label == label)
-        if call_point:
-            stmt = stmt.where(LLMUsageHourly.call_point == call_point)
-        if provider:
-            stmt = stmt.where(LLMUsageHourly.provider == provider)
-
-        stmt = stmt.order_by(LLMUsageHourly.time_bucket.desc())
-
-        async with self._pool.session() as session:
-            result = await session.execute(stmt)
-            records = result.scalars().all()
-
-        return [
-            {
-                "time_bucket": r.time_bucket.isoformat(),
-                "label": r.label,
-                "call_point": r.call_point,
-                "llm_type": r.llm_type,
-                "provider": r.provider,
-                "model": r.model,
-                "call_count": r.call_count,
-                "input_tokens_sum": r.input_tokens_sum,
-                "output_tokens_sum": r.output_tokens_sum,
-                "total_tokens_sum": r.total_tokens_sum,
-                "latency_avg_ms": r.latency_avg_ms,
-                "latency_min_ms": r.latency_min_ms,
-                "latency_max_ms": r.latency_max_ms,
-                "success_count": r.success_count,
-                "failure_count": r.failure_count,
-            }
-            for r in records
-        ]
 
     async def query_hourly(
         self,
@@ -483,72 +382,6 @@ class DuckDBLLMUsageRepo:
             "success_rate": success_count / total_calls if total_calls > 0 else 1.0,
             "error_types": {},
         }
-
-    async def get_summary_stats(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        group_by: str = "label",
-    ) -> list[dict[str, Any]]:
-        """Query aggregated summary statistics grouped by specified dimension.
-
-        Args:
-            start_time: Start of the time range.
-            end_time: End of the time range.
-            group_by: Dimension to group by (label, call_point, provider, model).
-
-        Returns:
-            List of summary stat dictionaries.
-        """
-        group_column = {
-            "label": LLMUsageHourly.label,
-            "call_point": LLMUsageHourly.call_point,
-            "provider": LLMUsageHourly.provider,
-            "model": LLMUsageHourly.model,
-        }.get(group_by, LLMUsageHourly.label)
-
-        stmt = (
-            select(
-                group_column.label("group_key"),
-                func.sum(LLMUsageHourly.call_count).label("total_calls"),
-                func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
-                func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
-                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                case(
-                    (
-                        func.sum(LLMUsageHourly.call_count) > 0,
-                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
-                        / func.sum(LLMUsageHourly.call_count),
-                    ),
-                    else_=0.0,
-                ).label("avg_latency_ms"),
-                func.sum(LLMUsageHourly.success_count).label("total_success"),
-                func.sum(LLMUsageHourly.failure_count).label("total_failure"),
-            )
-            .where(
-                LLMUsageHourly.time_bucket >= start_time,
-                LLMUsageHourly.time_bucket < end_time,
-            )
-            .group_by(group_column)
-        )
-
-        async with self._pool.session() as session:
-            result = await session.execute(stmt)
-            rows = result.all()
-
-        return [
-            {
-                "group": row.group_key,
-                "total_calls": row.total_calls or 0,
-                "total_input_tokens": row.total_input_tokens or 0,
-                "total_output_tokens": row.total_output_tokens or 0,
-                "total_tokens": row.total_tokens or 0,
-                "avg_latency_ms": float(row.avg_latency_ms) if row.avg_latency_ms else 0.0,
-                "total_success": row.total_success or 0,
-                "total_failure": row.total_failure or 0,
-            }
-            for row in rows
-        ]
 
     async def get_by_provider(
         self,

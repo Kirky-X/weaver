@@ -376,7 +376,3 @@ class ProviderPool:
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""
         return self._metrics.to_dict()
-
-    def reset_circuit_breaker(self) -> None:
-        """重置熔断器."""
-        self._circuit_breaker.reset()

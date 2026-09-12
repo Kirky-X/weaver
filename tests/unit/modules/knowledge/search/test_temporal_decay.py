@@ -13,55 +13,55 @@ from modules.knowledge.search.temporal_decay import (
     TemporalAwareRetriever,
     apply_temporal_decay,
     calculate_age_in_days,
-    calculate_decay_multiplier,
+    apply_temporal_decay,
 )
 
 
 class TestCalculateDecayMultiplier:
-    """Tests for calculate_decay_multiplier function."""
+    """Tests for the decay multiplier applied via apply_temporal_decay."""
 
     def test_zero_age_returns_one(self) -> None:
         """Zero age should return multiplier of 1.0."""
-        assert calculate_decay_multiplier(0, 30) == 1.0
+        assert apply_temporal_decay(1.0, 0, 30) == 1.0
 
     def test_half_life_returns_half(self) -> None:
         """Age equal to half-life should return approximately 0.5."""
-        result = calculate_decay_multiplier(30, 30)
+        result = apply_temporal_decay(1.0, 30, 30)
         assert abs(result - 0.5) < 0.01
 
     def test_double_half_life_returns_quarter(self) -> None:
         """Age equal to 2x half-life should return approximately 0.25."""
-        result = calculate_decay_multiplier(60, 30)
+        result = apply_temporal_decay(1.0, 60, 30)
         assert abs(result - 0.25) < 0.01
 
     def test_quarter_half_life(self) -> None:
         """Age equal to 0.5x half-life should return approximately 0.707."""
-        result = calculate_decay_multiplier(15, 30)
+        result = apply_temporal_decay(1.0, 15, 30)
         expected = math.exp(-math.log(2) * 0.5)  # exp(-ln(2) * 0.5) ≈ 0.707
         assert abs(result - expected) < 0.01
 
     def test_negative_age_returns_one(self) -> None:
         """Negative age should be treated as zero and return 1.0."""
-        assert calculate_decay_multiplier(-10, 30) == 1.0
+        assert apply_temporal_decay(1.0, -10, 30) == 1.0
 
     def test_zero_half_life_returns_one(self) -> None:
         """Zero half-life should disable decay and return 1.0."""
-        assert calculate_decay_multiplier(100, 0) == 1.0
+        assert apply_temporal_decay(1.0, 100, 0) == 1.0
 
     def test_negative_half_life_returns_one(self) -> None:
         """Negative half-life should disable decay and return 1.0."""
-        assert calculate_decay_multiplier(50, -30) == 1.0
+        assert apply_temporal_decay(1.0, 50, -30) == 1.0
 
     def test_infinite_age_returns_near_zero(self) -> None:
         """Very large age should approach zero but never reach it."""
-        result = calculate_decay_multiplier(10000, 30)
+        result = apply_temporal_decay(1.0, 10000, 30)
         assert result > 0
         assert result < 0.001
 
     def test_small_half_life_decays_faster(self) -> None:
         """Smaller half-life should decay faster."""
-        result_7_days = calculate_decay_multiplier(7, 7)
-        result_30_days = calculate_decay_multiplier(7, 30)
+        result_7_days = apply_temporal_decay(1.0, 7, 7)
+        result_30_days = apply_temporal_decay(1.0, 7, 30)
         # 7 days with half-life of 7 days should decay more than with half-life of 30 days
         assert result_7_days < result_30_days
 

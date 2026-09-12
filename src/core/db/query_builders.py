@@ -25,10 +25,6 @@ class DatabaseType(str, Enum):
     DUCKDB = "duckdb"
 
 
-# Re-exported from models for backward compatibility:
-# - VectorType (canonical: core.db.models)
-
-
 def validate_limit(limit: int) -> int:
     """Validate limit is within safe bounds.
 

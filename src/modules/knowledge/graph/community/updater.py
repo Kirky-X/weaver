@@ -342,22 +342,6 @@ class IncrementalCommunityUpdater:
         """Unified entry point for community auto-scheduling. Delegates to trigger policy."""
         return await self._trigger_policy.check_and_run()
 
-    async def force_rebuild(self) -> dict[str, object]:
-        """Force full community rebuild unconditionally. Delegates to trigger policy."""
-        return await self._trigger_policy.force_rebuild()
-
-    async def _get_community_count(self) -> int:
-        """Get total number of Community nodes. Delegates to trigger policy."""
-        return await self._trigger_policy._get_community_count()
-
-    async def _check_entity_change(self) -> tuple[bool, int, int]:
-        """Check if entity count change exceeds threshold. Delegates to trigger policy."""
-        return await self._trigger_policy._check_entity_change()
-
-    async def check_full_rebuild_needed(self) -> bool:
-        """Check if full rebuild is needed. Delegates to trigger policy."""
-        return await self._trigger_policy.check_full_rebuild_needed()
-
     async def get_stats(self) -> CommunityStats:
         """Get current community update statistics. Delegates to trigger policy."""
         return await self._trigger_policy.get_stats()

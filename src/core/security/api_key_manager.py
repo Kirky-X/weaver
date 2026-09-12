@@ -415,22 +415,6 @@ class ApiKeyManager:
                 for k in keys
             ]
 
-    async def get_rate_limit(self, key_id: str) -> int:
-        """Get the rate limit for a specific key.
-
-        Args:
-            key_id: The key ID.
-
-        Returns:
-            Max requests per minute.
-        """
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(ApiKey.rate_limit_per_min).where(ApiKey.key_id == key_id)
-            )
-            row = result.scalar_one_or_none()
-            return row if row is not None else 100
-
     async def _fetch_key(self, key_id: str) -> ApiKey | None:
         """Fetch an API key by key_id.
 

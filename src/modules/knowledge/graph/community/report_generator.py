@@ -546,27 +546,3 @@ class CommunityReportGenerator:
                 error=str(exc),
             )
         return False
-
-    async def mark_stale_reports(self) -> int:
-        """Mark reports as stale when community entity count changed significantly.
-
-        Returns:
-            Number of reports marked as stale.
-        """
-        query = """
-        MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
-        WHERE r.stale = false
-        WITH r, c,
-             c.entity_count AS current_count,
-             size([(c)-[:HAS_ENTITY]->(e) | e]) AS actual_count
-        WHERE abs(current_count - actual_count) > current_count * 0.2
-        SET r.stale = true
-        RETURN count(r) AS stale_count
-        """
-        result = await self._pool.execute_query(query)
-        if result:
-            stale_count = result[0].get("stale_count", 0)
-            if stale_count > 0:
-                log.info("reports_marked_stale", count=stale_count)
-            return stale_count
-        return 0

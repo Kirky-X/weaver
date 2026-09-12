@@ -101,39 +101,19 @@ class TemporalAwareRetriever:
         return max(0.0, age_delta.total_seconds() / 86400.0)
 
 
-# Backward-compatible function wrappers
-def calculate_decay_multiplier(
-    age_in_days: float,
-    half_life_days: float,
-) -> float:
-    """Calculate the decay multiplier using exponential decay.
-
-    Backward-compatible wrapper around TemporalAwareRetriever.
-    """
-    retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
-    return retriever._calculate_decay(age_in_days)
-
-
 def apply_temporal_decay(
     score: float,
     age_in_days: float,
     half_life_days: float,
 ) -> float:
-    """Apply temporal decay to a relevance score.
-
-    Backward-compatible wrapper. Uses the old formula (score * decay)
-    for compatibility. New code should use TemporalAwareRetriever.score().
-    """
-    multiplier = calculate_decay_multiplier(age_in_days, half_life_days)
-    return score * multiplier
+    """Apply exponential temporal decay to a relevance score (score * multiplier)."""
+    retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
+    return score * retriever._calculate_decay(age_in_days)
 
 
 def calculate_age_in_days(
     timestamp: datetime | None,
     now: datetime | None = None,
 ) -> float:
-    """Calculate age in days from a timestamp.
-
-    Backward-compatible wrapper around TemporalAwareRetriever.
-    """
+    """Calculate age in days from a timestamp."""
     return TemporalAwareRetriever.calculate_age_in_days(timestamp, now)

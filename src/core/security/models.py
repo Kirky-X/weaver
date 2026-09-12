@@ -119,17 +119,3 @@ class ValidationResult:
             if check.risk in (URLRisk.HIGH, URLRisk.BLOCKED):
                 return f"[{check.source.value}] {check.message}"
         return None
-
-    def get_check_by_source(self, source: CheckSource) -> CheckResult | None:
-        """Get a specific check result by source.
-
-        Args:
-            source: The check source to look for.
-
-        Returns:
-            The CheckResult if found, None otherwise.
-        """
-        for check in self.checks:
-            if check.source == source:
-                return check
-        return None

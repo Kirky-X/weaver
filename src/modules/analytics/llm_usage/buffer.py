@@ -13,7 +13,7 @@ Redis Key 设计:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from core.event import LLMUsageEvent
@@ -189,32 +189,3 @@ class LLMUsageBuffer:
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
-
-    async def get_bucket_data(self, bucket_key: str) -> dict[str, str]:
-        """获取指定桶的所有数据。
-
-        用于测试和调试目的。
-
-        Args:
-            bucket_key: 桶的缓存 key
-
-        Returns:
-            HASH 中的所有 field-value 对
-        """
-        try:
-            return await self._cache.hgetall(bucket_key)
-        except Exception as exc:
-            log.error(
-                "llm_usage_buffer_get_failed",
-                bucket_key=bucket_key,
-                error=str(exc),
-            )
-            return {}
-
-    async def get_current_bucket_key(self) -> str:
-        """获取当前小时的桶 key。
-
-        Returns:
-            当前小时的桶 key
-        """
-        return self._make_bucket_key(datetime.now(UTC))

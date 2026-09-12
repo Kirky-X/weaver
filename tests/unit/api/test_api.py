@@ -1199,38 +1199,42 @@ class TestSystemConfigEndpoint:
 
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
-        """Reset Endpoints state before and after each test."""
-        from api.endpoints.deps_registry import Endpoints
+        """Reset container state before and after each test."""
+        from container import reset_container
 
         # Reset before test
-        Endpoints.reset()
+        reset_container()
 
         yield
 
         # Reset after test
-        Endpoints.reset()
+        reset_container()
 
     def test_config_endpoint_calls_correct_methods(self):
-        """Test that system_config uses existing Endpoints methods (not broken ones)."""
-        from api.endpoints.deps_registry import Endpoints
+        """Test that system_config uses existing api.dependencies getters (not broken ones)."""
+        import api.dependencies
 
-        # Verify the correct methods exist (these are what main.py should call)
-        assert hasattr(Endpoints, "get_llm_client")
-        assert hasattr(Endpoints, "get_local_search_engine")
-        assert hasattr(Endpoints, "get_graph_pool_optional")
-        assert hasattr(Endpoints, "get_relational_type")
-        assert hasattr(Endpoints, "get_graph_type")
+        # Verify the correct getters exist (these are what main.py should call)
+        assert hasattr(api.dependencies, "get_llm_client")
+        assert hasattr(api.dependencies, "get_local_search_engine")
+        assert hasattr(api.dependencies, "get_graph_pool_optional")
+        assert hasattr(api.dependencies, "get_relational_type")
+        assert hasattr(api.dependencies, "get_graph_type")
 
     def test_config_endpoint_methods_return_expected_types(self):
-        """Test that Endpoints getter methods return correct types when uninitialized."""
-        from api.endpoints.deps_registry import Endpoints
+        """Test that dependency getters return correct types when uninitialized."""
+        from api.dependencies import get_container, get_graph_type, get_relational_type
 
         # Type getters should always work even when pools are None
         # When container is not set, get_relational_type returns "unknown"
         # and get_graph_type returns "unknown"
         try:
-            assert Endpoints.get_relational_type() in ("postgres", "duckdb", "unknown")
-            assert Endpoints.get_graph_type() in ("neo4j", "ladybug", "unknown")
+            assert get_relational_type(container=get_container()) in (
+                "postgres",
+                "duckdb",
+                "unknown",
+            )
+            assert get_graph_type(container=get_container()) in ("neo4j", "ladybug", "unknown")
         except Exception:
             # If container is not set, the dependency will raise HTTPException(503)
             # which is acceptable behavior for uninitialized state

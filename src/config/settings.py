@@ -36,7 +36,6 @@ from pydantic_settings import (
 from config.subconfigs import (
     APISettings,
     BingSettings,
-    DailyBriefingSettings,
     DuckDBSettings,
     EntitySettings,
     FakeNewsDetectorSettings,
@@ -118,7 +117,6 @@ class Settings(BaseSettings):
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
 
     # Analytics settings (loaded from TOML)
-    daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
     saga: SagaSettings = Field(default_factory=SagaSettings)
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     paddlenlp_sentiment: PaddleNLPSentimentSettings = Field(

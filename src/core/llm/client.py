@@ -1302,14 +1302,6 @@ class LLMClient:
         }
         return metrics
 
-    def get_pool(self, name: str) -> ProviderPool | None:
-        """获取provider池."""
-        return self._pools.get(name)
-
-    def list_providers(self) -> list[str]:
-        """列出所有provider."""
-        return list(self._pools.keys())
-
     @classmethod
     async def create_from_settings(
         cls,

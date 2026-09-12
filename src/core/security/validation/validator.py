@@ -326,12 +326,3 @@ class URLValidator:
         """Manually trigger PhishTank data sync."""
         if self._phishtank:
             await self._phishtank.sync()
-
-    @property
-    def ssrf_checker(self) -> SSRFChecker:
-        """Get SSRF checker for direct access.
-
-        Returns:
-            SSRFChecker instance.
-        """
-        return self._ssrf_checker
