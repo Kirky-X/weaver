@@ -35,6 +35,18 @@ def _make_raw_article(title: str = "Test Title", body: str = "Test body content.
     )
 
 
+def _make_snapshot(**overrides):
+    """Build a valid v2 cache snapshot (matches pipeline state schema)."""
+    snapshot = {
+        "_schema_version": 2,
+        "cleaned": {"title": "Cleaned", "body": "Cleaned body"},
+        "category": "politics",
+        "quality_score": 0.85,
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
 def _compute_content_hash(title: str, body: str) -> str:
     """Compute content hash matching service logic."""
     content = f"{title}{body}"
@@ -45,37 +57,25 @@ class TestContentHashCacheHit:
     """Test cache hit behavior."""
 
     @pytest.mark.asyncio
-    async def test_cache_hit_skips_processing(self):
-        """When content hash is in cache, skip full pipeline processing."""
+    async def test_cache_hit_returns_full_snapshot(self):
+        """A valid v2 snapshot is returned so Phase 1/3 can be skipped."""
         article = _make_raw_article()
         content_hash = _compute_content_hash(article.title, article.body)
 
-        # Mock cache client with cached result
         cache_client = AsyncMock()
-        cached_result = json.dumps(
-            {
-                "title": article.title,
-                "body": article.body,
-                "category": "politics",
-                "quality_score": 0.85,
-            }
-        )
-        cache_client.mget.return_value = [cached_result]
+        cache_client.mget.return_value = [json.dumps(_make_snapshot())]
 
         service = ContentHashCacheService(cache_client=cache_client)
 
-        # Call the method under test
         result = await service.check([article])
 
-        # Verify cache was checked
         cache_client.mget.assert_called_once()
         called_keys = cache_client.mget.call_args[0][0]
-        assert len(called_keys) == 1
         assert called_keys[0] == f"content_hash:{content_hash}"
 
-        # Verify result is from cache
         assert result[0] is not None
         assert result[0]["category"] == "politics"
+        assert result[0]["cleaned"]["title"] == "Cleaned"
 
     @pytest.mark.asyncio
     async def test_cache_hit_batch(self):
@@ -86,11 +86,10 @@ class TestContentHashCacheHit:
         ]
 
         cache_client = AsyncMock()
-        cached_results = [
-            json.dumps({"title": "Title 1", "category": "politics"}),
-            json.dumps({"title": "Title 2", "category": "economy"}),
+        cache_client.mget.return_value = [
+            json.dumps(_make_snapshot(category="politics")),
+            json.dumps(_make_snapshot(category="economy")),
         ]
-        cache_client.mget.return_value = cached_results
 
         service = ContentHashCacheService(cache_client=cache_client)
 
@@ -99,6 +98,37 @@ class TestContentHashCacheHit:
         assert len(result) == 2
         assert result[0]["category"] == "politics"
         assert result[1]["category"] == "economy"
+
+    @pytest.mark.asyncio
+    async def test_legacy_schema_entry_is_a_miss(self):
+        """Entries written by the old flat-key schema must not be trusted."""
+        article = _make_raw_article()
+
+        cache_client = AsyncMock()
+        # Old v1 snapshot: flat keys, no _schema_version, no "cleaned".
+        cache_client.mget.return_value = [
+            json.dumps({"title": "T", "body": "B", "category": "politics"})
+        ]
+
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        result = await service.check([article])
+
+        assert result[0] is None
+
+    @pytest.mark.asyncio
+    async def test_future_schema_version_is_a_miss(self):
+        """Snapshots from a newer schema version are treated as misses."""
+        article = _make_raw_article()
+
+        cache_client = AsyncMock()
+        cache_client.mget.return_value = [json.dumps(_make_snapshot(_schema_version=99))]
+
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        result = await service.check([article])
+
+        assert result[0] is None
 
 
 class TestContentHashCacheMiss:
@@ -142,32 +172,70 @@ class TestContentHashCacheWrite:
     """Test cache write after processing."""
 
     @pytest.mark.asyncio
-    async def test_write_to_cache_after_processing(self):
-        """After processing, write result to cache with correct TTL."""
+    async def test_write_full_snapshot_to_cache(self):
+        """Processing results are cached as a full snapshot with correct TTL."""
         article = _make_raw_article()
         content_hash = _compute_content_hash(article.title, article.body)
 
         cache_client = AsyncMock()
-        cache_client.set.return_value = None
 
         service = ContentHashCacheService(cache_client=cache_client)
 
         state = PipelineState(raw=article)
+        state["cleaned"] = {"title": "Cleaned", "body": "Cleaned body"}
         state["category"] = "politics"
         state["quality_score"] = 0.85
+        state["sentiment"] = {"sentiment_score": 0.5, "sentiment": "neutral"}
+        state["credibility"] = {"score": 0.9}
+        state["vectors"] = {"title": [0.1], "content": [0.2], "model_id": "m1"}
+        state["article_id"] = "should-not-be-cached"
+        state["task_id"] = "also-not-cached"
+        state["_cache_hit"] = False
 
         await service.write(state)
 
-        # Verify cache was written
         cache_client.set.assert_called_once()
         call_args = cache_client.set.call_args
         key = call_args[0][0]
-        value = call_args[0][1]
+        value = json.loads(call_args[0][1])
         ttl = call_args[1]["ex"]
 
         assert key == f"content_hash:{content_hash}"
-        assert "politics" in value
         assert ttl == 604800  # 7 days
+
+        # Snapshot mirrors the mapper-consumed schema
+        assert value["_schema_version"] == 2
+        assert value["cleaned"]["title"] == "Cleaned"
+        assert value["category"] == "politics"
+        assert value["sentiment"]["sentiment_score"] == 0.5
+        assert value["credibility"]["score"] == 0.9
+        assert value["vectors"]["model_id"] == "m1"
+        # Per-article identity and private markers are never cached
+        assert "raw" not in value
+        assert "article_id" not in value
+        assert "task_id" not in value
+        assert "_cache_hit" not in value
+
+    @pytest.mark.asyncio
+    async def test_written_snapshot_round_trips_through_check(self):
+        """A snapshot written by write() is accepted by check() (v2)."""
+        article = _make_raw_article()
+
+        cache_client = AsyncMock()
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        state = PipelineState(raw=article)
+        state["cleaned"] = {"title": "Cleaned", "body": "Body"}
+        state["category"] = "tech"
+        await service.write(state)
+
+        # Feed the written payload back through check()
+        cached_payload = cache_client.set.call_args[0][1]
+        cache_client.mget.return_value = [cached_payload]
+        result = await service.check([article])
+
+        assert result[0] is not None
+        assert result[0]["category"] == "tech"
 
     @pytest.mark.asyncio
     async def test_write_batch_to_cache(self):
@@ -231,7 +299,7 @@ class TestContentHashCacheMetrics:
         article = _make_raw_article()
 
         cache_client = AsyncMock()
-        cache_client.mget.return_value = ['{"title": "Test"}']
+        cache_client.mget.return_value = [json.dumps(_make_snapshot())]
 
         service = ContentHashCacheService(cache_client=cache_client)
 

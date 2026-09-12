@@ -375,17 +375,21 @@ class Pipeline:
             log.info("content_hash_cache_hit", hits=cache_hits, total=len(articles))
 
         # ── Section: Phase 1 — Per-article concurrent nodes (batched) ────────
+        # Cache-hit states already carry a complete processed snapshot; they
+        # skip Phase 1 (and Phase 3) — that is the point of the short-circuit.
+        cache_hit_states = [s for s in states if s.get("_cache_hit")]
+        pending_phase1 = [s for s in states if not s.get("_cache_hit")]
         batch_size = self._settings.pipeline_process.worker_batch_size if self._settings else 20
         phase1_results: list[Any] = []
-        for i in range(0, len(states), batch_size):
-            batch = states[i : i + batch_size]
+        for i in range(0, len(pending_phase1), batch_size):
+            batch = pending_phase1[i : i + batch_size]
             batch_tasks = [self._phase1_per_article(s, pending_stage_updates) for s in batch]
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
 
         # Debug mode: exceptions already raised, skip error handling
         if self._debug:
-            states = list(phase1_results)
+            states = cache_hit_states + list(phase1_results)
         else:
             # Fatal provider errors must abort the entire batch immediately
             _check_fatal_provider_errors(phase1_results, "phase1")
@@ -394,19 +398,15 @@ class Pipeline:
             await self._flush_stage_updates(pending_stage_updates)
 
             # Handle errors gracefully - failed articles get error state, others continue
-            states = []
+            states = list(cache_hit_states)
             for i, result in enumerate(phase1_results):
                 if isinstance(result, Exception):
-                    article_id = (
-                        str(article_ids[i])
-                        if article_ids is not None and i < len(article_ids)
-                        else None
-                    )
+                    src = pending_phase1[i]
                     log.error(
                         "phase1_task_failed",
                         article_index=i,
-                        article_id=article_id,
-                        url=articles[i].url,
+                        article_id=src.get("article_id"),
+                        url=src["raw"].url,
                         error=str(result),
                         error_type=type(result).__name__,
                     )
@@ -415,9 +415,9 @@ class Pipeline:
                         error_type=type(result).__name__,
                     ).inc()
                     # Create failed state for the article
-                    failed_state = PipelineState(raw=articles[i])
-                    if article_id:
-                        failed_state["article_id"] = article_id
+                    failed_state = PipelineState(raw=src["raw"])
+                    if src.get("article_id"):
+                        failed_state["article_id"] = src["article_id"]
                     if task_id is not None:
                         failed_state["task_id"] = str(task_id)
                     failed_state["terminal"] = True
@@ -435,21 +435,24 @@ class Pipeline:
                 time.monotonic() - start
             )
 
-            # Phase 3: Per-article post-merge nodes (concurrent)
-            pre_phase3_states = list(states)
+            # Phase 3: Per-article post-merge nodes (concurrent).
+            # Cache-hit states skip Phase 3: their snapshot already contains
+            # the full Phase 3 analysis from the original processing run.
+            pre_phase3_states = [s for s in states if not s.get("_cache_hit")]
             phase3_tasks = [
-                self._phase3_per_article(state, pending_stage_updates) for state in states
+                self._phase3_per_article(state, pending_stage_updates)
+                for state in pre_phase3_states
             ]
             phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=not self._debug)
 
             # Debug mode: exceptions already raised, skip error handling
             if self._debug:
-                states = list(phase3_results)
+                states = cache_hit_states + list(phase3_results)
             else:
                 # Fatal provider errors must abort the entire batch immediately
                 _check_fatal_provider_errors(phase3_results, "phase3")
                 # Handle errors gracefully - preserve original state for failed articles
-                states = []
+                states = list(cache_hit_states)
                 for i, result in enumerate(phase3_results):
                     if isinstance(result, Exception):
                         log.error(

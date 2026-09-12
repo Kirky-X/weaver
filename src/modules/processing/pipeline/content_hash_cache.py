@@ -24,6 +24,15 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# Bump when the cached snapshot schema changes: entries written by older
+# versions are treated as misses instead of being merged into new states.
+_CACHE_SCHEMA_VERSION = 2
+
+# Keys never cached: per-article identity and non-serializable objects.
+# ``_cache_hit`` (and any future private marker) is excluded via the
+# leading-underscore rule below.
+_UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
+
 
 class ContentHashCacheService:
     """Content-hash based cache for pipeline processing results.
@@ -46,7 +55,10 @@ class ContentHashCacheService:
             articles: List of raw articles to check.
 
         Returns:
-            List of cached results (None for cache misses).
+            List of cached result snapshots (None for cache misses). A valid
+            snapshot carries the full processed state (``cleaned``, analysis
+            results, ``vectors``); entries from an older schema version are
+            reported as misses so they never pollute fresh pipeline states.
         """
         if not self._cache_client:
             return [None] * len(articles)
@@ -64,9 +76,18 @@ class ContentHashCacheService:
             for cached in cached_values:
                 if cached:
                     try:
-                        results.append(json.loads(cached))
-                        MetricsCollector.content_hash_cache_hit_total.labels(hit="hit").inc()
+                        parsed = json.loads(cached)
                     except (json.JSONDecodeError, TypeError):
+                        parsed = None
+                    if (
+                        isinstance(parsed, dict)
+                        and parsed.get("_schema_version") == _CACHE_SCHEMA_VERSION
+                        and "cleaned" in parsed
+                    ):
+                        results.append(parsed)
+                        MetricsCollector.content_hash_cache_hit_total.labels(hit="hit").inc()
+                    else:
+                        # Corrupt entry or stale schema — treat as a miss.
                         results.append(None)
                         MetricsCollector.content_hash_cache_hit_total.labels(hit="miss").inc()
                 else:
@@ -78,7 +99,12 @@ class ContentHashCacheService:
             return [None] * len(articles)
 
     async def write(self, state: PipelineState) -> None:
-        """Write processing result to content hash cache.
+        """Write the processed state snapshot to the content hash cache.
+
+        The snapshot must match what the pipeline mappers consume
+        (``cleaned``, ``sentiment``, ``credibility``, ``summary_info``,
+        ``vectors``, ...) so a cache hit can short-circuit Phase 1/Phase 3
+        without losing analysis results or embeddings.
 
         Args:
             state: Completed pipeline state to cache.
@@ -94,20 +120,16 @@ class ContentHashCacheService:
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         cache_key = f"content_hash:{content_hash}"
 
-        # Cache essential fields
-        cache_data = {
-            "title": state.get("title", raw.title),
-            "body": state.get("body", raw.body),
-            "category": state.get("category"),
-            "quality_score": state.get("quality_score"),
-            "credibility_score": state.get("credibility_score"),
-            "sentiment_score": state.get("sentiment_score"),
-        }
+        snapshot: dict[str, Any] = {"_schema_version": _CACHE_SCHEMA_VERSION}
+        for key, value in state.items():
+            if key in _UNCACHEABLE_KEYS or key.startswith("_"):
+                continue
+            snapshot[key] = value
 
         try:
             await self._cache_client.set(
                 cache_key,
-                json.dumps(cache_data, ensure_ascii=False),
+                json.dumps(snapshot, ensure_ascii=False, default=str),
                 ex=604800,  # 7 days TTL
             )
         except Exception as exc:

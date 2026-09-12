@@ -214,6 +214,99 @@ class TestPipelineDrain:
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning:torch.jit")
+class TestPipelineCacheShortCircuit:
+    """Cache hits must skip Phase 1/3 and carry the snapshot through."""
+
+    @pytest.fixture
+    def pipeline(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+        """Pipeline with all collaborators stubbed for flow-level tests."""
+        pipeline = make_pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+        )
+        pipeline._flush_stage_updates = AsyncMock()
+        pipeline._batch_merger.execute_batch = AsyncMock(side_effect=lambda states: list(states))
+        pipeline._phase3_per_article = AsyncMock(side_effect=lambda s, u: s)
+        pipeline._persistence.persist_batch = AsyncMock(return_value=(1, 0))
+        pipeline._community_trigger.maybe_trigger = AsyncMock()
+        pipeline._checkpoint_cleanup.execute = AsyncMock()
+        pipeline._memory_publisher.publish = AsyncMock()
+        pipeline._content_hash_cache.write_batch = AsyncMock()
+        return pipeline
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_phase1_and_phase3(
+        self, pipeline, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """A cache-hit article goes straight to persistence, no nodes re-run."""
+        raw = MagicMock()
+        raw.url = "https://example.com/cached"
+
+        snapshot = {
+            "_schema_version": 2,
+            "cleaned": {"title": "Cleaned T", "body": "Cleaned B"},
+            "category": "tech",
+            "vectors": {"title": [0.1], "content": [0.2], "model_id": "m"},
+        }
+        pipeline._content_hash_cache.check = AsyncMock(return_value=[snapshot])
+        pipeline._phase1_per_article = AsyncMock(side_effect=lambda s, u: s)
+
+        states = await pipeline.process_batch([raw])
+
+        pipeline._phase1_per_article.assert_not_called()
+        pipeline._phase3_per_article.assert_not_called()
+        pipeline._persistence.persist_batch.assert_called_once()
+        assert states[0]["_cache_hit"] is True
+        assert states[0]["category"] == "tech"
+        assert states[0]["cleaned"]["title"] == "Cleaned T"
+        # Cache hits are not written back into the cache
+        pipeline._content_hash_cache.write_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_runs_phase1(
+        self, pipeline, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """A cache-miss article runs Phase 1 normally."""
+        raw = MagicMock()
+        raw.url = "https://example.com/fresh"
+
+        pipeline._content_hash_cache.check = AsyncMock(return_value=[None])
+        pipeline._phase1_per_article = AsyncMock(side_effect=lambda s, u: s)
+
+        await pipeline.process_batch([raw])
+
+        pipeline._phase1_per_article.assert_called_once()
+        pipeline._phase3_per_article.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mixed_batch_processes_only_misses(
+        self, pipeline, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """In a mixed batch only cache misses run through the nodes."""
+        raw_hit = MagicMock()
+        raw_hit.url = "https://example.com/hit"
+        raw_miss = MagicMock()
+        raw_miss.url = "https://example.com/miss"
+
+        snapshot = {
+            "_schema_version": 2,
+            "cleaned": {"title": "C", "body": "B"},
+            "category": "tech",
+        }
+        pipeline._content_hash_cache.check = AsyncMock(return_value=[snapshot, None])
+        pipeline._phase1_per_article = AsyncMock(side_effect=lambda s, u: s)
+
+        states = await pipeline.process_batch([raw_hit, raw_miss])
+
+        assert pipeline._phase1_per_article.call_count == 1
+        assert len(states) == 2
+        hit_flags = sorted(bool(s.get("_cache_hit")) for s in states)
+        assert hit_flags == [False, True]
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning:torch.jit")
 class TestPipelineProcessBatch:
     """Test process_batch method."""
 
