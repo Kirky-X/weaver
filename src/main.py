@@ -32,6 +32,16 @@ log = get_logger("main")
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
 
 
+def _app_version() -> str:
+    """Read version from installed package metadata (single source: pyproject)."""
+    try:
+        import importlib.metadata as _im
+
+        return _im.version("weaver")
+    except Exception:  # noqa: BLE001 - not installed (editable fallback)
+        return "0.0.0-dev"
+
+
 def _ensure_spacy_models(settings: Settings) -> None:
     """Ensure spaCy models are available.
 
@@ -251,7 +261,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     app = FastAPI(
         title="Weaver API",
         description="Weaver - Intelligent news discovery and knowledge graph platform",
-        version="0.2.0",
+        version=_app_version(),
         lifespan=lifespan,
     )
 
