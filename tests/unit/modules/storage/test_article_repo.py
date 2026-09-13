@@ -94,8 +94,8 @@ class TestArticleRepoBulkUpsertAlignment:
             return ok_id
 
         with (
-            patch.object(article_repo, "_upsert_single", side_effect=fake_upsert_single),
-            patch("modules.storage.postgres.article_repo.asyncio.sleep", new=AsyncMock()),
+            patch.object(article_repo._writer, "_upsert_single", side_effect=fake_upsert_single),
+            patch("modules.storage.postgres.article_writer.asyncio.sleep", new=AsyncMock()),
         ):
             result = await article_repo.bulk_upsert([failing, succeeding])
 
@@ -116,8 +116,8 @@ class TestArticleRepoBulkUpsertAlignment:
             raise RuntimeError("db down")
 
         with (
-            patch.object(article_repo, "_upsert_single", side_effect=fake_upsert_single),
-            patch("modules.storage.postgres.article_repo.asyncio.sleep", new=AsyncMock()),
+            patch.object(article_repo._writer, "_upsert_single", side_effect=fake_upsert_single),
+            patch("modules.storage.postgres.article_writer.asyncio.sleep", new=AsyncMock()),
         ):
             result = await article_repo.bulk_upsert(states)
 
