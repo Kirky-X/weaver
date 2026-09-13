@@ -1507,13 +1507,12 @@ class TestBatchRetrievalConcurrency:
             max_inflight = max(max_inflight, inflight)
             await asyncio.sleep(0.02)
             inflight -= 1
-            return None
+            return
 
         mock_vector_repo.find_similar_entities = AsyncMock(return_value=[])
 
         entities = [
-            {"name": f"Entity{i}", "type": "PERSON", "embedding": [0.1] * 1536}
-            for i in range(20)
+            {"name": f"Entity{i}", "type": "PERSON", "embedding": [0.1] * 1536} for i in range(20)
         ]
         with patch.object(resolver, "_try_exact_match", new=slow_exact):
             results = await resolver.resolve_entities_batch(entities)
@@ -1532,11 +1531,12 @@ class TestBatchRetrievalConcurrency:
         existing = {"name": "Known", "neo4j_id": "id-1"}
         from unittest.mock import patch
 
-        with patch.object(
-            resolver, "_try_exact_match", new=AsyncMock(return_value=existing)
-        ) as mock_exact, patch.object(
-            resolver, "_find_similar_candidates", new=AsyncMock()
-        ) as mock_similar:
+        with (
+            patch.object(
+                resolver, "_try_exact_match", new=AsyncMock(return_value=existing)
+            ) as mock_exact,
+            patch.object(resolver, "_find_similar_candidates", new=AsyncMock()) as mock_similar,
+        ):
             results = await resolver.resolve_entities_batch(
                 [{"name": "Known", "type": "PERSON", "embedding": [0.1] * 1536}]
             )

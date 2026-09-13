@@ -193,8 +193,6 @@ ignore = [
     "B023",
     # B008 — FastAPI Depends 在默认参数中使用（标准模式）
     "B008",
-    # B904 — 异常链中的 raise（pydantic 场景误报）
-    "B904",
     # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
     "UP007",
     # S101 — 使用 assert（测试文件中可接受，生产代码由 bandit B101 检查）

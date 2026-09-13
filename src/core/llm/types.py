@@ -382,9 +382,11 @@ class RoutingMode(str, Enum):
         """
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid routing mode '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid routing mode '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 @dataclass(frozen=True, slots=True)

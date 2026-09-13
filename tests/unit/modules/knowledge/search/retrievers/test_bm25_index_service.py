@@ -331,9 +331,9 @@ class TestCreateBm25SchedulerJob:
 # T014: incremental-by-default scheduling, watermark persistence, executor offload
 # ────────────────────────────────────────────────────────────────────────────
 
-from datetime import timedelta  # noqa: E402
+from datetime import timedelta
 
-from modules.knowledge.search.retrievers.bm25_index_service import (  # noqa: E402
+from modules.knowledge.search.retrievers.bm25_index_service import (
     WATERMARK_KEY,
 )
 
@@ -361,7 +361,13 @@ class TestScheduledRebuildIncremental:
         service, retriever = _t014_service(cache_client=cache)
 
         with (
-            patch.object(service, "_fetch_articles_since", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])),
+            patch.object(
+                service,
+                "_fetch_articles_since",
+                new=AsyncMock(
+                    return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})]
+                ),
+            ),
             patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[])),
         ):
             count = await service.scheduled_rebuild()
@@ -379,7 +385,13 @@ class TestScheduledRebuildIncremental:
         service, retriever = _t014_service(cache_client=cache)
         retriever.get_document_count = MagicMock(return_value=0)
 
-        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+        with patch.object(
+            service,
+            "_fetch_articles",
+            new=AsyncMock(
+                return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})]
+            ),
+        ):
             count = await service.scheduled_rebuild()
 
         assert count == 1
@@ -390,7 +402,13 @@ class TestScheduledRebuildIncremental:
     async def test_no_watermark_and_no_cache_falls_back_to_full(self):
         service, retriever = _t014_service(cache_client=None)
 
-        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+        with patch.object(
+            service,
+            "_fetch_articles",
+            new=AsyncMock(
+                return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})]
+            ),
+        ):
             await service.scheduled_rebuild()
 
         retriever.index.assert_called_once()
@@ -423,7 +441,13 @@ class TestExecutorOffload:
 
         retriever.index.side_effect = spy_index
 
-        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+        with patch.object(
+            service,
+            "_fetch_articles",
+            new=AsyncMock(
+                return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})]
+            ),
+        ):
             await service.build_full_index()
 
         assert threads
@@ -442,7 +466,11 @@ class TestExecutorOffload:
         retriever.add_documents.side_effect = spy_add
 
         with patch.object(
-            service, "_fetch_articles_since", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])
+            service,
+            "_fetch_articles_since",
+            new=AsyncMock(
+                return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})]
+            ),
         ):
             await service.incremental_update(since=datetime.now(UTC) - timedelta(hours=1))
 

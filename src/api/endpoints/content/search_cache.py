@@ -32,7 +32,7 @@ def _cache_config(request: Request) -> tuple[Any | None, int]:
         if ttl <= 0:
             return None, 0
         return container.cache_client(), ttl
-    except Exception as exc:  # noqa: BLE001 - cache is best-effort
+    except Exception as exc:
         log.debug("search_cache_unavailable", error=str(exc))
         return None, 0
 
@@ -54,14 +54,12 @@ async def get_cached_search(request: Request, params: dict[str, Any]) -> dict[st
         if raw:
             log.debug("search_cache_hit", fingerprint=_fingerprint(params))
             return json.loads(raw)
-    except Exception as exc:  # noqa: BLE001 - degraded cache must not break search
+    except Exception as exc:
         log.debug("search_cache_read_failed", error=str(exc))
     return None
 
 
-async def store_search(
-    request: Request, params: dict[str, Any], payload: dict[str, Any]
-) -> None:
+async def store_search(request: Request, params: dict[str, Any], payload: dict[str, Any]) -> None:
     """Store a SearchResponse payload dict (best-effort)."""
     if params.get("no_cache"):
         return
@@ -74,5 +72,5 @@ async def store_search(
             json.dumps(payload, ensure_ascii=False, default=str),
             ex=ttl,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("search_cache_write_failed", error=str(exc))

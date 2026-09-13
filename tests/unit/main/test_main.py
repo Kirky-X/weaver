@@ -1336,7 +1336,7 @@ class TestStartupSecurityAudit:
     """T004: lifespan runs the startup security audit; strict mode blocks on criticals."""
 
     @staticmethod
-    def _critical_report() -> "SecurityAuditReport":
+    def _critical_report() -> SecurityAuditReport:
         from core.security.audit import (
             SecurityAuditReport,
             SecurityCheckResult,
@@ -1362,9 +1362,7 @@ class TestStartupSecurityAudit:
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
                         with patch("main.log"):
-                            with patch(
-                                "core.security.audit.run_security_audit"
-                            ) as mock_audit:
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
                                 mock_audit.return_value = SecurityAuditReport(results=[])
                                 from main import lifespan
 
@@ -1385,9 +1383,7 @@ class TestStartupSecurityAudit:
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
                         with patch("main.log"):
-                            with patch(
-                                "core.security.audit.run_security_audit"
-                            ) as mock_audit:
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
                                 mock_audit.return_value = self._critical_report()
                                 from main import lifespan
 
@@ -1407,9 +1403,7 @@ class TestStartupSecurityAudit:
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
                         with patch("main.log") as mock_log:
-                            with patch(
-                                "core.security.audit.run_security_audit"
-                            ) as mock_audit:
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
                                 mock_audit.return_value = self._critical_report()
                                 from main import lifespan
 
@@ -1458,9 +1452,7 @@ class TestHTTPLogPrivacy:
         with patch("api.middleware.asgi.log") as mock_log:
             await middleware(self._scope(b"q=x"), AsyncMock(), AsyncMock())
 
-        response_calls = [
-            c for c in mock_log.info.call_args_list if "http_response" in str(c)
-        ]
+        response_calls = [c for c in mock_log.info.call_args_list if "http_response" in str(c)]
         assert response_calls, "http_response not logged"
         assert "body_preview" not in response_calls[0].kwargs
 

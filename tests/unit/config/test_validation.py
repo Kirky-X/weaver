@@ -27,9 +27,7 @@ def _settings(call_points: dict, providers: dict) -> MagicMock:
 class TestValidateLlmReferences:
     def test_valid_config_passes(self) -> None:
         routing = MagicMock(primary="chat.openai.gpt-4o", fallbacks=[])
-        settings = _settings(
-            {"classifier": routing}, {"openai": _provider(model_id="gpt-4o")}
-        )
+        settings = _settings({"classifier": routing}, {"openai": _provider(model_id="gpt-4o")})
 
         warnings = validate_llm_references(settings)
 
@@ -55,12 +53,10 @@ class TestValidateLlmReferences:
             validate_llm_references(settings)
 
     def test_placeholder_in_fallbacks_raises(self) -> None:
-        routing = MagicMock(
-            primary="chat.openai.gpt-4o", fallbacks=["changeme"]
-        )
+        routing = MagicMock(primary="chat.openai.gpt-4o", fallbacks=["changeme"])
         settings = _settings({"classifier": routing}, {"openai": _provider()})
 
-        with pytest.raises(ConfigReferenceError, match="fallbacks\\[0\\]"):
+        with pytest.raises(ConfigReferenceError, match=r"fallbacks\[0\]"):
             validate_llm_references(settings)
 
     def test_malformed_label_raises(self) -> None:
@@ -74,7 +70,7 @@ class TestValidateLlmReferences:
         routing = MagicMock(primary="embedding.openai.text-embedding-3-large", fallbacks=[])
         settings = _settings({"embedding": routing}, {"openai": _provider()})
 
-        with pytest.raises(ConfigReferenceError, match="models.embedding"):
+        with pytest.raises(ConfigReferenceError, match=r"models\.embedding"):
             validate_llm_references(settings)
 
     def test_model_id_mismatch_is_warning_not_error(self) -> None:

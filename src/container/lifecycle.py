@@ -423,7 +423,7 @@ class ContainerLifecycleMixin:
 
         try:
             cache_pool = self.cache_client()
-        except Exception:  # noqa: BLE001 - cache is optional for the scheduler
+        except Exception:
             cache_pool = None
         wrap_scheduler_with_lock(scheduler, cache_pool)
 

@@ -12,7 +12,7 @@ This service manages BM25 index lifecycle:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, select

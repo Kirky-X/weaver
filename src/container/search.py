@@ -174,7 +174,7 @@ class ContainerSearchMixin:
             if bm25_retriever is not None:
                 try:
                     cache_client = self.cache_client()
-                except Exception:  # noqa: BLE001 - cache is optional for BM25
+                except Exception:
                     cache_client = None
                 self._bm25_index_service = BM25IndexService(
                     relational_pool=self.relational_pool(),

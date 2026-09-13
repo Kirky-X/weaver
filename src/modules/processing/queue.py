@@ -45,8 +45,8 @@ class ProcessingQueue:
         # Validate UUID format
         try:
             uuid.UUID(article_id)
-        except ValueError:
-            raise ValueError(f"Invalid UUID format: {article_id!r}")
+        except ValueError as _exc:
+            raise ValueError(f"Invalid UUID format: {article_id!r}") from _exc
 
         current_len = await self._cache.llen(QUEUE_KEY)
         if current_len >= MAX_QUEUE_SIZE:

@@ -203,12 +203,12 @@ async def list_articles(
             try:
                 cat = CategoryType(category)
                 filters.append(Article.category == cat)
-            except ValueError:
+            except ValueError as _exc:
                 raise HTTPException(
                     status_code=422,
                     detail=f"Invalid category '{category}'. Valid categories: "
                     f"{[c.value for c in CategoryType]}",
-                )
+                ) from _exc
         if source_host:
             filters.append(Article.source_host == source_host)
         if source_id:
@@ -298,11 +298,11 @@ async def get_article(
     """
     try:
         article_uuid = uuid.UUID(article_id)
-    except ValueError:
+    except ValueError as _exc:
         raise HTTPException(
             status_code=400,
             detail="Invalid article ID format",
-        )
+        ) from _exc
 
     async with pool.session() as session:
         result = await session.execute(select(Article).where(Article.id == article_uuid))

@@ -540,10 +540,10 @@ async def search_drift(
         )
         err_msg = str(exc).lower()
         if "neo4j" in err_msg or "graph" in err_msg:
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
         if "llm" in err_msg or "circuit breaker" in err_msg:
-            raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail="DRIFT search failed")
+            raise HTTPException(status_code=503, detail="LLM service unavailable") from exc
+        raise HTTPException(status_code=500, detail="DRIFT search failed") from exc
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────
@@ -731,9 +731,9 @@ async def search_causal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("causal_search_timeout", query=body.query)
-        raise HTTPException(status_code=504, detail="Causal search timed out")
+        raise HTTPException(status_code=504, detail="Causal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -745,8 +745,10 @@ async def search_causal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during causal search")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during causal search"
+        ) from exc
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -972,9 +974,9 @@ async def search_temporal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("temporal_search_timeout", limit=body.limit)
-        raise HTTPException(status_code=504, detail="Temporal search timed out")
+        raise HTTPException(status_code=504, detail="Temporal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -985,5 +987,7 @@ async def search_temporal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during temporal search")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during temporal search"
+        ) from exc
