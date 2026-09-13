@@ -435,6 +435,7 @@ class TestNeo4jWriterEdgeCases:
             )
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=1)
             mock_entity_repo.merge_relation = AsyncMock()
+            mock_entity_repo.merge_relations_batch = AsyncMock(return_value=1)
             mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
 
             mock_article_repo = MagicMock()
@@ -557,12 +558,14 @@ class TestNeo4jWriterEdgeCases:
 
         count = await writer._write_entity_relations(relations, name_to_id)
         assert count == 1
+        rows = mock_entity_repo.merge_relations_batch.call_args[0][0]
+        assert rows[0]["edge_type"] == "X"  # raw type fallback
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_merge_failure(self, writer_with_mocks):
-        """Test _write_entity_relations handles merge_relation exception."""
+        """Test _write_entity_relations handles batch merge exception."""
         writer, mock_entity_repo, _ = writer_with_mocks
-        mock_entity_repo.merge_relation = AsyncMock(side_effect=Exception("Merge error"))
+        mock_entity_repo.merge_relations_batch = AsyncMock(side_effect=Exception("Merge error"))
 
         relations = [{"source": "E1", "target": "E2", "relation_type": "X"}]
         name_to_id = {"E1": "id1", "E2": "id2"}
@@ -581,7 +584,10 @@ class TestNeo4jWriterEdgeCases:
         count = await writer._write_entity_relations(relations, name_to_id)
 
         assert count == 1
-        assert mock_entity_repo.merge_relation.call_count == 1
+        mock_entity_repo.merge_relation.assert_not_called()
+        rows = mock_entity_repo.merge_relations_batch.call_args[0][0]
+        assert len(rows) == 1
+        assert rows[0]["edge_type"] == "X"
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_empty(self, writer_with_mocks):
@@ -678,3 +684,104 @@ class TestNeo4jWriterFollowedBy:
         await writer._create_followed_relations("article-1", ["source-1"])
 
         mock_article_repo.create_followed_by_batch.assert_not_called()
+
+
+class TestRelationBatchWrite:
+    """T010: relations flush through merge_relations_batch; types normalize once."""
+
+    @staticmethod
+    def _make_repo():
+        repo = MagicMock()
+        repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
+        repo.add_aliases_batch = AsyncMock()
+        repo.find_entities_by_keys = AsyncMock(
+            return_value=[
+                EntityView(id="id-1", canonical_name="Entity 1", type="PERSON"),
+                EntityView(id="id-2", canonical_name="Entity 2", type="ORG"),
+            ]
+        )
+        repo.merge_mentions_batch = AsyncMock(return_value=0)
+        repo.merge_relations_batch = AsyncMock(return_value=1)
+        repo.merge_relation = AsyncMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        return repo
+
+    @staticmethod
+    def _make_state():
+        return {
+            "article_id": "test-id",
+            "raw": MagicMock(
+                title="Test",
+                publish_time=datetime.now(UTC),
+                url="https://example.com",
+            ),
+            "cleaned": {"title": "Title"},
+            "category": "news",
+            "score": None,
+            "entities": [
+                {"name": "Entity 1", "type": "PERSON"},
+                {"name": "Entity 2", "type": "ORG"},
+            ],
+            "relations": [
+                {"source": "Entity 1", "target": "Entity 2", "relation_type": "WORKS_FOR"},
+                {"source": "Entity 2", "target": "Entity 1", "relation_type": "WORKS_FOR"},
+                {"source": "Entity 1", "target": "Entity 2", "relation_type": "LOCATED_IN"},
+            ],
+            "merged_source_ids": [],
+        }
+
+    def _make_writer(self, entity_repo, normalizer=None):
+        with (
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_cls,
+        ):
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
+
+            mock_entity_cls.return_value = entity_repo
+            article_repo = MagicMock()
+            article_repo.create_article = AsyncMock(return_value="article-id")
+            mock_article_cls.return_value = article_repo
+            return Neo4jWriter(pool=MagicMock(), relation_type_normalizer=normalizer)
+
+    @pytest.mark.asyncio
+    async def test_relations_written_via_batch_api(self):
+        repo = self._make_repo()
+        writer = self._make_writer(repo)
+
+        await writer.write(self._make_state())
+
+        repo.merge_relation.assert_not_called()
+        assert repo.merge_relations_batch.await_count == 1
+        rows = repo.merge_relations_batch.call_args[0][0]
+        assert len(rows) == 3
+        assert rows[0]["from_name"] == "Entity 1"
+        assert rows[0]["from_type"] == "PERSON"
+        assert rows[0]["to_type"] == "ORG"
+
+    @pytest.mark.asyncio
+    async def test_normalizer_called_once_per_unique_type(self):
+        repo = self._make_repo()
+        normalizer = MagicMock()
+        normalized = MagicMock()
+        normalized.name_en = "NORMALIZED"
+        normalized.is_symmetric = False
+        normalizer.normalize = AsyncMock(return_value=normalized)
+        normalizer.record_unknown = AsyncMock()
+        writer = self._make_writer(repo, normalizer=normalizer)
+
+        await writer.write(self._make_state())
+
+        # 3 relations but only 2 unique raw types
+        assert normalizer.normalize.await_count == 2
+        rows = repo.merge_relations_batch.call_args[0][0]
+        assert all(row["edge_type"] == "NORMALIZED" for row in rows)
+
+    @pytest.mark.asyncio
+    async def test_relations_without_resolved_entities_skipped(self):
+        repo = self._make_repo()
+        repo.find_entities_by_keys = AsyncMock(return_value=[])
+        writer = self._make_writer(repo)
+
+        await writer.write(self._make_state())
+
+        repo.merge_relations_batch.assert_not_awaited()
