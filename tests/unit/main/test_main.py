@@ -1420,3 +1420,85 @@ class TestStartupSecurityAudit:
                                     pass
 
                                 assert mock_log.error.called
+
+
+class TestHTTPLogPrivacy:
+    """T006: response body logging is opt-in and DEBUG-level; query strings redacted."""
+
+    @staticmethod
+    def _json_app():
+        async def app(scope, receive, send):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b'{"result":"secret-data"}'})
+
+        return app
+
+    @staticmethod
+    def _scope(query: bytes) -> dict:
+        return {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/search",
+            "query_string": query,
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+        }
+
+    @pytest.mark.asyncio
+    async def test_body_preview_absent_by_default(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(b"q=x"), AsyncMock(), AsyncMock())
+
+        response_calls = [
+            c for c in mock_log.info.call_args_list if "http_response" in str(c)
+        ]
+        assert response_calls, "http_response not logged"
+        assert "body_preview" not in response_calls[0].kwargs
+
+    @pytest.mark.asyncio
+    async def test_body_preview_debug_level_when_enabled(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app(), log_response_body=True)
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(b"q=x"), AsyncMock(), AsyncMock())
+
+        debug_calls = [c for c in mock_log.debug.call_args_list if "http_response" in str(c)]
+        assert debug_calls, "expected body preview at DEBUG level"
+        info_calls = [c for c in mock_log.info.call_args_list if "http_response" in str(c)]
+        assert not any("body_preview" in str(c) for c in info_calls)
+
+    @pytest.mark.asyncio
+    async def test_query_redacts_sensitive_keys(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(
+                self._scope(b"q=hello&token=supersecret-value"), AsyncMock(), AsyncMock()
+            )
+
+        logged = mock_log.info.call_args_list[0]
+        assert "supersecret-value" not in str(logged)
+        assert "token=***" in str(logged)
+
+    @pytest.mark.asyncio
+    async def test_query_truncated_to_500_chars(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        long_query = b"q=" + b"a" * 1000
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(long_query), AsyncMock(), AsyncMock())
+
+        logged = str(mock_log.info.call_args_list[0])
+        assert "a" * 501 not in logged
