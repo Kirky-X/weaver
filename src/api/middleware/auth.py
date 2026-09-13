@@ -11,6 +11,7 @@ import secrets
 from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
+from api.utils.client_ip import get_client_ip
 from core.observability import get_logger
 from core.security.api_key_manager import ENV_ADMIN_ACTOR
 
@@ -88,7 +89,7 @@ async def verify_api_key(
             # Traffic anomaly check
             detector = await _get_traffic_detector()
             if detector and request:
-                client_ip = request.client.host if request.client else "unknown"
+                client_ip = get_client_ip(request)
                 decision = await detector.check_request(
                     key_id=key_info["key_id"],
                     ip=client_ip,
@@ -304,7 +305,7 @@ def verify_api_key_with_scopes(*required_scopes: str):
         # DB-backed key validated. Run traffic anomaly check (mirror verify_api_key).
         detector = await _get_traffic_detector()
         if detector and request:
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = get_client_ip(request)
             decision = await detector.check_request(
                 key_id=key_info["key_id"],
                 ip=client_ip,
