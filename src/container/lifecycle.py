@@ -415,6 +415,18 @@ class ContainerLifecycleMixin:
             }
         )
         self._scheduler = scheduler
+
+        # Multi-replica safety: every registered job holds a Redis lock so
+        # only one replica executes each task per interval (no-op warning in
+        # degraded single-instance cache mode).
+        from core.cache.distributed_lock import wrap_scheduler_with_lock
+
+        try:
+            cache_pool = self.cache_client()
+        except Exception:  # noqa: BLE001 - cache is optional for the scheduler
+            cache_pool = None
+        wrap_scheduler_with_lock(scheduler, cache_pool)
+
         jobs = self.scheduler_job_runner()
 
         # Data Sync
