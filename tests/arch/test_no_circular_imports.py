@@ -66,9 +66,9 @@ def _find_cycles(edges: dict[str, set[str]]) -> set[tuple[str, ...]]:
     def dfs(start: str, cur: str, path: list[str], visited: set[str]) -> None:
         for nxt in sorted(edges.get(cur, ())):
             if nxt == start:
-                cycles.add(tuple(path + [nxt]))
+                cycles.add((*path, nxt))
             elif nxt not in visited:
-                dfs(start, nxt, path + [nxt], visited | {nxt})
+                dfs(start, nxt, [*path, nxt], visited | {nxt})
 
     nodes = set(edges) | {x for v in edges.values() for x in v}
     for n in sorted(nodes):
