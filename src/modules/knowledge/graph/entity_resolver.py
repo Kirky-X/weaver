@@ -7,6 +7,7 @@ Enhanced version with rule-based resolution and name normalization.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -32,6 +33,9 @@ from modules.knowledge.graph.resolution_rules import (
 from pydantic import BaseModel, Field
 
 log = get_logger(__name__)
+
+# Bound for concurrent Phase A retrieval inside resolve_entities_batch
+_RETRIEVAL_CONCURRENCY = 8
 
 # Pre-compiled regex patterns for metric string detection
 _PCT_PATTERN = re.compile(r"^[\d,．.]+\s*%$")
@@ -675,6 +679,41 @@ class EntityResolver:
         results: list[dict[str, Any] | None] = [None] * len(entities)
         llm_pending: list[tuple[int, dict[str, Any]]] = []
 
+        # Phase A (read-only retrieval) runs bounded-concurrent per entity:
+        # exact match + vector candidate lookup are network round trips that
+        # used to serialize 2N times per batch. All writes stay sequential
+        # in Phase B so creation/merge semantics are unchanged.
+        semaphore = asyncio.Semaphore(_RETRIEVAL_CONCURRENCY)
+        pending_indices = [
+            i
+            for i, entity in enumerate(entities)
+            if not (
+                entity.get("type", EntityType.UNKNOWN.value)
+                == EntityType.DATA_METRIC.value
+                and (self._disable_data_metrics or self._looks_like_metric_string(entity.get("name", "")))
+            )
+        ]
+
+        async def _retrieve(i: int) -> tuple[int, object, dict[str, Any] | None, list[dict[str, Any]] | None]:
+            async with semaphore:
+                entity = entities[i]
+                name = entity.get("name", "")
+                entity_type = entity.get("type", EntityType.UNKNOWN.value)
+                norm_result = self._normalizer.normalize(name, entity_type)
+                exact_match = await self._try_exact_match(name, norm_result.normalized, entity_type)
+                if exact_match:
+                    return i, norm_result, exact_match, None
+                embedding = entity.get("embedding", [])
+                if not embedding:
+                    return i, norm_result, None, None
+                candidates = await self._find_similar_candidates(embedding)
+                return i, norm_result, None, candidates
+
+        retrieval_map: dict[int, tuple[object, dict[str, Any] | None, list[dict[str, Any]] | None]] = {}
+        if pending_indices:
+            retrieved = await asyncio.gather(*(_retrieve(i) for i in pending_indices))
+            retrieval_map = {i: (norm, exact, cands) for i, norm, exact, cands in retrieved}
+
         for i, entity in enumerate(entities):
             name = entity.get("name", "")
             entity_type = entity.get("type", EntityType.UNKNOWN.value)
@@ -687,8 +726,7 @@ class EntityResolver:
                 results[i] = self._filtered_metric_result(name)
                 continue
 
-            norm_result = self._normalizer.normalize(name, entity_type)
-            exact_match = await self._try_exact_match(name, norm_result.normalized, entity_type)
+            norm_result, exact_match, candidates = retrieval_map[i]
             if exact_match:
                 results[i] = exact_match
                 continue
@@ -697,7 +735,6 @@ class EntityResolver:
                 results[i] = await self._create_without_embedding(name, entity_type, description)
                 continue
 
-            candidates = await self._find_similar_candidates(embedding)
             if not candidates:
                 results[i] = await self._create_without_embedding(name, entity_type, description)
                 continue

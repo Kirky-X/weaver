@@ -1461,3 +1461,86 @@ class TestBatchTargetValidation:
         # payload 为批量契约形态（entities 列表）
         payload = llm.call_at.await_args.args[1]
         assert "entities" in payload
+
+
+class TestBatchRetrievalConcurrency:
+    """T008: Phase A retrieval is bounded-concurrent with order preserved."""
+
+    @pytest.fixture
+    def mock_entity_repo(self):
+        repo = MagicMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        repo.merge_entity = AsyncMock(return_value="neo4j-id-123")
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
+        return repo
+
+    @pytest.fixture
+    def mock_vector_repo(self):
+        repo = MagicMock()
+        repo.find_similar_entities = AsyncMock(return_value=[])
+        repo.upsert_entity_vector = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def resolver(self, mock_entity_repo, mock_vector_repo):
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        return EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+    @pytest.mark.asyncio
+    async def test_retrieval_concurrent_bounded_and_ordered(
+        self, resolver, mock_entity_repo, mock_vector_repo
+    ):
+        import asyncio
+
+        from unittest.mock import patch
+
+        inflight = 0
+        max_inflight = 0
+
+        async def slow_exact(name, normalized, entity_type):
+            nonlocal inflight, max_inflight
+            inflight += 1
+            max_inflight = max(max_inflight, inflight)
+            await asyncio.sleep(0.02)
+            inflight -= 1
+            return None
+
+        mock_vector_repo.find_similar_entities = AsyncMock(return_value=[])
+
+        entities = [
+            {"name": f"Entity{i}", "type": "PERSON", "embedding": [0.1] * 1536}
+            for i in range(20)
+        ]
+        with patch.object(resolver, "_try_exact_match", new=slow_exact):
+            results = await resolver.resolve_entities_batch(entities)
+
+        assert len(results) == 20
+        names = [r.get("canonical_name") for r in results]
+        assert names == [f"Entity{i}" for i in range(20)], "result order must match input"
+        assert max_inflight > 1, "retrieval still fully serial"
+        assert max_inflight <= 8, "retrieval exceeds concurrency bound"
+
+    @pytest.mark.asyncio
+    async def test_exact_match_short_circuits_vector_lookup(
+        self, resolver, mock_entity_repo, mock_vector_repo
+    ):
+        mock_entity_repo.find_entity = AsyncMock(return_value=None)
+        existing = {"name": "Known", "neo4j_id": "id-1"}
+        from unittest.mock import patch
+
+        with patch.object(
+            resolver, "_try_exact_match", new=AsyncMock(return_value=existing)
+        ) as mock_exact, patch.object(
+            resolver, "_find_similar_candidates", new=AsyncMock()
+        ) as mock_similar:
+            results = await resolver.resolve_entities_batch(
+                [{"name": "Known", "type": "PERSON", "embedding": [0.1] * 1536}]
+            )
+
+        mock_exact.assert_awaited_once()
+        mock_similar.assert_not_awaited()
+        assert results[0] == existing
