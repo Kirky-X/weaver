@@ -1330,3 +1330,93 @@ class TestAppIntegration:
                 # Check some known API routes exist
                 api_routes = [r for r in routes if r.startswith("/api/v1")]
                 assert len(api_routes) > 0
+
+
+class TestStartupSecurityAudit:
+    """T004: lifespan runs the startup security audit; strict mode blocks on criticals."""
+
+    @staticmethod
+    def _critical_report() -> "SecurityAuditReport":
+        from core.security.audit import (
+            SecurityAuditReport,
+            SecurityCheckResult,
+            SecurityCheckSeverity,
+        )
+
+        return SecurityAuditReport(
+            results=[
+                SecurityCheckResult(
+                    name="test_check",
+                    severity=SecurityCheckSeverity.CRITICAL,
+                    message="critical finding",
+                )
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_startup_runs_security_audit(self, mock_container):
+        from core.security.audit import SecurityAuditReport
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log"):
+                            with patch(
+                                "core.security.audit.run_security_audit"
+                            ) as mock_audit:
+                                mock_audit.return_value = SecurityAuditReport(results=[])
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                async with lifespan(app):
+                                    pass
+
+                                mock_audit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_strict_mode_raises_on_critical(self, mock_container):
+        mock_container.settings.security.strict_startup_audit = True
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log"):
+                            with patch(
+                                "core.security.audit.run_security_audit"
+                            ) as mock_audit:
+                                mock_audit.return_value = self._critical_report()
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                with pytest.raises(RuntimeError, match="critical"):
+                                    async with lifespan(app):
+                                        pass
+
+    @pytest.mark.asyncio
+    async def test_non_strict_mode_logs_but_does_not_block(self, mock_container):
+        mock_container.settings.security.strict_startup_audit = False
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log") as mock_log:
+                            with patch(
+                                "core.security.audit.run_security_audit"
+                            ) as mock_audit:
+                                mock_audit.return_value = self._critical_report()
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                async with lifespan(app):
+                                    pass
+
+                                assert mock_log.error.called

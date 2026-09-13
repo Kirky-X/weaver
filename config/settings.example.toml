@@ -83,6 +83,10 @@ circuit_breaker_timeout = 60.0          # Cooldown period before half-open (seco
 # API Server Configuration
 # ============================================================
 
+# 启动安全审计：critical 发现时是否阻断启动（默认 false 仅记录）
+[security]
+strict_startup_audit = false
+
 [api]
 # API server settings
 # api_key: Set via WEAVER_API__API_KEY environment variable

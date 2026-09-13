@@ -103,6 +103,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             },
         )
 
+    # Startup security audit (project spec): scan env + code patterns and
+    # surface critical findings. Non-strict mode logs only; strict mode
+    # (WEAVER_SECURITY__STRICT_STARTUP_AUDIT) blocks startup.
+    from core.security.audit import run_security_audit
+
+    audit_report = run_security_audit(environment=container.settings.environment)
+    if audit_report.critical_count > 0:
+        if container.settings.security.strict_startup_audit:
+            raise RuntimeError(
+                f"Startup security audit found {audit_report.critical_count} "
+                "critical finding(s); refusing to start in strict audit mode"
+            )
+        log.error(
+            "security_audit_critical_findings",
+            critical=audit_report.critical_count,
+            hint="Set WEAVER_SECURITY__STRICT_STARTUP_AUDIT=true to block startup on criticals",
+        )
+
     await container.startup()
 
     # Register services for API endpoints

@@ -109,6 +109,15 @@ class RedisSettings(BaseModel):
         return f"redis://{self.host}:{self.port}/{self.db}"
 
 
+class SecuritySettings(BaseModel):
+    """Startup security audit settings.
+
+    Environment variables: WEAVER_SECURITY__STRICT_STARTUP_AUDIT.
+    """
+
+    strict_startup_audit: bool = False  # Raise at startup when audit finds critical issues
+
+
 class APISettings(BaseModel):
     """API layer settings.
 

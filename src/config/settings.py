@@ -35,6 +35,7 @@ from pydantic_settings import (
 # Import sub-configurations
 from config.subconfigs import (
     APISettings,
+    SecuritySettings,
     BingSettings,
     DuckDBSettings,
     EntitySettings,
@@ -100,6 +101,7 @@ class Settings(BaseSettings):
     ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     api: APISettings = Field(default_factory=APISettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     fetcher: FetcherSettings = Field(default_factory=FetcherSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
