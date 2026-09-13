@@ -127,6 +127,14 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             )
         """)
 
+    @staticmethod
+    def _validate_parquet_path(path: str) -> str:
+        """Reject paths that could break out of the SQL string literal."""
+        for ch in ("'", ";", "--"):
+            if ch in path:
+                raise ValueError(f"invalid parquet path: {path!r}")
+        return path
+
     def _load_from_parquet(self) -> None:
         """Load clusters from parquet file if exists."""
         try:
@@ -134,7 +142,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             if pq.exists():
                 self.db.execute(
                     f"INSERT INTO {self.table_name} "
-                    f"SELECT * FROM read_parquet('{self.parquet_file}')"
+                    f"SELECT * FROM read_parquet('{self._validate_parquet_path(self.parquet_file)}')"
                 )
                 count = self.db.execute(f"SELECT COUNT(*) FROM {self.table_name}").fetchone()[0]
                 log.info("loaded_clusters_from_parquet", count=count)
@@ -147,7 +155,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             try:
                 # Atomic write pattern
                 temp_file = self.parquet_file + ".tmp"
-                self.db.execute(f"COPY {self.table_name} TO '{temp_file}' (FORMAT PARQUET)")
+                self.db.execute(f"COPY {self.table_name} TO '{self._validate_parquet_path(temp_file)}' (FORMAT PARQUET)")
                 os.replace(temp_file, self.parquet_file)
                 self._dirty_count = 0
                 log.debug("synced_to_parquet")

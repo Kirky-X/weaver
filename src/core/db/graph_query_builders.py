@@ -793,7 +793,7 @@ class Neo4jQueryBuilder:
     ) -> str:
         """Build Neo4j query for multi-hop graph traversal."""
         confidence_filter = (
-            f" AND coalesce(r.weight, 1.0) >= {min_confidence}"
+            f" AND coalesce(r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
             if min_confidence is not None
             else ""
         )
@@ -1542,7 +1542,7 @@ class LadybugQueryBuilder:
         applied on the direct relationship, not the variable-length path.
         """
         confidence_filter = (
-            f" AND coalesce(direct_r.weight, 1.0) >= {min_confidence}"
+            f" AND coalesce(direct_r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
             if min_confidence is not None
             else ""
         )
@@ -1873,3 +1873,10 @@ def create_graph_query_builder(db_type: str | GraphDatabaseType) -> GraphQueryBu
     else:
         supported = ", ".join(t.value for t in GraphDatabaseType)
         raise ValueError(f"Unsupported graph database type: {db_type} (supported: {supported})")
+
+
+def _clamp_confidence(value: float | None) -> float:
+    """Normalize a confidence filter to a safe float in [0.0, 1.0]."""
+    if value is None:
+        return 0.0
+    return min(1.0, max(0.0, float(value)))
