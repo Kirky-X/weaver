@@ -11,7 +11,8 @@ This service manages BM25 index lifecycle:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, select
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 log = get_logger(__name__)
+
+# Redis key holding the last successful index build time (ISO-8601). Survives
+# process restarts so the scheduled job can go straight to incremental mode.
+WATERMARK_KEY = "bm25:last_indexed_at"
 
 
 class BM25IndexService:
@@ -46,6 +51,7 @@ class BM25IndexService:
         relational_pool: RelationalPool,
         bm25_retriever: BM25Retriever,
         rebuild_interval_seconds: int = 300,
+        cache_client: Any | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._retriever = bm25_retriever
@@ -54,6 +60,8 @@ class BM25IndexService:
         self._is_building = False
         self._build_count = 0
         self._scheduler_job: Any = None
+        # Optional Redis client: persists the watermark across restarts
+        self._cache_client = cache_client
 
     async def build_full_index(self, limit: int | None = None) -> int:
         """Build full BM25 index from all articles.
@@ -81,11 +89,13 @@ class BM25IndexService:
                 log.warning("bm25_build_no_articles")
                 return 0
 
-            # Build index
-            self._retriever.index(documents)
+            # Build index off the event loop (sync tokenization over all docs)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._retriever.index, documents)
 
             self._last_build_time = datetime.now(UTC)
             self._build_count += 1
+            await self._write_watermark(self._last_build_time)
 
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
             log.info(
@@ -117,7 +127,7 @@ class BM25IndexService:
             log.warning("bm25_incremental_build_in_progress")
             return 0
 
-        cutoff = since or self._last_build_time
+        cutoff = since or self._last_build_time or await self._read_watermark()
         if cutoff is None:
             # No previous build, do full build instead
             log.info("bm25_incremental_no_previous_build")
@@ -133,11 +143,14 @@ class BM25IndexService:
 
             if not documents:
                 log.info("bm25_incremental_no_new_articles")
+                await self._write_watermark(datetime.now(UTC))
                 return 0
 
-            # Add to existing index
-            self._retriever.add_documents(documents)
+            # Add to existing index off the event loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._retriever.add_documents, documents)
 
+            await self._write_watermark(datetime.now(UTC))
             log.info("bm25_incremental_complete", new_documents=len(documents))
             return len(documents)
 
@@ -255,16 +268,37 @@ class BM25IndexService:
             return documents
 
     async def scheduled_rebuild(self) -> int:
-        """Scheduled job for rebuilding BM25 index.
+        """Scheduled job for maintaining the BM25 index.
 
-        This method is called by APScheduler at configured intervals.
-        It performs a full rebuild to ensure index consistency.
+        Incremental by default (watermark-based); falls back to a full
+        rebuild only when the index is empty or no watermark exists.
 
         Returns:
             Number of documents indexed.
         """
         log.info("bm25_scheduled_rebuild_start")
+        if self._retriever.get_document_count() > 0 or self._last_build_time:
+            return await self.incremental_update()
         return await self.build_full_index()
+
+    async def _read_watermark(self) -> datetime | None:
+        """Read the last build time from Redis (in-memory value as fallback)."""
+        if self._cache_client is not None:
+            try:
+                raw = await self._cache_client.get(WATERMARK_KEY)
+                if raw:
+                    return datetime.fromisoformat(raw)
+            except Exception as exc:
+                log.debug("bm25_watermark_read_failed", error=str(exc))
+        return self._last_build_time
+
+    async def _write_watermark(self, moment: datetime) -> None:
+        """Persist the last build time to Redis (best-effort)."""
+        if self._cache_client is not None:
+            try:
+                await self._cache_client.set(WATERMARK_KEY, moment.isoformat())
+            except Exception as exc:
+                log.debug("bm25_watermark_write_failed", error=str(exc))
 
     def get_stats(self) -> dict[str, Any]:
         """Get service statistics.

@@ -172,9 +172,14 @@ class ContainerSearchMixin:
             bm25_retriever = hybrid_engine._bm25_retriever if hybrid_engine else None
 
             if bm25_retriever is not None:
+                try:
+                    cache_client = self.cache_client()
+                except Exception:  # noqa: BLE001 - cache is optional for BM25
+                    cache_client = None
                 self._bm25_index_service = BM25IndexService(
                     relational_pool=self.relational_pool(),
                     bm25_retriever=bm25_retriever,
+                    cache_client=cache_client,
                 )
 
                 # Build index on startup if empty

@@ -275,6 +275,7 @@ class TestScheduledRebuild:
     async def test_scheduled_rebuild(self) -> None:
         mock_pg = MagicMock()
         mock_retriever = MagicMock()
+        mock_retriever.get_document_count.return_value = 0  # empty index -> full build
         service = BM25IndexService(mock_pg, mock_retriever)
         service._fetch_articles = AsyncMock(
             return_value=[
@@ -324,3 +325,151 @@ class TestCreateBm25SchedulerJob:
         job = create_bm25_scheduler_job(mock_scheduler, service)
         assert job.id == "bm25_rebuild_index"
         mock_scheduler.add_job.assert_called_once()
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# T014: incremental-by-default scheduling, watermark persistence, executor offload
+# ────────────────────────────────────────────────────────────────────────────
+
+from datetime import timedelta  # noqa: E402
+
+from modules.knowledge.search.retrievers.bm25_index_service import (  # noqa: E402
+    WATERMARK_KEY,
+)
+
+
+def _t014_service(cache_client=None):
+    retriever = MagicMock()
+    retriever.get_document_count = MagicMock(return_value=100)
+    retriever.index = MagicMock(return_value=None)
+    retriever.add_documents = MagicMock(return_value=None)
+    pool = MagicMock()
+    service = BM25IndexService(
+        relational_pool=pool, bm25_retriever=retriever, cache_client=cache_client
+    )
+    return service, retriever
+
+
+class TestScheduledRebuildIncremental:
+    """scheduled_rebuild prefers incremental via watermark; full only when empty."""
+
+    @pytest.mark.asyncio
+    async def test_incremental_by_default_with_watermark(self):
+        cache = MagicMock()
+        cache.get = AsyncMock(return_value=(datetime.now(UTC) - timedelta(hours=1)).isoformat())
+        cache.set = AsyncMock()
+        service, retriever = _t014_service(cache_client=cache)
+
+        with (
+            patch.object(service, "_fetch_articles_since", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])),
+            patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[])),
+        ):
+            count = await service.scheduled_rebuild()
+
+        assert count == 1
+        retriever.add_documents.assert_called_once()
+        retriever.index.assert_not_called()
+        cache.set.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_full_rebuild_when_index_empty(self):
+        cache = MagicMock()
+        cache.get = AsyncMock(return_value=None)
+        cache.set = AsyncMock()
+        service, retriever = _t014_service(cache_client=cache)
+        retriever.get_document_count = MagicMock(return_value=0)
+
+        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+            count = await service.scheduled_rebuild()
+
+        assert count == 1
+        retriever.index.assert_called_once()
+        retriever.add_documents.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_watermark_and_no_cache_falls_back_to_full(self):
+        service, retriever = _t014_service(cache_client=None)
+
+        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+            await service.scheduled_rebuild()
+
+        retriever.index.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_incremental_failure_does_not_advance_watermark(self):
+        cache = MagicMock()
+        cache.get = AsyncMock(return_value=datetime.now(UTC).isoformat())
+        cache.set = AsyncMock()
+        service, _retriever = _t014_service(cache_client=cache)
+
+        with patch.object(
+            service, "_fetch_articles_since", new=AsyncMock(side_effect=RuntimeError("db down"))
+        ):
+            await service.incremental_update(since=datetime.now(UTC))
+
+        cache.set.assert_not_awaited()
+
+
+class TestExecutorOffload:
+    @pytest.mark.asyncio
+    async def test_full_index_build_off_event_loop(self):
+        import threading
+
+        service, retriever = _t014_service()
+        threads: list[str] = []
+
+        def spy_index(documents):
+            threads.append(threading.current_thread().name)
+
+        retriever.index.side_effect = spy_index
+
+        with patch.object(service, "_fetch_articles", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])):
+            await service.build_full_index()
+
+        assert threads
+        assert all(name != threading.main_thread().name for name in threads)
+
+    @pytest.mark.asyncio
+    async def test_incremental_add_off_event_loop(self):
+        import threading
+
+        service, retriever = _t014_service()
+        threads: list[str] = []
+
+        def spy_add(documents):
+            threads.append(threading.current_thread().name)
+
+        retriever.add_documents.side_effect = spy_add
+
+        with patch.object(
+            service, "_fetch_articles_since", new=AsyncMock(return_value=[BM25Document(doc_id="1", title="t", content="c", metadata={})])
+        ):
+            await service.incremental_update(since=datetime.now(UTC) - timedelta(hours=1))
+
+        assert threads
+        assert all(name != threading.main_thread().name for name in threads)
+
+
+class TestWatermarkPersistence:
+    @pytest.mark.asyncio
+    async def test_watermark_survives_restart(self):
+        cache = MagicMock()
+        cutoff = datetime.now(UTC) - timedelta(hours=2)
+        cache.get = AsyncMock(return_value=cutoff.isoformat())
+        cache.set = AsyncMock()
+
+        service, retriever = _t014_service(cache_client=cache)
+        captured_since: dict = {}
+
+        async def fake_fetch(since):
+            captured_since["since"] = since
+            return []
+
+        with patch.object(service, "_fetch_articles_since", new=fake_fetch):
+            await service.scheduled_rebuild()
+
+        assert captured_since["since"] == cutoff
+        retriever.index.assert_not_called()
+
+    def test_watermark_key_name(self):
+        assert WATERMARK_KEY == "bm25:last_indexed_at"
