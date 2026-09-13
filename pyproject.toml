@@ -136,6 +136,12 @@ test = [
 # ────────────────────────────────────────────────────────────
 
 # Ruff — fast Python linter & formatter
+[project.scripts]
+weaver-pipeline = "scripts.pipeline:main"
+weaver-db = "scripts.db:main"
+weaver-data-io = "scripts.data_io:main"
+weaver-tools = "scripts.tools:main"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

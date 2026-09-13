@@ -36,8 +36,6 @@ from pathlib import Path
 from typing import Any
 
 _project_root = str(Path(__file__).parent.parent)
-sys.path.insert(0, f"{_project_root}/src")
-sys.path.insert(0, _project_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
