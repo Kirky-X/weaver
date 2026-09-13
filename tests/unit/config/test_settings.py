@@ -271,3 +271,43 @@ class TestAPISettingsPortDetection:
 
             with pytest.raises(PortExhaustionError):
                 APISettings(port=8000)
+
+
+class TestApiKeyGenerationCaching:
+    """T003: lazily generated API key must be cached per instance."""
+
+    def test_generated_key_is_stable(self) -> None:
+        """Repeated get_api_key() calls return the same generated key."""
+        settings = APISettings(api_key="")
+
+        first = settings.get_api_key()
+        second = settings.get_api_key()
+
+        assert first == second
+        assert first  # non-empty
+
+    def test_token_generated_once_per_instance(self) -> None:
+        """secrets.token_urlsafe is called at most once (log-flood fix)."""
+        settings = APISettings(api_key="")
+
+        with patch("secrets.token_urlsafe", return_value="cached-key") as mock_gen:
+            settings.get_api_key()
+            settings.get_api_key()
+            settings.get_api_key()
+
+        assert mock_gen.call_count == 1
+
+    def test_configured_key_takes_precedence(self) -> None:
+        """Explicitly configured key is returned without generation."""
+        settings = APISettings(api_key="configured-key-value")
+
+        with patch("secrets.token_urlsafe") as mock_gen:
+            assert settings.get_api_key() == "configured-key-value"
+            mock_gen.assert_not_called()
+
+    def test_cache_is_per_instance(self) -> None:
+        """Two instances generate independent keys (no cross-instance sharing)."""
+        first_settings = APISettings(api_key="")
+        second_settings = APISettings(api_key="")
+
+        assert first_settings.get_api_key() != second_settings.get_api_key()

@@ -17,7 +17,7 @@ import os
 import secrets
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
@@ -129,22 +129,30 @@ class APISettings(BaseModel):
     )
     shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
+    # Lazily generated fallback key: generated once per process, never per request
+    _generated_api_key: str | None = PrivateAttr(default=None)
+
     def get_api_key(self) -> str:
-        """Get API key, generating one if not set."""
+        """Get API key, generating one if not set.
+
+        The generated fallback key is cached on the instance so repeated
+        calls (e.g. unauthenticated requests hitting the auth middleware)
+        neither regenerate it nor flood the log.
+        """
         if self.api_key:
             return self.api_key
 
-        # Generate a secure random key
-        generated = secrets.token_urlsafe(32)
-        from core.observability import get_logger
+        if self._generated_api_key is None:
+            self._generated_api_key = secrets.token_urlsafe(32)
+            from core.observability import get_logger
 
-        log = get_logger(__name__)
-        log.info(
-            "api_key_generated",
-            message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
-            key_prefix=generated[:8] + "...",
-        )
-        return generated
+            log = get_logger(__name__)
+            log.info(
+                "api_key_generated",
+                message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
+                key_prefix=self._generated_api_key[:8] + "...",
+            )
+        return self._generated_api_key
 
     def validate_security(self, environment: str = "development") -> list[str]:
         """Validate security settings and return warnings."""
