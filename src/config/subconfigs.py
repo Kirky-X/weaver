@@ -195,6 +195,17 @@ class APISettings(BaseModel):
                 f"Admin API key length ({len(self.admin_api_key)}) is less than recommended 32 characters."
             )
 
+        # T031: production must not reuse the API key for HMAC signing
+        if self.hmac_signing_enabled and not self.hmac_secret:
+            if environment == "production":
+                raise ValueError(
+                    "HMAC signing is enabled but WEAVER_API__HMAC_SECRET is not set. "
+                    "Set an independent HMAC secret for production (key reuse is forbidden)."
+                )
+            warnings.append(
+                "HMAC signing enabled without a dedicated secret; it will fall back to the API key."
+            )
+
         # Warn if admin key not configured in production
         if not self.admin_api_key and environment == "production":
             warnings.append(

@@ -1494,3 +1494,34 @@ class TestHTTPLogPrivacy:
 
         logged = str(mock_log.info.call_args_list[0])
         assert "a" * 501 not in logged
+
+
+class TestSecurityHeadersCSP:
+    """T031: API responses carry a restrictive CSP header."""
+
+    @pytest.mark.asyncio
+    async def test_csp_header_present(self):
+        from api.middleware.asgi import SecurityHeadersMiddleware
+
+        async def app(scope, receive, send):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        middleware = SecurityHeadersMiddleware(app)
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+        await middleware(scope, AsyncMock(), send)
+
+        headers = dict(sent[0]["headers"])
+        assert b"content-security-policy" in headers
+        assert headers[b"content-security-policy"] == b"default-src 'none'; frame-ancestors 'none'"

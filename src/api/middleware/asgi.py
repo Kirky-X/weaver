@@ -145,6 +145,9 @@ class SecurityHeadersMiddleware:
                 headers[b"x-frame-options"] = b"DENY"
                 headers[b"x-xss-protection"] = b"1; mode=block"
                 headers[b"strict-transport-security"] = b"max-age=31536000; includeSubDomains"
+                headers[b"content-security-policy"] = (
+                    b"default-src 'none'; frame-ancestors 'none'"
+                )
                 message["headers"] = list(headers.items())
             await send(message)
 

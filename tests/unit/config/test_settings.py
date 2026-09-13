@@ -311,3 +311,34 @@ class TestApiKeyGenerationCaching:
         second_settings = APISettings(api_key="")
 
         assert first_settings.get_api_key() != second_settings.get_api_key()
+
+
+class TestHmacSecretIndependence:
+    """T031: production forbids HMAC secret fallback to API key."""
+
+    def test_production_hmac_enabled_without_secret_raises(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret=None,
+        )
+        with pytest.raises(ValueError, match="WEAVER_API__HMAC_SECRET"):
+            settings.validate_security(environment="production")
+
+    def test_development_hmac_enabled_without_secret_warns(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret=None,
+        )
+        warnings = settings.validate_security(environment="development")
+        assert any("HMAC" in w for w in warnings)
+
+    def test_production_with_secret_passes(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret="h" * 40,
+        )
+        warnings = settings.validate_security(environment="production")
+        assert not any("HMAC" in w for w in warnings)
