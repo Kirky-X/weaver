@@ -665,14 +665,7 @@ class TestUpsertEntityVectorsDedupe:
         await repo.upsert_entity_vectors(entities, model_id="m1")
 
         assert len(executed) == 1
-        values = executed[0].compile().params if hasattr(executed[0], "compile") else None
-        # Fallback check: the statement's VALUES carry 2 distinct keys.
+        # The statement's VALUES carry exactly the 2 distinct keys.
         compiled = executed[0].compile()
-        neo4j_ids = (
-            [v for v in compiled.params.get("neo4j_id_0_0", [])]
-            if isinstance(compiled.params.get("neo4j_id_0_0", None), list)
-            else None
-        )
-        # Robust assertion: count parameters via compiled construct
         key_params = [v for k, v in compiled.params.items() if k.startswith("neo4j_id")]
         assert sorted(key_params) == ["A", "B"]

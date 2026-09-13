@@ -1169,9 +1169,11 @@ class ContainerLifecycleMixin:
         log.info("container_started")
 
     def _subscribe(self, event_type: type, handler: Any) -> None:
-        """Subscribe on the shared bus while recording the handler for
-        shutdown-time detach — the bus is a process-wide singleton, so a
-        same-process restart must not accumulate duplicate handlers.
+        """Subscribe on the shared bus while recording the handler.
+
+        The bus is a process-wide singleton, so a same-process restart must
+        not accumulate duplicate handlers — shutdown() detaches the whole
+        list.
         """
         self._owned_event_handlers.append((event_type, handler))
         self._event_bus.subscribe(event_type, handler)
