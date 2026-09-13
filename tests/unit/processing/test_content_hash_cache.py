@@ -245,8 +245,14 @@ class TestContentHashCacheWrite:
             _make_raw_article("Title 2", "Body 2"),
         ]
 
-        cache_client = AsyncMock()
-        cache_client.set.return_value = None
+        cache_client = MagicMock()
+        pipe = MagicMock()
+        pipe.set = MagicMock(return_value=None)
+        pipe.execute = AsyncMock(return_value=[])
+        pipeline_cm = MagicMock()
+        pipeline_cm.__aenter__ = AsyncMock(return_value=pipe)
+        pipeline_cm.__aexit__ = AsyncMock(return_value=False)
+        cache_client.pipeline = MagicMock(return_value=pipeline_cm)
 
         service = ContentHashCacheService(cache_client=cache_client)
 
@@ -258,8 +264,88 @@ class TestContentHashCacheWrite:
 
         await service.write_batch(states)
 
-        # Verify cache was written for each article
-        assert cache_client.set.call_count == 2
+        # T009: batch writes go through one pipeline round trip
+        assert pipe.set.call_count == 2
+        pipe.execute.assert_awaited_once()
+        assert cache_client.set.call_count == 0
+
+
+class TestContentHashCacheBatchPipeline:
+    """T009: write_batch serializes off-loop and writes via a single pipeline."""
+
+    @staticmethod
+    def _make_states(count: int) -> list[PipelineState]:
+        return [
+            PipelineState(raw=_make_raw_article(f"Title {i}", f"Body {i}"))
+            for i in range(count)
+        ]
+
+    @staticmethod
+    def _pipeline_client():
+        cache_client = MagicMock()
+        pipe = MagicMock()
+        pipe.set = MagicMock(return_value=None)
+        pipe.execute = AsyncMock(return_value=[])
+        pipeline_cm = MagicMock()
+        pipeline_cm.__aenter__ = AsyncMock(return_value=pipe)
+        pipeline_cm.__aexit__ = AsyncMock(return_value=False)
+        cache_client.pipeline = MagicMock(return_value=pipeline_cm)
+        return cache_client, pipe
+
+    @pytest.mark.asyncio
+    async def test_write_batch_single_pipeline_round_trip(self):
+        cache_client, pipe = self._pipeline_client()
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        await service.write_batch(self._make_states(3))
+
+        assert pipe.set.call_count == 3
+        pipe.execute.assert_awaited_once()
+        assert cache_client.set.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_write_batch_ttl_applied_per_key(self):
+        cache_client, pipe = self._pipeline_client()
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        await service.write_batch(self._make_states(2))
+
+        for call in pipe.set.call_args_list:
+            assert call.kwargs.get("ex") == 604800
+
+    @pytest.mark.asyncio
+    async def test_write_batch_serializes_off_event_loop(self):
+        import threading
+
+        cache_client, _pipe = self._pipeline_client()
+        service = ContentHashCacheService(cache_client=cache_client)
+        states = self._make_states(2)
+
+        threads_used: list[str] = []
+        real_dumps = json.dumps
+
+        def spy_dumps(*args, **kwargs):
+            threads_used.append(threading.current_thread().name)
+            return real_dumps(*args, **kwargs)
+
+        with patch(
+            "modules.processing.pipeline.content_hash_cache.json.dumps",
+            side_effect=spy_dumps,
+        ):
+            await service.write_batch(states)
+
+        main_thread = threading.main_thread().name
+        assert threads_used, "snapshot serialization did not run"
+        assert all(name != main_thread for name in threads_used)
+
+    @pytest.mark.asyncio
+    async def test_write_batch_pipeline_failure_is_swallowed_with_warning(self):
+        cache_client, pipe = self._pipeline_client()
+        pipe.execute = AsyncMock(side_effect=RuntimeError("redis down"))
+        service = ContentHashCacheService(cache_client=cache_client)
+
+        # Must not raise (cache is best-effort)
+        await service.write_batch(self._make_states(1))
 
 
 class TestContentHashCacheDisabled:

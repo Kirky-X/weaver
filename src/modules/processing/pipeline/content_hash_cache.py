@@ -10,6 +10,7 @@ Extracted from ``Pipeline`` to keep the orchestrator focused on flow control.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any
@@ -32,6 +33,9 @@ _CACHE_SCHEMA_VERSION = 2
 # ``_cache_hit`` (and any future private marker) is excluded via the
 # leading-underscore rule below.
 _UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
+
+# Cached snapshots expire after 7 days
+_CACHE_TTL_SECONDS = 604800
 
 
 class ContentHashCacheService:
@@ -98,23 +102,11 @@ class ContentHashCacheService:
             log.warning("content_hash_cache_check_failed", error=str(exc))
             return [None] * len(articles)
 
-    async def write(self, state: PipelineState) -> None:
-        """Write the processed state snapshot to the content hash cache.
-
-        The snapshot must match what the pipeline mappers consume
-        (``cleaned``, ``sentiment``, ``credibility``, ``summary_info``,
-        ``vectors``, ...) so a cache hit can short-circuit Phase 1/Phase 3
-        without losing analysis results or embeddings.
-
-        Args:
-            state: Completed pipeline state to cache.
-        """
-        if not self._cache_client:
-            return
-
+    def _snapshot_pair(self, state: PipelineState) -> tuple[str, dict[str, Any]] | None:
+        """Build (cache_key, snapshot_dict) for a state; None when unwritable."""
         raw = state.get("raw")
         if not raw:
-            return
+            return None
 
         content = f"{raw.title}{raw.body}"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -138,12 +130,35 @@ class ContentHashCacheService:
                     for entity in value
                 ]
             snapshot[key] = value
+        return cache_key, snapshot
+
+    async def write(self, state: PipelineState) -> None:
+        """Write the processed state snapshot to the content hash cache.
+
+        The snapshot must match what the pipeline mappers consume
+        (``cleaned``, ``sentiment``, ``credibility``, ``summary_info``,
+        ``vectors``, ...) so a cache hit can short-circuit Phase 1/Phase 3
+        without losing analysis results or embeddings.
+
+        Args:
+            state: Completed pipeline state to cache.
+        """
+        if not self._cache_client:
+            return
+
+        pair = self._snapshot_pair(state)
+        if pair is None:
+            return
+        cache_key, snapshot = pair
 
         try:
+            payload = await asyncio.to_thread(
+                json.dumps, snapshot, ensure_ascii=False, default=str
+            )
             await self._cache_client.set(
                 cache_key,
-                json.dumps(snapshot, ensure_ascii=False, default=str),
-                ex=604800,  # 7 days TTL
+                payload,
+                ex=_CACHE_TTL_SECONDS,
             )
         except Exception as exc:
             log.warning("content_hash_cache_write_failed", error=str(exc))
@@ -151,8 +166,29 @@ class ContentHashCacheService:
     async def write_batch(self, states: list[PipelineState]) -> None:
         """Write multiple processing results to content hash cache.
 
+        Serialization runs in a worker thread (large snapshots with vectors)
+        and all keys are flushed in a single pipeline round trip.
+
         Args:
             states: List of completed pipeline states to cache.
         """
-        for state in states:
-            await self.write(state)
+        if not self._cache_client or not states:
+            return
+
+        pairs = [pair for pair in (self._snapshot_pair(s) for s in states) if pair]
+        if not pairs:
+            return
+
+        try:
+            serialized = await asyncio.to_thread(
+                lambda: [
+                    (key, json.dumps(snapshot, ensure_ascii=False, default=str))
+                    for key, snapshot in pairs
+                ]
+            )
+            async with self._cache_client.pipeline() as pipe:
+                for key, payload in serialized:
+                    pipe.set(key, payload, ex=_CACHE_TTL_SECONDS)
+                await pipe.execute()
+        except Exception as exc:
+            log.warning("content_hash_cache_write_failed", error=str(exc))
