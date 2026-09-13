@@ -446,6 +446,16 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
+
+        # Transactional outbox dispatcher (T018): at-least-once event delivery
+        scheduler.add_job(
+            jobs.dispatch_outbox_events,
+            IntervalTrigger(seconds=30),
+            id="dispatch_outbox_events",
+            name="Dispatch outbox events",
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.add_job(
             jobs.retry_neo4j_writes,
             IntervalTrigger(minutes=settings.retry_neo4j_writes_interval_minutes),

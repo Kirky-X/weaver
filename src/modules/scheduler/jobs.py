@@ -68,6 +68,8 @@ class SchedulerJobs:
         trend_detector: TrendDetectionProtocol | None = None,
         sentiment_analyzer: SentimentTrendProtocol | None = None,
         saga_orchestrator: Any | None = None,
+        outbox_repo: Any | None = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -141,6 +143,10 @@ class SchedulerJobs:
     async def flush_retry_queue(self) -> int:
         """Delegate to ConsistencyJobs.flush_retry_queue."""
         return await self._consistency_jobs.flush_retry_queue()
+
+    async def dispatch_outbox_events(self) -> int:
+        """Delegate to ConsistencyJobs.dispatch_outbox_events."""
+        return await self._consistency_jobs.dispatch_outbox_events()
 
     async def recover_stale_sagas(self) -> int:
         """Delegate to ConsistencyJobs.recover_stale_sagas."""

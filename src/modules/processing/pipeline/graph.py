@@ -261,7 +261,9 @@ class Pipeline:
         )
         self._content_hash_cache = ContentHashCacheService(cache_client=cache_client)
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)
-        self._memory_publisher = MemoryEventPublisher(event_bus=deps.event_bus)
+        self._memory_publisher = MemoryEventPublisher(
+            event_bus=deps.event_bus, outbox_repo=deps.infrastructure.outbox_repo
+        )
 
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:

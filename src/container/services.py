@@ -87,6 +87,7 @@ class ContainerServicesMixin:
     _relation_type_normalizer: Any
     _memory_service: MemoryIntegrationService | None
     _saga_orchestrator: SagaOrchestrator | None
+    _outbox_repo: Any | None = None
     _shutdown: bool
     _knowledge_cache: Any
     _mc_sampler: Any
@@ -275,6 +276,8 @@ class ContainerServicesMixin:
                 trend_detector=self.trend_detector(),
                 sentiment_analyzer=self.sentiment_trend_analyzer(),
                 saga_orchestrator=self.saga_orchestrator(),
+                outbox_repo=self.outbox_repo(),
+                event_bus=self._event_bus,
             )
         return self._scheduler_jobs_service
 
@@ -853,6 +856,7 @@ class ContainerServicesMixin:
                         ),
                         saga_orchestrator=self._saga_orchestrator,
                         pending_sync_repo=self.pending_sync_repo(),
+                        outbox_repo=self.outbox_repo(),
                         # T003: AnalyticsStorage for SentimentTrackerNode.
                         # None when relational pool is unavailable; pipeline
                         # skips the node (graph.py guards on None).
@@ -914,6 +918,14 @@ class ContainerServicesMixin:
         if self._task_registry is None:
             self._task_registry = InMemoryTaskRegistry()
         return self._task_registry
+
+    def outbox_repo(self):
+        """Get the transactional outbox repository (T018)."""
+        if self._outbox_repo is None:
+            from modules.storage.postgres import OutboxRepo
+
+            self._outbox_repo = OutboxRepo(self.relational_pool())
+        return self._outbox_repo
 
     def saga_orchestrator(self) -> SagaOrchestrator:
         """Get the Saga orchestrator for cross-database transaction coordination."""

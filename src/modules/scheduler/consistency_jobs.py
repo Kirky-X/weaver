@@ -56,6 +56,8 @@ class ConsistencyJobs:
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,
         saga_orchestrator: Any = None,
+        outbox_repo: Any = None,
+        event_bus: Any = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -66,6 +68,8 @@ class ConsistencyJobs:
         self._pipeline = pipeline
         self._settings = settings or SchedulerSettings()
         self._saga_orchestrator = saga_orchestrator
+        self._outbox_repo = outbox_repo
+        self._event_bus = event_bus
 
     @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
@@ -207,6 +211,38 @@ class ConsistencyJobs:
 
         log.info("flush_retry_queue_complete", count=requeue_count)
         return requeue_count
+
+    @scheduled_task("dispatch_outbox_events", timeout_seconds=120)
+    async def dispatch_outbox_events(self) -> int:
+        """Replay pending outbox rows through the in-process event bus.
+
+        At-least-once delivery: each dispatch attempt either marks the row
+        dispatched or bumps its retry count; rows failing MAX_OUTBOX_RETRIES
+        times are parked as 'dead' with an ERROR log.
+        """
+        from core.event import MemoryIngestEvent
+
+        if self._outbox_repo is None or self._event_bus is None:
+            return 0
+
+        rows = await self._outbox_repo.fetch_pending(limit=100)
+        dispatched = 0
+        for row in rows:
+            try:
+                payload = row.payload or {}
+                event = MemoryIngestEvent(
+                    article_id=payload.get("article_id", ""),
+                    state=payload.get("state", {}),
+                )
+                await self._event_bus.publish(event)
+            except Exception as exc:
+                await self._outbox_repo.mark_failed(int(row.id), str(exc))
+                continue
+            await self._outbox_repo.mark_dispatched(int(row.id))
+            dispatched += 1
+        if rows:
+            log.info("outbox_dispatch_complete", fetched=len(rows), dispatched=dispatched)
+        return dispatched
 
     @scheduled_task("recover_stale_sagas", timeout_seconds=300)
     async def recover_stale_sagas(self) -> int:
