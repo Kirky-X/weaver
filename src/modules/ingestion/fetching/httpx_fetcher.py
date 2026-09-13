@@ -55,16 +55,48 @@ class SecureRedirectHandler:
         self._validator = validator
 
     async def __call__(self, response: httpx.Response) -> None:
-        """Validate the redirect target of a 3xx response before following.
+        """Validate the connection IP and any redirect target.
+
+        Two checks per hop:
+        1. The IP the connection actually reached (from the network stream's
+           ``server_addr``) — authoritative against DNS rebinding, since
+           resolution-time validation races the connect.
+        2. A 3xx ``Location`` target, before httpx requests the next hop.
 
         Args:
-            response: The just-received response; when it is a redirect the
-                ``Location`` target is validated against the URL validator.
+            response: The just-received response.
 
         Raises:
-            RedirectBlockedError: If the redirect target is blocked.
+            RedirectBlockedError: If the connected IP or redirect target is
+                blocked.
         """
-        if not self._validator or response.status_code not in self._REDIRECT_STATUS:
+        if not self._validator:
+            return
+
+        # 1) Connected-IP check (anti-rebinding) — applies to every response.
+        server_addr = self._connected_ip(response)
+        if server_addr:
+            url = str(response.request.url)
+            try:
+                self._validator.check_connected_ip(server_addr, url)
+                log.debug(
+                    "connected_ip_validated",
+                    server_addr=server_addr,
+                    url=url,
+                )
+            except RedirectBlockedError:
+                raise
+            except Exception as exc:
+                log.warning(
+                    "connected_ip_blocked",
+                    server_addr=server_addr,
+                    url=url,
+                    reason=str(exc),
+                )
+                raise RedirectBlockedError(url, str(exc)) from exc
+
+        # 2) Redirect-target check.
+        if response.status_code not in self._REDIRECT_STATUS:
             return
 
         location = response.headers.get("location")
@@ -91,6 +123,27 @@ class SecureRedirectHandler:
                 reason=str(exc),
             )
             raise RedirectBlockedError(redirect_url, str(exc)) from exc
+
+    @staticmethod
+    def _connected_ip(response: httpx.Response) -> str | None:
+        """Extract the remote IP the connection actually reached, if exposed.
+
+        httpcore exposes it via ``response.extensions["network_stream"]``.
+        Returns None when unavailable (mock transports, proxies returning
+        non-tuple addresses, etc.).
+        """
+        stream = response.extensions.get("network_stream")
+        if stream is None:
+            return None
+        try:
+            info = stream.get_extra_info("server_addr")
+        except Exception:
+            return None
+        if isinstance(info, tuple) and info:
+            return str(info[0])
+        if isinstance(info, str):
+            return info
+        return None
 
 
 class HttpxFetcher(BaseFetcher):

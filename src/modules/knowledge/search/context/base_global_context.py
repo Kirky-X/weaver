@@ -50,6 +50,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
         max_entities_per_community: int = 5,
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(token_encoder, default_max_tokens)
         self._pool = graph_pool
@@ -57,6 +58,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
         self._max_entities_per_community = max_entities_per_community
         self._llm_client = llm_client
         self._fallback_enabled = fallback_enabled
+        self._similarity_threshold = similarity_threshold
         self._query_builder: GraphQueryBuilder  # set by subclass
 
     # ── Template Method: build ──────────────────────────────────────────

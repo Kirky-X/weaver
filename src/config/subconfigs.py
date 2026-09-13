@@ -319,6 +319,8 @@ class SearchSettings(BaseModel):
 
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
+    # Min cosine similarity for community-level (global) vector search
+    community_similarity_threshold: float = 0.3
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"

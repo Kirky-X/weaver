@@ -49,6 +49,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
         max_entities_per_community: int = 5,
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(
             graph_pool=graph_pool,
@@ -58,6 +59,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
             max_entities_per_community=max_entities_per_community,
             llm_client=llm_client,
             fallback_enabled=fallback_enabled,
+            similarity_threshold=similarity_threshold,
         )
         self._query_builder = create_graph_query_builder("ladybug")
 
@@ -139,7 +141,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
                     continue
                 sim = float(scores[idx])
                 idx += 1
-                if sim > 0.3:
+                if sim > self._similarity_threshold:
                     scored.append((sim, r))
 
             scored.sort(key=lambda pair: pair[0], reverse=True)

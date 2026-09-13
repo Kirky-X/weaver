@@ -94,6 +94,76 @@ class TestSecureRedirectHandler:
         mock_validator.validate.assert_called_once_with("https://example.com/relative/target")
 
     @pytest.mark.asyncio
+    async def test_hook_blocks_private_connected_ip(self):
+        """Anti-rebinding: a response served from a private IP is blocked."""
+        from modules.ingestion.fetching.httpx_fetcher import (
+            RedirectBlockedError,
+            SecureRedirectHandler,
+        )
+
+        mock_validator = MagicMock()
+
+        def check_connected_ip(ip, url):
+            if ip.startswith("127.") or ip.startswith("10."):
+                from core.security.validation.ssrf import SSRFError
+
+                raise SSRFError(f"private ip {ip}")
+
+        mock_validator.check_connected_ip.side_effect = check_connected_ip
+        mock_validator.is_safe_url.return_value = True
+        mock_validator.validate = AsyncMock()
+
+        handler = SecureRedirectHandler(validator=mock_validator)
+        request = httpx.Request("GET", "https://evil.example.com/page")
+        response = httpx.Response(200, request=request)
+        response.extensions["network_stream"] = MagicMock(
+            get_extra_info=MagicMock(return_value=("127.0.0.1", 443))
+        )
+
+        with pytest.raises(RedirectBlockedError):
+            await handler(response)
+
+        mock_validator.validate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hook_passes_public_connected_ip(self):
+        """A response from a public IP passes the connected-IP check."""
+        from modules.ingestion.fetching.httpx_fetcher import SecureRedirectHandler
+
+        mock_validator = MagicMock()
+        mock_validator.check_connected_ip = MagicMock()
+        mock_validator.is_safe_url.return_value = True
+        mock_validator.validate = AsyncMock()
+
+        handler = SecureRedirectHandler(validator=mock_validator)
+        request = httpx.Request("GET", "https://ok.example.com/page")
+        response = httpx.Response(200, request=request)
+        response.extensions["network_stream"] = MagicMock(
+            get_extra_info=MagicMock(return_value=("93.184.216.34", 443))
+        )
+
+        await handler(response)
+
+        mock_validator.check_connected_ip.assert_called_once_with(
+            "93.184.216.34", "https://ok.example.com/page"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hook_tolerates_missing_network_stream(self):
+        """No network_stream extension (mock transports) → no IP check."""
+        from modules.ingestion.fetching.httpx_fetcher import SecureRedirectHandler
+
+        mock_validator = MagicMock()
+        mock_validator.check_connected_ip = MagicMock()
+
+        handler = SecureRedirectHandler(validator=mock_validator)
+        response = httpx.Response(200, request=httpx.Request("GET", "https://x.com/"))
+
+        await handler(response)
+
+        mock_validator.check_connected_ip.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_hook_blocks_unsafe_redirect_target(self):
         """Test validation blocks an unsafe redirect target."""
         from modules.ingestion.fetching.httpx_fetcher import (

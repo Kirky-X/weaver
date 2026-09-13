@@ -367,6 +367,22 @@ class SSRFChecker:
                     url,
                 )
 
+    def check_connected_ip(self, ip_address: str, url: str) -> None:
+        """Validate the IP an outgoing connection actually reached.
+
+        Anti-DNS-rebinding guard: resolution-time validation races the
+        connection, but the connected IP is authoritative. Non-IP addresses
+        (e.g. UNIX socket paths) are ignored.
+
+        Raises:
+            SSRFError: If the IP is in a blocked range.
+        """
+        try:
+            ip = ipaddress.ip_address(ip_address)
+        except ValueError:
+            return
+        self._check_blocked_ip(ip, url)
+
     def is_safe_url(self, url: str) -> bool:
         """Check if a URL is safe synchronously (without DNS resolution).
 

@@ -199,3 +199,28 @@ class TestBatchCallCacheSerialization:
             data = json.loads(payload)
             # Round-trips back into the model — proves model_dump_json was used.
             assert self._Out.model_validate_json(data["content"]) == expected
+
+
+class TestRerankClientCacheCap:
+    """The rerank client cache must stay bounded (FIFO eviction)."""
+
+    def test_cache_evicts_oldest_beyond_cap(self):
+        caller = LLMCaller()
+        caller._RERANK_CLIENT_CAP = 2
+
+        for i in range(4):
+            caller._get_rerank_client(f"https://api{i}.example.com", f"key-{i}", 10.0)
+
+        assert len(caller._rerank_clients) == 2
+        # The two oldest endpoints were evicted.
+        assert ("https://api0.example.com", "key-0") not in caller._rerank_clients
+        assert ("https://api1.example.com", "key-1") not in caller._rerank_clients
+        assert ("https://api2.example.com", "key-2") in caller._rerank_clients
+        assert ("https://api3.example.com", "key-3") in caller._rerank_clients
+
+    def test_same_endpoint_reuses_client(self):
+        caller = LLMCaller()
+        a = caller._get_rerank_client("https://api.example.com", "k", 10.0)
+        b = caller._get_rerank_client("https://api.example.com/", "k", 10.0)
+        assert a is b
+        assert len(caller._rerank_clients) == 1

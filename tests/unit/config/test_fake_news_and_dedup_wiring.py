@@ -11,6 +11,8 @@ making the configuration a no-op).
 
 from __future__ import annotations
 
+import pytest
+
 from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
 from config.subconfigs import DedupSettings, FakeNewsDetectorSettings
 
@@ -60,3 +62,38 @@ class TestDedupSettings:
         settings = DedupSettings()
         assert settings.enable_simhash_dedup is True
         assert settings.simhash_hamming_threshold == 3
+
+
+class TestCommunitySimilarityThresholdWiring:
+    """settings.search.community_similarity_threshold feeds both builders."""
+
+    def test_settings_field_loaded(self):
+        from config.settings import Settings
+
+        settings = Settings()
+        assert settings.search.community_similarity_threshold == 0.3
+
+    def test_builder_stores_threshold(self):
+        from unittest.mock import MagicMock
+
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.ladybug_global_context import (
+            LadybugGlobalContextBuilder,
+        )
+
+        ladybug = LadybugGlobalContextBuilder(graph_pool=MagicMock(), similarity_threshold=0.55)
+        assert ladybug._similarity_threshold == 0.55
+
+        neo4j = GlobalContextBuilder(graph_pool=MagicMock(), similarity_threshold=0.55)
+        assert neo4j._similarity_threshold == 0.55
+
+    def test_container_passes_setting_to_builders(self):
+        """Container must forward the setting (regression guard vs hardcode)."""
+        import inspect
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[3] / "src" / "container" / "search.py"
+        ).read_text(encoding="utf-8")
+        assert source.count("community_similarity_threshold") == 2
+        assert "similarity_threshold=self._settings.search.community_similarity_threshold" in source

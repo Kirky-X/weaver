@@ -89,6 +89,14 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 label = ""                          # Rerank requires specialized provider
 fallbacks = []
 
+# Per-call-point input truncation limits (characters), overriding the
+# built-in defaults (classifier 600 / categorizer 1100 / quality_scorer
+# 1500 / credibility_checker 2000 / analyze 3000 / summary 2000 /
+# entity_extractor 2000 / default 2000). Only entries listed here override.
+[input_limits]
+classifier = 600
+analyze = 3000
+
 # ============================================================
 # Call Point Routing (task-specific provider selection)
 # Label format: {type}.{provider}.{model_id}

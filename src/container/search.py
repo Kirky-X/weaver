@@ -57,6 +57,7 @@ class ContainerSearchMixin:
                 graph_pool=graph_pool,
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
+                similarity_threshold=self._settings.search.community_similarity_threshold,
             )
         else:
             # Neo4j (default)
@@ -73,6 +74,7 @@ class ContainerSearchMixin:
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
                 article_repo=self.article_repo(),
+                similarity_threshold=self._settings.search.community_similarity_threshold,
             )
 
         if self._local_search_engine is None:

@@ -146,6 +146,17 @@ class URLValidator:
             await self._phishtank.initialize()
         log.info("url_validator_initialized")
 
+    def check_connected_ip(self, ip_address: str, url: str) -> None:
+        """Validate the IP an outgoing connection actually reached.
+
+        Delegates to the SSRF checker's blocked-range list; closes the
+        DNS-rebinding TOCTOU window left by resolution-time validation.
+
+        Raises:
+            SSRFError: If the IP is in a blocked range.
+        """
+        self._ssrf_checker.check_connected_ip(ip_address, url)
+
     async def validate(self, url: str) -> ValidationResult:
         """Validate URL security.
 

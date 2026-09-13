@@ -45,6 +45,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
         article_repo: Any = None,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(
             graph_pool=graph_pool,
@@ -54,6 +55,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             max_entities_per_community=max_entities_per_community,
             llm_client=llm_client,
             fallback_enabled=fallback_enabled,
+            similarity_threshold=similarity_threshold,
         )
         self._query_builder = create_graph_query_builder("neo4j")
         self._article_repo = article_repo
@@ -87,11 +89,11 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
             query_embedding = embeddings[0]
 
-            cypher = """
+            cypher = f"""
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
             WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
-            WHERE score > 0.3
+            WHERE score > {self._similarity_threshold}
             RETURN c.id AS id,
                    c.title AS title,
                    COALESCE(r.summary, '') AS summary,
