@@ -22,6 +22,7 @@ from api.middleware.setup import setup_middleware
 from api.router import api_router
 from api.schemas.response import APIResponse
 from config.settings import Settings
+from config.validation import validate_llm_references
 from container import Container, set_container, set_settings
 from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
 from core.observability import configure_logging, get_logger
@@ -226,6 +227,12 @@ def create_app(container: Container | None = None) -> FastAPI:
     security_warnings = settings.validate_security()
     for warning in security_warnings:
         log.warning("security_check", warning=warning)
+
+    # Fail fast on unresolvable LLM call-point references (e.g. dangling
+    # provider labels in config/llm.toml) — ConfigReferenceError propagates.
+    llm_warnings = validate_llm_references(settings)
+    for warning in llm_warnings:
+        log.warning("llm_config_warning", warning=warning)
 
     # Check HMAC secret separation in production
     if settings.api.hmac_signing_enabled and settings.api.hmac_secret is None:
