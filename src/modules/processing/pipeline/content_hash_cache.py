@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:

@@ -17,7 +17,7 @@ from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.observability.throughput import PipelineThroughputTracker
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.nodes.classification.categorizer import CascadeCategorizerNode
@@ -1125,7 +1125,7 @@ class Pipeline:
             if article is None:
                 raise ValueError(f"Article not found: {article_id}")
 
-            from modules.ingestion.domain.models import RawArticle
+            from core.types.ingestion_models import RawArticle
 
             raw = RawArticle(
                 url=article.source_url,

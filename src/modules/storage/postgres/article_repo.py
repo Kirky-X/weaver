@@ -679,7 +679,7 @@ class ArticleRepo:
         Returns:
             The article UUID.
         """
-        from modules.ingestion.domain.models import NewsItem, RawArticle
+        from core.types.ingestion_models import NewsItem, RawArticle
 
         # Convert if needed
         if isinstance(article, RawArticle):
@@ -811,7 +811,7 @@ class ArticleRepo:
         if not articles:
             return []
 
-        from modules.ingestion.domain.models import NewsItem, RawArticle
+        from core.types.ingestion_models import NewsItem, RawArticle
 
         # Stage 1: normalize all inputs to RawArticle + compute normalized_url
         prepared: list[tuple[int, RawArticle, str]] = []  # (orig_idx, raw, normalized_url)
@@ -1010,7 +1010,7 @@ class ArticleRepo:
         if not ids:
             return []
 
-        from modules.ingestion.domain.models import RawArticle
+        from core.types.ingestion_models import RawArticle
 
         async with self._pool.session() as session:
             uuid_ids = [uuid.UUID(id) for id in ids]
