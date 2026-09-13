@@ -28,6 +28,7 @@ from api.dependencies import (
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.endpoints.content.search_cache import get_cached_search, store_search
 from core.llm import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool, PipelineService
@@ -133,6 +134,7 @@ async def search_unified(
         None,
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
+    no_cache: bool = Query(False, description="Bypass the short-TTL response cache"),
     _: str = Depends(verify_api_key),
     local_engine: LocalSearchEngine = Depends(get_local_search_engine),
     global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
@@ -169,6 +171,24 @@ async def search_unified(
 
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
+
+    # T015: short-TTL response cache for hot queries
+    cache_params = {
+        "q": q,
+        "mode": mode,
+        "community_level": community_level,
+        "threshold": threshold,
+        "limit": limit,
+        "category": category,
+        "use_hybrid": use_hybrid,
+        "global_mode": global_mode,
+        "output_mode": out_mode_value,
+        "enrich_entities": enrich,
+        "no_cache": no_cache,
+    }
+    cached_payload = await get_cached_search(request, cache_params)
+    if cached_payload is not None:
+        return success_response(SearchResponse.model_validate(cached_payload))
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
@@ -306,18 +326,18 @@ async def search_unified(
     # Note: Narrative synthesis and entity aggregation are handled by MAGMA
     # memory integration when output_mode=NARRATIVE or enrich_entities=True.
 
-    return success_response(
-        SearchResponse(
-            query=q,
-            answer=result_answer,
-            context_tokens=result_tokens,
-            confidence=result_confidence,
-            search_type=search_type,
-            entities=result_entities,
-            sources=result_sources,
-            metadata=result_metadata,
-        )
+    response_payload = SearchResponse(
+        query=q,
+        answer=result_answer,
+        context_tokens=result_tokens,
+        confidence=result_confidence,
+        search_type=search_type,
+        entities=result_entities,
+        sources=result_sources,
+        metadata=result_metadata,
     )
+    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
+    return success_response(response_payload)
 
 
 # ── Explicit Local/Global Search Endpoints ────────────────────

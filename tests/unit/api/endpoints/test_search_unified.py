@@ -1664,3 +1664,111 @@ class TestSortResponseLists:
         sorted_entities, sorted_sources = _sort_response_lists(entities, sources)
         assert sorted_entities == entities
         assert sorted_sources == sources
+
+
+class TestSearchResponseCache:
+    """T015: hot queries hit the short-TTL cache; no_cache bypasses it."""
+
+    @pytest.fixture
+    def cache_env(self):
+        store: dict[str, str] = {}
+
+        class FakeCache:
+            async def get(self, key):
+                return store.get(key)
+
+            async def set(self, key, value, ex=None):
+                store[key] = value
+
+        cache = FakeCache()
+        container = MagicMock()
+        container.settings.search.result_cache_ttl = 300
+        container.cache_client.return_value = cache
+        return container, store
+
+    @pytest.mark.asyncio
+    async def test_second_identical_query_hits_cache(
+        self,
+        mock_local_engine,
+        mock_global_engine,
+        mock_vector_repo,
+        mock_llm,
+        mock_hybrid_engine,
+        cache_env,
+    ):
+        container, store = cache_env
+        app = _build_app_for_endpoint_test(
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            skip_auth=True,
+        )
+        app.state.container = container
+        client = TestClient(app)
+
+        first = client.get("/api/v1/search", params={"q": "缓存验证查询"})
+        assert first.status_code == 200
+        assert mock_local_engine.search.await_count == 1
+
+        second = client.get("/api/v1/search", params={"q": "缓存验证查询"})
+        assert second.status_code == 200
+        assert second.json()["data"]["answer"] == first.json()["data"]["answer"]
+        # engine not invoked again — served from cache
+        assert mock_local_engine.search.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_cache_bypasses(
+        self,
+        mock_local_engine,
+        mock_global_engine,
+        mock_vector_repo,
+        mock_llm,
+        mock_hybrid_engine,
+        cache_env,
+    ):
+        container, store = cache_env
+        app = _build_app_for_endpoint_test(
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            skip_auth=True,
+        )
+        app.state.container = container
+        client = TestClient(app)
+
+        client.get("/api/v1/search", params={"q": "旁路查询"})
+        bypassed = client.get("/api/v1/search", params={"q": "旁路查询", "no_cache": True})
+
+        assert bypassed.status_code == 200
+        assert mock_local_engine.search.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ttl_zero_disables_cache(
+        self,
+        mock_local_engine,
+        mock_global_engine,
+        mock_vector_repo,
+        mock_llm,
+        mock_hybrid_engine,
+    ):
+        container = MagicMock()
+        container.settings.search.result_cache_ttl = 0
+        app = _build_app_for_endpoint_test(
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            hybrid_engine=mock_hybrid_engine,
+            skip_auth=True,
+        )
+        app.state.container = container
+        client = TestClient(app)
+
+        client.get("/api/v1/search", params={"q": "禁用缓存"})
+        client.get("/api/v1/search", params={"q": "禁用缓存"})
+
+        assert mock_local_engine.search.await_count == 2

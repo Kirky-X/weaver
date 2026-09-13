@@ -348,6 +348,8 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
+    # T015: short-TTL response cache for hot search queries (seconds; 0 = off)
+    result_cache_ttl: int = 300
     # MEDIUM-1 (T051-B): max concurrent Bing-fallback background pipeline
     # tasks. When at cap, the next Bing fallback call drops the new task
     # (logs warning, sets ``metadata.background_task_throttled=true``)
