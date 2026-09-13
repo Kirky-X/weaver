@@ -274,6 +274,7 @@ class ContainerServicesMixin:
                 knowledge_cache=self._knowledge_cache,
                 trend_detector=self.trend_detector(),
                 sentiment_analyzer=self.sentiment_trend_analyzer(),
+                saga_orchestrator=self.saga_orchestrator(),
             )
         return self._scheduler_jobs_service
 

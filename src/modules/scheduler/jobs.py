@@ -67,6 +67,7 @@ class SchedulerJobs:
         knowledge_cache: Any = None,
         trend_detector: TrendDetectionProtocol | None = None,
         sentiment_analyzer: SentimentTrendProtocol | None = None,
+        saga_orchestrator: Any | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -140,6 +141,10 @@ class SchedulerJobs:
     async def flush_retry_queue(self) -> int:
         """Delegate to ConsistencyJobs.flush_retry_queue."""
         return await self._consistency_jobs.flush_retry_queue()
+
+    async def recover_stale_sagas(self) -> int:
+        """Delegate to ConsistencyJobs.recover_stale_sagas."""
+        return await self._consistency_jobs.recover_stale_sagas()
 
     async def sync_neo4j_with_postgres(self) -> dict[str, Any]:
         """Delegate to ConsistencyJobs.sync_neo4j_with_postgres."""

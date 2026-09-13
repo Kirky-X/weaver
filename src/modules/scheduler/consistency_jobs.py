@@ -55,6 +55,7 @@ class ConsistencyJobs:
         pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,
+        saga_orchestrator: Any = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -64,6 +65,7 @@ class ConsistencyJobs:
         self._pending_sync_repo = pending_sync_repo
         self._pipeline = pipeline
         self._settings = settings or SchedulerSettings()
+        self._saga_orchestrator = saga_orchestrator
 
     @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
@@ -205,6 +207,17 @@ class ConsistencyJobs:
 
         log.info("flush_retry_queue_complete", count=requeue_count)
         return requeue_count
+
+    @scheduled_task("recover_stale_sagas", timeout_seconds=300)
+    async def recover_stale_sagas(self) -> int:
+        """Compensate sagas stuck in 'started' state (crash leftovers).
+
+        Idempotent: compensation of an already-compensated saga is a no-op
+        inside the orchestrator. Returns the number of sagas compensated.
+        """
+        if self._saga_orchestrator is None:
+            return 0
+        return await self._saga_orchestrator.recover_stale_sagas()
 
     @scheduled_task("sync_neo4j_with_postgres", timeout_seconds=600)
     async def sync_neo4j_with_postgres(self) -> dict[str, Any]:

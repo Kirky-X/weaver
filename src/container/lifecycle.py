@@ -439,6 +439,14 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
         scheduler.add_job(
+            jobs.recover_stale_sagas,
+            IntervalTrigger(minutes=10),
+            id="recover_stale_sagas",
+            name="Recover stale sagas",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
             jobs.retry_neo4j_writes,
             IntervalTrigger(minutes=settings.retry_neo4j_writes_interval_minutes),
             id="retry_neo4j_writes",
