@@ -148,7 +148,7 @@ class ArticleRepo:
 
         # Process in chunks to balance memory usage and transaction overhead
         CHUNK_SIZE = 50
-        all_article_ids: list[uuid.UUID] = []
+        all_article_ids: list[uuid.UUID | None] = []
 
         for i in range(0, len(states), CHUNK_SIZE):
             chunk = states[i : i + CHUNK_SIZE]

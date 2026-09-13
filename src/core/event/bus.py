@@ -202,6 +202,29 @@ class EventBus:
             handler=handler.__qualname__,
         )
 
+    def unsubscribe(self, event_type: type, handler: EventHandler) -> None:
+        """Remove a previously subscribed handler.
+
+        Required now that the bus is a process-wide singleton: containers
+        must detach their closures on shutdown so a same-process restart
+        cannot double-dispatch events to stale handlers.
+        """
+        handlers = self._handlers.get(event_type)
+        if handlers is None:
+            return
+        try:
+            handlers.remove(handler)
+        except ValueError:
+            return
+        if not handlers:
+            self._handlers.pop(event_type, None)
+            self._signals.pop(event_type, None)
+        log.debug(
+            "event_unsubscribed",
+            event_type=event_type.__name__,
+            handler=handler.__qualname__,
+        )
+
     async def publish(self, event: BaseEvent) -> None:
         """Publish an event to all subscribed handlers.
 

@@ -25,9 +25,7 @@ class MapperProtocol(Protocol):
     into typed Pydantic View models with field-level type conversion.
 
     Implementations:
-        - PostgresArticleMapper: Maps PostgreSQL ORM rows/dicts to ArticleView
         - Neo4jEntityMapper: Maps Neo4j records to EntityView
-        - CommunityMapper: Maps community data to CommunityView
         - CommunitySearchResultMapper: Maps search results to CommunitySearchResultView
     """
 

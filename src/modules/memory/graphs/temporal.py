@@ -270,11 +270,16 @@ class TemporalGraphRepo(BaseGraphRepo):
             if isinstance(attr, str):
                 try:
                     record["attributes"] = json.loads(attr)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as exc:
                     # Keep the raw string rather than crash, but leave a
                     # trace — downstream dict-style access on attributes
                     # would otherwise fail far from the root cause.
-                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
+                    log.warning(
+                        "event_attributes_unparseable",
+                        event_id=record.get("id"),
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
         return results
 
     async def search_temporal_events(
@@ -361,11 +366,16 @@ class TemporalGraphRepo(BaseGraphRepo):
             if isinstance(attr, str):
                 try:
                     record["attributes"] = json.loads(attr)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as exc:
                     # Keep the raw string rather than crash, but leave a
                     # trace — downstream dict-style access on attributes
                     # would otherwise fail far from the root cause.
-                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
+                    log.warning(
+                        "event_attributes_unparseable",
+                        event_id=record.get("id"),
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
 
         # D1 / Task 2.3-2.5: semantic re-ranking when query_embedding provided.
         # When query_embedding is None (Task 2.4), keep legacy behavior:
@@ -522,11 +532,16 @@ class TemporalGraphRepo(BaseGraphRepo):
             if isinstance(attr, str):
                 try:
                     record["attributes"] = json.loads(attr)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as exc:
                     # Keep the raw string rather than crash, but leave a
                     # trace — downstream dict-style access on attributes
                     # would otherwise fail far from the root cause.
-                    log.warning("event_attributes_unparseable", event_id=record.get("id"))
+                    log.warning(
+                        "event_attributes_unparseable",
+                        event_id=record.get("id"),
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
         return results
 
     async def count_events(self) -> int:

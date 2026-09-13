@@ -34,7 +34,7 @@ class VectorizeNode:
         cleaned = state["cleaned"]
         texts = [
             cleaned["title"],
-            f"{cleaned['title']}\n{cleaned['body'][:2000]}",
+            f"{cleaned['title']}\n{cleaned['body'][: self._text_limit]}",
         ]
 
         # Use embed_default for embedding with configured providers

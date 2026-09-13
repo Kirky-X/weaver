@@ -494,28 +494,37 @@ class VectorRepo:
         if self._query_builder.database_type == DatabaseType.DUCKDB:
             await self._upsert_entity_vectors_duckdb(entities, model_id, use_temp_key)
         else:
-            # PostgreSQL: one bulk ON CONFLICT upsert — neo4j_id carries a
-            # unique constraint, so concurrent batches can never race into
-            # duplicate rows or UniqueViolation the way select-then-insert did.
-            async with self._pool.session() as session:
+            # PostgreSQL: bulk ON CONFLICT upserts in bounded chunks —
+            # neo4j_id carries a unique constraint, so concurrent batches
+            # can never race into duplicate rows or UniqueViolation the way
+            # select-then-insert did.
+            # Dedupe by key first: a repeated key inside one ON CONFLICT
+            # statement makes PostgreSQL fail the whole statement ("cannot
+            # affect row a second time"), and extractor outputs (spaCy +
+            # GLiNER) routinely overlap.
+            seen: dict[str, list[float]] = {}
+            for name, embedding in entities:
+                key = f"temp:{name}" if use_temp_key else name
+                seen[key] = embedding
+
+            CHUNK = 1000  # stay far below PG's 65535 bind-parameter cap
+            for chunk_start in range(0, len(seen), CHUNK):
+                chunk_keys = list(seen.items())[chunk_start : chunk_start + CHUNK]
                 values = [
-                    {
-                        "neo4j_id": f"temp:{name}" if use_temp_key else name,
-                        "embedding": embedding,
-                        "model_id": model_id,
-                    }
-                    for name, embedding in entities
+                    {"neo4j_id": key, "embedding": embedding, "model_id": model_id}
+                    for key, embedding in chunk_keys
                 ]
-                stmt = pg_insert(EntityVector).values(values)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["neo4j_id"],
-                    set_={
-                        "embedding": stmt.excluded.embedding,
-                        "model_id": stmt.excluded.model_id,
-                    },
-                )
-                await session.execute(stmt)
-                await session.commit()
+                async with self._pool.session() as session:
+                    stmt = pg_insert(EntityVector).values(values)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["neo4j_id"],
+                        set_={
+                            "embedding": stmt.excluded.embedding,
+                            "model_id": stmt.excluded.model_id,
+                        },
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
 
     async def _upsert_entity_vectors_duckdb(
         self,

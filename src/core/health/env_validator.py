@@ -453,7 +453,9 @@ class EnvironmentValidator:
                 if len(parts) >= 3:
                     return parts[1], parts[2]
         except (AttributeError, KeyError):  # pragma: no cover - malformed settings
-            log.warning("embedding_route_resolution_failed", exc_info=True)
+            log.warning(
+                "embedding_route_resolution_failed", error="malformed settings", exc_info=True
+            )
         return None, None
 
     async def validate_embedding(self) -> ValidationResult:

@@ -970,7 +970,7 @@ class ContainerLifecycleMixin:
             except Exception as e:
                 log.warning("memory_ingest_failed", article_id=event.article_id, error=str(e))
 
-        self._event_bus.subscribe(MemoryIngestEvent, handle_memory_ingest)
+        self._subscribe(MemoryIngestEvent, handle_memory_ingest)
         log.info("memory_event_handler_registered")
 
     # ── Startup & Shutdown ──────────────────────────────────────
@@ -1033,13 +1033,13 @@ class ContainerLifecycleMixin:
 
         # LLM failure logging
         self._llm_failure_repo = LLMFailureRepo(self.relational_pool())
-        self._event_bus.subscribe(
+        self._subscribe(
             LLMFailureEvent, lambda e: _handle_llm_failure_async(e, self._llm_failure_repo)
         )
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
         # LLM usage metrics
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
         log.info("llm_usage_metrics_subscribed", event_bus_id=id(self._event_bus))
 
         # LLM usage statistics
@@ -1086,8 +1086,8 @@ class ContainerLifecycleMixin:
                         exc_info=True,
                     )
 
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_raw)
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         # LLM comparison buffer and handlers
@@ -1105,8 +1105,8 @@ class ContainerLifecycleMixin:
             repo = EvalCompareRepo(self.relational_pool())
             await repo.insert_raw(event)
 
-        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
-        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_raw)
+        self._subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
+        self._subscribe(LLMCompareEvent, _handle_eval_compare_raw)
         log.info("llm_compare_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         # Circuit breaker observability: the breakers already update their
@@ -1132,13 +1132,13 @@ class ContainerLifecycleMixin:
                     to_state=event.to_state,
                 )
 
-        self._event_bus.subscribe(CircuitStateEvent, _handle_circuit_state)
+        self._subscribe(CircuitStateEvent, _handle_circuit_state)
         log.info("circuit_state_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         async def _handle_credibility_computed(event: CredibilityComputedEvent) -> None:
             metrics.credibility_score_dist.observe(event.score)
 
-        self._event_bus.subscribe(CredibilityComputedEvent, _handle_credibility_computed)
+        self._subscribe(CredibilityComputedEvent, _handle_credibility_computed)
         log.info("credibility_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         _ = self.pending_sync_repo()
@@ -1168,6 +1168,14 @@ class ContainerLifecycleMixin:
 
         log.info("container_started")
 
+    def _subscribe(self, event_type: type, handler: Any) -> None:
+        """Subscribe on the shared bus while recording the handler for
+        shutdown-time detach — the bus is a process-wide singleton, so a
+        same-process restart must not accumulate duplicate handlers.
+        """
+        self._owned_event_handlers.append((event_type, handler))
+        self._event_bus.subscribe(event_type, handler)
+
     async def shutdown(self) -> None:
         """Clean up resources and stop background tasks."""
         from core.observability import get_logger
@@ -1180,6 +1188,13 @@ class ContainerLifecycleMixin:
 
         self._shutdown = True
         log.info("container_shutting_down")
+
+        # Detach event handlers registered during startup so repeated
+        # startup/shutdown cycles never double-dispatch events.
+        for event_type, handler in self._owned_event_handlers:
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(event_type, handler)
+        self._owned_event_handlers.clear()
 
         if self._scheduler:
             self._scheduler.shutdown(wait=False)

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from core.db.graph_query_builders import create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
@@ -18,17 +20,10 @@ from modules.knowledge.search.context.base_global_context import BaseGlobalConte
 
 log = get_logger(__name__)
 
-
-def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """Cosine similarity between two equal-length vectors (0.0 on degenerate input)."""
-    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
-        return 0.0
-    dot = sum(a * b for a, b in zip(vec_a, vec_b))
-    norm_a = sum(a * a for a in vec_a) ** 0.5
-    norm_b = sum(b * b for b in vec_b) ** 0.5
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+# Upper bound on CommunityReport candidates pulled for in-process cosine
+# scoring (each row carries a ~1024-dim float embedding). Keeps memory and
+# event-loop latency bounded on large graphs.
+_EMBEDDING_CANDIDATE_CAP = 500
 
 
 class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
@@ -111,16 +106,39 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
                    r.full_content AS full_content,
                    r.key_entities AS key_entities,
                    r.full_content_embedding AS embedding
+            ORDER BY c.rank DESC
+            LIMIT $candidate_cap
             """
 
-            results = await self._pool.execute_query(cypher, {"level": level})
+            results = await self._pool.execute_query(
+                cypher, {"level": level, "candidate_cap": _EMBEDDING_CANDIDATE_CAP}
+            )
+
+            # Batched numpy cosine (single matmul) — pure-Python loops cost
+            # 100ms+ per 1k communities and block the event loop.
+            emb_matrix = np.array(
+                [
+                    r.get("embedding")
+                    for r in results
+                    if isinstance(r.get("embedding"), list) and r.get("embedding")
+                ],
+                dtype=np.float32,
+            )
+            if emb_matrix.size == 0:
+                return []
+            query_vec = np.array(query_embedding, dtype=np.float32)
+            norms = np.linalg.norm(emb_matrix, axis=1) * np.linalg.norm(query_vec)
+            norms[norms == 0.0] = 1e-9
+            scores = (emb_matrix @ query_vec) / norms
 
             scored: list[tuple[float, dict[str, Any]]] = []
+            idx = 0
             for r in results:
                 emb = r.get("embedding")
                 if not isinstance(emb, list) or not emb:
                     continue
-                sim = _cosine_similarity(emb, query_embedding)
+                sim = float(scores[idx])
+                idx += 1
                 if sim > 0.3:
                     scored.append((sim, r))
 

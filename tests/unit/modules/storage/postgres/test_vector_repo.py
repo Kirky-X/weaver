@@ -620,3 +620,59 @@ class TestEntitySearchResultView:
 
         assert entity.neo4j_id == "entity-123"
         assert entity.similarity == 0.92
+
+
+class TestUpsertEntityVectorsDedupe:
+    """Duplicate entity names in one batch must not fail the statement."""
+
+    @pytest.fixture
+    def repo(self):
+        from unittest.mock import MagicMock
+
+        from modules.storage.postgres.vector_repo import VectorRepo
+
+        builder = MagicMock()
+        builder.database_type = MagicMock()
+        builder.database_type.name = "POSTGRES"
+        builder.database_type.value = "postgres"
+        return VectorRepo(pool=MagicMock(), query_builder=builder)
+
+    @pytest.mark.asyncio
+    async def test_duplicate_names_are_deduped(self, repo):
+        """Repeated names from overlapping extractors collapse to one row each."""
+        entities = [("A", [0.1] * 4), ("B", [0.2] * 4), ("A", [0.3] * 4)]
+
+        executed: list[object] = []
+
+        class FakeSession:
+            def __init__(self) -> None:
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def execute(self, stmt):
+                executed.append(stmt)
+
+            async def commit(self):
+                return None
+
+        repo._pool.session = lambda: FakeSession()
+
+        await repo.upsert_entity_vectors(entities, model_id="m1")
+
+        assert len(executed) == 1
+        values = executed[0].compile().params if hasattr(executed[0], "compile") else None
+        # Fallback check: the statement's VALUES carry 2 distinct keys.
+        compiled = executed[0].compile()
+        neo4j_ids = (
+            [v for v in compiled.params.get("neo4j_id_0_0", [])]
+            if isinstance(compiled.params.get("neo4j_id_0_0", None), list)
+            else None
+        )
+        # Robust assertion: count parameters via compiled construct
+        key_params = [v for k, v in compiled.params.items() if k.startswith("neo4j_id")]
+        assert sorted(key_params) == ["A", "B"]

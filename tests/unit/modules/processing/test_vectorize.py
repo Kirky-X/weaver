@@ -107,6 +107,21 @@ class TestVectorizeNodeBasic:
         assert len(content_text) <= 2005
 
     @pytest.mark.asyncio
+    async def test_vectorize_respects_configured_text_limit(self, mock_llm, sample_raw):
+        """A non-default text_limit must actually cap the embedded body."""
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 8, [0.2] * 8])
+
+        node = VectorizeNode(mock_llm, model_id="m", text_limit=10)
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": "T", "body": "X" * 100}
+
+        await node.execute(state)
+
+        content_text = mock_llm.embed_default.call_args[0][0][1]
+        # title (1) + newline (1) + body[:10]
+        assert len(content_text) == 12
+
+    @pytest.mark.asyncio
     async def test_vectorize_defaults_model_id_to_unknown(self, mock_llm, sample_raw):
         """model_id falls back to 'unknown' when not provided."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 8, [0.2] * 8])

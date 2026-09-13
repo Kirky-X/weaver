@@ -124,6 +124,19 @@ class ContentHashCacheService:
         for key, value in state.items():
             if key in _UNCACHEABLE_KEYS or key.startswith("_"):
                 continue
+            if key == "entities" and isinstance(value, list):
+                # Strip per-entity embeddings: they dominate the snapshot size
+                # (1024 floats each → hundreds of KB per article) and would
+                # blow Redis capacity under the 7-day TTL. Entity vectors live
+                # in entity_vectors (persisted on first encounter of the
+                # entity) — a cache hit skips Phase 3 entirely so they are
+                # never recomputed from the snapshot anyway.
+                value = [
+                    {k: v for k, v in entity.items() if k != "embedding"}
+                    if isinstance(entity, dict)
+                    else entity
+                    for entity in value
+                ]
             snapshot[key] = value
 
         try:

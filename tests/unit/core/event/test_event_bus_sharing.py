@@ -147,9 +147,11 @@ class TestEventBusSharing:
         settings = Settings()
         container = Container().configure(settings)
 
-        # Check startup() source contains event_bus subscription logic
+        # Check startup() source contains event_bus subscription logic —
+        # subscriptions must route through the tracking helper (_subscribe)
+        # so shutdown() can detach them from the shared singleton.
         source = inspect.getsource(container.startup)
-        assert "_event_bus.subscribe" in source
+        assert "self._subscribe(" in source
         assert "LLMFailureEvent" in source
 
         # Check _handle_llm_failure_async exists and is callable

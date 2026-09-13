@@ -12,6 +12,7 @@ and silently dropping circuit state events.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -68,3 +69,32 @@ class TestEventBusUnification:
             handlers = global_event_bus._handlers.get(CircuitStateEvent, [])
             if handler in handlers:
                 handlers.remove(handler)
+
+
+class TestEventBusUnsubscribe:
+    """unsubscribe() must fully detach handlers (restart-safety)."""
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_stops_delivery(self):
+        from core.event import BaseEvent
+
+        @dataclass
+        class _Probe(BaseEvent):
+            value: int = 0
+
+        received: list[int] = []
+
+        async def handler(event) -> None:
+            received.append(event.value)
+
+        global_event_bus.subscribe(_Probe, handler)
+        await global_event_bus.publish(_Probe(value=1))
+        assert received == [1]
+
+        global_event_bus.unsubscribe(_Probe, handler)
+        global_event_bus.publish(_Probe(value=2))
+        await asyncio.sleep(0.05)
+        assert received == [1]
+
+        # Unsubscribing an unknown handler is a no-op
+        global_event_bus.unsubscribe(_Probe, handler)
