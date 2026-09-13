@@ -47,6 +47,8 @@ def _stub_startup_dependencies(container) -> None:
     container.init_bing_searcher = AsyncMock()
     container.init_source_scheduler = AsyncMock()
     container.init_ml_components = AsyncMock()
+    # KnowledgeCache touches the real filesystem; stub it (T005 mock-leak fix)
+    container.init_knowledge_cache = AsyncMock()
     container.init_pipeline = AsyncMock()
     container.init_memory_service = AsyncMock()
     container.init_conflict_detector = AsyncMock()

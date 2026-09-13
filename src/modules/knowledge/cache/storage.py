@@ -67,6 +67,13 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         # Setup paths
         if cache_path is None:
             cache_path = os.getenv("KNOWLEDGE_CACHE_PATH", DEFAULT_CACHE_PATH)
+        # Concrete str/Path only: os.PathLike is too permissive here because
+        # MagicMock satisfies it via auto-created __fspath__, which historically
+        # materialised mock reprs as real directories on disk.
+        if not isinstance(cache_path, (str, Path)):
+            raise TypeError(
+                f"knowledge_cache.path must be a str or Path, got {type(cache_path).__name__}"
+            )
         self.cache_path = Path(cache_path).expanduser().resolve()
         self.cache_path.mkdir(parents=True, exist_ok=True)
         self.parquet_file = str(self.cache_path / "knowledge_clusters.parquet")
