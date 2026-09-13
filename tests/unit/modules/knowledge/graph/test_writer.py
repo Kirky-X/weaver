@@ -785,3 +785,70 @@ class TestRelationBatchWrite:
         await writer.write(self._make_state())
 
         repo.merge_relations_batch.assert_not_awaited()
+
+
+class TestWriteCircuitBreaker:
+    """T016: consecutive write failures open the circuit; writes fail fast."""
+
+    def _make_failing_writer(self):
+        with (
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_cls,
+        ):
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
+
+            entity_repo = MagicMock()
+            entity_repo.merge_entities_batch = AsyncMock(side_effect=RuntimeError("neo4j down"))
+            entity_repo.ensure_constraints = AsyncMock()
+            entity_repo.find_entity = AsyncMock(return_value=None)
+            entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
+            entity_repo.add_aliases_batch = AsyncMock()
+            mock_entity_cls.return_value = entity_repo
+            article_repo = MagicMock()
+            article_repo.create_article = AsyncMock(return_value="article-id")
+            mock_article_cls.return_value = article_repo
+            writer = Neo4jWriter(pool=MagicMock())
+            return writer, entity_repo
+
+    @staticmethod
+    def _state():
+        return {
+            "article_id": "test-id",
+            "raw": MagicMock(title="T", publish_time=None, url="https://e.com"),
+            "entities": [{"name": "E1", "type": "PERSON"}],
+            "relations": [],
+            "merged_source_ids": [],
+        }
+
+    @pytest.mark.asyncio
+    async def test_opens_after_five_failures_and_fails_fast(self):
+        import modules.knowledge.graph.neo4j_writer as nw
+
+        await nw._WRITE_BREAKER.reset()
+        writer, entity_repo = self._make_failing_writer()
+
+        # 5 consecutive batch failures (swallowed by _write_entities with
+        # error logging) must still trip the breaker
+        for _ in range(5):
+            await writer.write(self._state())
+
+        # 6th write is rejected at the entry without touching the graph repos
+        with pytest.raises(nw.Neo4jWriteCircuitOpen, match="circuit breaker is open"):
+            await writer.write(self._state())
+
+        assert entity_repo.merge_entities_batch.await_count == 5
+        await nw._WRITE_BREAKER.reset()
+
+    @pytest.mark.asyncio
+    async def test_success_records_success_and_keeps_circuit_closed(self):
+        import modules.knowledge.graph.neo4j_writer as nw
+
+        await nw._WRITE_BREAKER.reset()
+        writer, entity_repo = self._make_failing_writer()
+        entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 1})
+
+        result = await writer.write(self._state())
+
+        assert isinstance(result, list)
+        assert await nw._WRITE_BREAKER.is_open() is False
+        await nw._WRITE_BREAKER.reset()

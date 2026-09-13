@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import traceback
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from modules.knowledge.graph.neo4j_writer import Neo4jWriteCircuitOpen
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -50,11 +51,14 @@ class PipelinePersistence:
         vector_repo: VectorRepository | None,
         graph_writer: GraphWriter | None,
         phase3_concurrency: int,
+        pending_sync_repo: Any | None = None,
     ) -> None:
         self._article_repo = article_repo
         self._vector_repo = vector_repo
         self._graph_writer = graph_writer
         self._phase3_concurrency = phase3_concurrency
+        # T016: receives pending_sync rows when the graph write circuit is open
+        self._pending_sync_repo = pending_sync_repo
 
     async def persist_batch(
         self,
@@ -447,6 +451,27 @@ class PipelinePersistence:
                     original_error=str(exc),
                     mark_error=str(mark_exc),
                 )
+
+        # T016: circuit-open means the graph DB is intentionally bypassed —
+        # queue the state in pending_sync so the retry job restores it later.
+        if isinstance(exc, Neo4jWriteCircuitOpen) and self._pending_sync_repo is not None:
+            try:
+                await self._pending_sync_repo.upsert(
+                    uuid.UUID(state["article_id"]),
+                    "neo4j_write",
+                    {"reason": "circuit_open", "url": state["raw"].url},
+                )
+                log.warning(
+                    "neo4j_write_circuit_open_queued_pending_sync",
+                    article_id=state.get("article_id"),
+                )
+            except Exception as sync_exc:
+                log.error(
+                    "pending_sync_upsert_after_circuit_open_failed",
+                    article_id=state.get("article_id"),
+                    error=str(sync_exc),
+                )
+
         batch_failed += 1
         self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
         return batch_completed, batch_failed

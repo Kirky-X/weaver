@@ -851,6 +851,7 @@ class ContainerServicesMixin:
                             self.community_updater() if self.graph_pool() is not None else None
                         ),
                         saga_orchestrator=self._saga_orchestrator,
+                        pending_sync_repo=self.pending_sync_repo(),
                         # T003: AnalyticsStorage for SentimentTrackerNode.
                         # None when relational pool is unavailable; pipeline
                         # skips the node (graph.py guards on None).

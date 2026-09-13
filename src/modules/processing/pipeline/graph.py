@@ -257,6 +257,7 @@ class Pipeline:
             vector_repo=vector_repo,
             graph_writer=graph_writer,
             phase3_concurrency=self._phase3_concurrency,
+            pending_sync_repo=deps.infrastructure.pending_sync_repo,
         )
         self._content_hash_cache = ContentHashCacheService(cache_client=cache_client)
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)

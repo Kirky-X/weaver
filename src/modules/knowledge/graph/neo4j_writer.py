@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.db import PersistStatus
 from core.observability import get_logger
+from core.resilience.circuit_breaker import CircuitBreaker
 from core.types.pipeline_state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
@@ -21,6 +22,17 @@ log = get_logger(__name__)
 
 # Chunk size for batched relation writes (UNWIND groups)
 _RELATION_BATCH_SIZE = 500
+
+
+class Neo4jWriteCircuitOpen(RuntimeError):
+    """Raised when the Neo4j write circuit breaker is open (fast-fail path)."""
+
+
+# Shared breaker: failure counting must span every write in the process, so
+# a dead graph database trips the circuit regardless of which article hit it.
+_WRITE_BREAKER = CircuitBreaker(
+    threshold=5, timeout_secs=60.0, provider="neo4j_write"
+)
 
 
 class Neo4jWriter:
@@ -74,9 +86,11 @@ class Neo4jWriter:
         return PersistStatus.NEO4J_DONE
 
     async def write(self, state: PipelineState) -> list[str]:
-        """Write pipeline state to Neo4j.
+        """Write pipeline state to Neo4j behind the write circuit breaker.
 
         Creates article node, processes entities, and establishes relationships.
+        Fails fast with ``Neo4jWriteCircuitOpen`` while the breaker is open —
+        callers keep their existing failure handling (persist status / retry job).
 
         Args:
             state: Pipeline state containing article and entity data.
@@ -88,6 +102,25 @@ class Neo4jWriter:
         if not article_id:
             raise ValueError("article_id not found in pipeline state")
 
+        if await _WRITE_BREAKER.is_open():
+            log.error(
+                "neo4j_write_breaker_open",
+                article_id=str(article_id),
+                hint="graph database is failing; writes fail fast until cooldown ends",
+            )
+            raise Neo4jWriteCircuitOpen(
+                "Neo4j write circuit breaker is open; write rejected without I/O"
+            )
+
+        try:
+            return await self._write_state(state)
+        except Exception:
+            await _WRITE_BREAKER.record_failure()
+            raise
+
+    async def _write_state(self, state: PipelineState) -> list[str]:
+        """Execute the actual Neo4j write (breaker-managed by ``write``)."""
+        article_id = state.get("article_id")
         article_id_str = str(article_id)
 
         log.info("neo4j_write_start", article_id=article_id_str)
@@ -267,12 +300,14 @@ class Neo4jWriter:
         if entity_data:
             try:
                 result = await self._entity_repo.merge_entities_batch(entity_data)
+                await _WRITE_BREAKER.record_success()
                 log.info(
                     "neo4j_entities_batch_merged",
                     created=result.get("created", 0),
                     updated=result.get("updated", 0),
                 )
             except Exception as exc:
+                await _WRITE_BREAKER.record_failure()
                 log.error("neo4j_entities_batch_failed", error=str(exc))
                 return []
 
@@ -427,6 +462,7 @@ class Neo4jWriter:
                     chunk, batch_size=_RELATION_BATCH_SIZE
                 )
             except Exception as exc:
+                await _WRITE_BREAKER.record_failure()
                 log.error(
                     "entity_relation_batch_failed",
                     chunk_size=len(chunk),

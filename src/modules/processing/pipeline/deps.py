@@ -84,6 +84,8 @@ class PipelineInfra:
     cache_client: CachePool | None = None
     community_updater: IncrementalCommunityUpdater | None = None
     saga_orchestrator: Any | None = None
+    # T016: records pending_sync rows when the graph write circuit is open
+    pending_sync_repo: Any | None = None
     # T003: AnalyticsStorage for SentimentTrackerNode article-level tracking.
     # None when relational pool is unavailable; pipeline skips the node.
     sentiment_shift_repo: AnalyticsStorage | None = None
