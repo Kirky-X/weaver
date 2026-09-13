@@ -105,6 +105,38 @@ class EntityExtractorNode:
         body = state["cleaned"]["body"]
         language = state.get("language", "zh")
 
+        disable_data_metrics = (
+            self._settings.entity.disable_data_metrics_nodes if self._settings else False
+        )
+        spacy_entities = await self._extract_spacy_entities(state, body, language)
+        gliner_entities = await self._extract_gliner_entities(state, body)
+        entity_name_to_embedding = await self._embed_and_store_entities(
+            state, spacy_entities, gliner_entities
+        )
+        await self._llm_refine_and_validate(
+            state,
+            body,
+            disable_data_metrics,
+            spacy_entities,
+            gliner_entities,
+            entity_name_to_embedding,
+        )
+
+        state.setdefault("prompt_versions", {})["entity_extractor"] = (
+            self._prompt_loader.get_version("entity_extractor")
+        )
+
+        log.info(
+            "entities_extracted",
+            url=state["raw"].url,
+            entity_count=len(state.get("entities") or []),
+            relation_count=len(state.get("relations") or []),
+        )
+        return state
+
+
+    async def _extract_spacy_entities(self, state: PipelineState, body: str, language: str):
+        """Phase 1: spaCy NER (sync, run in executor)."""
         # Phase 1: spaCy NER (sync, run in executor)
         disable_data_metrics = (
             self._settings.entity.disable_data_metrics_nodes if self._settings else False
@@ -123,7 +155,10 @@ class EntityExtractorNode:
                 url=state["raw"].url,
             )
             spacy_entities = []
+        return spacy_entities
 
+    async def _extract_gliner_entities(self, state: PipelineState, body: str):
+        """Phase 1.5: GLiNER zero-shot extraction (if available)."""
         # Phase 1.5: GLiNER zero-shot extraction (if available)
         gliner_entities = []
         if self._gliner_extractor and self._gliner_extractor._config.enabled:
@@ -141,7 +176,10 @@ class EntityExtractorNode:
                     error=str(e),
                     url=state["raw"].url,
                 )
+        return gliner_entities
 
+    async def _embed_and_store_entities(self, state: PipelineState, spacy_entities: list, gliner_entities: list):
+        """Phase 2: batch-embed extracted entities and upsert entity vectors."""
         # Phase 2: Batch embed entities
         entity_name_to_embedding: dict[str, list[float]] = {}
         if spacy_entities or gliner_entities:
@@ -199,7 +237,12 @@ class EntityExtractorNode:
                     exc_type=type(e).__name__,
                     error=str(e),
                 )
+        return entity_name_to_embedding
 
+    async def _llm_refine_and_validate(self, state: PipelineState, body: str, disable_data_metrics: bool,
+        spacy_entities: list, gliner_entities: list,
+        entity_name_to_embedding: dict[str, list[float]]):
+        """Phases 3-5: LLM refinement, normalization, validation, vector cleanup."""
         # Phase 3: LLM refinement
         body_trunc = self._budget.truncate(body, CallPoint.ENTITY_EXTRACTOR)
 
@@ -418,6 +461,7 @@ class EntityExtractorNode:
                 error=str(e),
                 url=state["raw"].url,
             )
+            import traceback as _tb; _tb.print_exc()
             state["entities"] = []
             state["relations"] = []
             entity_count = 0
@@ -430,14 +474,3 @@ class EntityExtractorNode:
                 }
             )
 
-        state.setdefault("prompt_versions", {})["entity_extractor"] = (
-            self._prompt_loader.get_version("entity_extractor")
-        )
-
-        log.info(
-            "entities_extracted",
-            url=state["raw"].url,
-            entity_count=entity_count,
-            relation_count=len(state["relations"]),
-        )
-        return state

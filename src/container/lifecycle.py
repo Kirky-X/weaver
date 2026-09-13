@@ -429,6 +429,18 @@ class ContainerLifecycleMixin:
 
         jobs = self.scheduler_job_runner()
 
+        self._register_consistency_jobs(scheduler, jobs, settings)
+        self._register_maintenance_jobs(scheduler, jobs, settings)
+        self._register_analytics_jobs(scheduler, jobs, settings)
+        scheduler.start()
+        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
+
+    def _register_consistency_jobs(self, scheduler, jobs, settings) -> None:
+        """Data sync / saga recovery / outbox dispatch job registration."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
+
         # Data Sync
         scheduler.add_job(
             jobs.sync_pending_to_neo4j,
@@ -534,6 +546,13 @@ class ContainerLifecycleMixin:
                 max_instances=1,
             )
 
+
+    def _register_maintenance_jobs(self, scheduler, jobs, settings) -> None:
+        """Cleanup / archive / pipeline retry / enrichment / crawl retry job registration."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
+
         # Pipeline Retry
         scheduler.add_job(
             jobs.retry_pipeline_processing,
@@ -563,6 +582,13 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
+
+
+    def _register_analytics_jobs(self, scheduler, jobs, settings) -> None:
+        """LLM usage aggregation / briefing / sentiment / trend / causal job registration."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
 
         # LLM Usage Aggregation
         scheduler.add_job(
@@ -758,8 +784,6 @@ class ContainerLifecycleMixin:
             replace_existing=True,
         )
 
-        scheduler.start()
-        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
     # ── Community Health Check ─────────────────────────────────
 
