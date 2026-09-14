@@ -20,6 +20,7 @@ log = get_logger(__name__)
 BIGINT_PK_TABLES: dict[str, str] = {
     "source_authorities": "source_authorities_seq",
     "pending_sync": "pending_sync_seq",
+    "event_outbox": "event_outbox_seq",
     "llm_failure_records": "llm_failure_records_seq",
     "llm_usage_hourly": "llm_usage_hourly_seq",
     "llm_usage_raw": "llm_usage_raw_seq",
@@ -157,6 +158,19 @@ SCHEMA_QUERIES = [
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         synced_at TIMESTAMP WITH TIME ZONE
+    )""",
+    # ── Event Outbox (T018: transactional outbox, at-least-once) ──
+    """CREATE TABLE IF NOT EXISTS event_outbox
+    (
+        id BIGINT DEFAULT nextval('event_outbox_seq') PRIMARY KEY,
+        event_type VARCHAR NOT NULL,
+        article_id UUID,
+        payload JSON NOT NULL,
+        status VARCHAR DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        last_error VARCHAR,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        dispatched_at TIMESTAMP WITH TIME ZONE
     )""",
     # ── Saga Logs ───────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS saga_logs
@@ -461,6 +475,7 @@ SCHEMA_QUERIES = [
 SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS source_authorities_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
+    "CREATE SEQUENCE IF NOT EXISTS event_outbox_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_failure_records_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_hourly_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_raw_seq START 1",

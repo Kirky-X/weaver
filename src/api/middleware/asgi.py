@@ -14,7 +14,9 @@ from core.observability import get_logger
 log = get_logger("main")
 
 # Query parameter names whose values must never reach the logs
-_SENSITIVE_QUERY_KEYS = frozenset({"key", "token", "password", "secret", "api_key", "access_token"})
+_SENSITIVE_QUERY_KEYS = frozenset(
+    {"key", "token", "password", "secret", "api_key", "apikey", "access_token", "auth", "signature"}
+)
 _MAX_QUERY_LOG_LEN = 500
 
 

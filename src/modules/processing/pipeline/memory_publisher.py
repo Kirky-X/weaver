@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# Bound concurrent memory-ingest dispatches to protect downstream single-writer stores
+_PUBLISH_CONCURRENCY = 10
+
 
 class MemoryEventPublisher:
     """Publish memory ingest events for completed articles (outbox-backed).
@@ -48,6 +51,12 @@ class MemoryEventPublisher:
             states: List of completed pipeline states.
         """
         from core.event import MemoryIngestEvent
+
+        semaphore = asyncio.Semaphore(_PUBLISH_CONCURRENCY)
+
+        async def _dispatch(event: MemoryIngestEvent):
+            async with semaphore:
+                await self._event_bus.publish(event)
 
         events: list[MemoryIngestEvent] = []
         for state in states:
@@ -90,7 +99,7 @@ class MemoryEventPublisher:
 
         # Publish all events concurrently (best-effort fast path)
         results = await asyncio.gather(
-            *[self._event_bus.publish(e) for e in events],
+            *[_dispatch(e) for e in events],
             return_exceptions=True,
         )
 

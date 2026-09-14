@@ -453,13 +453,31 @@ class PipelinePersistence:
                 )
 
         # Circuit-open means the graph DB is intentionally bypassed —
-        # queue the state in pending_sync so the retry job restores it later.
+        # queue the full state in pending_sync so the retry job can restore
+        # entities/relations later (payload keys match reconstruct_state_from_payload).
         if isinstance(exc, Neo4jWriteCircuitOpen) and self._pending_sync_repo is not None:
             try:
+                state_payload = {
+                    key: value
+                    for key, value in state.items()
+                    if key != "raw" and not key.startswith("_")
+                }
+                raw = state.get("raw")
+                if raw is not None:
+                    state_payload["raw"] = {
+                        "url": getattr(raw, "url", ""),
+                        "title": getattr(raw, "title", ""),
+                        "source": getattr(raw, "source", ""),
+                        "source_host": getattr(raw, "source_host", ""),
+                        "source_id": getattr(raw, "source_id", ""),
+                        "body": getattr(raw, "body", ""),
+                        "publish_time": str(getattr(raw, "publish_time", "") or ""),
+                    }
+                state_payload["circuit_open_reason"] = "neo4j_write_circuit_open"
                 await self._pending_sync_repo.upsert(
                     uuid.UUID(state["article_id"]),
                     "neo4j_write",
-                    {"reason": "circuit_open", "url": state["raw"].url},
+                    state_payload,
                 )
                 log.warning(
                     "neo4j_write_circuit_open_queued_pending_sync",

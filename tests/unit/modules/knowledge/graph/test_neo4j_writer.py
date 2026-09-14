@@ -212,8 +212,8 @@ class TestNeo4jWriterWrite:
         writer._entity_repo.merge_entity.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_write_entity_merge_failure_handled(self, writer):
-        """Test write handles entity merge failure."""
+    async def test_write_entity_merge_failure_propagates(self, writer):
+        """T016-H1: entity merge failure propagates (no silent partial graph state)."""
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
@@ -236,9 +236,8 @@ class TestNeo4jWriterWrite:
             {"name": "张三", "type": "人物"},
         ]
 
-        result = await writer.write(state)
-
-        assert len(result) == 0
+        with pytest.raises(Exception, match="Merge error"):
+            await writer.write(state)
 
     @pytest.mark.asyncio
     async def test_write_with_merged_sources(self, writer):
@@ -364,15 +363,14 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        entity_ids = await writer._write_entities(
-            article_neo4j_id="article_id",
-            entities=[
-                {"name": "张三", "type": "人物"},
-            ],
-            state=state,
-        )
-
-        assert len(entity_ids) == 1
+        with pytest.raises(Exception, match="Relation error"):
+            await writer._write_entities(
+                article_neo4j_id="article_id",
+                entities=[
+                    {"name": "张三", "type": "人物"},
+                ],
+                state=state,
+            )
 
 
 class TestNeo4jWriterResolveCanonicalName:

@@ -31,6 +31,31 @@ F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 DEFAULT_LOCK_TTL_CAP = 3600
 
 
+# Atomic compare-and-delete: only removes the key when the holder matches.
+_RELEASE_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
+async def _release_lock(cache_pool: Any, name: str, holder_id: str) -> None:
+    """Release the lock only if still held by holder_id (atomic when possible)."""
+    eval_fn = getattr(cache_pool, "eval", None)
+    if eval_fn is not None:
+        try:
+            await eval_fn(_RELEASE_LUA, 1, name, holder_id)
+            return
+        except Exception as exc:
+            log.debug("distributed_lock_lua_release_failed", lock=name, error=str(exc))
+    # Non-atomic fallback for pools without eval (single-instance semantics).
+    try:
+        holder = await cache_pool.get(name)
+        if holder == holder_id:
+            await cache_pool.delete(name)
+    except Exception as exc:
+        log.debug("distributed_lock_fallback_release_failed", lock=name, error=str(exc))
+
+
 def distributed_lock(
     name: str,
     ttl_seconds: int = DEFAULT_LOCK_TTL_CAP,
@@ -66,12 +91,7 @@ def distributed_lock(
             try:
                 return await func(*args, **kwargs)
             finally:
-                try:
-                    holder = await cache_pool.get(name)
-                    if holder == holder_id:
-                        await cache_pool.delete(name)
-                except Exception as exc:
-                    log.debug("distributed_lock_release_failed", lock=name, error=str(exc))
+                await _release_lock(cache_pool, name, holder_id)
 
         return wrapper  # type: ignore[return-value]
 

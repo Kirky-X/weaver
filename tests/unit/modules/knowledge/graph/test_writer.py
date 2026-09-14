@@ -449,7 +449,7 @@ class TestNeo4jWriterEdgeCases:
 
     @pytest.mark.asyncio
     async def test_write_entities_batch_failure(self, writer_with_mocks):
-        """Test _write_entities returns empty when batch merge fails."""
+        """T016-H1: batch merge failure propagates (all-or-nothing)."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_entities_batch = AsyncMock(side_effect=Exception("Batch error"))
 
@@ -459,8 +459,8 @@ class TestNeo4jWriterEdgeCases:
             "entities": [{"name": "E1", "type": "PERSON"}],
         }
 
-        result = await writer._write_entities("article-neo4j-id", state["entities"], state)
-        assert result == []
+        with pytest.raises(Exception, match="Batch error"):
+            await writer._write_entities("article-neo4j-id", state["entities"], state)
 
     @pytest.mark.asyncio
     async def test_write_entities_with_alias(self, writer_with_mocks):
@@ -563,15 +563,15 @@ class TestNeo4jWriterEdgeCases:
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_merge_failure(self, writer_with_mocks):
-        """Test _write_entity_relations handles batch merge exception."""
+        """T016-H1: relation batch failure propagates."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_relations_batch = AsyncMock(side_effect=Exception("Merge error"))
 
         relations = [{"source": "E1", "target": "E2", "relation_type": "X"}]
         name_to_id = {"E1": "id1", "E2": "id2"}
 
-        count = await writer._write_entity_relations(relations, name_to_id)
-        assert count == 0
+        with pytest.raises(Exception, match="Merge error"):
+            await writer._write_entity_relations(relations, name_to_id)
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_dual_write(self, writer_with_mocks):
@@ -827,10 +827,11 @@ class TestWriteCircuitBreaker:
         await nw._WRITE_BREAKER.reset()
         writer, entity_repo = self._make_failing_writer()
 
-        # 5 consecutive batch failures (swallowed by _write_entities with
-        # error logging) must still trip the breaker
+        # 5 consecutive batch failures now propagate (all-or-nothing) and
+        # each one trips the breaker via write()'s failure accounting
         for _ in range(5):
-            await writer.write(self._state())
+            with pytest.raises(Exception, match="neo4j down"):
+                await writer.write(self._state())
 
         # 6th write is rejected at the entry without touching the graph repos
         with pytest.raises(nw.Neo4jWriteCircuitOpen, match="circuit breaker is open"):

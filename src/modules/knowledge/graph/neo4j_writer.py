@@ -305,9 +305,9 @@ class Neo4jWriter:
                     updated=result.get("updated", 0),
                 )
             except Exception as exc:
-                await _WRITE_BREAKER.record_failure()
+                # 记账统一由 write() 的 except 完成，避免双重计数
                 log.error("neo4j_entities_batch_failed", error=str(exc))
-                return []
+                raise
 
         if alias_data:
             try:
@@ -349,6 +349,7 @@ class Neo4jWriter:
                     log.info("neo4j_mentions_batch_created", count=count)
                 except Exception as exc:
                     log.error("neo4j_mentions_batch_failed", error=str(exc))
+                    raise
 
         relations = state.get("relations", [])
         if relations and entity_name_to_id:
@@ -467,13 +468,14 @@ class Neo4jWriter:
                     chunk, batch_size=_RELATION_BATCH_SIZE
                 )
             except Exception as exc:
-                await _WRITE_BREAKER.record_failure()
+                # 记账统一由 write() 的 except 完成
                 log.error(
                     "entity_relation_batch_failed",
                     chunk_size=len(chunk),
                     error=f"{type(exc).__name__}: {exc}",
                     error_type=type(exc).__name__,
                 )
+                raise
 
         if count > 0:
             log.info("entity_relations_created", count=count, total_rows=len(rows))
