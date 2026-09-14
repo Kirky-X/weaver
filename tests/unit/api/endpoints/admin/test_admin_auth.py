@@ -26,6 +26,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware.api_response import register_exception_handlers
+
 
 class TestAdminAuthMiddleware:
     """Tests for admin API key authentication middleware."""
@@ -38,7 +40,7 @@ class TestAdminAuthMiddleware:
         with pytest.raises(Exception) as exc_info:
             await verify_admin_api_key(key=None)
         assert exc_info.value.status_code == 401
-        assert "Missing API key" in exc_info.value.detail
+        assert "Missing API key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_invalid_key_returns_403(self) -> None:
@@ -53,7 +55,7 @@ class TestAdminAuthMiddleware:
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key="invalid-key")
             assert exc_info.value.status_code == 403
-            assert "Invalid API Key" in exc_info.value.detail
+            assert "Invalid API Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_valid_admin_key_succeeds(self) -> None:
@@ -87,7 +89,7 @@ class TestAdminAuthMiddleware:
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
             assert exc_info.value.status_code == 403
-            assert "Admin access required" in exc_info.value.detail
+            assert "Admin access required" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_returns_403_when_not_configured_production(
@@ -155,7 +157,10 @@ class TestAdminEndpointAuthorityUpdate:
         """Regular API key should receive 403 when calling PATCH /admin/authorities/{host}."""
         from api.endpoints.admin import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -185,13 +190,16 @@ class TestAdminEndpointAuthorityUpdate:
             )
 
             assert response.status_code == 403
-            assert "Admin access required" in response.json()["detail"]
+            assert "Admin access required" in response.json()["message"]
 
     def test_no_api_key_rejected_for_authority_update(self) -> None:
         """Missing API key should receive 401 when calling PATCH /admin/authorities/{host}."""
         from api.endpoints.admin import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -213,6 +221,7 @@ class TestAdminEndpointAuthorityUpdate:
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -250,7 +259,10 @@ class TestAdminEndpointDeduplicate:
         """Regular API key should receive 403 when calling POST /admin/articles/deduplicate."""
         from api.endpoints.admin import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -268,13 +280,16 @@ class TestAdminEndpointDeduplicate:
             )
 
             assert response.status_code == 403
-            assert "Admin access required" in response.json()["detail"]
+            assert "Admin access required" in response.json()["message"]
 
     def test_no_api_key_rejected_for_deduplicate(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/articles/deduplicate."""
         from api.endpoints.admin import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -293,6 +308,7 @@ class TestAdminEndpointDeduplicate:
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -356,6 +372,7 @@ class TestAdminEndpointMemoryConsolidation:
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -373,13 +390,14 @@ class TestAdminEndpointMemoryConsolidation:
             )
 
             assert response.status_code == 403
-            assert "Admin access required" in response.json()["detail"]
+            assert "Admin access required" in response.json()["message"]
 
     def test_no_api_key_rejected_for_consolidation(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/memory/trigger-consolidation."""
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -417,6 +435,7 @@ class TestTriggerConsolidationBatchSizeValidation:
         from api.endpoints.admin.admin import _get_container
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
         # Mock container so dependency resolution succeeds; Query validation
         # will reject invalid batch_size before the endpoint body runs.
@@ -470,6 +489,7 @@ class TestAdminEndpointRefreshAutoScores:
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -487,13 +507,14 @@ class TestAdminEndpointRefreshAutoScores:
             )
 
             assert response.status_code == 403
-            assert "Admin access required" in response.json()["detail"]
+            assert "Admin access required" in response.json()["message"]
 
     def test_no_api_key_rejected_for_refresh_auto_scores(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/authorities/refresh-auto-scores."""
         from api.endpoints.admin import router
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -513,6 +534,7 @@ class TestAdminEndpointRefreshAutoScores:
         from api.endpoints.admin.admin import _get_container
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         admin_key = "admin-key-123456789012345678901234567890"
@@ -566,8 +588,8 @@ class TestAdminAuthErrorMessages:
 
         with pytest.raises(Exception) as exc_info:
             await verify_admin_api_key(key=None)
-        assert "Missing API key" in exc_info.value.detail
-        assert "X-API-Key" in exc_info.value.detail
+        assert "Missing API key" in exc_info.value.message
+        assert "X-API-Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_regular_key_error_message_identifies_admin_requirement(self) -> None:
@@ -584,5 +606,5 @@ class TestAdminAuthErrorMessages:
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
-            assert "Admin access required" in exc_info.value.detail
-            assert "Regular API key not authorized" in exc_info.value.detail
+            assert "Admin access required" in exc_info.value.message
+            assert "Regular API key not authorized" in exc_info.value.message

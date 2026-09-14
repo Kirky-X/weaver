@@ -9,6 +9,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from core.exceptions import BusinessError
+
 
 class TestSourceResponseModel:
     """Tests for Source response models."""
@@ -160,15 +162,19 @@ class TestSourcesEndpoint:
                 )
             ]
         )
+        mock_repo.count_sources = AsyncMock(return_value=1)
 
         result = await list_sources(
             enabled_only=True,
+            page=1,
+            page_size=50,
             _="test-key",
             repo=mock_repo,
         )
-        assert len(result.data) == 1
-        assert result.data[0].id == "source-1"
-        assert result.data[0].credibility == 0.80
+        assert result.data.total == 1
+        assert len(result.data.items) == 1
+        assert result.data.items[0].id == "source-1"
+        assert result.data.items[0].credibility == 0.80
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
@@ -247,7 +253,7 @@ class TestSourcesEndpoint:
             url="https://existing.com/feed.xml",
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await create_source(
                 request=request,
                 _="test-key",
@@ -311,7 +317,7 @@ class TestSourcesEndpoint:
 
         request = SourceUpdateRequest(name="New Name")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await update_source(
                 source_id="missing-source",
                 request=request,
@@ -343,7 +349,7 @@ class TestSourcesEndpoint:
         mock_repo = AsyncMock()
         mock_repo.delete = AsyncMock(return_value=False)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await delete_source(
                 source_id="missing-source",
                 _="test-key",
@@ -703,14 +709,14 @@ class TestSourceIdReflectedXSS:
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=None)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_source(
                 source_id="'\"<script>alert(1)</script>",
                 _="test-key",
                 repo=mock_repo,
             )
 
-        detail = exc_info.value.detail
+        detail = exc_info.value.message
         assert "<script>" not in detail, "Raw XSS payload leaked into detail"
         assert "&lt;script&gt;" in detail, "Payload should be HTML-escaped"
         assert exc_info.value.status_code == 404
@@ -724,7 +730,7 @@ class TestSourceIdReflectedXSS:
         mock_repo.get = AsyncMock(return_value=None)
 
         request = SourceUpdateRequest(name="new-name")
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await update_source(
                 source_id="<img src=x onerror=alert(1)>",
                 request=request,
@@ -732,7 +738,7 @@ class TestSourceIdReflectedXSS:
                 repo=mock_repo,
             )
 
-        detail = exc_info.value.detail
+        detail = exc_info.value.message
         assert "<img" not in detail, "Raw XSS payload leaked into detail"
         assert "&lt;img" in detail, "Payload should be HTML-escaped"
         assert exc_info.value.status_code == 404
@@ -745,14 +751,14 @@ class TestSourceIdReflectedXSS:
         mock_repo = AsyncMock()
         mock_repo.delete = AsyncMock(return_value=False)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await delete_source(
                 source_id="javascript:alert(1)//<script>",
                 _="test-key",
                 repo=mock_repo,
             )
 
-        detail = exc_info.value.detail
+        detail = exc_info.value.message
         assert "<script>" not in detail, "Raw XSS payload leaked into detail"
         assert exc_info.value.status_code == 404
 
@@ -765,7 +771,7 @@ class TestSourceIdReflectedXSS:
         mock_repo.get = AsyncMock(return_value=None)
 
         long_id = "a" * 500
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_source(
                 source_id=long_id,
                 _="test-key",
@@ -773,7 +779,7 @@ class TestSourceIdReflectedXSS:
             )
 
         # Echoed portion should be truncated to 64 chars (between single quotes)
-        detail = exc_info.value.detail
+        detail = exc_info.value.message
         # Detail format: "Source '<truncated>' not found"
         # Extract the echoed portion between the single quotes
         echoed = detail.split("'")[1] if "'" in detail else ""

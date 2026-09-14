@@ -341,9 +341,7 @@ class SagaOrchestrator:
             compensation_result=comp_result,
         )
 
-    async def recover_stale_sagas(
-        self, max_age_minutes: int = 30, limit: int = 50
-    ) -> int:
+    async def recover_stale_sagas(self, max_age_minutes: int = 30, limit: int = 50) -> int:
         """Compensate sagas stuck in 'started' state beyond their timeout.
 
         A process crash leaves the in-memory orchestration gone while the

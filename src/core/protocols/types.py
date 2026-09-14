@@ -169,6 +169,7 @@ class PersistStatus(str, enum.Enum):
         """
         return status in {cls.FAILED, cls.SAGA_COMPENSATED, cls.NEO4J_FAILED}
 
+
 class ArticleTitleMeta(TypedDict):
     """Article metadata returned by ``ArticleRepository.fetch_titles_by_pg_ids``.
 

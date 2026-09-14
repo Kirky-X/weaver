@@ -58,9 +58,7 @@ def get_client_ip(request: object, trusted_proxies: Sequence[str] | None = None)
     return resolve_client_ip(client_host, forwarded_for, proxies)
 
 
-def get_client_ip_from_scope(
-    scope: dict, trusted_proxies: Sequence[str] | None = None
-) -> str:
+def get_client_ip_from_scope(scope: dict, trusted_proxies: Sequence[str] | None = None) -> str:
     """Resolve client IP from a raw ASGI scope."""
     proxies = trusted_proxies if trusted_proxies is not None else _trusted_proxies()
     client = scope.get("client")

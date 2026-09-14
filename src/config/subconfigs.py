@@ -133,9 +133,13 @@ class APISettings(BaseModel):
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = True  # CWE-200: require auth for /metrics by default
     hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
-    log_response_body: bool = False  # Log response body previews (DEBUG level; privacy: keep off in production)
-    trusted_proxies: list[str] = Field(  # Peers whose X-Forwarded-For may be trusted (default: none)
-        default_factory=list
+    log_response_body: bool = (
+        False  # Log response body previews (DEBUG level; privacy: keep off in production)
+    )
+    trusted_proxies: list[str] = (
+        Field(  # Peers whose X-Forwarded-For may be trusted (default: none)
+            default_factory=list
+        )
     )
     hmac_secret: str | None = (
         None  # Independent HMAC signing key (WEAVER_API__HMAC_SECRET). Falls back to API key if not set.

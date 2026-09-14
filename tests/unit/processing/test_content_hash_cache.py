@@ -276,8 +276,7 @@ class TestContentHashCacheBatchPipeline:
     @staticmethod
     def _make_states(count: int) -> list[PipelineState]:
         return [
-            PipelineState(raw=_make_raw_article(f"Title {i}", f"Body {i}"))
-            for i in range(count)
+            PipelineState(raw=_make_raw_article(f"Title {i}", f"Body {i}")) for i in range(count)
         ]
 
     @staticmethod

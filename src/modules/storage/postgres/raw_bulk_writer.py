@@ -90,7 +90,6 @@ class ArticleRepo:
     """
 
 
-
 class RawBulkWriter:
     """RawBulkWriter half of the ArticleRepo split (T022)."""
 
@@ -429,4 +428,3 @@ class RawBulkWriter:
                         error=str(per_exc),
                     )
             return fallback_ids
-

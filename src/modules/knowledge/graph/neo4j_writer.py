@@ -30,9 +30,7 @@ class Neo4jWriteCircuitOpen(RuntimeError):
 
 # Shared breaker: failure counting must span every write in the process, so
 # a dead graph database trips the circuit regardless of which article hit it.
-_WRITE_BREAKER = CircuitBreaker(
-    threshold=5, timeout_secs=60.0, provider="neo4j_write"
-)
+_WRITE_BREAKER = CircuitBreaker(threshold=5, timeout_secs=60.0, provider="neo4j_write")
 
 
 class Neo4jWriter:
@@ -409,7 +407,14 @@ class Neo4jWriter:
                 )
                 continue
             prepared.append(
-                (relation, source_name, target_name, source_canonical, target_canonical, relation_type)
+                (
+                    relation,
+                    source_name,
+                    target_name,
+                    source_canonical,
+                    target_canonical,
+                    relation_type,
+                )
             )
 
         if not prepared:

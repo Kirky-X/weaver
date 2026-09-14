@@ -28,6 +28,8 @@ log = get_logger(__name__)
 class ArticleRepo:
     """PostgreSQL article repository — composite facade.
 
+    Implements: ArticleRepository
+
     All public methods delegate to the three collaborating halves which
     share the same connection pool.
     """
@@ -62,7 +64,9 @@ class ArticleRepo:
     async def get_stuck_articles(self, timeout_minutes: int = 30) -> list[Article]:
         return await self._reader.get_stuck_articles(timeout_minutes)
 
-    async def get_all_article_ids(self, ) -> set[str]:
+    async def get_all_article_ids(
+        self,
+    ) -> set[str]:
         return await self._reader.get_all_article_ids()
 
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
@@ -83,7 +87,9 @@ class ArticleRepo:
     async def search_by_text(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         return await self._reader.search_by_text(query, limit)
 
-    async def detect_merge_cycle(self, article_id: uuid.UUID, target_id: uuid.UUID) -> list[uuid.UUID] | None:
+    async def detect_merge_cycle(
+        self, article_id: uuid.UUID, target_id: uuid.UUID
+    ) -> list[uuid.UUID] | None:
         return await self._reader.detect_merge_cycle(article_id, target_id)
 
     async def resolve_final_merge_target(self, article_id: uuid.UUID) -> uuid.UUID | None:
@@ -95,23 +101,45 @@ class ArticleRepo:
     async def upsert(self, state: PipelineState) -> uuid.UUID:
         return await self._writer.upsert(state)
 
-    async def update_persist_status(self, article_id: uuid.UUID, status: PersistStatus | str) -> None:
+    async def update_persist_status(
+        self, article_id: uuid.UUID, status: PersistStatus | str
+    ) -> None:
         return await self._writer.update_persist_status(article_id, status)
 
     async def mark_terminal_by_url(self, source_url: str) -> bool:
         return await self._writer.mark_terminal_by_url(source_url)
 
-    async def update_credibility(self, article_id: str | uuid.UUID, credibility_score: float, cross_verification: float, verified_by_sources: int) -> None:
-        return await self._writer.update_credibility(article_id, credibility_score, cross_verification, verified_by_sources)
+    async def update_credibility(
+        self,
+        article_id: str | uuid.UUID,
+        credibility_score: float,
+        cross_verification: float,
+        verified_by_sources: int,
+    ) -> None:
+        return await self._writer.update_credibility(
+            article_id, credibility_score, cross_verification, verified_by_sources
+        )
 
-    async def requeue_processing(self, ) -> None:
+    async def requeue_processing(
+        self,
+    ) -> None:
         return await self._writer.requeue_processing()
 
     async def revert_to_pg_done(self, article_id: uuid.UUID) -> bool:
         return await self._writer.revert_to_pg_done(article_id)
 
-    async def update_enrichment_if_null(self, article_id: uuid.UUID, category: str | None = None, score: float | None = None, credibility_score: float | None = None, summary: str | None = None, quality_score: float | None = None) -> bool:
-        return await self._writer.update_enrichment_if_null(article_id, category, score, credibility_score, summary, quality_score)
+    async def update_enrichment_if_null(
+        self,
+        article_id: uuid.UUID,
+        category: str | None = None,
+        score: float | None = None,
+        credibility_score: float | None = None,
+        summary: str | None = None,
+        quality_score: float | None = None,
+    ) -> bool:
+        return await self._writer.update_enrichment_if_null(
+            article_id, category, score, credibility_score, summary, quality_score
+        )
 
     async def update_processing_stage(self, article_id: uuid.UUID, stage: str) -> None:
         return await self._writer.update_processing_stage(article_id, stage)
@@ -119,7 +147,9 @@ class ArticleRepo:
     async def bulk_update_processing_stage(self, article_ids: list[uuid.UUID], stage: str) -> None:
         return await self._writer.bulk_update_processing_stage(article_ids, stage)
 
-    async def mark_failed(self, article_id: uuid.UUID, error: str, increment_retry: bool = True) -> None:
+    async def mark_failed(
+        self, article_id: uuid.UUID, error: str, increment_retry: bool = True
+    ) -> None:
         return await self._writer.mark_failed(article_id, error, increment_retry)
 
     async def mark_processing(self, article_id: uuid.UUID, stage: str) -> None:
@@ -128,12 +158,15 @@ class ArticleRepo:
     async def revert_to_stored(self, article_id: uuid.UUID) -> bool:
         return await self._writer.revert_to_stored(article_id)
 
-    async def deduplicate_articles(self, ) -> dict[str, int]:
+    async def deduplicate_articles(
+        self,
+    ) -> dict[str, int]:
         return await self._writer.deduplicate_articles()
 
     async def insert_raw(self, article: Any, task_id: uuid.UUID | None = None) -> uuid.UUID:
         return await self._raw_bulk.insert_raw(article, task_id)
 
-    async def bulk_insert_raw(self, articles: list[Any], task_id: uuid.UUID | None = None) -> list[uuid.UUID]:
+    async def bulk_insert_raw(
+        self, articles: list[Any], task_id: uuid.UUID | None = None
+    ) -> list[uuid.UUID]:
         return await self._raw_bulk.bulk_insert_raw(articles, task_id)
-

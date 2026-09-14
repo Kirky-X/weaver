@@ -154,9 +154,7 @@ class SagaLogRepo:
             )
             return list(result.scalars().all())
 
-    async def get_stale_started_logs(
-        self, cutoff: datetime, limit: int = 50
-    ) -> list[SagaLog]:
+    async def get_stale_started_logs(self, cutoff: datetime, limit: int = 50) -> list[SagaLog]:
         """Get saga log entries stuck in 'started' status before a cutoff.
 
         Args:

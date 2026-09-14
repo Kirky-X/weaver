@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.schemas.response import ResponseCode
+from core.exceptions import BusinessError
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -46,11 +47,21 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers to FastAPI app.
 
     Handles:
+    - BusinessError: structured business errors with error codes
     - RequestValidationError: validation errors (422)
     - HTTPException: raised by endpoints (400/404/503 etc.)
     - StarletteHTTPException: includes 404 for route not found
     - Exception: uncaught fallback exception
     """
+
+    @app.exception_handler(BusinessError)
+    async def business_error_handler(request: Request, exc: BusinessError) -> JSONResponse:
+        """Handle BusinessError — pass through the business error code."""
+        body = _build_error_response(
+            code=exc.code,
+            message=exc.message,
+        )
+        return JSONResponse(status_code=exc.status_code, content=body)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(

@@ -90,9 +90,7 @@ class OutboxRepo:
             The new status ('pending' or 'dead').
         """
         async with self._pool.session() as session:
-            result = await session.execute(
-                select(EventOutbox).where(EventOutbox.id == row_id)
-            )
+            result = await session.execute(select(EventOutbox).where(EventOutbox.id == row_id))
             row = result.scalars().first()
             if row is None:
                 return "missing"

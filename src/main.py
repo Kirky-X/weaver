@@ -38,7 +38,7 @@ def _app_version() -> str:
         import importlib.metadata as _im
 
         return _im.version("weaver")
-    except Exception:  # noqa: BLE001 - not installed (editable fallback)
+    except Exception:
         return "0.0.0-dev"
 
 

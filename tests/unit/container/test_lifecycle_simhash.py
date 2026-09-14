@@ -94,7 +94,8 @@ async def test_discovery_processor_receives_simhash_dedup() -> None:
 
     with patch("modules.ingestion.domain.processor.DiscoveryProcessor", CapturingProcessor):
         with patch("api.endpoints.deps_registry.Endpoints.initialize"):
-            await container.startup()
+            with patch("container.protocol_registry.validate_protocol_bindings", return_value=[]):
+                await container.startup()
 
     instance = captured.get("instance")
     assert instance is not None, "lifecycle.py must instantiate DiscoveryProcessor"

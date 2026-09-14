@@ -72,9 +72,7 @@ def validate_llm_references(settings: Any) -> list[str]:
                 continue
             parts = label.split(".", 2)
             if len(parts) != 3:
-                hard.append(
-                    f"{section}: malformed label '{label}' (expected type.provider.model)"
-                )
+                hard.append(f"{section}: malformed label '{label}' (expected type.provider.model)")
                 continue
             llm_type, provider_name, model_id = parts
             provider = providers.get(provider_name)

@@ -127,9 +127,7 @@ class TestWrapScheduler:
         jobs = MagicMock()
         jobs.sync_job = AsyncMock()
         jobs.cron_job = AsyncMock()
-        scheduler.add_job(
-            jobs.sync_job, IntervalTrigger(minutes=10), id="sync_job", name="s"
-        )
+        scheduler.add_job(jobs.sync_job, IntervalTrigger(minutes=10), id="sync_job", name="s")
         scheduler.add_job(jobs.cron_job, CronTrigger(hour=1), id="cron_job", max_instances=1)
 
         assert len(registered) == 2

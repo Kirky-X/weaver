@@ -91,7 +91,6 @@ class ArticleRepo:
     """
 
 
-
 class ArticleReader:
     """ArticleReader half of the ArticleRepo split (T022)."""
 
@@ -767,4 +766,3 @@ class ArticleReader:
                 current_id = next_id
 
         return None
-

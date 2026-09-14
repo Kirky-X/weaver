@@ -134,7 +134,6 @@ class EntityExtractorNode:
         )
         return state
 
-
     async def _extract_spacy_entities(self, state: PipelineState, body: str, language: str):
         """Phase 1: spaCy NER (sync, run in executor)."""
         # Phase 1: spaCy NER (sync, run in executor)
@@ -178,7 +177,9 @@ class EntityExtractorNode:
                 )
         return gliner_entities
 
-    async def _embed_and_store_entities(self, state: PipelineState, spacy_entities: list, gliner_entities: list):
+    async def _embed_and_store_entities(
+        self, state: PipelineState, spacy_entities: list, gliner_entities: list
+    ):
         """Phase 2: batch-embed extracted entities and upsert entity vectors."""
         # Phase 2: Batch embed entities
         entity_name_to_embedding: dict[str, list[float]] = {}
@@ -239,54 +240,21 @@ class EntityExtractorNode:
                 )
         return entity_name_to_embedding
 
-    async def _llm_refine_and_validate(self, state: PipelineState, body: str, disable_data_metrics: bool,
-        spacy_entities: list, gliner_entities: list,
-        entity_name_to_embedding: dict[str, list[float]]):
+    async def _llm_refine_and_validate(
+        self,
+        state: PipelineState,
+        body: str,
+        disable_data_metrics: bool,
+        spacy_entities: list,
+        gliner_entities: list,
+        entity_name_to_embedding: dict[str, list[float]],
+    ):
         """Phases 3-5: LLM refinement, normalization, validation, vector cleanup."""
-        # Phase 3: LLM refinement
         body_trunc = self._budget.truncate(body, CallPoint.ENTITY_EXTRACTOR)
-
-        # Build relation types block for prompt
-        relation_types_block = _DEFAULT_RELATION_TYPES
-        if self._relation_type_normalizer:
-            try:
-                active_types = await self._relation_type_normalizer.get_all_active()
-                if active_types:
-                    lines = []
-                    for rt in active_types:
-                        # Format: "type_name: description" or "type_name" if no description
-                        line = rt.name if rt.name else rt.raw_type
-                        if rt.description:
-                            line = f"{line}: {rt.description}"
-                        lines.append(line)
-                    relation_types_block = "\n".join(lines)
-            except Exception as e:
-                log.warning(
-                    "relation_type_fetch_failed_using_default",
-                    exc_type=type(e).__name__,
-                    error=str(e),
-                )
+        relation_types_block = await self._prepare_relation_types_block()
 
         try:
-            # Combine spaCy and GLiNER entities for LLM input
-            all_spacy_entities = [
-                {
-                    "name": e.name,
-                    "type": e.type,
-                    "label": e.label,
-                }
-                for e in spacy_entities
-            ]
-            # Convert GLiNER entities to same format
-            gliner_entities_for_llm = [
-                {
-                    "name": e["text"],
-                    "type": e["type"],
-                    "label": e["type"],
-                }
-                for e in gliner_entities
-            ]
-            all_entities_for_llm = all_spacy_entities + gliner_entities_for_llm
+            all_entities_for_llm = self._prepare_llm_entities(spacy_entities, gliner_entities)
 
             result: EntityExtractorOutput = await self._llm.call_at(
                 CallPoint.ENTITY_EXTRACTOR,
@@ -304,62 +272,11 @@ class EntityExtractorNode:
             state["entities"] = result.entities
             state["relations"] = result.relations
 
-            # Normalize relation types (map English/alias names to Chinese standard)
-            if self._relation_type_normalizer:
-                normalized_relations = []
-                for rel in state["relations"]:
-                    raw_type = rel.get("relation_type", "")
-                    try:
-                        normalized = await self._relation_type_normalizer.normalize(raw_type)
-                        if normalized.name:
-                            rel["relation_type"] = normalized.name
-                    except Exception as e:
-                        log.warning(
-                            "relation_type_normalize_failed",
-                            raw_type=raw_type,
-                            error=str(e),
-                        )
-                    normalized_relations.append(rel)
-                state["relations"] = normalized_relations
+            # Normalize relation types
+            await self._normalize_relation_types(state)
 
-            # Post-validation: normalize and validate entity types
-            for entity in state["entities"]:
-                entity_type = entity.get("type", "未知")
-                # 先做别名映射（LLM 偶尔返回简写形式）
-                if entity_type in _ENTITY_TYPE_ALIASES:
-                    log.debug(
-                        "entity_type_alias_mapped",
-                        entity_name=entity.get("name", ""),
-                        original_type=entity_type,
-                        mapped_type=_ENTITY_TYPE_ALIASES[entity_type],
-                    )
-                    entity_type = _ENTITY_TYPE_ALIASES[entity_type]
-                if entity_type not in ALLOWED_ENTITY_TYPES:
-                    log.warning(
-                        "entity_type_not_allowed",
-                        entity_name=entity.get("name", ""),
-                        original_type=entity.get("type", ""),
-                        mapped_type="未知",
-                    )
-                    entity_type = "未知"
-                entity["type"] = entity_type
-
-            # Post-validation: discard relations with missing source/target
-            entity_names = {e.get("name") for e in state["entities"]}
-            valid_relations = []
-            for rel in state["relations"]:
-                source = rel.get("source")
-                target = rel.get("target")
-                if source in entity_names and target in entity_names:
-                    valid_relations.append(rel)
-                else:
-                    log.warning(
-                        "relation_dropped_missing_entity",
-                        source=source,
-                        target=target,
-                        relation_type=rel.get("type", ""),
-                    )
-            state["relations"] = valid_relations
+            # Post-validation: entity types + relation integrity
+            self._validate_and_clean_entities_relations(state)
 
             entity_count = len(result.entities)
 
@@ -374,85 +291,12 @@ class EntityExtractorNode:
                 if name in entity_name_to_embedding:
                     entity["embedding"] = entity_name_to_embedding[name]
 
-            # Phase 4: Embed and persist LLM-extracted entities that don't have embeddings yet
-            # This handles the case where spaCy failed but LLM still extracted entities
-            if self._vector_repo and state["entities"]:
-                entities_need_embedding = [
-                    e for e in state["entities"] if not e.get("embedding") and e.get("name")
-                ]
-                if entities_need_embedding:
-                    try:
-                        entity_texts = [
-                            f"{e['name']}（{e.get('type', '未知')}）"
-                            for e in entities_need_embedding
-                        ]
-                        entity_embeds = await self._llm.embed_default(
-                            entity_texts,
-                            article_id=state.get("article_id"),
-                            task_id=state.get("task_id"),
-                        )
-
-                        # Update entities with embeddings
-                        entity_vectors_to_upsert = []
-                        for i, entity in enumerate(entities_need_embedding):
-                            if i < len(entity_embeds) and entity_embeds[i]:
-                                entity["embedding"] = entity_embeds[i]
-                                # Use canonical_name if available, otherwise name
-                                key = entity.get("canonical_name") or entity.get("name")
-                                if key:
-                                    entity_vectors_to_upsert.append((key, entity_embeds[i]))
-
-                        # Persist to database
-                        if entity_vectors_to_upsert:
-                            model_id = (
-                                self._llm.default_embedding_label
-                                if self._llm
-                                else EmbeddingModel.DEFAULT
-                            )
-                            await self._vector_repo.upsert_entity_vectors(
-                                entity_vectors_to_upsert,
-                                model_id=model_id,
-                            )
-                            log.debug(
-                                "entity_vectors_persisted",
-                                count=len(entity_vectors_to_upsert),
-                            )
-                    except Exception as exc:
-                        log.warning(
-                            "llm_entity_embedding_failed",
-                            exc_type=type(exc).__name__,
-                            error=str(exc),
-                        )
-
-            # Phase 5: Clean up filtered entities from entity_vectors
-            # Remove entities that were extracted by spaCy/GLiNER but filtered out by LLM
-            if self._vector_repo and (spacy_entities or gliner_entities):
-                spacy_names = {e.name for e in spacy_entities}
-                gliner_names = {e["text"] for e in gliner_entities}
-                all_extracted_names = spacy_names | gliner_names
-                llm_names = {
-                    e.get("canonical_name") or e.get("name")
-                    for e in state["entities"]
-                    if e.get("name")
-                }
-                filtered_names = list(all_extracted_names - llm_names)
-                if filtered_names:
-                    try:
-                        deleted = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
-                            filtered_names
-                        )
-                        if deleted > 0:
-                            log.debug(
-                                "entity_vectors_cleaned",
-                                deleted=deleted,
-                                filtered_entities=filtered_names[:10],  # Log first 10
-                            )
-                    except Exception as exc:
-                        log.warning(
-                            "entity_vectors_cleanup_failed",
-                            exc_type=type(exc).__name__,
-                            error=str(exc),
-                        )
+            # Phase 4+5: Persist new entity vectors + clean up filtered ones
+            await self._persist_and_cleanup_entity_vectors(
+                state,
+                spacy_entities,
+                gliner_entities,
+            )
 
         except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
             log.warning(
@@ -461,11 +305,12 @@ class EntityExtractorNode:
                 error=str(e),
                 url=state["raw"].url,
             )
-            import traceback as _tb; _tb.print_exc()
+            import traceback as _tb
+
+            _tb.print_exc()
             state["entities"] = []
             state["relations"] = []
             entity_count = 0
-            # Mark degraded fields
             state.setdefault("degraded_fields", []).extend(["entities", "relations"])
             state.setdefault("degradation_reasons", {}).update(
                 {
@@ -474,3 +319,162 @@ class EntityExtractorNode:
                 }
             )
 
+    async def _prepare_relation_types_block(self) -> str:
+        """Fetch active relation types or fall back to default block."""
+        if not self._relation_type_normalizer:
+            return _DEFAULT_RELATION_TYPES
+        try:
+            active_types = await self._relation_type_normalizer.get_all_active()
+            if active_types:
+                lines = []
+                for rt in active_types:
+                    line = rt.name if rt.name else rt.raw_type
+                    if rt.description:
+                        line = f"{line}: {rt.description}"
+                    lines.append(line)
+                return "\n".join(lines)
+        except Exception as e:
+            log.warning(
+                "relation_type_fetch_failed_using_default",
+                exc_type=type(e).__name__,
+                error=str(e),
+            )
+        return _DEFAULT_RELATION_TYPES
+
+    @staticmethod
+    def _prepare_llm_entities(spacy_entities: list, gliner_entities: list) -> list[dict]:
+        """Convert spaCy + GLiNER entities to uniform LLM input format."""
+        all_spacy = [{"name": e.name, "type": e.type, "label": e.label} for e in spacy_entities]
+        all_gliner = [
+            {"name": e["text"], "type": e["type"], "label": e["type"]} for e in gliner_entities
+        ]
+        return all_spacy + all_gliner
+
+    async def _normalize_relation_types(self, state: PipelineState) -> None:
+        """Normalize relation type names via the normalizer (if available)."""
+        if not self._relation_type_normalizer:
+            return
+        normalized = []
+        for rel in state["relations"]:
+            raw_type = rel.get("relation_type", "")
+            try:
+                result = await self._relation_type_normalizer.normalize(raw_type)
+                if result.name:
+                    rel["relation_type"] = result.name
+            except Exception as e:
+                log.warning("relation_type_normalize_failed", raw_type=raw_type, error=str(e))
+            normalized.append(rel)
+        state["relations"] = normalized
+
+    @staticmethod
+    def _validate_and_clean_entities_relations(state: PipelineState) -> None:
+        """Validate entity types (alias + allowed set) and drop orphan relations."""
+        for entity in state["entities"]:
+            entity_type = entity.get("type", "未知")
+            if entity_type in _ENTITY_TYPE_ALIASES:
+                log.debug(
+                    "entity_type_alias_mapped",
+                    entity_name=entity.get("name", ""),
+                    original_type=entity_type,
+                    mapped_type=_ENTITY_TYPE_ALIASES[entity_type],
+                )
+                entity_type = _ENTITY_TYPE_ALIASES[entity_type]
+            if entity_type not in ALLOWED_ENTITY_TYPES:
+                log.warning(
+                    "entity_type_not_allowed",
+                    entity_name=entity.get("name", ""),
+                    original_type=entity.get("type", ""),
+                    mapped_type="未知",
+                )
+                entity_type = "未知"
+            entity["type"] = entity_type
+
+        entity_names = {e.get("name") for e in state["entities"]}
+        valid_relations = []
+        for rel in state["relations"]:
+            source = rel.get("source")
+            target = rel.get("target")
+            if source in entity_names and target in entity_names:
+                valid_relations.append(rel)
+            else:
+                log.warning(
+                    "relation_dropped_missing_entity",
+                    source=source,
+                    target=target,
+                    relation_type=rel.get("type", ""),
+                )
+        state["relations"] = valid_relations
+
+    async def _persist_and_cleanup_entity_vectors(
+        self,
+        state: PipelineState,
+        spacy_entities: list,
+        gliner_entities: list,
+    ) -> None:
+        """Phase 4+5: Embed new LLM entities + clean up filtered vectors."""
+        # Phase 4: Embed and persist LLM-extracted entities without embeddings
+        if self._vector_repo and state["entities"]:
+            entities_need_embedding = [
+                e for e in state["entities"] if not e.get("embedding") and e.get("name")
+            ]
+            if entities_need_embedding:
+                try:
+                    entity_texts = [
+                        f"{e['name']}（{e.get('type', '未知')}）" for e in entities_need_embedding
+                    ]
+                    entity_embeds = await self._llm.embed_default(
+                        entity_texts,
+                        article_id=state.get("article_id"),
+                        task_id=state.get("task_id"),
+                    )
+                    entity_vectors_to_upsert = []
+                    for i, entity in enumerate(entities_need_embedding):
+                        if i < len(entity_embeds) and entity_embeds[i]:
+                            entity["embedding"] = entity_embeds[i]
+                            key = entity.get("canonical_name") or entity.get("name")
+                            if key:
+                                entity_vectors_to_upsert.append((key, entity_embeds[i]))
+                    if entity_vectors_to_upsert:
+                        model_id = (
+                            self._llm.default_embedding_label
+                            if self._llm
+                            else EmbeddingModel.DEFAULT
+                        )
+                        await self._vector_repo.upsert_entity_vectors(
+                            entity_vectors_to_upsert,
+                            model_id=model_id,
+                        )
+                        log.debug("entity_vectors_persisted", count=len(entity_vectors_to_upsert))
+                except Exception as exc:
+                    log.warning(
+                        "llm_entity_embedding_failed",
+                        exc_type=type(exc).__name__,
+                        error=str(exc),
+                    )
+
+        # Phase 5: Clean up filtered entity vectors
+        if self._vector_repo and (spacy_entities or gliner_entities):
+            spacy_names = {e.name for e in spacy_entities}
+            gliner_names = {e["text"] for e in gliner_entities}
+            all_extracted_names = spacy_names | gliner_names
+            llm_names = {
+                e.get("canonical_name") or e.get("name") for e in state["entities"] if e.get("name")
+            }
+            filtered_names = list(all_extracted_names - llm_names)
+            if filtered_names:
+                try:
+                    deleted = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
+                        filtered_names
+                    )
+                    if deleted > 0:
+                        log.debug(
+                            "entity_vectors_cleaned",
+                            deleted=deleted,
+                            filtered_entities=filtered_names[:10],
+                        )
+                except Exception as exc:
+                    log.warning(
+                        "entity_vectors_cleanup_failed",
+                        exc_type=type(exc).__name__,
+                        error=str(exc),
+                    )

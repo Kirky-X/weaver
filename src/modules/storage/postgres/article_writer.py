@@ -98,7 +98,6 @@ class ArticleRepo:
     """
 
 
-
 class ArticleWriter:
     """ArticleWriter half of the ArticleRepo split (T022)."""
 
@@ -955,4 +954,3 @@ class ArticleWriter:
             verify = await session.execute(verify_stmt)
             return verify.fetchone() is not None
         return False
-

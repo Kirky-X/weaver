@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.exceptions import BusinessError
+
 
 class TestGetTaskStatusWithStats:
     """Tests for GET /pipeline/tasks/{task_id} with article progress stats integration."""
@@ -279,7 +281,7 @@ class TestTriggerPipelineSourceDedup:
 
         request = TriggerRequest(source_id="test-source")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -288,7 +290,7 @@ class TestTriggerPipelineSourceDedup:
             )
 
         assert exc_info.value.status_code == 409
-        assert "already being processed" in exc_info.value.detail
+        assert "already being processed" in exc_info.value.message
         # No task should be queued
         assert mock_cache.hset.call_count == 0
         # set_nx must have been attempted (atomic acquire)

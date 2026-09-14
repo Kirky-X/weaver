@@ -24,19 +24,26 @@ class TestClampConfidence:
 class TestParquetPathValidation:
     def test_rejects_quote(self):
         from modules.knowledge.cache.storage import KnowledgeCache
+
         with pytest.raises(ValueError):
             KnowledgeCache._validate_parquet_path("a'b.parquet")
 
     def test_rejects_semicolon(self):
         from modules.knowledge.cache.storage import KnowledgeCache
+
         with pytest.raises(ValueError):
             KnowledgeCache._validate_parquet_path("a;b")
 
     def test_rejects_comment_marker(self):
         from modules.knowledge.cache.storage import KnowledgeCache
+
         with pytest.raises(ValueError):
             KnowledgeCache._validate_parquet_path("a--b.parquet")
 
     def test_accepts_clean_path(self):
         from modules.knowledge.cache.storage import KnowledgeCache
-        assert KnowledgeCache._validate_parquet_path("data/.cache/sp.parquet") == "data/.cache/sp.parquet"
+
+        assert (
+            KnowledgeCache._validate_parquet_path("data/.cache/sp.parquet")
+            == "data/.cache/sp.parquet"
+        )

@@ -688,13 +688,17 @@ class EntityResolver:
             i
             for i, entity in enumerate(entities)
             if not (
-                entity.get("type", EntityType.UNKNOWN.value)
-                == EntityType.DATA_METRIC.value
-                and (self._disable_data_metrics or self._looks_like_metric_string(entity.get("name", "")))
+                entity.get("type", EntityType.UNKNOWN.value) == EntityType.DATA_METRIC.value
+                and (
+                    self._disable_data_metrics
+                    or self._looks_like_metric_string(entity.get("name", ""))
+                )
             )
         ]
 
-        async def _retrieve(i: int) -> tuple[int, object, dict[str, Any] | None, list[dict[str, Any]] | None]:
+        async def _retrieve(
+            i: int,
+        ) -> tuple[int, object, dict[str, Any] | None, list[dict[str, Any]] | None]:
             async with semaphore:
                 entity = entities[i]
                 name = entity.get("name", "")
@@ -709,7 +713,9 @@ class EntityResolver:
                 candidates = await self._find_similar_candidates(embedding)
                 return i, norm_result, None, candidates
 
-        retrieval_map: dict[int, tuple[object, dict[str, Any] | None, list[dict[str, Any]] | None]] = {}
+        retrieval_map: dict[
+            int, tuple[object, dict[str, Any] | None, list[dict[str, Any]] | None]
+        ] = {}
         if pending_indices:
             retrieved = await asyncio.gather(*(_retrieve(i) for i in pending_indices))
             retrieval_map = {i: (norm, exact, cands) for i, norm, exact, cands in retrieved}

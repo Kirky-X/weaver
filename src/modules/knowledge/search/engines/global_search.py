@@ -140,69 +140,15 @@ class GlobalSearchEngine:
             )
 
             if not communities:
-                # Check if there are any communities at all
-                has_communities = await self.has_any_communities(community_level)
-                if not has_communities:
-                    return SearchResult(
-                        query=query,
-                        answer="社区数据尚未初始化，请先执行社区检测。",
-                        context_tokens=0,
-                        confidence=0.0,
-                        metadata={
-                            "search_type": SearchMode.GLOBAL.value,
-                            "communities": 0,
-                            "hint": "run POST /api/v1/admin/communities/rebuild",
-                        },
-                    )
-
-                # Communities exist but none are relevant - fall back to local search
-                if self._local is not None:
-                    log.info("global_search_fallback_to_local", query=query)
-                    local_result = await self._local.search(query=query, use_llm=use_llm)
-                    if isinstance(local_result, dict):
-                        local_result["metadata"] = {
-                            **local_result.get("metadata", {}),
-                            "search_type": SearchMode.HYBRID.value,
-                            "fallback_from_global": True,
-                        }
-                        return local_result
-                    elif hasattr(local_result, "metadata"):
-                        local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                        local_result.metadata["fallback_from_global"] = True
-                        return local_result
-
-                return SearchResult(
-                    query=query,
-                    answer="No relevant communities found for the query.",
-                    context_tokens=0,
-                    confidence=0.0,
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": 0,
-                        "hybrid_used": self._hybrid_engine is not None,
-                    },
+                return await self._resolve_no_communities_result(
+                    query,
+                    community_level,
+                    use_llm,
                 )
 
             # If use_llm=False, return context without LLM generation
             if not use_llm:
-                total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
-                community_scores = [c.similarity_score for c in communities]
-                return SearchResult(
-                    query=query,
-                    answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
-                    context_tokens=total_tokens,
-                    confidence=self._estimate_confidence([], community_scores),
-                    entities=self._collect_entities(communities),
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": len(communities),
-                        "llm_used": False,
-                        "hybrid_used": self._hybrid_engine is not None,
-                        "search_method": "vector_similarity",
-                        "community_level": community_level,
-                        "top_community_score": community_scores[0] if community_scores else 0,
-                    },
-                )
+                return self._build_no_llm_result(query, communities, community_level)
 
             # Sort communities by similarity score (weight) and limit to top 3
             # to avoid excessive LLM calls causing timeouts
@@ -230,36 +176,123 @@ class GlobalSearchEngine:
             if fallback is not None:
                 return fallback
             return await self._reduce_and_synthesize(
-                query, sorted_communities, community_level, intermediate_answers,
-                community_weights, total_tokens, start
+                query,
+                sorted_communities,
+                community_level,
+                intermediate_answers,
+                community_weights,
+                total_tokens,
+                start,
             )
         except Exception as exc:
             log.error("global_search_failed", error=str(exc))
-            # Reuse already-queried communities data for graceful degradation
-            community_scores = [c.similarity_score for c in communities] if communities else []
-            return SearchResult(
-                query=query,
-                answer=f"Search failed: {exc!s}",
-                context_tokens=(
-                    sum(len(c.full_content or c.summary) // 4 for c in communities)
-                    if communities
-                    else 0
-                ),
-                entities=self._collect_entities(communities) if communities else [],
-                confidence=self._estimate_confidence([], community_scores) if communities else 0.0,
-                metadata={
-                    "error": str(exc),
-                    "search_type": SearchMode.GLOBAL.value,
-                    "communities": len(communities) if communities else 0,
-                    "llm_used": False,
-                    "hybrid_used": self._hybrid_engine is not None,
-                    "degraded": True,
-                },
-            )
+            return self._build_search_error_result(query, exc, communities)
         finally:
             elapsed = time.monotonic() - start
             MetricsCollector.search_latency_seconds.labels(mode="global").observe(elapsed)
 
+    async def _resolve_no_communities_result(
+        self,
+        query: str,
+        community_level: int,
+        use_llm: bool,
+    ) -> SearchResult:
+        """Handle case where no relevant communities found — fallback or empty."""
+        has_communities = await self.has_any_communities(community_level)
+        if not has_communities:
+            return SearchResult(
+                query=query,
+                answer="社区数据尚未初始化，请先执行社区检测。",
+                context_tokens=0,
+                confidence=0.0,
+                metadata={
+                    "search_type": SearchMode.GLOBAL.value,
+                    "communities": 0,
+                    "hint": "run POST /api/v1/admin/communities/rebuild",
+                },
+            )
+
+        # Communities exist but none are relevant - fall back to local search
+        if self._local is not None:
+            log.info("global_search_fallback_to_local", query=query)
+            local_result = await self._local.search(query=query, use_llm=use_llm)
+            if isinstance(local_result, dict):
+                local_result["metadata"] = {
+                    **local_result.get("metadata", {}),
+                    "search_type": SearchMode.HYBRID.value,
+                    "fallback_from_global": True,
+                }
+                return local_result
+            elif hasattr(local_result, "metadata"):
+                local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                local_result.metadata["fallback_from_global"] = True
+                return local_result
+
+        return SearchResult(
+            query=query,
+            answer="No relevant communities found for the query.",
+            context_tokens=0,
+            confidence=0.0,
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": 0,
+                "hybrid_used": self._hybrid_engine is not None,
+            },
+        )
+
+    def _build_no_llm_result(
+        self,
+        query: str,
+        communities: list,
+        community_level: int,
+    ) -> SearchResult:
+        """Return context-only result when use_llm=False."""
+        total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
+        community_scores = [c.similarity_score for c in communities]
+        return SearchResult(
+            query=query,
+            answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
+            context_tokens=total_tokens,
+            confidence=self._estimate_confidence([], community_scores),
+            entities=self._collect_entities(communities),
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": len(communities),
+                "llm_used": False,
+                "hybrid_used": self._hybrid_engine is not None,
+                "search_method": "vector_similarity",
+                "community_level": community_level,
+                "top_community_score": community_scores[0] if community_scores else 0,
+            },
+        )
+
+    def _build_search_error_result(
+        self,
+        query: str,
+        exc: Exception,
+        communities: list | None,
+    ) -> SearchResult:
+        """Build graceful-degradation result on search failure."""
+        community_scores = [c.similarity_score for c in communities] if communities else []
+        return SearchResult(
+            query=query,
+            answer=f"Search failed: {exc!s}",
+            context_tokens=(
+                sum(len(c.full_content or c.summary) // 4 for c in communities)
+                if communities
+                else 0
+            ),
+            entities=self._collect_entities(communities) if communities else [],
+            confidence=self._estimate_confidence([], community_scores) if communities else 0.0,
+            metadata={
+                "error": str(exc),
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": len(communities) if communities else 0,
+                "llm_used": False,
+                "hybrid_used": self._hybrid_engine is not None,
+                "degraded": True,
+            },
+        )
 
     async def _map_communities_with_llm(
         self,
@@ -351,17 +384,19 @@ class GlobalSearchEngine:
 
         return None, intermediate_answers, community_weights, total_tokens
 
-
     async def _reduce_and_synthesize(
-        self, query: str, sorted_communities: list, community_level: int,
-        intermediate_answers: list[str], community_weights: list, total_tokens: int,
-        start: float
+        self,
+        query: str,
+        sorted_communities: list,
+        community_level: int,
+        intermediate_answers: list[str],
+        community_weights: list,
+        total_tokens: int,
+        start: float,
     ) -> SearchResult:
         """Reduce phase: synthesize final answer from community answers."""
         # Reduce phase with timeout
-        reduce_prompt = self._build_reduce_prompt(
-            query, intermediate_answers, community_weights
-        )
+        reduce_prompt = self._build_reduce_prompt(query, intermediate_answers, community_weights)
         try:
             final_response = await asyncio.wait_for(
                 self._llm.call(
@@ -414,31 +449,30 @@ class GlobalSearchEngine:
             },
         )
 
-
     async def _fallback_low_relevance(self, query: str, use_llm: bool) -> SearchResult:
         """Fallback path when no community passes the relevance threshold."""
         # Early return when no community passes relevance threshold
         # Fall back to local search if available (short queries like "AI"
         # often have low similarity with long community reports)
         if self._local is not None:
-                log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
-                try:
-                    local_result = await self._local.search(query=query, use_llm=use_llm)
-                    if isinstance(local_result, dict):
-                        local_result["metadata"] = {
-                            **local_result.get("metadata", {}),
-                            "search_type": SearchMode.HYBRID.value,
-                            "fallback_from_global": True,
-                            "fallback_reason": "low_relevance_skip",
-                        }
-                        return local_result
-                    elif hasattr(local_result, "metadata"):
-                        local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                        local_result.metadata["fallback_from_global"] = True
-                        local_result.metadata["fallback_reason"] = "low_relevance_skip"
-                        return local_result
-                except Exception as exc:
-                    log.warning("global_search_local_fallback_failed", error=str(exc))
+            log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
+            try:
+                local_result = await self._local.search(query=query, use_llm=use_llm)
+                if isinstance(local_result, dict):
+                    local_result["metadata"] = {
+                        **local_result.get("metadata", {}),
+                        "search_type": SearchMode.HYBRID.value,
+                        "fallback_from_global": True,
+                        "fallback_reason": "low_relevance_skip",
+                    }
+                    return local_result
+                elif hasattr(local_result, "metadata"):
+                    local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                    local_result.metadata["fallback_from_global"] = True
+                    local_result.metadata["fallback_reason"] = "low_relevance_skip"
+                    return local_result
+            except Exception as exc:
+                log.warning("global_search_local_fallback_failed", error=str(exc))
 
         return SearchResult(
             query=query,
@@ -454,7 +488,6 @@ class GlobalSearchEngine:
                 "low_relevance_skip": True,
             },
         )
-
 
     async def _get_community_contexts(
         self,

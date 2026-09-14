@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.exceptions import BusinessError
+
 
 def _make_mock_article(
     article_id: uuid.UUID | str | None = None,
@@ -422,7 +424,7 @@ class TestGetArticleDetail:
 
         mock_request = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_article(
                 request=mock_request,
                 article_id="12345678-1234-5678-1234-567812345678",
@@ -430,7 +432,7 @@ class TestGetArticleDetail:
                 pool=pool,
             )
         assert exc_info.value.status_code == 404
-        assert "not found" in exc_info.value.detail
+        assert "not found" in exc_info.value.message
 
 
 class TestArticleAuditLog:
@@ -511,7 +513,7 @@ class TestArticleAuditLog:
             mock_audit_instance = MockAuditService.return_value
             mock_audit_instance.log_event = AsyncMock()
 
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await get_article(
                     request=mock_request,
                     article_id="12345678-1234-5678-1234-567812345678",
@@ -604,7 +606,10 @@ class TestArticlesEndpointHTTPLevel:
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -621,8 +626,10 @@ class TestArticlesEndpointHTTPLevel:
 
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
+        from api.middleware.api_response import register_exception_handlers
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()

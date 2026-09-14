@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.exceptions import BusinessError
 from tests.helpers import create_test_client
 
 
@@ -24,10 +25,10 @@ class TestVerifyApiKeyEdgeCases:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="")
             assert exc_info.value.status_code == 403
-            assert "Invalid API Key" in exc_info.value.detail
+            assert "Invalid API Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_whitespace_only_key_raises_403(self, mock_settings):
@@ -37,7 +38,7 @@ class TestVerifyApiKeyEdgeCases:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="   ")
             assert exc_info.value.status_code == 403
 
@@ -64,7 +65,7 @@ class TestVerifyApiKeyEdgeCases:
             patch("container.get_settings", return_value=mock_settings),
             patch("api.middleware.auth.secrets.compare_digest", return_value=False) as mock_compare,
         ):
-            with pytest.raises(HTTPException):
+            with pytest.raises(BusinessError):
                 await verify_api_key(key="wrong-key-1234567890abcdefghijkl")
             # Verify compare_digest was called with the provided key and expected key
             mock_compare.assert_called_once_with(
@@ -152,7 +153,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -170,7 +174,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -228,7 +235,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_cache_client, get_source_scheduler
         from api.endpoints.content.pipeline import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_cache = MagicMock()
@@ -248,7 +258,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_cache_client
         from api.endpoints.content.pipeline import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_cache = MagicMock()

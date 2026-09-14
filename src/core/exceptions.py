@@ -83,3 +83,25 @@ class InvalidStateTransitionError(Exception):
             f"Invalid state transition: cannot transition from '{from_status}' to '{to_status}'"
         )
         super().__init__(self.message)
+
+
+class BusinessError(Exception):
+    """Business-level error with structured error code.
+
+    Raised by API endpoints to return a machine-readable error code
+    alongside the HTTP status. The global exception handler recognises
+    this exception and passes the ``code`` directly into the error
+    response body (bypassing the HTTP-status-to-code mapping).
+
+    Attributes:
+        status_code: HTTP status code for the response.
+        code: Business error code (from ``ResponseCode``).
+        message: Human-readable error description.
+
+    """
+
+    def __init__(self, status_code: int, code: int, message: str) -> None:
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        super().__init__(message)

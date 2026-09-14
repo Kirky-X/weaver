@@ -96,6 +96,12 @@ port = 8000                             # HTTP port
 port_auto_detect = true                 # Enable automatic port detection
 # port_env_file = ".env.weaver"          # Port env file path (only used when WEAVER_WRITE_PORT_ENV=true)
 
+# HTTP 日志隐私治理
+log_response_body = false               # 记录响应体预览（仅 DEBUG 级且 true 时生效）
+
+# 代理感知客户端 IP（X-Forwarded-For 信任列表）
+# trusted_proxies = ["10.0.0.1"]        # 可信代理 IP 列表（默认空=不信任 XFF）
+
 # ============================================================
 # Scheduler Configuration
 # ============================================================
@@ -116,6 +122,9 @@ rerank_enabled = true                  # Enable cross-encoder reranking
 rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
 mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
 mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
+
+# 搜索结果缓存（Redis，0=关闭）
+result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 300，0=关闭）
 
 # ============================================================
 # Observability Configuration

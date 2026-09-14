@@ -74,9 +74,7 @@ class TestGetClientIpFromScope:
             "client": ("172.17.0.1", 5000),
             "headers": [(b"x-forwarded-for", b"8.8.8.8, 172.17.0.1")],
         }
-        assert (
-            get_client_ip_from_scope(scope, trusted_proxies=["172.17.0.1"]) == "172.17.0.1"
-        )
+        assert get_client_ip_from_scope(scope, trusted_proxies=["172.17.0.1"]) == "172.17.0.1"
 
     def test_missing_client(self) -> None:
         assert get_client_ip_from_scope({"headers": []}, trusted_proxies=[]) == "unknown"
@@ -104,7 +102,5 @@ class TestSettingsBackedProxyList:
             "5.5.5.5" if key == "x-forwarded-for" else default
         )
 
-        with patch(
-            "container.access.get_settings", side_effect=RuntimeError("not initialized")
-        ):
+        with patch("container.access.get_settings", side_effect=RuntimeError("not initialized")):
             assert get_client_ip(request) == "10.0.0.5"

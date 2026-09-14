@@ -15,8 +15,18 @@ import ast
 from pathlib import Path
 
 MODULES = {
-    "alert", "analytics", "briefing", "ingestion", "knowledge", "management",
-    "memory", "processing", "scheduler", "search", "storage", "trend",
+    "alert",
+    "analytics",
+    "briefing",
+    "ingestion",
+    "knowledge",
+    "management",
+    "memory",
+    "processing",
+    "scheduler",
+    "search",
+    "storage",
+    "trend",
 }
 
 SRC_MODULES = Path(__file__).resolve().parents[2] / "src" / "modules"

@@ -152,9 +152,7 @@ class ContentHashCacheService:
         cache_key, snapshot = pair
 
         try:
-            payload = await asyncio.to_thread(
-                json.dumps, snapshot, ensure_ascii=False, default=str
-            )
+            payload = await asyncio.to_thread(json.dumps, snapshot, ensure_ascii=False, default=str)
             await self._cache_client.set(
                 cache_key,
                 payload,

@@ -160,9 +160,11 @@ def _build_app_for_endpoint_test(
         get_vector_repo,
     )
     from api.endpoints.content.search import router
+    from api.middleware.api_response import register_exception_handlers
     from api.middleware.auth import verify_api_key
 
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     # Override auth

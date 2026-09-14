@@ -33,9 +33,7 @@ class TestRecoverStaleSagas:
     @pytest.mark.asyncio
     async def test_compensates_each_distinct_stale_saga(self) -> None:
         saga_a, saga_b = uuid.uuid4(), uuid.uuid4()
-        orchestrator, log_repo = _orchestrator(
-            [_stale_log(saga_a), _stale_log(saga_b)]
-        )
+        orchestrator, log_repo = _orchestrator([_stale_log(saga_a), _stale_log(saga_b)])
 
         count = await orchestrator.recover_stale_sagas(max_age_minutes=30)
 
@@ -48,9 +46,7 @@ class TestRecoverStaleSagas:
     @pytest.mark.asyncio
     async def test_deduplicates_same_saga(self) -> None:
         saga_a = uuid.uuid4()
-        orchestrator, log_repo = _orchestrator(
-            [_stale_log(saga_a), _stale_log(saga_a)]
-        )
+        orchestrator, log_repo = _orchestrator([_stale_log(saga_a), _stale_log(saga_a)])
 
         count = await orchestrator.recover_stale_sagas()
 
@@ -67,11 +63,12 @@ class TestRecoverStaleSagas:
     @pytest.mark.asyncio
     async def test_compensation_failure_continues_with_next(self) -> None:
         saga_a, saga_b = uuid.uuid4(), uuid.uuid4()
-        orchestrator, log_repo = _orchestrator(
-            [_stale_log(saga_a), _stale_log(saga_b)]
-        )
+        orchestrator, log_repo = _orchestrator([_stale_log(saga_a), _stale_log(saga_b)])
         orchestrator.compensate_saga = AsyncMock(
-            side_effect=[RuntimeError("boom"), SagaResult(saga_id=saga_b, status=SagaStatus.COMPENSATED)]
+            side_effect=[
+                RuntimeError("boom"),
+                SagaResult(saga_id=saga_b, status=SagaStatus.COMPENSATED),
+            ]
         )
 
         count = await orchestrator.recover_stale_sagas()

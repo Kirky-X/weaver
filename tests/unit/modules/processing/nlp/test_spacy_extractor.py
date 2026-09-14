@@ -660,9 +660,7 @@ class TestModelCaching:
         assert mock_load.call_count == 2
 
     @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
-    def test_failed_load_not_cached(
-        self, mock_load: MagicMock, extractor: SpacyExtractor
-    ) -> None:
+    def test_failed_load_not_cached(self, mock_load: MagicMock, extractor: SpacyExtractor) -> None:
         """A model that fails to load is retried on the next call, not cached."""
         mock_load.return_value = None
 

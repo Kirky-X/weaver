@@ -10,13 +10,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 import feedparser
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import get_smart_fetcher, get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_api_key
-from api.schemas.response import APIResponse, success_response
+from api.schemas.response import APIResponse, PaginatedResponse, ResponseCode, success_response
 from core.constants import SourceType
+from core.exceptions import BusinessError
 from core.observability import get_logger
 from core.security.safe_echo import safe_echo
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
@@ -297,25 +298,42 @@ class SourceResponse(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("", response_model=APIResponse[list[SourceResponse]])
+@router.get("", response_model=APIResponse[PaginatedResponse[SourceResponse]])
 async def list_sources(
-    enabled_only: bool = True,
+    enabled_only: bool = Query(True, description="If true, only return enabled sources"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page (1-200)"),
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
-) -> APIResponse[list[SourceResponse]]:
-    """Get all registered sources.
+) -> APIResponse[PaginatedResponse[SourceResponse]]:
+    """Get a paginated list of registered sources.
 
     Args:
         enabled_only: If True, only return enabled sources.
+        page: Page number (1-indexed).
+        page_size: Items per page (1-200, default 50).
         _: Verified API key.
         repo: Source config repository instance.
 
     Returns:
-        List of source configurations.
+        Paginated list of source configurations.
 
     """
-    sources = await repo.list_sources(enabled_only=enabled_only)
-    return success_response([SourceResponse.from_config(s) for s in sources])
+    total = await repo.count_sources(enabled_only=enabled_only)
+    offset = (page - 1) * page_size
+    sources = await repo.list_sources(
+        enabled_only=enabled_only,
+        limit=page_size,
+        offset=offset,
+    )
+    items = [SourceResponse.from_config(s) for s in sources]
+    paginated = PaginatedResponse.create(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+    return success_response(paginated)
 
 
 @router.get("/{source_id}", response_model=APIResponse[SourceResponse])
@@ -340,7 +358,11 @@ async def get_source(
     """
     source = await repo.get(source_id)
     if source is None:
-        raise HTTPException(status_code=404, detail=f"Source '{safe_echo(source_id)}' not found")
+        raise BusinessError(
+            status_code=404,
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
+        )
     return success_response(SourceResponse.from_config(source))
 
 
@@ -374,9 +396,10 @@ async def create_source(
     """
     existing = await repo.get(request.id)
     if existing is not None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=409,
-            detail=f"Source with id '{request.id}' already exists",
+            code=ResponseCode.ERR_SOURCE_CONFLICT,
+            message=f"Source with id '{request.id}' already exists",
         )
 
     # CWE-918: SSRF validation with DNS resolution + redirect-chain check
@@ -430,9 +453,10 @@ async def update_source(
     """
     existing = await repo.get(source_id)
     if existing is None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=404,
-            detail=f"Source '{safe_echo(source_id)}' not found",
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
         )
 
     # CWE-918: SSRF validation when URL is being changed
@@ -480,7 +504,8 @@ async def delete_source(
     """
     deleted = await repo.delete(source_id)
     if not deleted:
-        raise HTTPException(
+        raise BusinessError(
             status_code=404,
-            detail=f"Source '{safe_echo(source_id)}' not found",
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
         )

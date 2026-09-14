@@ -155,7 +155,9 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             try:
                 # Atomic write pattern
                 temp_file = self.parquet_file + ".tmp"
-                self.db.execute(f"COPY {self.table_name} TO '{self._validate_parquet_path(temp_file)}' (FORMAT PARQUET)")
+                self.db.execute(
+                    f"COPY {self.table_name} TO '{self._validate_parquet_path(temp_file)}' (FORMAT PARQUET)"
+                )
                 os.replace(temp_file, self.parquet_file)
                 self._dirty_count = 0
                 log.debug("synced_to_parquet")
