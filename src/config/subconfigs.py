@@ -17,7 +17,7 @@ import os
 import secrets
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
@@ -109,6 +109,15 @@ class RedisSettings(BaseModel):
         return f"redis://{self.host}:{self.port}/{self.db}"
 
 
+class SecuritySettings(BaseModel):
+    """Startup security audit settings.
+
+    Environment variables: WEAVER_SECURITY__STRICT_STARTUP_AUDIT.
+    """
+
+    strict_startup_audit: bool = False  # Raise at startup when audit finds critical issues
+
+
 class APISettings(BaseModel):
     """API layer settings.
 
@@ -124,27 +133,43 @@ class APISettings(BaseModel):
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = True  # CWE-200: require auth for /metrics by default
     hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
+    log_response_body: bool = (
+        False  # Log response body previews (DEBUG level; privacy: keep off in production)
+    )
+    trusted_proxies: list[str] = (
+        Field(  # Peers whose X-Forwarded-For may be trusted (default: none)
+            default_factory=list
+        )
+    )
     hmac_secret: str | None = (
         None  # Independent HMAC signing key (WEAVER_API__HMAC_SECRET). Falls back to API key if not set.
     )
     shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
+    # Lazily generated fallback key: generated once per process, never per request
+    _generated_api_key: str | None = PrivateAttr(default=None)
+
     def get_api_key(self) -> str:
-        """Get API key, generating one if not set."""
+        """Get API key, generating one if not set.
+
+        The generated fallback key is cached on the instance so repeated
+        calls (e.g. unauthenticated requests hitting the auth middleware)
+        neither regenerate it nor flood the log.
+        """
         if self.api_key:
             return self.api_key
 
-        # Generate a secure random key
-        generated = secrets.token_urlsafe(32)
-        from core.observability import get_logger
+        if self._generated_api_key is None:
+            self._generated_api_key = secrets.token_urlsafe(32)
+            from core.observability import get_logger
 
-        log = get_logger(__name__)
-        log.info(
-            "api_key_generated",
-            message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
-            key_prefix=generated[:8] + "...",
-        )
-        return generated
+            log = get_logger(__name__)
+            log.info(
+                "api_key_generated",
+                message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
+                key_prefix=self._generated_api_key[:8] + "...",
+            )
+        return self._generated_api_key
 
     def validate_security(self, environment: str = "development") -> list[str]:
         """Validate security settings and return warnings."""
@@ -172,6 +197,17 @@ class APISettings(BaseModel):
                 raise ValueError("Admin API key must be at least 32 characters in production.")
             warnings.append(
                 f"Admin API key length ({len(self.admin_api_key)}) is less than recommended 32 characters."
+            )
+
+        # Production must not reuse the API key for HMAC signing
+        if self.hmac_signing_enabled and not self.hmac_secret:
+            if environment == "production":
+                raise ValueError(
+                    "HMAC signing is enabled but WEAVER_API__HMAC_SECRET is not set. "
+                    "Set an independent HMAC secret for production (key reuse is forbidden)."
+                )
+            warnings.append(
+                "HMAC signing enabled without a dedicated secret; it will fall back to the API key."
             )
 
         # Warn if admin key not configured in production
@@ -327,14 +363,16 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
-    # MEDIUM-1 (T051-B): max concurrent Bing-fallback background pipeline
+    # Short-TTL response cache for hot search queries (seconds; 0 = off)
+    result_cache_ttl: int = 300
+    # Max concurrent Bing-fallback background pipeline
     # tasks. When at cap, the next Bing fallback call drops the new task
     # (logs warning, sets ``metadata.background_task_throttled=true``)
     # rather than queueing — protects memory / DB connection pool from
     # unbounded growth under sustained three-tier-empty traffic.
     # Env var: WEAVER_SEARCH__MAX_BACKGROUND_TASKS
     max_background_tasks: int = 8
-    # MEDIUM-2 (T051-B): total wall-clock budget for a single Bing-fallback
+    # Total wall-clock budget for a single Bing-fallback
     # background task that processes N URLs sequentially. Per-URL timeout
     # (300s) bounds one slow URL, but without a total budget a 5-URL
     # batch could hang the task for 25 minutes. On total timeout, the

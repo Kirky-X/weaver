@@ -21,7 +21,7 @@ from typing import Any, Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.constants import ArticleProcessingState
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 
 
 class CredibilityModel(BaseModel):

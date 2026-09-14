@@ -47,6 +47,7 @@ from core.db.models.misc import (
     SourceConfig,
     UnknownRelationType,
 )
+from core.db.models.outbox import EventOutbox
 from core.db.models.saga import PendingSync, SagaLog
 
 __all__ = [

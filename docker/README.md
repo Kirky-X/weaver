@@ -125,7 +125,7 @@ script has been removed; see the archived `hybrid_comparison.json` for results.
 
 ## See Also
 
-- `../CLAUDE.md` — "数据库故障转移" section for the fallback contract
+- `../AGENTS.md` — "双数据库故障转移" section for the fallback contract
 - `../.env.example` — Phase 1 (PG+Neo4j+Redis), Phase 2 (DuckDB+LadybugDB),
   Phase 3 (PG+LadybugDB), and Phase 4 (DuckDB+Neo4j) environment variable
   examples

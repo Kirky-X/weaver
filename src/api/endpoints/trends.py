@@ -54,8 +54,8 @@ router = APIRouter(prefix="/trends", tags=["trends"])
 
 log = get_logger(__name__)
 
-# Spec R-sentiment-001 constraints: only 7 and 30 days are supported.
-# Window param is a string like '7d' / '30d' (spec R-sentiment-003).
+# Constraints: only 7 and 30 days are supported.
+# Window param is a string like '7d' / '30d'.
 _SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 _WINDOW_PATTERN = re.compile(r"^(\d+)d$")
 
@@ -123,7 +123,7 @@ def _get_sentiment_trend_service():
 def _serialize_trend_result(result: SentimentTrendResult) -> dict:
     """Serialize SentimentTrendResult dataclass to a JSON-friendly dict.
 
-    All 6 fields from spec R-sentiment-001 are included. The ``list`` field
+    All 6 fields are included. The ``list`` field
     name is preserved per spec (shadows Python builtin within the dataclass;
     serialized as a regular dict key here, no shadowing concern).
 
@@ -164,7 +164,7 @@ async def get_sentiment_trend(
     ),
     _: str = Depends(verify_api_key),
 ) -> APIResponse[dict]:
-    """Get sentiment trend for an entity over a time window (R-sentiment-003).
+    """Get sentiment trend for an entity over a time window.
 
     Returns ``SentimentTrendResult`` with:
     - ``shifts``: raw shift records from sentiment_shifts table.
@@ -172,7 +172,7 @@ async def get_sentiment_trend(
     - ``avg_shift``: mean shift_value across all shifts in the window.
     - ``trend_direction``: 'up' (>0.1) / 'down' (<-0.1) / 'stable'.
 
-    No-data contract (R-sentiment-002): HTTP 200 with
+    No-data contract: HTTP 200 with
     ``shifts=[], list=[], avg_shift=0.0, trend_direction='stable'``
     when no shifts are found in the window — NOT an error.
 
@@ -190,7 +190,7 @@ async def get_sentiment_trend(
 
     """
     # Validate entity (spec Constraints: at least one filter required).
-    # entity is declared Optional per spec R-sentiment-003 ("entity 参数可选"),
+    # entity is declared Optional per spec ("entity 参数可选"),
     # but the handler enforces non-empty (Constraints + user task spec).
     if not entity or not entity.strip():
         raise HTTPException(
@@ -236,20 +236,18 @@ async def get_sentiment_trend(
     return success_response(_serialize_trend_result(result))
 
 
-# ────────────────────────────────────────────────────────────────────
-# T016 / R-trend-004: GET /api/v1/trends/detection
-# ────────────────────────────────────────────────────────────────────
+# ── GET /api/v1/trends/detection ────────────────────────────────────
 
 
 def _get_trend_detection_service():
-    """Lazy import and construct TrendDetector from container (T016).
+    """Lazy import and construct TrendDetector from container.
 
     Mirrors ``_get_sentiment_trend_service`` pattern. TrendDetector needs:
     - graph_pool (REQUIRED): Neo4jPool or LadybugPool for EventNode queries.
     - sentiment_analyzer (OPTIONAL): SentimentTrendAnalyzer for sentiment
       blending into trend_score. Built from relational_pool; on failure
       (pool unavailable or construction error), the analyzer is set to None
-      and TrendDetector degrades to frequency-only trend_score (R-trend-005).
+      and TrendDetector degrades to frequency-only trend_score.
       This is a deliberate graceful degradation, NOT silent failure — the
       degradation is logged at WARNING level.
 
@@ -275,7 +273,7 @@ def _get_trend_detection_service():
         )
 
     # Optional: sentiment analyzer for trend_score blending.
-    # Degrade to None on any failure (R-trend-005 graceful degradation).
+    # Degrade to None on any failure (graceful degradation).
     sentiment_analyzer = None
     try:
         relational_pool = container.relational_pool()
@@ -294,7 +292,7 @@ def _get_trend_detection_service():
 def _serialize_detection_result(result: TrendDetectionResult) -> dict:
     """Serialize TrendDetectionResult dataclass to a JSON-friendly dict.
 
-    All 5 fields from spec R-trend-001 are included. The ``list`` field
+    All 5 fields are included. The ``list`` field
     name is preserved per spec (shadows Python builtin within the dataclass;
     serialized as a regular dict key here, no shadowing concern — mirrors
     the SentimentTrendResult.list handling in ``_serialize_trend_result``).
@@ -328,23 +326,23 @@ async def get_trend_detection(
         None,
         description=(
             "Optional entity_type filter applied to EventNode.name "
-            "(R-trend-002: '按 entity_type 过滤'). None aggregates trends "
+            "(按 entity_type 过滤'). None aggregates trends "
             "across all entity types. URL-encoded special chars are "
             "supported (e.g. 'Johnson & Johnson' → 'Johnson%20%26%20Johnson')."
         ),
     ),
     _: str = Depends(verify_api_key),
 ) -> APIResponse[dict]:
-    """Detect trending entities over a time window (R-trend-004).
+    """Detect trending entities over a time window.
 
     Returns ``TrendDetectionResult`` with:
     - ``trends``: per-entity entries with trend_score, direction, and
       frequency_change. Empty when status='insufficient_data'.
     - ``list``: aggregated MENTIONS heat per-day buckets (day/mentions/count).
-    - ``status``: 'ok' when EventNode count >= 50 (R-trend-002);
-      'insufficient_data' when < 50 (R-trend-003).
+    - ``status``: 'ok' when EventNode count >= 50;
+      'insufficient_data' when < 50.
 
-    No-data contract (R-trend-003/004): HTTP 200 with
+    No-data contract: HTTP 200 with
     ``status='insufficient_data', trends=[], list=[]`` when EventNode count
     < 50 — data insufficiency is NOT an error, reported via the status field.
 
@@ -363,11 +361,11 @@ async def get_trend_detection(
 
     """
     # Parse window string → int days (validates format + supported values).
-    # Shares _parse_window with sentiment endpoint (T013).
+    # Shares _parse_window with sentiment endpoint.
     window_days = _parse_window(window)
 
     # Normalize entity_type: empty string → None (treat as "no filter").
-    # entity_type is genuinely optional per spec R-trend-002 (None aggregates
+    # entity_type is genuinely optional (None aggregates
     # all), unlike sentiment entity which is required (Constraints).
     entity_type_clean: str | None = None
     if entity_type is not None and entity_type.strip():

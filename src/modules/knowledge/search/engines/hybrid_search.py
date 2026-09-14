@@ -18,6 +18,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any
 
 from core.constants import SearchMode
@@ -149,17 +150,21 @@ class HybridSearchEngine:
             # Stage 2: RRF fusion
             fused = self._fuse_results(vector_results, bm25_results)
 
-            # Stage 3: Optional re-ranking
+            # Stage 3: Optional re-ranking (cross-encoder inference blocks: offload)
             if self._config.rerank_enabled and self._reranker:
-                fused = self._rerank_results(query, fused)
+                loop = asyncio.get_running_loop()
+                fused = await loop.run_in_executor(
+                    None, partial(self._rerank_results, query, fused)
+                )
 
             # Stage 3.5: Temporal decay (after rerank, before MMR)
             if self._config.temporal_decay_enabled:
                 fused = await self._apply_temporal_decay(fused)
 
-            # Stage 4: Optional MMR diversity
+            # Stage 4: Optional MMR diversity (sync scoring blocks: offload)
             if self._config.mmr_enabled and self._mmr_reranker:
-                fused = self._apply_mmr(fused)
+                loop = asyncio.get_running_loop()
+                fused = await loop.run_in_executor(None, partial(self._apply_mmr, fused))
 
             # Convert to output format
             results = self._to_hybrid_results(fused[:limit])

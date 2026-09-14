@@ -500,3 +500,71 @@ class TestHybridSearchResult:
         assert result.rerank_score is None
         assert result.mmr_score is None
         assert result.metadata == {}
+
+
+class TestOffLoopExecution:
+    """T002: sync rerank/MMR work must run off the event loop thread."""
+
+    @pytest.mark.asyncio
+    async def test_rerank_runs_off_event_loop(
+        self,
+        mock_vector_repo: MagicMock,
+        mock_bm25_retriever: MagicMock,
+        mock_reranker: MagicMock,
+    ) -> None:
+        import threading
+
+        config = HybridSearchConfig(rerank_enabled=True, mmr_enabled=False)
+        engine = HybridSearchEngine(
+            vector_repo=mock_vector_repo,
+            bm25_retriever=mock_bm25_retriever,
+            reranker=mock_reranker,
+            config=config,
+        )
+
+        threads_seen: list[str] = []
+
+        def record_thread(query: str, candidates: list, **kwargs: object) -> list:
+            threads_seen.append(threading.current_thread().name)
+            return candidates
+
+        mock_reranker.rerank.side_effect = record_thread
+
+        await engine.search("test query", embedding=[0.1] * 768, limit=10)
+
+        assert threads_seen, "rerank was not invoked"
+        main_thread = threading.main_thread().name
+        assert all(name != main_thread for name in threads_seen)
+
+    @pytest.mark.asyncio
+    async def test_mmr_runs_off_event_loop(
+        self,
+        mock_vector_repo: MagicMock,
+        mock_bm25_retriever: MagicMock,
+        mock_reranker: MagicMock,
+        mock_mmr_reranker: MagicMock,
+    ) -> None:
+        import threading
+
+        config = HybridSearchConfig(rerank_enabled=True, mmr_enabled=True)
+        engine = HybridSearchEngine(
+            vector_repo=mock_vector_repo,
+            bm25_retriever=mock_bm25_retriever,
+            reranker=mock_reranker,
+            mmr_reranker=mock_mmr_reranker,
+            config=config,
+        )
+
+        threads_seen: list[str] = []
+
+        def record_thread(results: list, **kwargs: object) -> list:
+            threads_seen.append(threading.current_thread().name)
+            return results
+
+        mock_mmr_reranker.rerank.side_effect = record_thread
+
+        await engine.search("test query", embedding=[0.1] * 768, limit=10)
+
+        assert threads_seen, "MMR rerank was not invoked"
+        main_thread = threading.main_thread().name
+        assert all(name != main_thread for name in threads_seen)

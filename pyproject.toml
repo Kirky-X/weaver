@@ -20,6 +20,9 @@ dependencies = [
     "numpy>=2.0.0,<3.0.0",
     "openai>=1.0.0",
     "opentelemetry-instrumentation-fastapi>=0.65b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.65b0",
+    "opentelemetry-instrumentation-redis>=0.65b0",
+    "opentelemetry-instrumentation-httpx>=0.65b0",
     "opentelemetry-sdk>=1.40.0",
     "pgvector>=0.5.0",
     "crawl4ai>=0.8.6,<0.10.0",
@@ -136,6 +139,12 @@ test = [
 # ────────────────────────────────────────────────────────────
 
 # Ruff — fast Python linter & formatter
+[project.scripts]
+weaver-pipeline = "scripts.pipeline:main"
+weaver-db = "scripts.db:main"
+weaver-data-io = "scripts.data_io:main"
+weaver-tools = "scripts.tools:main"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -193,8 +202,6 @@ ignore = [
     "B023",
     # B008 — FastAPI Depends 在默认参数中使用（标准模式）
     "B008",
-    # B904 — 异常链中的 raise（pydantic 场景误报）
-    "B904",
     # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
     "UP007",
     # S101 — 使用 assert（测试文件中可接受，生产代码由 bandit B101 检查）

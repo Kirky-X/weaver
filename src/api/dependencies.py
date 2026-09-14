@@ -66,8 +66,8 @@ def get_container() -> Container:
 
     try:
         return _get_container()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Service not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Service not initialized") from _exc
 
 
 # ── Pool Dependencies (Protocol Types) ─────────────────────────────────
@@ -89,8 +89,8 @@ def get_relational_pool(
     """
     try:
         return container.relational_pool()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Relational pool not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Relational pool not initialized") from _exc
 
 
 def get_graph_pool(
@@ -184,8 +184,8 @@ def get_cache_client(
     """
     try:
         return container.cache_client()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Cache pool not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Cache pool not initialized") from _exc
 
 
 # ── Service Dependencies ──────────────────────────────────────────────
@@ -223,8 +223,8 @@ def get_vector_repo(
     """
     try:
         return container.vector_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Vector store not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Vector store not initialized") from _exc
 
 
 def get_graph_repo(
@@ -241,8 +241,8 @@ def get_graph_repo(
     """
     try:
         return container.graph_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Graph repository not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Graph repository not initialized") from _exc
 
 
 def get_local_search_engine(
@@ -313,8 +313,8 @@ def get_source_scheduler(
     """
     try:
         return container.source_scheduler()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source scheduler not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Source scheduler not initialized") from _exc
 
 
 def get_smart_fetcher(
@@ -331,8 +331,8 @@ def get_smart_fetcher(
     """
     try:
         return container.smart_fetcher()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Smart fetcher not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Smart fetcher not initialized") from _exc
 
 
 def get_source_config_repo(
@@ -349,8 +349,10 @@ def get_source_config_repo(
     """
     try:
         return container.source_config_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source config repository not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(
+            status_code=503, detail="Source config repository not initialized"
+        ) from _exc
 
 
 def get_source_authority_repo(
@@ -367,8 +369,10 @@ def get_source_authority_repo(
     """
     try:
         return container.source_authority_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source authority repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(
+            status_code=503, detail="Source authority repo not initialized"
+        ) from _exc
 
 
 def get_llm_failure_repo(
@@ -385,8 +389,8 @@ def get_llm_failure_repo(
     """
     try:
         return container.llm_failure_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="LLM failure repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="LLM failure repo not initialized") from _exc
 
 
 def get_llm_usage_repo(
@@ -403,8 +407,8 @@ def get_llm_usage_repo(
     """
     try:
         return container.llm_usage_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="LLM usage repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="LLM usage repo not initialized") from _exc
 
 
 def get_saga_orchestrator(
@@ -421,8 +425,8 @@ def get_saga_orchestrator(
     """
     try:
         return container.saga_orchestrator()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Saga orchestrator not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Saga orchestrator not initialized") from _exc
 
 
 def get_pipeline_service(
@@ -439,8 +443,8 @@ def get_pipeline_service(
     """
     try:
         return container.pipeline_service()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Pipeline service not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Pipeline service not initialized") from _exc
 
 
 def get_bing_searcher(
@@ -464,8 +468,8 @@ def get_bing_searcher(
     """
     try:
         return container.bing_searcher()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Bing searcher not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Bing searcher not initialized") from _exc
 
 
 def get_task_registry(
@@ -482,8 +486,8 @@ def get_task_registry(
     """
     try:
         return container.task_registry()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Task registry not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Task registry not initialized") from _exc
 
 
 def get_embedding_service(

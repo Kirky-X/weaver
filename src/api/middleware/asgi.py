@@ -13,12 +13,38 @@ from core.observability import get_logger
 
 log = get_logger("main")
 
+# Query parameter names whose values must never reach the logs
+_SENSITIVE_QUERY_KEYS = frozenset(
+    {"key", "token", "password", "secret", "api_key", "apikey", "access_token", "auth", "signature"}
+)
+_MAX_QUERY_LOG_LEN = 500
+
+
+def redact_query(query: str, max_len: int = _MAX_QUERY_LOG_LEN) -> str:
+    """Truncate a query string and mask values of sensitive parameter names."""
+    if len(query) > max_len:
+        query = query[:max_len]
+    parts = []
+    for pair in query.split("&"):
+        name, sep, _value = pair.partition("=")
+        if sep and name.lower() in _SENSITIVE_QUERY_KEYS:
+            parts.append(f"{name}=***")
+        else:
+            parts.append(pair)
+    return "&".join(parts)
+
 
 class HTTPLoggingMiddleware:
-    """Pure ASGI middleware to log all HTTP requests and responses."""
+    """Pure ASGI middleware to log all HTTP requests and responses.
 
-    def __init__(self, app):
+    Response bodies are never logged unless ``log_response_body`` is
+    enabled; when enabled the preview is DEBUG-level only so user data
+    stays out of default production logs.
+    """
+
+    def __init__(self, app, log_response_body: bool = False):
         self.app = app
+        self._log_response_body = log_response_body
 
     async def __call__(self, scope, receive, send):  # noqa: D102
         if scope["type"] != "http":
@@ -45,7 +71,7 @@ class HTTPLoggingMiddleware:
             "http_request",
             method=method,
             path=path,
-            query=query if query else None,
+            query=redact_query(query) if query else None,
             client=client_host,
             api_key=api_key_display,
         )
@@ -72,25 +98,35 @@ class HTTPLoggingMiddleware:
         response_body = b"".join(response_body_parts)
         content_type = response_headers.get(b"content-type", b"").decode("utf-8")
 
-        # Truncate body for logging (max 500 chars for JSON, 200 for others)
-        if "application/json" in content_type:
-            max_body_len = 500
+        if self._log_response_body:
+            # Truncate body for logging (max 500 chars for JSON, 200 for others)
+            if "application/json" in content_type:
+                max_body_len = 500
+            else:
+                max_body_len = 200
+
+            body_preview = response_body.decode("utf-8", errors="replace")[:max_body_len]
+            if len(response_body) > max_body_len:
+                body_preview += "..."
+
+            log.debug(
+                "http_response",
+                status=response_status,
+                path=path,
+                method=method,
+                content_type=content_type,
+                body_preview=body_preview,
+                body_size=len(response_body),
+            )
         else:
-            max_body_len = 200
-
-        body_preview = response_body.decode("utf-8", errors="replace")[:max_body_len]
-        if len(response_body) > max_body_len:
-            body_preview += "..."
-
-        log.info(
-            "http_response",
-            status=response_status,
-            path=path,
-            method=method,
-            content_type=content_type,
-            body_preview=body_preview,
-            body_size=len(response_body),
-        )
+            log.info(
+                "http_response",
+                status=response_status,
+                path=path,
+                method=method,
+                content_type=content_type,
+                body_size=len(response_body),
+            )
 
 
 class SecurityHeadersMiddleware:
@@ -111,6 +147,7 @@ class SecurityHeadersMiddleware:
                 headers[b"x-frame-options"] = b"DENY"
                 headers[b"x-xss-protection"] = b"1; mode=block"
                 headers[b"strict-transport-security"] = b"max-age=31536000; includeSubDomains"
+                headers[b"content-security-policy"] = b"default-src 'none'; frame-ancestors 'none'"
                 message["headers"] = list(headers.items())
             await send(message)
 

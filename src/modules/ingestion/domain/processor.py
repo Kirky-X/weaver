@@ -7,12 +7,19 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from core.observability import get_logger
 from modules.ingestion.crawling import Crawler
 from modules.ingestion.deduplication import Deduplicator, SimHashDeduplicator, TitleItem
 from modules.ingestion.fetching.exceptions import FetchError
-from modules.processing.queue import ProcessingQueue
-from modules.storage import ArticleRepo
+
+if TYPE_CHECKING:
+    # Annotation-only deps (constructor signatures use `from __future__
+    # annotations`); importing these at runtime would create
+    # ingestion -> processing/storage import cycles.
+    from modules.processing.queue import ProcessingQueue
+    from modules.storage import ArticleRepo
 
 log = get_logger(__name__)
 

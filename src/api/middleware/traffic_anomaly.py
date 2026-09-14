@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from api.utils.client_ip import get_client_ip
 from core.observability import get_logger
 from core.security import (
     TrafficAction,
@@ -64,7 +65,7 @@ class TrafficAnomalyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         key_id = getattr(request.state, "api_key_id", None) or "anonymous"
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
 
         decision = await self._detector.check_request(key_id=key_id, ip=ip)
 

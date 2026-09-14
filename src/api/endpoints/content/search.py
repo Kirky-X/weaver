@@ -28,6 +28,7 @@ from api.dependencies import (
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.endpoints.content.search_cache import get_cached_search, store_search
 from core.llm import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool, PipelineService
@@ -53,7 +54,7 @@ from modules.storage import VectorRepo
 router = APIRouter(prefix="/search", tags=["search"])
 
 # Module-level background task registry for web-search fallback pipeline
-# ingestion (T017). Strong references prevent asyncio Task GC; the
+# ingestion. Strong references prevent asyncio Task GC; the
 # ``add_done_callback(set.discard)`` pattern auto-cleans on completion.
 # Matches the convention in src/api/endpoints/content/pipeline.py:283.
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -133,6 +134,7 @@ async def search_unified(
         None,
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
+    no_cache: bool = Query(False, description="Bypass the short-TTL response cache"),
     _: str = Depends(verify_api_key),
     local_engine: LocalSearchEngine = Depends(get_local_search_engine),
     global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
@@ -169,6 +171,24 @@ async def search_unified(
 
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
+
+    # Short-TTL response cache for hot queries
+    cache_params = {
+        "q": q,
+        "mode": mode,
+        "community_level": community_level,
+        "threshold": threshold,
+        "limit": limit,
+        "category": category,
+        "use_hybrid": use_hybrid,
+        "global_mode": global_mode,
+        "output_mode": out_mode_value,
+        "enrich_entities": enrich,
+        "no_cache": no_cache,
+    }
+    cached_payload = await get_cached_search(request, cache_params)
+    if cached_payload is not None:
+        return success_response(SearchResponse.model_validate(cached_payload))
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
@@ -266,9 +286,9 @@ async def search_unified(
             # Fire-and-forget: schedule background pipeline ingestion for
             # each Bing result URL. URLs are processed sequentially inside
             # a SINGLE background task to avoid DuckDB write lock contention
-            # (HIGH-1: matches pipeline.py:285 convention).
+            # (matches pipeline.py:285 convention).
             urls = [r.url for r in web_results if r.url]
-            # MEDIUM-1 (T051-B): pass concurrency cap + total batch timeout
+            # Pass concurrency cap + total batch timeout
             # from SearchSettings so operators can tune via env vars
             # (WEAVER_SEARCH__MAX_BACKGROUND_TASKS,
             #  WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT). Reading
@@ -286,7 +306,7 @@ async def search_unified(
                 max_concurrent=search_settings.max_background_tasks,
                 total_timeout=search_settings.background_task_total_timeout,
             )
-            # MEDIUM-1: when at concurrency cap, the background task was
+            # When at concurrency cap, the background task was
             # dropped (not spawned). Signal the client via metadata so it
             # can retry ingestion later (the search itself succeeded —
             # Bing snippets are already in the response).
@@ -306,18 +326,18 @@ async def search_unified(
     # Note: Narrative synthesis and entity aggregation are handled by MAGMA
     # memory integration when output_mode=NARRATIVE or enrich_entities=True.
 
-    return success_response(
-        SearchResponse(
-            query=q,
-            answer=result_answer,
-            context_tokens=result_tokens,
-            confidence=result_confidence,
-            search_type=search_type,
-            entities=result_entities,
-            sources=result_sources,
-            metadata=result_metadata,
-        )
+    response_payload = SearchResponse(
+        query=q,
+        answer=result_answer,
+        context_tokens=result_tokens,
+        confidence=result_confidence,
+        search_type=search_type,
+        entities=result_entities,
+        sources=result_sources,
+        metadata=result_metadata,
     )
+    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
+    return success_response(response_payload)
 
 
 # ── Explicit Local/Global Search Endpoints ────────────────────
@@ -520,10 +540,10 @@ async def search_drift(
         )
         err_msg = str(exc).lower()
         if "neo4j" in err_msg or "graph" in err_msg:
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
         if "llm" in err_msg or "circuit breaker" in err_msg:
-            raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail="DRIFT search failed")
+            raise HTTPException(status_code=503, detail="LLM service unavailable") from exc
+        raise HTTPException(status_code=500, detail="DRIFT search failed") from exc
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────
@@ -655,8 +675,8 @@ async def search_causal(
             timeout=60.0,
         )
 
-        # D5 / Task 5.1: pull traversal metadata from engine.last_metadata
-        # (populated by _beam_search → _prefetch_neighbors via Task 3.5).
+        # Pull traversal metadata from engine.last_metadata
+        # (populated by _beam_search → _prefetch_neighbors).
         # causal_edges_traversed counts neighbors reached via CAUSES/ENABLES
         # edges (0 when graph DB has no CAUSAL edges — Q1 finding).
         # degraded is set when score_range == 0 with >=2 results (D3 fix).
@@ -674,7 +694,7 @@ async def search_causal(
             for r in results
         ]
 
-        # D5 / Task 5.2-5.4: answer text reflects actual traversal path,
+        # Answer text reflects actual traversal path,
         # NOT a hardcoded "found N causal chains" lie. Three branches:
         # - causal_edges_traversed > 0: real causal chain traversal
         # - == 0 and results non-empty: only semantic anchors, no causal edge
@@ -689,7 +709,7 @@ async def search_causal(
             answer = f"未找到与查询相关的因果链，返回 {len(causal_chain)} 个语义相关事件"
             confidence = sum(r.get("score", 0) for r in results) / max(len(results), 1)
 
-        # D3 / Task 5.5: when scoring function degraded (all scores identical),
+        # When scoring function degraded (all scores identical),
         # cap confidence at 0.3 to distinguish "no real differentiation" from
         # "high-confidence result". This prevents confidence=1.0 lies when
         # every anchor has the same exp(2.0)=7.389 raw score (the bug).
@@ -711,9 +731,9 @@ async def search_causal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("causal_search_timeout", query=body.query)
-        raise HTTPException(status_code=504, detail="Causal search timed out")
+        raise HTTPException(status_code=504, detail="Causal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -725,8 +745,10 @@ async def search_causal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during causal search")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during causal search"
+        ) from exc
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -952,9 +974,9 @@ async def search_temporal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("temporal_search_timeout", limit=body.limit)
-        raise HTTPException(status_code=504, detail="Temporal search timed out")
+        raise HTTPException(status_code=504, detail="Temporal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -965,5 +987,7 @@ async def search_temporal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during temporal search")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during temporal search"
+        ) from exc

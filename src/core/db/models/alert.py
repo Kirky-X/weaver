@@ -120,7 +120,7 @@ class AlertEvent(Base):
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
     # payload_hash: sha256 hex digest of normalized alert payload (JSON
     # keys sorted ascending, ensure_ascii=False). Used by TrendAlertEvaluator
-    # for 24h dedup (T018 / R-alert-002). Nullable for backward compat
+    # for 24h dedup. Nullable for backward compat
     # with pre-migration rows (migration 33).
     payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
@@ -130,7 +130,7 @@ class AlertEvent(Base):
     __table_args__ = (
         Index("idx_alert_events_triggered", triggered_at.desc()),
         Index("idx_alert_events_entity", "entity_name", triggered_at.desc()),
-        # Composite index for 24h dedup query (T018 / R-alert-002):
+        # Composite index for 24h dedup query:
         #   WHERE rule_id=? AND payload_hash=? AND triggered_at > now()-24h
         # Column order matches equality predicates first, then range.
         Index(

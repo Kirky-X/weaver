@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.utils.client_ip import get_client_ip
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -171,7 +172,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         """
         try:
             # Extract client IP
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = get_client_ip(request)
 
             # Extract action from method and path
             action = f"{request.method}:{request.url.path}"

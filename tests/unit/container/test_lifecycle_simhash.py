@@ -47,6 +47,8 @@ def _stub_startup_dependencies(container) -> None:
     container.init_bing_searcher = AsyncMock()
     container.init_source_scheduler = AsyncMock()
     container.init_ml_components = AsyncMock()
+    # KnowledgeCache touches the real filesystem; stub it
+    container.init_knowledge_cache = AsyncMock()
     container.init_pipeline = AsyncMock()
     container.init_memory_service = AsyncMock()
     container.init_conflict_detector = AsyncMock()
@@ -60,7 +62,7 @@ def _stub_startup_dependencies(container) -> None:
     container.deduplicator = MagicMock(return_value=MagicMock(name="deduplicator"))
     container.processing_queue = MagicMock(return_value=MagicMock(name="processing_queue"))
 
-    # T002 will add simhash_dedup() factory to services.py.
+    # SimHash dedup factory
     simhash_instance = MagicMock(name="simhash_dedup_instance")
     container.simhash_dedup = MagicMock(return_value=simhash_instance)
 
@@ -92,7 +94,8 @@ async def test_discovery_processor_receives_simhash_dedup() -> None:
 
     with patch("modules.ingestion.domain.processor.DiscoveryProcessor", CapturingProcessor):
         with patch("api.endpoints.deps_registry.Endpoints.initialize"):
-            await container.startup()
+            with patch("container.protocol_registry.validate_protocol_bindings", return_value=[]):
+                await container.startup()
 
     instance = captured.get("instance")
     assert instance is not None, "lifecycle.py must instantiate DiscoveryProcessor"

@@ -307,7 +307,7 @@ class ContextBuilder(ABC):
 
         try:
             # ``fetch_bodies_by_pg_ids`` is part of the ArticleRepository
-            # Protocol (added in T051). When an older repo impl lacks it,
+            # Protocol. When an older repo impl lacks it,
             # fall back to the legacy N+1 path (preserves backward compat
             # for any custom ArticleRepository impl in the wild).
             fetch_batch = getattr(repo, "fetch_bodies_by_pg_ids", None)
@@ -328,7 +328,7 @@ class ContextBuilder(ABC):
         # All in-tree impls (PostgresArticleRepo, DuckDBArticleRepo) provide
         # the batch method, so this path is only exercised by external
         # custom impls. Iterate ALL pg_ids (no truncation) — silently
-        # dropping articles 6..N would violate Rule 12 (MEDIUM-1 fix).
+        # dropping articles 6..N would violate Rule 12.
         bodies: dict[str, str] = {}
         for pg_id in pg_ids:
             try:

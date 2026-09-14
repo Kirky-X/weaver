@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.observability import get_logger
+from core.utils.paths import CACHE_DIR
 
 log = get_logger(__name__)
 
@@ -38,6 +40,10 @@ SPACY_TO_ENTITY_TYPE = {
 
 # Maximum wheel file size (1GB) to prevent zip bomb attacks
 MAX_WHEEL_SIZE = 1 * 1024 * 1024 * 1024
+
+# Wheels are extracted once into this persistent per-wheel directory and
+# reused across restarts, instead of re-extracting on every model load.
+WHEEL_EXTRACT_ROOT = CACHE_DIR / "spacy_wheels"
 
 
 @dataclass
@@ -81,6 +87,9 @@ class SpacyExtractor:
                           Loaded from configuration file (settings.toml).
         """
         self._models: dict[str, object] = {}
+        # Loading a model extracts a multi-hundred-MB wheel: serialize the
+        # whole check-load-store sequence so concurrent first access loads once.
+        self._models_lock = threading.Lock()
         self._temp_dirs: list[str] = []  # Track extracted wheel directories
         # Store model paths from config (priority over env vars)
         self._zh_model_path = zh_model_path
@@ -96,6 +105,12 @@ class SpacyExtractor:
 
     def _extract_wheel_safely(self, wheel_path: str) -> str | None:
         """Extract a wheel file safely with path traversal and size checks.
+
+        Extraction target is a persistent per-wheel directory under
+        WHEEL_EXTRACT_ROOT keyed by the wheel filename (unique per
+        model+version). The directory is populated in a temp sibling and
+        renamed into place atomically, so a partial extraction is never
+        reused by a later load or another process.
 
         Args:
             wheel_path: Path to the .whl file.
@@ -120,9 +135,24 @@ class SpacyExtractor:
             )
             return None
 
-        # Create temp directory
-        extract_dir = tempfile.mkdtemp(prefix="spacy_model_")
+        try:
+            WHEEL_EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.warning(
+                "spacy_wheel_cache_dir_unavailable",
+                path=str(WHEEL_EXTRACT_ROOT),
+                error=str(e),
+            )
+            return None
+
+        final_dir = WHEEL_EXTRACT_ROOT / wheel.stem
+        if final_dir.is_dir() and any(final_dir.iterdir()):
+            return str(final_dir)
+
+        # Temp dir must live on the same volume as final_dir for atomic rename
+        extract_dir = tempfile.mkdtemp(prefix="spacy_model_", dir=str(WHEEL_EXTRACT_ROOT))
         extract_path = Path(extract_dir)
+        self._temp_dirs.append(extract_dir)
 
         try:
             with zipfile.ZipFile(wheel_path, "r") as zf:
@@ -135,14 +165,25 @@ class SpacyExtractor:
                             wheel_path=wheel_path,
                             malicious_member=member,
                         )
+                        shutil.rmtree(extract_dir, ignore_errors=True)
                         return None
 
                 # Safe to extract
                 zf.extractall(extract_dir)
 
-            # Track for cleanup
-            self._temp_dirs.append(extract_dir)
-            return extract_dir
+            try:
+                os.replace(extract_dir, str(final_dir))
+            except OSError:
+                # Another process finished extracting the same wheel first;
+                # reuse its copy if it is complete, otherwise surface the error.
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                if final_dir.is_dir() and any(final_dir.iterdir()):
+                    return str(final_dir)
+                raise
+
+            if extract_dir in self._temp_dirs:
+                self._temp_dirs.remove(extract_dir)
+            return str(final_dir)
 
         except (zipfile.BadZipFile, OSError) as e:
             log.warning("spacy_wheel_extract_failed", wheel_path=wheel_path, error=str(e))
@@ -280,6 +321,8 @@ class SpacyExtractor:
         """Get the spaCy NLP pipeline for a language.
 
         Tries models in order, returns first successfully loaded one.
+        Loaded models are cached per model name for the extractor's
+        lifetime; loading is serialized to avoid duplicate work.
 
         Args:
             language: Language code (zh, en, etc.).
@@ -292,11 +335,16 @@ class SpacyExtractor:
         """
         model_candidates = MODEL_MAP.get(language, MODEL_MAP["default"])
 
-        for model in model_candidates:
-            nlp = self._load(model)
-            if nlp is not None:
-                log.debug("spacy_model_loaded", model=model, language=language)
-                return nlp
+        with self._models_lock:
+            for model in model_candidates:
+                cached = self._models.get(model)
+                if cached is not None:
+                    return cached
+                nlp = self._load(model)
+                if nlp is not None:
+                    self._models[model] = nlp
+                    log.debug("spacy_model_loaded", model=model, language=language)
+                    return nlp
 
         raise RuntimeError(
             f"No spaCy model available for language '{language}'. Tried: {model_candidates}"

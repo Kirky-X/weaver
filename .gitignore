@@ -142,3 +142,4 @@ api_test_results/
 # API end-to-end test file
 test_api_e2e.py
 docs/research/papers/
+MagicMock/

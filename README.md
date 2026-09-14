@@ -12,7 +12,7 @@
 
 <p>
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/github/v/release/Kirky-X/weaver.svg" alt="Version" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/license-Apache--2.0-yellow.svg" alt="License" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
 </p>
@@ -120,6 +120,32 @@
 | Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选)        |
 
 ### <span id="installation">🔧 安装</span>
+
+#### 一键初始化（推荐）
+
+```bash
+# 1. 生成配置（复制模板，不覆盖已有文件）+ 提示模型安装
+uv run python scripts/bootstrap.py
+
+# 2. 启动基础设施（或加 --profile full 连应用一起起）
+docker compose -f docker/docker-compose.yml up -d
+
+# 3. 安装模型后执行迁移并启动
+uv run alembic upgrade head
+uv run uvicorn src.main:get_app --factory --reload
+```
+
+<details>
+<summary>Docker 一体化启动（含应用，无需本地 Python 环境）</summary>
+
+```bash
+docker compose -f docker/docker-compose.yml --profile full up -d --build
+# 应用启动前自动执行 alembic upgrade head；API 在 http://localhost:8000
+```
+
+</details>
+
+#### 手动安装
 
 ```bash
 # 克隆项目
@@ -457,7 +483,7 @@ Neo4j / LadybugDB 的 `Article` 节点收敛为仅存储 `{id, pg_id}`，业务�
 通过 `ArticleRepository.fetch_titles_by_pg_ids()` 批量回查 PostgreSQL /
 DuckDB。此设计消除了图数据库与关系数据库之间的字段冗余，所有业务字段以 PG
 为单一真源，图节点仅保留跨库 ID 链接。详见
-[CLAUDE.md](CLAUDE.md) "数据库 Schema" 章节。
+[AGENTS.md](AGENTS.md) "数据库 Schema" 章节。
 
 ---
 

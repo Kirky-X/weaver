@@ -64,12 +64,12 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Normalized category for None input (spec R-briefing-001: None 表示综合).
+# Normalized category for None input (None 表示综合).
 _DEFAULT_CATEGORY: str = "general"
 
 
 class BriefingAlreadyExistsError(Exception):
-    """业务异常：当日 (date, category) 简报已存在（R-briefing-005 fix）。
+    """业务异常：当日 (date, category) 简报已存在。
 
     抛出场景：
         1. generate_briefing 在调用 generator 之前，先检查 storage.get_briefing
@@ -175,7 +175,7 @@ class DailyBriefingService:
                 or if category is invalid (propagated from generator).
             Exception: Other storage failures propagate (Rule 12).
         """
-        # Existence check (R-briefing-005 fix):
+        # Existence check:
         # 在调用 generator 前先检查 (date, category) 是否已存在. 已存在则抛
         # BriefingAlreadyExistsError, 避免 generator.save_briefing 的
         # DELETE+INSERT 在 DuckDB 上触发 ConstraintException → endpoint 500.
@@ -200,7 +200,7 @@ class DailyBriefingService:
                 raise ValueError(
                     "narrative_mode=True requested but narrative_generator is None. "
                     "Caller must inject NarrativeBriefingGenerator when constructing "
-                    "DailyBriefingService to use narrative mode (R-briefing-008)."
+                    "DailyBriefingService to use narrative mode."
                 )
             try:
                 result_dict = await self._generate_with_race_guard(
@@ -219,7 +219,7 @@ class DailyBriefingService:
                     category=exc.category,
                     reason=exc.reason,
                 )
-                # Fall through to template mode (R-briefing-008 degradation).
+                # Fall through to template mode (degradation).
 
         result_dict = await self._generate_with_race_guard(
             self._generator.generate(date, category),

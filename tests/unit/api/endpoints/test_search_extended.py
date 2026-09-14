@@ -384,7 +384,7 @@ class TestCausalSearchEndpoint:
             assert result.data.causal_chain[1].content == "Event B led to Event C"
             assert result.data.confidence == pytest.approx(0.875, rel=1e-2)
             assert result.data.metadata["depth"] == 3
-            # D5 / Task 5.6: metadata exposes causal_edges_traversed + degraded
+            # Metadata exposes causal_edges_traversed + degraded
             assert result.data.metadata["causal_edges_traversed"] == 2
             assert result.data.metadata["degraded"] is False
             # answer 文本应反映"找到因果链"分支
@@ -1133,7 +1133,7 @@ class TestErrorHandling:
         assert expected_detail in exc_info.value.detail
 
 
-# ── Boundary & Degradation Tests (T022-T025) ────────────────────────
+# ── Boundary & Degradation Tests ───────────────────────────────────
 
 
 class TestSearchEndpointBoundaryConditions:

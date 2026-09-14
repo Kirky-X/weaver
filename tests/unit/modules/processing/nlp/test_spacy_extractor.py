@@ -3,6 +3,7 @@
 """Tests for SpaCy NER extractor."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -618,3 +619,150 @@ class TestDisableDataMetricsFiltering:
         result = extractor.extract("100", language="zh")
         assert len(result) == 1
         assert result[0].type == "数据指标"
+
+
+class TestModelCaching:
+    """Tests for model caching in SpacyExtractor (T001).
+
+    The extractor must load each spaCy model at most once per instance:
+    wheel extraction and spacy.load are expensive (hundreds of MB), so
+    repeated _get_nlp calls must hit the in-memory cache.
+    """
+
+    @pytest.fixture
+    def extractor(self) -> SpacyExtractor:
+        return SpacyExtractor()
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_get_nlp_caches_model(self, mock_load: MagicMock, extractor: SpacyExtractor) -> None:
+        """Same model requested twice loads once and returns the same object."""
+        mock_nlp = MockNLP()
+        mock_load.return_value = mock_nlp
+
+        first = extractor._get_nlp("zh")
+        second = extractor._get_nlp("zh")
+
+        assert first is second
+        assert mock_load.call_count == 1
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_cache_keyed_by_model_name(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Different languages load their own models; repeated language hits cache."""
+        mock_load.side_effect = lambda model: MockNLP()
+
+        extractor._get_nlp("zh")
+        extractor._get_nlp("en")
+        extractor._get_nlp("zh")
+
+        # zh_core_web_lg + en_core_web_lg = 2 distinct models loaded
+        assert mock_load.call_count == 2
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_failed_load_not_cached(self, mock_load: MagicMock, extractor: SpacyExtractor) -> None:
+        """A model that fails to load is retried on the next call, not cached."""
+        mock_load.return_value = None
+
+        with pytest.raises(RuntimeError):
+            extractor._get_nlp("zh")
+        with pytest.raises(RuntimeError):
+            extractor._get_nlp("zh")
+
+        assert mock_load.call_count == len(MODEL_MAP["zh"]) * 2
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_warmup_populates_cache(self, mock_load: MagicMock, extractor: SpacyExtractor) -> None:
+        """warmup() preloads models so later calls hit the cache."""
+        mock_load.return_value = MockNLP()
+
+        extractor.warmup()
+
+        assert len(extractor._models) >= 1
+        cached_calls = mock_load.call_count
+
+        extractor._get_nlp("zh")
+        assert mock_load.call_count == cached_calls
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_concurrent_get_nlp_loads_once(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Concurrent first access serializes loading: model loads exactly once."""
+        import threading
+        import time
+
+        load_lock = threading.Lock()
+
+        def slow_load(model: str) -> MockNLP:
+            with load_lock:
+                time.sleep(0.05)
+                return MockNLP()
+
+        mock_load.side_effect = slow_load
+
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                extractor._get_nlp("zh")
+            except Exception as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        assert mock_load.call_count == 1
+
+
+class TestWheelExtractionPersistence:
+    """T001: wheel extraction targets a persistent directory reused across calls."""
+
+    @staticmethod
+    def _make_wheel(path: Any) -> None:
+        import zipfile
+
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("zh_core_web_lg/zh_core_web_lg-3.8.0/config.cfg", "[nlp]")
+            zf.writestr("zh_core_web_lg-3.8.0.dist-info/METADATA", "Name: zh_core_web_lg")
+
+    def test_extract_reuses_persistent_dir(self, tmp_path: Any, monkeypatch: Any) -> None:
+        import zipfile
+        from unittest.mock import patch
+
+        wheel = tmp_path / "zh_core_web_lg-3.8.0-py3-none-any.whl"
+        self._make_wheel(wheel)
+        monkeypatch.setattr(
+            "modules.processing.nlp.spacy_extractor.WHEEL_EXTRACT_ROOT", tmp_path / "cache"
+        )
+
+        extractor = SpacyExtractor(zh_model_path=str(wheel))
+        first = extractor._extract_wheel_safely(str(wheel))
+        assert first is not None
+        assert (tmp_path / "cache").is_dir()
+
+        with patch.object(zipfile.ZipFile, "extractall") as mock_extractall:
+            second = extractor._extract_wheel_safely(str(wheel))
+            mock_extractall.assert_not_called()
+
+        assert second == first
+
+    def test_cleanup_only_removes_staging_dirs(self, tmp_path: Any, monkeypatch: Any) -> None:
+        import zipfile
+
+        wheel = tmp_path / "zh_core_web_lg-3.8.0-py3-none-any.whl"
+        self._make_wheel(wheel)
+        monkeypatch.setattr(
+            "modules.processing.nlp.spacy_extractor.WHEEL_EXTRACT_ROOT", tmp_path / "cache"
+        )
+
+        extractor = SpacyExtractor(zh_model_path=str(wheel))
+        extracted = extractor._extract_wheel_safely(str(wheel))
+        assert extracted is not None
+
+        extractor.cleanup()
+        assert Path(extracted).is_dir() and not extractor._temp_dirs

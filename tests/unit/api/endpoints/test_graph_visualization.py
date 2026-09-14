@@ -472,6 +472,10 @@ class TestVisualizationErrors:
         )
         unauthed_client.app.dependency_overrides.pop(verify_api_key, None)
 
+        from api.middleware.api_response import register_exception_handlers
+
+        register_exception_handlers(unauthed_client.app)
+
         with unauthed_client:
             response = unauthed_client.get("/graph/visualization")
             assert response.status_code == 401

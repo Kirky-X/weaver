@@ -388,7 +388,7 @@ class TestGetTrendDetection:
 
         body = response.json()
         data = body["data"]
-        # All 5 fields present (spec R-trend-001).
+        # All 5 fields present.
         assert "window_days" in data
         assert "entity_type" in data
         assert "trends" in data

@@ -17,7 +17,7 @@ from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.observability.throughput import PipelineThroughputTracker
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.nodes.classification.categorizer import CascadeCategorizerNode
@@ -131,7 +131,7 @@ class Pipeline:
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
         self._phase3_semaphore = asyncio.Semaphore(self._phase3_concurrency)
 
-        # T004: read independent stage enabled flags from TOML config.
+        # Read independent stage enabled flags from TOML config.
         # Only independent stages (no downstream dependents) respect the
         # disabled flag; dependency stages always execute to preserve DAG
         # integrity. Empty set when TOML doesn't configure stages —
@@ -237,7 +237,7 @@ class Pipeline:
             if graph_writer is not None
             else None
         )
-        # T003: Sentiment tracker node — pure computation (no LLM). Computes
+        # Sentiment tracker node — pure computation (no LLM). Computes
         # per-entity article-level sentiment shifts against the previous
         # article mentioning the same entity, persists to sentiment_shifts
         # (article_id/entity_name/shift_value fields from migration 30).
@@ -257,10 +257,13 @@ class Pipeline:
             vector_repo=vector_repo,
             graph_writer=graph_writer,
             phase3_concurrency=self._phase3_concurrency,
+            pending_sync_repo=deps.infrastructure.pending_sync_repo,
         )
         self._content_hash_cache = ContentHashCacheService(cache_client=cache_client)
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)
-        self._memory_publisher = MemoryEventPublisher(event_bus=deps.event_bus)
+        self._memory_publisher = MemoryEventPublisher(
+            event_bus=deps.event_bus, outbox_repo=deps.infrastructure.outbox_repo
+        )
 
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
@@ -996,7 +999,7 @@ class Pipeline:
                     state, PHASE3_STAGES[stage_key], pending_updates
                 )
 
-            # === Sentiment Tracker 阶段 (T003) ===
+            # === Sentiment Tracker 阶段 ===
             # Pure computation node — no LLM. Computes per-entity article-level
             # sentiment shifts and persists to sentiment_shifts. Skipped when
             # sentiment_shift_repo is unavailable, when terminal/merged, or
@@ -1122,7 +1125,7 @@ class Pipeline:
             if article is None:
                 raise ValueError(f"Article not found: {article_id}")
 
-            from modules.ingestion.domain.models import RawArticle
+            from core.types.ingestion_models import RawArticle
 
             raw = RawArticle(
                 url=article.source_url,

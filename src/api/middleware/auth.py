@@ -11,6 +11,9 @@ import secrets
 from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
+from api.utils.client_ip import get_client_ip
+from api.schemas.response import ResponseCode
+from core.exceptions import BusinessError
 from core.observability import get_logger
 from core.security.api_key_manager import ENV_ADMIN_ACTOR
 
@@ -75,9 +78,10 @@ async def verify_api_key(
     from container import get_settings
 
     if key is None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=401,
-            detail="Missing API key. Provide X-API-Key header.",
+            code=ResponseCode.ERR_AUTH_FAILED,
+            message="Missing API key. Provide X-API-Key header.",
         )
 
     # Try database-backed key validation first
@@ -88,7 +92,7 @@ async def verify_api_key(
             # Traffic anomaly check
             detector = await _get_traffic_detector()
             if detector and request:
-                client_ip = request.client.host if request.client else "unknown"
+                client_ip = get_client_ip(request)
                 decision = await detector.check_request(
                     key_id=key_info["key_id"],
                     ip=client_ip,
@@ -129,7 +133,11 @@ async def verify_api_key(
         )
 
     if not secrets.compare_digest(key, expected_key):
-        raise HTTPException(status_code=403, detail="Invalid API Key")
+        raise BusinessError(
+            status_code=403,
+            code=ResponseCode.ERR_FORBIDDEN,
+            message="Invalid API Key",
+        )
 
     return "env-key"
 
@@ -163,9 +171,10 @@ async def verify_admin_api_key(
     settings = get_settings()
 
     if key is None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=401,
-            detail="Missing API key. Admin endpoints require X-API-Key header.",
+            code=ResponseCode.ERR_AUTH_FAILED,
+            message="Missing API key. Admin endpoints require X-API-Key header.",
         )
 
     # Check admin key if configured
@@ -182,14 +191,16 @@ async def verify_admin_api_key(
         # Not admin key, check if it's regular key
         expected_key = settings.api.get_api_key()
         if secrets.compare_digest(key, expected_key):
-            raise HTTPException(
+            raise BusinessError(
                 status_code=403,
-                detail="Admin access required. Regular API key not authorized for this endpoint.",
+                code=ResponseCode.ERR_FORBIDDEN,
+                message="Admin access required. Regular API key not authorized for this endpoint.",
             )
         # Invalid key
-        raise HTTPException(
+        raise BusinessError(
             status_code=403,
-            detail="Invalid API Key",
+            code=ResponseCode.ERR_FORBIDDEN,
+            message="Invalid API Key",
         )
 
     # Admin key not configured: return generic 403 to avoid disclosing
@@ -245,9 +256,10 @@ async def verify_api_key_optional(
         return key
 
     # Invalid key provided - still reject even if optional
-    raise HTTPException(
+    raise BusinessError(
         status_code=403,
-        detail="Invalid API Key",
+        code=ResponseCode.ERR_FORBIDDEN,
+        message="Invalid API Key",
     )
 
 
@@ -282,9 +294,10 @@ def verify_api_key_with_scopes(*required_scopes: str):
         # so calling it here AND re-validating would run bcrypt twice (~200ms
         # extra per request). Instead, validate once and reuse the result.
         if key is None:
-            raise HTTPException(
+            raise BusinessError(
                 status_code=401,
-                detail="Missing API key. Provide X-API-Key header.",
+                code=ResponseCode.ERR_AUTH_FAILED,
+                message="Missing API key. Provide X-API-Key header.",
             )
 
         key_manager = await _get_api_key_manager()
@@ -304,7 +317,7 @@ def verify_api_key_with_scopes(*required_scopes: str):
         # DB-backed key validated. Run traffic anomaly check (mirror verify_api_key).
         detector = await _get_traffic_detector()
         if detector and request:
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = get_client_ip(request)
             decision = await detector.check_request(
                 key_id=key_info["key_id"],
                 ip=client_ip,
@@ -329,9 +342,10 @@ def verify_api_key_with_scopes(*required_scopes: str):
                 granted=sorted(granted),
                 missing=sorted(missing),
             )
-            raise HTTPException(
+            raise BusinessError(
                 status_code=403,
-                detail="Insufficient scopes for this endpoint.",
+                code=ResponseCode.ERR_FORBIDDEN,
+                message="Insufficient scopes for this endpoint.",
             )
 
         # Inject granted scopes onto request.state for downstream use.

@@ -44,12 +44,12 @@ router = APIRouter(prefix="/briefings", tags=["briefings"])
 
 log = get_logger(__name__)
 
-# Category whitelist (spec R-briefing-001: finance/tech/ai/general).
+# Category whitelist (finance/tech/ai/general).
 # None means "综合" (general) and is handled by the service layer.
 _CATEGORY_PATTERN = r"^(finance|tech|ai|general)$"
 
 # Module-level reference to date.today to avoid parameter name shadowing.
-# spec R-briefing-001 mandates parameter name `date`, which shadows the
+# The spec mandates parameter name `date`, which shadows the
 # `date` class inside handler bodies (Rule 7 — exposed conflict). Capturing
 # `date.today` at module scope lets handlers compute today without referencing
 # the shadowed class.
@@ -106,7 +106,7 @@ def _get_briefing_service():
 
     # Narrative generator is optional: graph_pool may be unavailable
     # (degraded mode). When None, narrative_mode=True raises ValueError
-    # in service layer (R-briefing-008 fail-loud) — handler maps to 503.
+    # in service layer (fail-loud) — handler maps to 503.
     narrative_generator = None
     graph_pool = container.graph_pool()
     if graph_pool is not None:
@@ -260,8 +260,7 @@ async def generate_daily_briefing(
         # 兜底(generator INSERT 触发 IntegrityError)都会抛此异常.
         # Detail 包含冲突的 date + category, 便于客户端识别冲突资源.
         # Note: briefings 路由没有 DELETE 端点, 不会自动覆盖已存在的简报,
-        # 所以提示客户端使用不同的 date 或等待次日 (LOW-3: 移除误导性的
-        # "Use DELETE" 建议).
+        # 所以提示客户端使用不同的 date 或等待次日.
         log.warning(
             "briefings_generate_already_exists",
             date=str(exc.briefing_date),

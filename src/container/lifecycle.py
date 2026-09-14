@@ -195,7 +195,7 @@ class ContainerLifecycleMixin:
                 event_bus=self._event_bus,
             )
             self._llm_client._smart_router = self._smart_router
-            # Inject GraphPool for schema-driven structured output (T024).
+            # Inject GraphPool for schema-driven structured output.
             # Mirrors _smart_router lazy-injection pattern. If graph_pool is
             # unavailable (e.g. both Neo4j and LadybugDB down at startup),
             # _graph_pool stays None — structured_call will raise ValueError
@@ -370,7 +370,7 @@ class ContainerLifecycleMixin:
             log.warning("gliner_extractor_init_failed", error=str(exc))
 
         # Fire-and-forget background warmup: shifts 7-20s model load
-        # from first user request to startup (Bug-D HIGH-2 mitigation).
+        # from first user request to startup.
         # Isolated from init try/except so mock/scheduling failures don't
         # null out the extractor (lazy init still works as fallback).
         # Store task ref to prevent GC (ruff RUF006).
@@ -394,9 +394,6 @@ class ContainerLifecycleMixin:
 
     def _setup_scheduler(self) -> None:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.date import DateTrigger
-        from apscheduler.triggers.interval import IntervalTrigger
 
         from core.observability import get_logger
 
@@ -415,7 +412,30 @@ class ContainerLifecycleMixin:
             }
         )
         self._scheduler = scheduler
+
+        # Multi-replica safety: every registered job holds a Redis lock so
+        # only one replica executes each task per interval (no-op warning in
+        # degraded single-instance cache mode).
+        from core.cache.distributed_lock import wrap_scheduler_with_lock
+
+        try:
+            cache_pool = self.cache_client()
+        except Exception:
+            cache_pool = None
+        wrap_scheduler_with_lock(scheduler, cache_pool)
+
         jobs = self.scheduler_job_runner()
+
+        self._register_consistency_jobs(scheduler, jobs, settings)
+        self._register_maintenance_jobs(scheduler, jobs, settings)
+        self._register_analytics_jobs(scheduler, jobs, settings)
+        scheduler.start()
+        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
+
+    def _register_consistency_jobs(self, scheduler, jobs, settings) -> None:
+        """Register data sync / saga recovery / outbox dispatch jobs."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
 
         # Data Sync
         scheduler.add_job(
@@ -423,6 +443,24 @@ class ContainerLifecycleMixin:
             IntervalTrigger(minutes=settings.sync_pending_to_neo4j_interval_minutes),
             id="sync_pending_to_neo4j",
             name="Sync pending to Neo4j",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.recover_stale_sagas,
+            IntervalTrigger(minutes=10),
+            id="recover_stale_sagas",
+            name="Recover stale sagas",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # Transactional outbox dispatcher: at-least-once event delivery
+        scheduler.add_job(
+            jobs.dispatch_outbox_events,
+            IntervalTrigger(seconds=30),
+            id="dispatch_outbox_events",
+            name="Dispatch outbox events",
             max_instances=1,
             coalesce=True,
         )
@@ -504,6 +542,10 @@ class ContainerLifecycleMixin:
                 max_instances=1,
             )
 
+    def _register_maintenance_jobs(self, scheduler, jobs, settings) -> None:
+        """Cleanup / archive / pipeline retry / enrichment / crawl retry job registration."""
+        from apscheduler.triggers.interval import IntervalTrigger
+
         # Pipeline Retry
         scheduler.add_job(
             jobs.retry_pipeline_processing,
@@ -533,6 +575,12 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
+
+    def _register_analytics_jobs(self, scheduler, jobs, settings) -> None:
+        """LLM usage aggregation / briefing / sentiment / trend / causal job registration."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
 
         # LLM Usage Aggregation
         scheduler.add_job(
@@ -608,16 +656,19 @@ class ContainerLifecycleMixin:
                 )
 
                 async def _ladybug_community_check() -> dict[str, object]:
+                    from core.observability import get_logger
+
+                    _log = get_logger(__name__)
                     try:
                         result = await detector.rebuild_communities()
-                        log.info(
+                        _log.info(
                             "ladybug_community_detection_complete",
                             communities=result.total_communities,
                             modularity=result.modularity,
                         )
                         return {"communities": result.total_communities}
                     except Exception as exc:
-                        log.error("ladybug_community_detection_failed", error=str(exc))
+                        _log.error("ladybug_community_detection_failed", error=str(exc))
                         return {"error": str(exc)}
 
                 scheduler.add_job(
@@ -661,7 +712,7 @@ class ContainerLifecycleMixin:
                 coalesce=True,
             )
 
-        # Analytics - Daily Briefing Generation (T010 / R-briefing-006)
+        # Analytics - Daily Briefing Generation
         # Generates 4 category briefings (general/finance/tech/ai) at 08:00 Asia/Shanghai.
         from zoneinfo import ZoneInfo
 
@@ -694,7 +745,7 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
-        # Trend Alert Evaluation (T019 / R-alert-002) — hourly at minute=0.
+        # Trend Alert Evaluation — hourly at minute=0.
         # Evaluates trend_spike/trend_drop/sentiment_shift rules and inserts
         # alert_events with 24h dedup. Graceful skip when trend services
         # unavailable (returns 0, does not block scheduler).
@@ -718,7 +769,7 @@ class ContainerLifecycleMixin:
                 max_instances=1,
                 coalesce=True,
             )
-            log.info("causal_inference_job_registered")
+            log.info("causal_inference_job_registered")  # noqa: F821
 
         # Startup: run sync once immediately
         scheduler.add_job(
@@ -727,9 +778,6 @@ class ContainerLifecycleMixin:
             id="startup_sync_pending_to_neo4j",
             replace_existing=True,
         )
-
-        scheduler.start()
-        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
     # ── Community Health Check ─────────────────────────────────
 
@@ -1165,6 +1213,13 @@ class ContainerLifecycleMixin:
                 log.info("live_config_watcher_started")
             except Exception as e:
                 log.error("live_config_watcher_start_failed", error=str(e), exc_info=True)
+
+        # Validate Protocol → implementation bindings (fail-fast on contract drift)
+        from container.protocol_registry import validate_protocol_bindings
+
+        unregistered = validate_protocol_bindings(self)
+        if unregistered:
+            log.debug("unregistered_protocols_summary", count=len(unregistered))
 
         log.info("container_started")
 

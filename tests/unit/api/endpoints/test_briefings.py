@@ -187,7 +187,7 @@ class TestGenerateDailyBriefing:
         body = response.json()
         assert body["code"] == 0
         assert body["data"]["category"] == "finance"
-        # T022: narrative_mode is forwarded to service (default False).
+        # narrative_mode is forwarded to service (default False).
         mock_service.generate_briefing.assert_called_once_with(
             date=date(2026, 7, 17), category="finance", narrative_mode=False
         )
@@ -208,11 +208,11 @@ class TestGenerateDailyBriefing:
         )
 
     def test_generate_daily_briefing_narrative_mode_true_forwards_to_service(self) -> None:
-        """POST with narrative_mode=true forwards to service with narrative_mode=True (T022).
+        """POST with narrative_mode=true forwards to service with narrative_mode=True.
 
-        T022 removes the T009 501 挡板: narrative_mode is transparently
+        narrative_mode is transparently
         forwarded to DailyBriefingService.generate_briefing(narrative_mode=True).
-        Service layer (T021) handles routing + degradation.
+        Service layer handles routing + degradation.
         """
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(
@@ -227,15 +227,15 @@ class TestGenerateDailyBriefing:
         assert response.status_code == 200
         body = response.json()
         assert body["code"] == 0
-        # Service called with narrative_mode=True (T022 forwarding).
+        # Service called with narrative_mode=True (forwarding).
         mock_service.generate_briefing.assert_called_once_with(
             date=date(2026, 7, 17), category="finance", narrative_mode=True
         )
-        # BriefingResult.narrative_mode=True reflected in response (T021 contract).
+        # BriefingResult.narrative_mode=True reflected in response.
         assert body["data"]["narrative_mode"] is True
 
     def test_generate_daily_briefing_narrative_mode_unavailable_returns_503(self) -> None:
-        """narrative_mode=true without narrative_generator → 503 (T022, R-briefing-008).
+        """narrative_mode=true without narrative_generator → 503.
 
         Service raises ValueError when narrative_mode=True but narrative_generator
         is None (graph_pool unavailable). Handler maps to 503 so caller can

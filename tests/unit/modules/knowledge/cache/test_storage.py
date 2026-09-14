@@ -500,3 +500,29 @@ class TestKnowledgeCacheDecayHotness:
             result = await cache.decay_hotness()
 
         assert result == 2
+
+
+class TestKnowledgeCachePathGuard:
+    """T005: non-path cache_path values are rejected at init (mock-leak defense)."""
+
+    def test_rejects_magic_mock_path(self):
+        """A MagicMock (auto __fspath__) must not become a filesystem path."""
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                    with pytest.raises(TypeError, match="str or Path"):
+                        KnowledgeCache(cache_path=MagicMock())
+
+    def test_rejects_arbitrary_object(self):
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                    with pytest.raises(TypeError, match="int"):
+                        KnowledgeCache(cache_path=12345)
+
+    def test_accepts_path_object(self, tmp_path):
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                    cache = KnowledgeCache(cache_path=tmp_path)
+                    assert cache.cache_path == tmp_path.resolve()

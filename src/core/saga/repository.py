@@ -154,6 +154,25 @@ class SagaLogRepo:
             )
             return list(result.scalars().all())
 
+    async def get_stale_started_logs(self, cutoff: datetime, limit: int = 50) -> list[SagaLog]:
+        """Get saga log entries stuck in 'started' status before a cutoff.
+
+        Args:
+            cutoff: Only entries started before this time are returned.
+            limit: Maximum number of entries to return.
+
+        Returns:
+            List of stale 'started' SagaLog entries (oldest first).
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(SagaLog)
+                .where(SagaLog.step_status == "started", SagaLog.started_at < cutoff)
+                .order_by(SagaLog.started_at.asc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
     async def get_failed_logs(self, limit: int = 50) -> list[SagaLog]:
         """Get saga log entries with failed status.
 

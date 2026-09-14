@@ -43,7 +43,7 @@ def setup_middleware(app: FastAPI, settings: Settings, container: Container | No
 
     """
     _configure_cors(app, settings)
-    _configure_asgi_middleware(app)
+    _configure_asgi_middleware(app, log_response_body=settings.api.log_response_body)
     _configure_performance_middleware(app)
     register_exception_handlers(app)
     _configure_rate_limiting(app, container)
@@ -101,14 +101,16 @@ def _configure_cors(app: FastAPI, settings: Settings) -> None:
     )
 
 
-def _configure_asgi_middleware(app: FastAPI) -> None:
+def _configure_asgi_middleware(app: FastAPI, log_response_body: bool = False) -> None:
     """Add pure ASGI middleware.
 
     Note: Order matters - last added is first executed (innermost).
     """
     app.add_middleware(RequestSizeLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(HTTPLoggingMiddleware)  # HTTP request/response logging
+    app.add_middleware(  # HTTP request/response logging
+        HTTPLoggingMiddleware, log_response_body=log_response_body
+    )
     app.add_middleware(RequestContextMiddleware)  # Request ID for logging (innermost)
 
 

@@ -481,7 +481,7 @@ class TestPipelineServiceDependency:
         assert exc_info.value.status_code == 503
 
 
-# ── P0-4: API Dependencies 故障转移补全 (T025-T030) ────────────────────
+# ── API Dependencies 故障转移补全 ────────────────────────────────────
 
 
 @pytest.mark.xdist_group(name="endpoints_deps")

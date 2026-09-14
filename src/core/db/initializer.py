@@ -82,7 +82,7 @@ REQUIRED_NEO4J_CONSTRAINTS = [
         "description": "Unique constraint on Entity canonical_name and type",
     },
     {
-        # D2 / Article node slim-down: pg_id is now the only business key
+        # Article node slim-down: pg_id is now the only business key
         # on Article (alongside the Neo4j-internal elementId). Replacing
         # the stale `article_url_unique` (Article.url never existed in
         # the slim schema) with `article_pg_id_unique` so MERGE/MATCH

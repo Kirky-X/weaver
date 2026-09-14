@@ -63,9 +63,11 @@ class ResponseStatus(str, enum.Enum):
         """Convert string to ResponseStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid response status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid response status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Source Type Constants ──────────────────────────────────────
@@ -92,9 +94,11 @@ class SourceType(str, enum.Enum):
         """Convert string to SourceType enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid source type '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid source type '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Processing Status Constants ────────────────────────────────
@@ -124,9 +128,11 @@ class ProcessingStatus(str, enum.Enum):
         """
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid processing status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid processing status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Health Status Constants ────────────────────────────────────
@@ -144,9 +150,11 @@ class HealthStatus(str, enum.Enum):
         """Convert string to HealthStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid health status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid health status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── LLM Provider Constants ──────────────────────────────────────
@@ -167,9 +175,11 @@ class LLMProvider(str, enum.Enum):
         """Convert string to LLMProvider enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid LLM provider '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid LLM provider '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Pipeline State Constants (Data Level) ───────────────────────
@@ -206,9 +216,11 @@ class GraphHealthStatus(str, enum.Enum):
         """Convert string to GraphHealthStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid graph health status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid graph health status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Sentiment Type Constants ─────────────────────────────────────
@@ -227,9 +239,11 @@ class SentimentType(str, enum.Enum):
         """Convert string to SentimentType enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid sentiment type '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid sentiment type '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Search Mode Constants ───────────────────────────────────────
@@ -249,9 +263,11 @@ class SearchMode(str, enum.Enum):
         """Convert string to SearchMode enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid search mode '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid search mode '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Pipeline Task Status Constants ───────────────────────────────
@@ -272,11 +288,11 @@ class PipelineTaskStatus(str, enum.Enum):
         """Convert string to PipelineTaskStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
             raise ValueError(
                 f"Invalid pipeline task status '{value}'. Valid values: {valid_values}"
-            )
+            ) from _exc
 
 
 # ── Health Check Status Constants ────────────────────────────────────
@@ -295,9 +311,11 @@ class HealthCheckStatus(str, enum.Enum):
         """Convert string to HealthCheckStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid health check status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid health check status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Migration Status Constants ───────────────────────────────────────
@@ -327,9 +345,11 @@ class MigrationStatus(str, enum.Enum):
         """
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid migration status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid migration status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Task Status Constants ────────────────────────────────────────────
@@ -349,9 +369,11 @@ class TaskStatus(str, enum.Enum):
         """Convert string to TaskStatus enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid task status '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid task status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Database Type Constants ──────────────────────────────────────
@@ -381,9 +403,11 @@ class DatabaseType(str, enum.Enum):
         """
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid database type '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid database type '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── LLM Role Constants ───────────────────────────────────────────
@@ -401,9 +425,9 @@ class LLMRole(str, enum.Enum):
         """Convert string to LLMRole enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid LLM role '{value}'. Valid values: {valid_values}")
+            raise ValueError(f"Invalid LLM role '{value}'. Valid values: {valid_values}") from _exc
 
 
 # ── Embedding Model Constants ────────────────────────────────────
@@ -419,9 +443,11 @@ class EmbeddingModel(str, enum.Enum):
         """Convert string to EmbeddingModel enum."""
         try:
             return cls(value)
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid embedding model '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid embedding model '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Tiktoken Encoding Constants ──────────────────────────────────
@@ -437,9 +463,11 @@ class TiktokenEncoding(str, enum.Enum):
         """Convert string to TiktokenEncoding enum."""
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid tiktoken encoding '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid tiktoken encoding '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Entity Type Constants ──────────────────────────────────

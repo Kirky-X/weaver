@@ -21,6 +21,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from api.utils.client_ip import get_client_ip_from_scope
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -352,11 +353,8 @@ class RateLimitMiddleware:
             await self._app(scope, receive, send)
 
     def _extract_client_key(self, scope: dict) -> str:
-        """Extract client IP from ASGI scope."""
-        client = scope.get("client")
-        if client:
-            return client[0]
-        return "unknown"
+        """Extract client IP from ASGI scope (proxy-aware)."""
+        return get_client_ip_from_scope(scope)
 
     def _extract_api_key(self, scope: dict) -> str | None:
         """Extract API key from request headers."""

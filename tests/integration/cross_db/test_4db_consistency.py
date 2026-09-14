@@ -487,7 +487,7 @@ async def test_x09_ladybug_edge_type_access(
     """X-09: LadybugDB 下关系类型通过 r.edge_type 访问。
 
     LadybugDB Cypher 方言中 ``type(r)`` 不可用，必须使用 ``r.edge_type``
-    访问关系类型。生产代码已适配此差异（参见 CLAUDE.md LadybugDB 兼容节）。
+    访问关系类型。生产代码已适配此差异（参见 AGENTS.md LadybugDB 兼容节）。
 
     本测试验证 LadybugDB 组合下图关系 API 正常返回（底层 Cypher 使用
     ``r.edge_type`` 而非 ``type(r)``）。
@@ -529,7 +529,7 @@ async def test_x10_ladybug_id_property(
     """X-10: LadybugDB 下节点 ID 通过 id 属性访问。
 
     LadybugDB 无 ``elementId()`` 函数，使用 ``id`` 属性作主键。生产代码
-    已适配此差异（参见 CLAUDE.md LadybugDB 兼容节）。
+    已适配此差异（参见 AGENTS.md LadybugDB 兼容节）。
 
     本测试验证 LadybugDB 组合下图实体 API 正常返回（底层 Cypher 使用
     ``id`` 属性而非 ``elementId()`` 函数）。

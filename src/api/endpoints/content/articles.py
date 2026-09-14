@@ -15,8 +15,9 @@ from sqlalchemy import asc, desc, nullslast, select
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
-from api.schemas.response import APIResponse, success_response
+from api.schemas.response import APIResponse, ResponseCode, success_response
 from core.db import Article, CategoryType, PersistStatus
+from core.exceptions import BusinessError
 from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.security import AuditLogService
@@ -203,12 +204,12 @@ async def list_articles(
             try:
                 cat = CategoryType(category)
                 filters.append(Article.category == cat)
-            except ValueError:
+            except ValueError as _exc:
                 raise HTTPException(
                     status_code=422,
                     detail=f"Invalid category '{category}'. Valid categories: "
                     f"{[c.value for c in CategoryType]}",
-                )
+                ) from _exc
         if source_host:
             filters.append(Article.source_host == source_host)
         if source_id:
@@ -298,20 +299,21 @@ async def get_article(
     """
     try:
         article_uuid = uuid.UUID(article_id)
-    except ValueError:
+    except ValueError as _exc:
         raise HTTPException(
             status_code=400,
             detail="Invalid article ID format",
-        )
+        ) from _exc
 
     async with pool.session() as session:
         result = await session.execute(select(Article).where(Article.id == article_uuid))
         article = result.scalar_one_or_none()
 
         if article is None:
-            raise HTTPException(
+            raise BusinessError(
                 status_code=404,
-                detail=f"Article '{article_id}' not found",
+                code=ResponseCode.ERR_ARTICLE_NOT_FOUND,
+                message=f"Article '{article_id}' not found",
             )
 
         # Extract data while session is open — article ORM object's attribute
@@ -322,7 +324,7 @@ async def get_article(
     # mitigation). Written OUTSIDE the session block to avoid nested sessions
     # / double connection exhaustion under high concurrency (H-1).
     # Fire-and-forget via create_task so the audit write does not block the
-    # response (LOW-001). AuditLogService.log_event swallows errors internally
+    # response. AuditLogService.log_event swallows errors internally
     # so audit failure never breaks the request.
     audit = AuditLogService(pool)
     audit_task = asyncio.create_task(

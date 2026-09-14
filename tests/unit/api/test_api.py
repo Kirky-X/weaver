@@ -12,6 +12,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from core.exceptions import BusinessError
+
 
 class TestAuthMiddleware:
     """Tests for authentication middleware."""
@@ -21,10 +23,10 @@ class TestAuthMiddleware:
         """Test verify_api_key raises 401 when key is missing."""
         from api.middleware.auth import verify_api_key
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await verify_api_key(key=None)
         assert exc_info.value.status_code == 401
-        assert "Missing API key" in exc_info.value.detail
+        assert "Missing API key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_api_key_invalid(self, mock_settings):
@@ -34,10 +36,10 @@ class TestAuthMiddleware:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="invalid-api-key-1234567890123456")
             assert exc_info.value.status_code == 403
-            assert "Invalid API Key" in exc_info.value.detail
+            assert "Invalid API Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_api_key_valid(self, mock_settings):
@@ -141,15 +143,19 @@ class TestSourcesEndpoint:
         mock_config.tier = None
         mock_config.last_crawl_time = None
         mock_repo.list_sources = AsyncMock(return_value=[mock_config])
+        mock_repo.count_sources = AsyncMock(return_value=1)
 
         with patch("api.endpoints.content.sources.get_source_config_repo", return_value=mock_repo):
             result = await list_sources(
                 enabled_only=True,
+                page=1,
+                page_size=50,
                 _="test-key",
                 repo=mock_repo,
             )
-            assert len(result.data) == 1
-            assert result.data[0].id == "source-1"
+            assert result.data.total == 1
+            assert len(result.data.items) == 1
+            assert result.data.items[0].id == "source-1"
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
@@ -211,7 +217,7 @@ class TestSourcesEndpoint:
             url="https://existing.com/feed.xml",
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await create_source(
                 request=request,
                 _="test-key",
@@ -262,7 +268,7 @@ class TestSourcesEndpoint:
 
         request = SourceUpdateRequest(name="New Name")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await update_source(
                 source_id="missing-source",
                 request=request,
@@ -296,7 +302,7 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.delete = AsyncMock(return_value=False)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await delete_source(
                 source_id="missing-source",
                 _="test-key",
@@ -837,7 +843,7 @@ class TestArticlesEndpoint:
         mock_pool = create_mock_relational_pool()
         mock_pool.session().execute.return_value = mock_result
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_article(
                 request=MagicMock(),
                 article_id="12345678-1234-5678-1234-567812345678",

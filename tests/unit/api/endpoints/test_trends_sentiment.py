@@ -387,7 +387,7 @@ class TestGetSentimentTrend:
 
         body = response.json()
         data = body["data"]
-        # All 6 fields present (spec R-sentiment-001).
+        # All 6 fields present.
         assert "entity_name" in data
         assert "window_days" in data
         assert "shifts" in data

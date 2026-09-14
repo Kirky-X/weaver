@@ -399,7 +399,7 @@ def _reset_duckdb_sequences(duck_conn) -> None:
             # table/seq_name from BIGINT_PK_TABLES hardcoded constant
             # (core/db/duckdb_schema.py), next_id is int(max_id)+1. No user
             # input surface; same risk class as scripts/db.py (accepted in
-            # CLAUDE.md Security Audit).
+            # AGENTS.md Security Audit).
             row = duck_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
                 f'SELECT MAX(id) FROM "{table}"'
             ).fetchone()

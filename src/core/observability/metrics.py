@@ -70,7 +70,7 @@ class MetricsCollector:
         ["call_point", "provider"],
     )
 
-    # LLM cost calculation metrics (D2 / audit-unintegrated-modules)
+    # LLM cost calculation metrics
     llm_cost_calculation_failures = Counter(
         "llm_cost_calculation_failures_total",
         "Total number of LLM cost calculation failures (degraded to 0.0)",

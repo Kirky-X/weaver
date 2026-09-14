@@ -46,7 +46,7 @@ class AnalyticsStorage:
                     before_avg=shift.get("before_avg"),
                     after_avg=shift.get("after_avg"),
                     trigger_article_ids=shift.get("trigger_article_ids", []),
-                    # Migration 30: article-level tracking fields (T003).
+                    # Migration 30: article-level tracking fields.
                     # Optional — community-level shifts leave these None.
                     article_id=shift.get("article_id"),
                     entity_name=shift.get("entity_name"),
@@ -226,7 +226,7 @@ class AnalyticsStorage:
                 for r in rows
             ]
 
-    # ── T004: BriefingGenerator support ────────────────────────────────────
+    # ── BriefingGenerator support ─────────────────────────────────────────
 
     # Briefing category → articles_core.category mapping.
     # - finance → 经济 (CategoryType.ECONOMY)
@@ -304,8 +304,7 @@ class AnalyticsStorage:
             # (vertical split per §9.1). Body serves the AI-category keyword
             # filter below; ArticleBody.summary (written by analyze) is the
             # primary LLM input for briefing generation — supersedes
-            # R-briefing-003 full-body input (token optimization, see change
-            # llm-token-optimization).
+            # full-body input (token optimization).
             query = (
                 select(ArticleCore, ArticleBody.body, ArticleBody.summary)
                 .outerjoin(ArticleBody, ArticleBody.article_id == ArticleCore.id)
@@ -431,7 +430,7 @@ class AnalyticsStorage:
             await session.commit()
             return int(briefing.id)
 
-    # ── T008: DailyBriefingService query support ────────────────────────
+    # ── DailyBriefingService query support ──────────────────────────────
 
     async def get_briefing(
         self,

@@ -171,12 +171,17 @@ class SourceScheduler:
         source.enabled = False
         self._consecutive_failures.pop(source.id, None)
 
-        # Remove scheduled job
+        # Remove scheduled job (absence is expected for never-run sources)
         job_id = f"source_{source.id}"
         try:
             self._scheduler.remove_job(job_id)
-        except Exception:
-            pass  # Job may not exist
+        except Exception as exc:
+            log.debug(
+                "source_job_removal_skipped",
+                job_id=job_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
 
         # Persist disabled state
         if self._repo:

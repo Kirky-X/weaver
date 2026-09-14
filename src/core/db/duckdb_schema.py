@@ -20,6 +20,7 @@ log = get_logger(__name__)
 BIGINT_PK_TABLES: dict[str, str] = {
     "source_authorities": "source_authorities_seq",
     "pending_sync": "pending_sync_seq",
+    "event_outbox": "event_outbox_seq",
     "llm_failure_records": "llm_failure_records_seq",
     "llm_usage_hourly": "llm_usage_hourly_seq",
     "llm_usage_raw": "llm_usage_raw_seq",
@@ -157,6 +158,19 @@ SCHEMA_QUERIES = [
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         synced_at TIMESTAMP WITH TIME ZONE
+    )""",
+    # ── Event Outbox (T018: transactional outbox, at-least-once) ──
+    """CREATE TABLE IF NOT EXISTS event_outbox
+    (
+        id BIGINT DEFAULT nextval('event_outbox_seq') PRIMARY KEY,
+        event_type VARCHAR NOT NULL,
+        article_id UUID,
+        payload JSON NOT NULL,
+        status VARCHAR DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        last_error VARCHAR,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        dispatched_at TIMESTAMP WITH TIME ZONE
     )""",
     # ── Saga Logs ───────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS saga_logs
@@ -461,6 +475,7 @@ SCHEMA_QUERIES = [
 SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS source_authorities_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
+    "CREATE SEQUENCE IF NOT EXISTS event_outbox_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_failure_records_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_hourly_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_raw_seq START 1",
@@ -624,7 +639,7 @@ async def _upgrade_schema(session) -> None:
 
     # created_at column: ORM SentimentShift model defines created_at with
     # default NOW(), but pre-existing DuckDB sentiment_shifts tables lacked
-    # this column. T003 SentimentTrackerNode is the first path to write
+    # this column. SentimentTrackerNode is the first path to write
     # sentiment_shifts via ORM (save_shift), which would fail without this
     # column. Idempotent ALTER TABLE for pre-existing files.
     result = await session.execute(
@@ -645,7 +660,7 @@ async def _upgrade_schema(session) -> None:
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_sentiment_shifts_created_at_failed", error=str(exc))
 
-    # Migration 31: covering index for T003 SentimentTrackerNode's
+    # Migration 31: covering index for SentimentTrackerNode's
     # get_last_article_shift query (WHERE entity_name=? AND article_id IS
     # NOT NULL ORDER BY detected_at DESC LIMIT 1). DuckDB does not support
     # partial indexes (postgresql_where is ignored), so this is a regular
@@ -663,7 +678,7 @@ async def _upgrade_schema(session) -> None:
         log.warning("duckdb_schema_upgrade_sentiment_shifts_article_index_failed", error=str(exc))
 
     # Migration 32: Add category column + composite UNIQUE(briefing_date,
-    # category) to daily_briefings for T004 BriefingGenerator's per-category
+    # category) to daily_briefings for BriefingGenerator's per-category
     # briefings (finance/tech/ai/general).
     # Pre-existing DuckDB files won't get the column via CREATE TABLE IF
     # NOT EXISTS. Idempotent ALTER TABLE + CREATE UNIQUE INDEX IF NOT EXISTS

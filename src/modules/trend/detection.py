@@ -63,17 +63,17 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Spec R-trend-001 constraints: only 7 and 30 days are supported.
+# Only 7 and 30 days are supported.
 _SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
-# R-trend-003: minimum EventNode count to produce trends.
+# Minimum EventNode count to produce trends.
 _MIN_EVENT_COUNT: int = 50
 
-# R-trend-005: trend score weights.
+# Trend score weights.
 _FREQ_WEIGHT: float = 0.6
 _SENTIMENT_WEIGHT: float = 0.4
 
-# R-trend-005: direction thresholds.
+# Direction thresholds.
 _UP_THRESHOLD: float = 0.2
 _DOWN_THRESHOLD: float = -0.2
 
@@ -145,7 +145,7 @@ class TrendDetector:
             entity_type=entity_type,
         )
 
-        # R-trend-003: insufficient data is NOT an error — return explicit status.
+        # Insufficient data is NOT an error — return explicit status.
         if len(rows) < _MIN_EVENT_COUNT:
             log.info(
                 "trend_detection_insufficient_data",
@@ -184,7 +184,7 @@ class TrendDetector:
             window_days=window_days,
         )
 
-        # Aggregate MENTIONS heat time-series (list field, R-trend-002).
+        # Aggregate MENTIONS heat time-series (list field).
         list_data = self._aggregate_mentions(all_rows_for_list)
 
         log.info(
@@ -325,7 +325,7 @@ class TrendDetector:
                     entity_name=name,
                     window_days=window_days,
                 )
-                # Degradation condition (R-trend-005): empty shifts means
+                # Degradation condition: empty shifts means
                 # no sentiment data for this entity → freq-only.
                 if sentiment_result.shifts:
                     sentiment_change = sentiment_result.avg_shift
@@ -337,7 +337,7 @@ class TrendDetector:
             else:
                 trend_score = freq_change
 
-            # Direction per R-trend-005 thresholds.
+            # Direction per thresholds.
             if trend_score > _UP_THRESHOLD:
                 direction = "up"
             elif trend_score < _DOWN_THRESHOLD:

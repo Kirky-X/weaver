@@ -1330,3 +1330,198 @@ class TestAppIntegration:
                 # Check some known API routes exist
                 api_routes = [r for r in routes if r.startswith("/api/v1")]
                 assert len(api_routes) > 0
+
+
+class TestStartupSecurityAudit:
+    """T004: lifespan runs the startup security audit; strict mode blocks on criticals."""
+
+    @staticmethod
+    def _critical_report() -> SecurityAuditReport:
+        from core.security.audit import (
+            SecurityAuditReport,
+            SecurityCheckResult,
+            SecurityCheckSeverity,
+        )
+
+        return SecurityAuditReport(
+            results=[
+                SecurityCheckResult(
+                    name="test_check",
+                    severity=SecurityCheckSeverity.CRITICAL,
+                    message="critical finding",
+                )
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_startup_runs_security_audit(self, mock_container):
+        from core.security.audit import SecurityAuditReport
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log"):
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
+                                mock_audit.return_value = SecurityAuditReport(results=[])
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                async with lifespan(app):
+                                    pass
+
+                                mock_audit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_strict_mode_raises_on_critical(self, mock_container):
+        mock_container.settings.security.strict_startup_audit = True
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log"):
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
+                                mock_audit.return_value = self._critical_report()
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                with pytest.raises(RuntimeError, match="critical"):
+                                    async with lifespan(app):
+                                        pass
+
+    @pytest.mark.asyncio
+    async def test_non_strict_mode_logs_but_does_not_block(self, mock_container):
+        mock_container.settings.security.strict_startup_audit = False
+
+        with patch("main.configure_tracing"):
+            with patch("main.instrument_fastapi"):
+                with patch("main.set_container"):
+                    with patch("main.set_settings"):
+                        with patch("main.log") as mock_log:
+                            with patch("core.security.audit.run_security_audit") as mock_audit:
+                                mock_audit.return_value = self._critical_report()
+                                from main import lifespan
+
+                                app = FastAPI()
+                                app.state.container = mock_container
+
+                                async with lifespan(app):
+                                    pass
+
+                                assert mock_log.error.called
+
+
+class TestHTTPLogPrivacy:
+    """T006: response body logging is opt-in and DEBUG-level; query strings redacted."""
+
+    @staticmethod
+    def _json_app():
+        async def app(scope, receive, send):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b'{"result":"secret-data"}'})
+
+        return app
+
+    @staticmethod
+    def _scope(query: bytes) -> dict:
+        return {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/search",
+            "query_string": query,
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+        }
+
+    @pytest.mark.asyncio
+    async def test_body_preview_absent_by_default(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(b"q=x"), AsyncMock(), AsyncMock())
+
+        response_calls = [c for c in mock_log.info.call_args_list if "http_response" in str(c)]
+        assert response_calls, "http_response not logged"
+        assert "body_preview" not in response_calls[0].kwargs
+
+    @pytest.mark.asyncio
+    async def test_body_preview_debug_level_when_enabled(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app(), log_response_body=True)
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(b"q=x"), AsyncMock(), AsyncMock())
+
+        debug_calls = [c for c in mock_log.debug.call_args_list if "http_response" in str(c)]
+        assert debug_calls, "expected body preview at DEBUG level"
+        info_calls = [c for c in mock_log.info.call_args_list if "http_response" in str(c)]
+        assert not any("body_preview" in str(c) for c in info_calls)
+
+    @pytest.mark.asyncio
+    async def test_query_redacts_sensitive_keys(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(
+                self._scope(b"q=hello&token=supersecret-value"), AsyncMock(), AsyncMock()
+            )
+
+        logged = mock_log.info.call_args_list[0]
+        assert "supersecret-value" not in str(logged)
+        assert "token=***" in str(logged)
+
+    @pytest.mark.asyncio
+    async def test_query_truncated_to_500_chars(self):
+        from api.middleware.asgi import HTTPLoggingMiddleware
+
+        middleware = HTTPLoggingMiddleware(self._json_app())
+        long_query = b"q=" + b"a" * 1000
+        with patch("api.middleware.asgi.log") as mock_log:
+            await middleware(self._scope(long_query), AsyncMock(), AsyncMock())
+
+        logged = str(mock_log.info.call_args_list[0])
+        assert "a" * 501 not in logged
+
+
+class TestSecurityHeadersCSP:
+    """T031: API responses carry a restrictive CSP header."""
+
+    @pytest.mark.asyncio
+    async def test_csp_header_present(self):
+        from api.middleware.asgi import SecurityHeadersMiddleware
+
+        async def app(scope, receive, send):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        middleware = SecurityHeadersMiddleware(app)
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+        await middleware(scope, AsyncMock(), send)
+
+        headers = dict(sent[0]["headers"])
+        assert b"content-security-policy" in headers
+        assert headers[b"content-security-policy"] == b"default-src 'none'; frame-ancestors 'none'"

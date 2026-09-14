@@ -22,6 +22,7 @@ from api.middleware.setup import setup_middleware
 from api.router import api_router
 from api.schemas.response import APIResponse
 from config.settings import Settings
+from config.validation import validate_llm_references
 from container import Container, set_container, set_settings
 from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
 from core.observability import configure_logging, get_logger
@@ -29,6 +30,16 @@ from core.observability.tracing import configure_tracing, instrument_fastapi
 
 log = get_logger("main")
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
+
+
+def _app_version() -> str:
+    """Read version from installed package metadata (single source: pyproject)."""
+    try:
+        import importlib.metadata as _im
+
+        return _im.version("weaver")
+    except Exception:
+        return "0.0.0-dev"
 
 
 def _ensure_spacy_models(settings: Settings) -> None:
@@ -101,6 +112,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 for name, r in validation_results.items()
                 if not r.healthy
             },
+        )
+
+    # Startup security audit (project spec): scan env + code patterns and
+    # surface critical findings. Non-strict mode logs only; strict mode
+    # (WEAVER_SECURITY__STRICT_STARTUP_AUDIT) blocks startup.
+    from core.security.audit import run_security_audit
+
+    audit_report = run_security_audit(environment=container.settings.environment)
+    if audit_report.critical_count > 0:
+        if container.settings.security.strict_startup_audit:
+            raise RuntimeError(
+                f"Startup security audit found {audit_report.critical_count} "
+                "critical finding(s); refusing to start in strict audit mode"
+            )
+        log.error(
+            "security_audit_critical_findings",
+            critical=audit_report.critical_count,
+            hint="Set WEAVER_SECURITY__STRICT_STARTUP_AUDIT=true to block startup on criticals",
         )
 
     await container.startup()
@@ -209,6 +238,12 @@ def create_app(container: Container | None = None) -> FastAPI:
     for warning in security_warnings:
         log.warning("security_check", warning=warning)
 
+    # Fail fast on unresolvable LLM call-point references (e.g. dangling
+    # provider labels in config/llm.toml) — ConfigReferenceError propagates.
+    llm_warnings = validate_llm_references(settings)
+    for warning in llm_warnings:
+        log.warning("llm_config_warning", warning=warning)
+
     # Check HMAC secret separation in production
     if settings.api.hmac_signing_enabled and settings.api.hmac_secret is None:
         if settings.environment == "production":
@@ -226,7 +261,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     app = FastAPI(
         title="Weaver API",
         description="Weaver - Intelligent news discovery and knowledge graph platform",
-        version="0.2.0",
+        version=_app_version(),
         lifespan=lifespan,
     )
 

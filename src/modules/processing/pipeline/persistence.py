@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import traceback
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from modules.knowledge.graph.neo4j_writer import Neo4jWriteCircuitOpen
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -50,11 +51,14 @@ class PipelinePersistence:
         vector_repo: VectorRepository | None,
         graph_writer: GraphWriter | None,
         phase3_concurrency: int,
+        pending_sync_repo: Any | None = None,
     ) -> None:
         self._article_repo = article_repo
         self._vector_repo = vector_repo
         self._graph_writer = graph_writer
         self._phase3_concurrency = phase3_concurrency
+        # Receives pending_sync rows when the graph write circuit is open
+        self._pending_sync_repo = pending_sync_repo
 
     async def persist_batch(
         self,
@@ -447,6 +451,45 @@ class PipelinePersistence:
                     original_error=str(exc),
                     mark_error=str(mark_exc),
                 )
+
+        # Circuit-open means the graph DB is intentionally bypassed —
+        # queue the full state in pending_sync so the retry job can restore
+        # entities/relations later (payload keys match reconstruct_state_from_payload).
+        if isinstance(exc, Neo4jWriteCircuitOpen) and self._pending_sync_repo is not None:
+            try:
+                state_payload = {
+                    key: value
+                    for key, value in state.items()
+                    if key != "raw" and not key.startswith("_")
+                }
+                raw = state.get("raw")
+                if raw is not None:
+                    state_payload["raw"] = {
+                        "url": getattr(raw, "url", ""),
+                        "title": getattr(raw, "title", ""),
+                        "source": getattr(raw, "source", ""),
+                        "source_host": getattr(raw, "source_host", ""),
+                        "source_id": getattr(raw, "source_id", ""),
+                        "body": getattr(raw, "body", ""),
+                        "publish_time": str(getattr(raw, "publish_time", "") or ""),
+                    }
+                state_payload["circuit_open_reason"] = "neo4j_write_circuit_open"
+                await self._pending_sync_repo.upsert(
+                    uuid.UUID(state["article_id"]),
+                    "neo4j_write",
+                    state_payload,
+                )
+                log.warning(
+                    "neo4j_write_circuit_open_queued_pending_sync",
+                    article_id=state.get("article_id"),
+                )
+            except Exception as sync_exc:
+                log.error(
+                    "pending_sync_upsert_after_circuit_open_failed",
+                    article_id=state.get("article_id"),
+                    error=str(sync_exc),
+                )
+
         batch_failed += 1
         self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
         return batch_completed, batch_failed

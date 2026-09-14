@@ -34,7 +34,7 @@ ARCHIVE_RETENTION_DAYS = 90
 
 # Page size for streaming cutoff pg_ids out of PostgreSQL. Loading all
 # stale article IDs into memory at once can OOM on large archives
-# (LOW-1 perf fix from T050 review). 1000 is small enough to keep peak
+# (perf fix). 1000 is small enough to keep peak
 # memory bounded (~80KB per batch of UUID strings) yet large enough to
 # avoid excessive round-trips on a 90-day retention window.
 ARCHIVE_BATCH_SIZE = 1000

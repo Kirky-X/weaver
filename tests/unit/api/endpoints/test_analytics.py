@@ -163,7 +163,7 @@ class TestAnalyticsShiftsWithData:
         body = response.json()
         assert body["data"]["total"] == 1
         assert len(body["data"]["shifts"]) == 1
-        # Default scope='community' is forwarded to storage (T003-sub4 H1).
+        # Default scope='community' is forwarded to storage.
         mock_storage.get_shifts.assert_called_once_with(
             community_id=None, limit=50, scope="community"
         )

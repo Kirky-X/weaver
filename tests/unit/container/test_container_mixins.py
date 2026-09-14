@@ -2081,6 +2081,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2110,6 +2113,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2123,7 +2129,7 @@ class TestContainerLifecycleSetupScheduler:
         ):
             c._setup_scheduler()
 
-        job_ids = [call.kwargs.get("id", "") for call in mock_scheduler.add_job.call_args_list]
+        job_ids = [call.kwargs.get("id", "") for call in spy_add_job.call_args_list]
         assert "archive_old_neo4j_nodes" in job_ids
         assert "cleanup_orphan_entity_vectors" in job_ids
 
@@ -2141,6 +2147,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2154,7 +2163,7 @@ class TestContainerLifecycleSetupScheduler:
         ):
             c._setup_scheduler()
 
-        job_ids = [call.kwargs.get("id", "") for call in mock_scheduler.add_job.call_args_list]
+        job_ids = [call.kwargs.get("id", "") for call in spy_add_job.call_args_list]
         assert "memory_consolidation" in job_ids
 
 

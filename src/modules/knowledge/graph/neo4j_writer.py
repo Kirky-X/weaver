@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.db import PersistStatus
 from core.observability import get_logger
+from core.resilience.circuit_breaker import CircuitBreaker
 from core.types.pipeline_state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
@@ -18,6 +19,18 @@ if TYPE_CHECKING:
     from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
 log = get_logger(__name__)
+
+# Chunk size for batched relation writes (UNWIND groups)
+_RELATION_BATCH_SIZE = 500
+
+
+class Neo4jWriteCircuitOpen(RuntimeError):
+    """Raised when the Neo4j write circuit breaker is open (fast-fail path)."""
+
+
+# Shared breaker: failure counting must span every write in the process, so
+# a dead graph database trips the circuit regardless of which article hit it.
+_WRITE_BREAKER = CircuitBreaker(threshold=5, timeout_secs=60.0, provider="neo4j_write")
 
 
 class Neo4jWriter:
@@ -71,9 +84,11 @@ class Neo4jWriter:
         return PersistStatus.NEO4J_DONE
 
     async def write(self, state: PipelineState) -> list[str]:
-        """Write pipeline state to Neo4j.
+        """Write pipeline state to Neo4j behind the write circuit breaker.
 
         Creates article node, processes entities, and establishes relationships.
+        Fails fast with ``Neo4jWriteCircuitOpen`` while the breaker is open —
+        callers keep their existing failure handling (persist status / retry job).
 
         Args:
             state: Pipeline state containing article and entity data.
@@ -85,6 +100,25 @@ class Neo4jWriter:
         if not article_id:
             raise ValueError("article_id not found in pipeline state")
 
+        if await _WRITE_BREAKER.is_open():
+            log.error(
+                "neo4j_write_breaker_open",
+                article_id=str(article_id),
+                hint="graph database is failing; writes fail fast until cooldown ends",
+            )
+            raise Neo4jWriteCircuitOpen(
+                "Neo4j write circuit breaker is open; write rejected without I/O"
+            )
+
+        try:
+            return await self._write_state(state)
+        except Exception:
+            await _WRITE_BREAKER.record_failure()
+            raise
+
+    async def _write_state(self, state: PipelineState) -> list[str]:
+        """Execute the actual Neo4j write (breaker-managed by ``write``)."""
+        article_id = state.get("article_id")
         article_id_str = str(article_id)
 
         log.info("neo4j_write_start", article_id=article_id_str)
@@ -264,14 +298,16 @@ class Neo4jWriter:
         if entity_data:
             try:
                 result = await self._entity_repo.merge_entities_batch(entity_data)
+                await _WRITE_BREAKER.record_success()
                 log.info(
                     "neo4j_entities_batch_merged",
                     created=result.get("created", 0),
                     updated=result.get("updated", 0),
                 )
             except Exception as exc:
+                # 记账统一由 write() 的 except 完成，避免双重计数
                 log.error("neo4j_entities_batch_failed", error=str(exc))
-                return []
+                raise
 
         if alias_data:
             try:
@@ -313,10 +349,14 @@ class Neo4jWriter:
                     log.info("neo4j_mentions_batch_created", count=count)
                 except Exception as exc:
                     log.error("neo4j_mentions_batch_failed", error=str(exc))
+                    raise
 
         relations = state.get("relations", [])
         if relations and entity_name_to_id:
-            await self._write_entity_relations(relations, entity_name_to_id, original_to_canonical)
+            entity_name_to_type = {e["canonical_name"]: e["type"] for e in entity_data}
+            await self._write_entity_relations(
+                relations, entity_name_to_id, original_to_canonical, entity_name_to_type
+            )
 
         return entity_ids
 
@@ -325,55 +365,41 @@ class Neo4jWriter:
         relations: list[dict[str, Any]],
         entity_name_to_id: dict[str, str],
         original_to_canonical: dict[str, str] | None = None,
+        entity_name_to_type: dict[str, str] | None = None,
     ) -> int:
-        """Write entity-to-entity relationships to Neo4j.
+        """Write entity-to-entity relations in batches.
 
-        When a ``RelationTypeNormalizer`` is available each LLM-extracted
-        relation type is normalised before writing.  Unknown types are
-        recorded for later review.
+        Relation types are normalized once per unique raw type (instead of
+        once per relation), and rows are flushed through
+        ``EntityRepository.merge_relations_batch`` — grouped UNWIND queries —
+        rather than one Cypher round trip per relation.
 
         Args:
             relations: List of relation dicts from entity extractor.
             entity_name_to_id: Mapping from entity canonical name to Neo4j ID.
             original_to_canonical: Mapping from original entity name to canonical name.
+            entity_name_to_type: Mapping from entity canonical name to entity type,
+                used by the name+type batch match.
 
         Returns:
             Number of relations created.
         """
-        count = 0
+        type_map = entity_name_to_type or {}
+        canonical_map = original_to_canonical or {}
+
+        # Validate and resolve endpoints up front (no DB access)
+        prepared: list[tuple[dict[str, Any], str, str, str, str, str]] = []
         for relation in relations:
             source_name = relation.get("source")
             target_name = relation.get("target")
             relation_type = relation.get("relation_type")
-
             if not source_name or not target_name or not relation_type:
                 continue
 
-            # Normalise relation type
-            edge_type = relation_type
-            raw_type = relation_type
-            direction = "unidirectional"
-
-            if self._normalizer:
-                try:
-                    normalized = await self._normalizer.normalize(relation_type)
-                    if normalized.name_en:
-                        edge_type = normalized.name_en
-                    else:
-                        edge_type = relation_type
-                        ctx = f"{source_name}\u2192{target_name}"
-                        await self._normalizer.record_unknown(relation_type, ctx)
-                    direction = "bidirectional" if normalized.is_symmetric else "unidirectional"
-                except Exception as exc:
-                    log.warning("relation_normalization_failed", error=str(exc))
-
-            # Resolve original names to canonical names before lookup
-            source_canonical = (original_to_canonical or {}).get(source_name, source_name)
-            target_canonical = (original_to_canonical or {}).get(target_name, target_name)
-
+            source_canonical = canonical_map.get(source_name, source_name)
+            target_canonical = canonical_map.get(target_name, target_name)
             source_id = entity_name_to_id.get(source_canonical)
             target_id = entity_name_to_id.get(target_canonical)
-
             if not source_id or not target_id:
                 log.debug(
                     "entity_relation_entity_not_found",
@@ -381,39 +407,78 @@ class Neo4jWriter:
                     target=target_name,
                 )
                 continue
+            prepared.append(
+                (
+                    relation,
+                    source_name,
+                    target_name,
+                    source_canonical,
+                    target_canonical,
+                    relation_type,
+                )
+            )
 
-            try:
-                await self._entity_repo.merge_relation(
-                    from_entity_id=source_id,
-                    to_entity_id=target_id,
-                    edge_type=edge_type,
-                    properties={
+        if not prepared:
+            return 0
+
+        # Normalize each unique raw type once
+        unique_types = {entry[5] for entry in prepared}
+        normalized_types: dict[str, tuple[str, str]] = {}
+        for raw_type in unique_types:
+            edge_type, direction = raw_type, "unidirectional"
+            if self._normalizer:
+                try:
+                    normalized = await self._normalizer.normalize(raw_type)
+                    if normalized.name_en:
+                        edge_type = normalized.name_en
+                        direction = "bidirectional" if normalized.is_symmetric else "unidirectional"
+                    else:
+                        ctx = f"{raw_type} (first seen in current batch)"
+                        try:
+                            await self._normalizer.record_unknown(raw_type, ctx)
+                        except Exception as exc:
+                            log.debug("relation_unknown_record_failed", error=str(exc))
+                except Exception as exc:
+                    log.warning("relation_normalization_failed", error=str(exc))
+            normalized_types[raw_type] = (edge_type, direction)
+
+        rows: list[dict[str, Any]] = []
+        for relation, _src, _tgt, source_canonical, target_canonical, raw_type in prepared:
+            edge_type, direction = normalized_types[raw_type]
+            rows.append(
+                {
+                    "from_name": source_canonical,
+                    "from_type": type_map.get(source_canonical, "UNKNOWN"),
+                    "to_name": target_canonical,
+                    "to_type": type_map.get(target_canonical, "UNKNOWN"),
+                    "edge_type": edge_type,
+                    "properties": {
                         "raw_type": raw_type,
                         "direction": direction,
                         "description": relation.get("description"),
                     },
-                )
-                count += 1
-                log.debug(
-                    "entity_relation_created",
-                    source=source_name,
-                    target=target_name,
-                    relation=edge_type,
-                    raw_type=raw_type,
+                }
+            )
+
+        count = 0
+        for start in range(0, len(rows), _RELATION_BATCH_SIZE):
+            chunk = rows[start : start + _RELATION_BATCH_SIZE]
+            try:
+                count += await self._entity_repo.merge_relations_batch(
+                    chunk, batch_size=_RELATION_BATCH_SIZE
                 )
             except Exception as exc:
-                error_msg = f"{type(exc).__name__}: {exc}"
+                # 记账统一由 write() 的 except 完成
                 log.error(
-                    "entity_relation_failed",
-                    source=source_name,
-                    target=target_name,
-                    relation=edge_type,
-                    error=error_msg,
+                    "entity_relation_batch_failed",
+                    chunk_size=len(chunk),
+                    error=f"{type(exc).__name__}: {exc}",
                     error_type=type(exc).__name__,
                 )
+                raise
 
         if count > 0:
-            log.info("entity_relations_created", count=count)
+            log.info("entity_relations_created", count=count, total_rows=len(rows))
         return count
 
     async def _resolve_canonical_name(

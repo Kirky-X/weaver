@@ -16,7 +16,7 @@ import asyncio
 import uuid
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import timedelta, UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -340,6 +340,52 @@ class SagaOrchestrator:
             error=error,
             compensation_result=comp_result,
         )
+
+    async def recover_stale_sagas(self, max_age_minutes: int = 30, limit: int = 50) -> int:
+        """Compensate sagas stuck in 'started' state beyond their timeout.
+
+        A process crash leaves the in-memory orchestration gone while the
+        persisted saga logs still say 'started'. This scans those logs and
+        triggers compensation (idempotent) for each distinct stale saga.
+
+        Args:
+            max_age_minutes: A 'started' entry older than this is stale.
+            limit: Maximum number of log entries scanned per run.
+
+        Returns:
+            Number of distinct sagas compensated.
+        """
+        cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+        stale_logs = await self._log_repo.get_stale_started_logs(cutoff, limit=limit)
+        if not stale_logs:
+            return 0
+
+        saga_ids = list(dict.fromkeys(str(log.saga_id) for log in stale_logs))
+        log.warning("stale_sagas_detected", count=len(saga_ids))
+
+        compensated = 0
+        for saga_id_str in saga_ids:
+            try:
+                result = await self.compensate_saga(uuid.UUID(saga_id_str))
+            except Exception as exc:
+                log.error(
+                    "stale_saga_compensation_failed",
+                    saga_id=saga_id_str,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                continue
+            if result.status == SagaStatus.COMPENSATED:
+                compensated += 1
+                log.info("stale_saga_compensated", saga_id=saga_id_str)
+            else:
+                log.warning(
+                    "stale_saga_compensation_incomplete",
+                    saga_id=saga_id_str,
+                    status=str(result.status),
+                    error=result.error,
+                )
+        return compensated
 
     async def compensate_saga(self, saga_id: uuid.UUID) -> SagaResult:
         """Manually trigger compensation for a saga.

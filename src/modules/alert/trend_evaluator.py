@@ -78,7 +78,7 @@ log = get_logger(__name__)
 # Trigger types evaluated by TrendAlertEvaluator.
 _TREND_TRIGGER_TYPES: tuple[str, ...] = ("trend_spike", "trend_drop", "sentiment_shift")
 
-# 24h dedup window (R-alert-002).
+# 24h dedup window.
 _DEDUP_WINDOW_HOURS: int = 24
 
 # Wildcard entity_name — aggregates across all entities.
@@ -86,9 +86,9 @@ _WILDCARD_ENTITY: str = "*"
 
 
 class TrendAlertEvaluator:
-    """Evaluate trend alert rules and trigger alert events (R-alert-002,004).
+    """Evaluate trend alert rules and trigger alert events.
 
-    Implements: hourly trend alert evaluation (called by AlertJobs T019).
+    Implements: hourly trend alert evaluation (called by AlertJobs).
 
     Args:
         pool: RelationalPool implementation (PostgresPool or DuckDBPool).
@@ -194,7 +194,7 @@ class TrendAlertEvaluator:
                 except Exception as exc:
                     # Error isolation: log and continue to next rule.
                     # Per-rule exceptions (detector/analyzer/DB) do NOT block
-                    # other rules (R-alert-002 Constraints).
+                    # other rules (constraint: per-rule exceptions don't block).
                     log.error(
                         "trend_alert_rule_evaluation_failed",
                         rule_id=rule.id,

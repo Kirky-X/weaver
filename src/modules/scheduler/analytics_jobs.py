@@ -194,7 +194,7 @@ class AnalyticsJobs:
                 succeeded += 1
             except Exception as exc:
                 # Rule 12: error is logged + surfaced in results, not swallowed.
-                # R-briefing-006: failure doesn't block next execution or other
+                # Failure doesn't block next execution or other
                 # categories.
                 log.error(
                     "generate_daily_briefing_category_failed",
