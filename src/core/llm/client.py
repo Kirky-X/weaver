@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import os
+import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import jsonschema
@@ -111,6 +112,9 @@ _INPUT_LIMITS: dict[str, int] = {
     "quality_scorer": 1500,
     "credibility_checker": 2000,
     "analyze": 3000,
+    # 合并调用点沿用 narrative 侧 8000 预算（narrative 8000 > analyze 3000，
+    # 取宽者；TOML [input_limits] 可覆盖）
+    "analyze_narrative": 8000,
     "summary": 2000,
     "entity_extractor": 2000,
     "default": 2000,
@@ -151,7 +155,7 @@ class LLMClient:
             graph_pool: 可选的图数据库池（用于structured_call schema查询）.
                 container 在创建实例后也可通过属性赋值注入（mirrors
                 _smart_router 模式，lifecycle.py:194）.
-            cost_calculator: 可选的成本计算器（D2 / audit-unintegrated-modules）.
+            cost_calculator: 可选的成本计算器.
                 当传入时, _emit_usage_event 会计算 cost_usd 并填入 LLMUsageEvent;
                 None 时 cost_usd 保持 0.0 (向后兼容).
         """
@@ -292,7 +296,7 @@ class LLMClient:
             )
             await self._event_bus.publish(event)
 
-            # Accumulate cost metric for observability (D2).
+            # Accumulate cost metric for observability.
             if cost_usd > 0.0:
                 metrics.llm_cost_usd_total.labels(
                     call_point=call_point.value,
@@ -374,6 +378,14 @@ class LLMClient:
             if not isinstance(result, _ProviderFailed):
                 return result
             last_error = result.error
+            # 本 provider 失败后还有候选 → 记一次真实 fallback（可观测性：
+            # 优化前此路径零指标，故障只能事后翻 DB）。
+            if lbl is not labels[-1]:
+                metrics.fallback_total.labels(
+                    call_point=cp.value,
+                    from_provider=lbl.provider,
+                    reason=type(last_error).__name__ if last_error else "unknown",
+                ).inc()
 
         # 所有 provider 都失败
         await self._handle_all_providers_failed(
@@ -474,6 +486,7 @@ class LLMClient:
             )
             return _ProviderFailed(None)
 
+        started = time.monotonic()
         try:
             response = await pool.execute(
                 labels=[label],
@@ -484,6 +497,16 @@ class LLMClient:
                 task_id=task_id,
             )
         except Exception as exc:
+            elapsed = time.monotonic() - started
+            metrics.llm_call_total.labels(
+                call_point=cp.value,
+                provider=label.provider,
+                status="error",
+            ).inc()
+            metrics.llm_call_latency.labels(
+                call_point=cp.value,
+                provider=label.provider,
+            ).observe(elapsed)
             log.error(
                 "provider_call_failed",
                 provider=label.provider,
@@ -491,6 +514,16 @@ class LLMClient:
                 error=str(exc),
             )
             return _ProviderFailed(exc)
+
+        metrics.llm_call_total.labels(
+            call_point=cp.value,
+            provider=label.provider,
+            status="success",
+        ).inc()
+        metrics.llm_call_latency.labels(
+            call_point=cp.value,
+            provider=label.provider,
+        ).observe(time.monotonic() - started)
 
         # Cache write + metrics + diagnostics + usage event
         self._response_cache[cache_key] = {
@@ -791,9 +824,10 @@ class LLMClient:
             if cp_config.response_format is not None and "response_format" not in request_payload:
                 request_payload["response_format"] = cp_config.response_format
 
-        # NOTE: response_format intentionally NOT auto-enabled here.
-        # Agnes API does not support the OpenAI response_format parameter;
-        # sending it causes empty responses. Prompts already instruct JSON output.
+        # NOTE: response_format intentionally NOT auto-enabled here. Some
+        # OpenAI-compatible endpoints do not support the response_format
+        # parameter and return empty responses when sent it. Prompts already
+        # instruct JSON output.
 
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
@@ -893,13 +927,13 @@ class LLMClient:
         task_id: str | None = None,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Schema-driven structured output (T024 / R-structured-002, R-structured-003).
+        """Schema-driven structured output.
 
         Fetches the JSON Schema for ``schema_node_id`` from the graph database
         (SchemaDrivenStructuredOutput.get_schema), then calls the LLM with
         ``response_format=schema`` and validates the response.
 
-        Two mutually-exclusive paths (R-structured-002 priority):
+        Two mutually-exclusive paths (priority):
 
         1. **SchemaNotFoundError path** (schema absent): degrade to a plain
            LLM call (no ``response_format``, no retry) and return
@@ -1054,16 +1088,18 @@ class LLMClient:
 
         # Priority 2: schema exists → retry path.
         # Call with response_format=schema; retry once on validation failure.
+        # The violation hint is appended directly to the prompt — call()
+        # (unlike call_at()) does not process a "_retry_hint" payload key,
+        # so a hint placed there would silently never reach the model.
+        schema_retry_hint = (
+            "上一次响应不符合 JSON Schema 要求。"
+            "请严格按 schema 输出，不要添加任何额外字段或解释文字。"
+        )
         payloads = [
             {"user_content": prompt, "response_format": schema},
-            # Retry payload: append schema-violation hint.
             {
-                "user_content": prompt,
+                "user_content": f"{prompt}\n\n{schema_retry_hint}",
                 "response_format": schema,
-                "_retry_hint": (
-                    "上一次响应不符合 JSON Schema 要求。"
-                    "请严格按 schema 输出，不要添加任何额外字段或解释文字。"
-                ),
             },
         ]
 

@@ -319,6 +319,10 @@ class SchedulerSettings(BaseModel):
     # Knowledge Graph
     community_check_interval_minutes: int = 30
 
+    # BM25 检索索引增量维护 (水位线增量; 索引空/无水位线时自动全量)
+    bm25_rebuild_enabled: bool = True
+    bm25_rebuild_interval_seconds: int = 300
+
     # PhishTank Sync
     sync_phishtank_interval_hours: int = 6
 
@@ -329,7 +333,7 @@ class FetcherSettings(BaseModel):
     default_per_host_concurrency: int = 2
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
-    # User-Agent rotation pool (P1-4 fix). Each request draws a random
+    # User-Agent rotation pool (fix). Each request draws a random
     # UA from this list (plus the base ``user_agent``) to defeat naive
     # rate-limiter fingerprinting. Empty by default → single-UA behavior.
     user_agent_pool: list[str] = []
@@ -370,8 +374,11 @@ class SearchSettings(BaseModel):
     # (logs warning, sets ``metadata.background_task_throttled=true``)
     # rather than queueing — protects memory / DB connection pool from
     # unbounded growth under sustained three-tier-empty traffic.
+    # Default 2 matches _DEFAULT_MAX_BACKGROUND_TASKS in
+    # fallback_orchestrator (DuckDB single-writer: each background task
+    # holds a DuckDB write lock, more concurrency just adds contention).
     # Env var: WEAVER_SEARCH__MAX_BACKGROUND_TASKS
-    max_background_tasks: int = 8
+    max_background_tasks: int = 2
     # Total wall-clock budget for a single Bing-fallback
     # background task that processes N URLs sequentially. Per-URL timeout
     # (300s) bounds one slow URL, but without a total budget a 5-URL
@@ -482,7 +489,7 @@ class PipelineProcessSettings(BaseModel):
     worker_error_delay: float = 5.0  # seconds after error
     # Processing mode: "deep" runs full Phase 1+2+3 pipeline (default);
     # "fast" runs only Phase 1 (classification + vectorization), skipping
-    # batch merger and deep analysis. See temp/report.md D2.
+    # batch merger and deep analysis.
     processing_mode: Literal["fast", "deep"] = "deep"
     # Body character cap for embedding inputs (vectorize / re_vectorize)
     embedding_text_limit: int = 2000

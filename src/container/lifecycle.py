@@ -382,10 +382,16 @@ class ContainerLifecycleMixin:
 
         # MCSampler — already initialized in init_mc_sampler()
         if self._mc_sampler is None:
-            import contextlib
-
-            with contextlib.suppress(Exception):
+            try:
                 await self.init_mc_sampler()
+            except Exception as exc:
+                # 显性化失败 (Rule 12): 旧实现 contextlib.suppress 把
+                # 配置断裂 (如 monte_carlo 字段缺失) 吞成静默关闭。
+                log.warning(
+                    "mc_sampler_init_failed",
+                    exc_type=type(exc).__name__,
+                    error=str(exc),
+                )
         result["mc_sampler"] = self._mc_sampler is not None
 
         return result
@@ -575,6 +581,18 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
+
+        # BM25 检索索引增量维护 (audit P0: incremental_update 此前零接线,
+        # 新入库文章在 BM25 检索路径上永远搜不到)
+        if settings.bm25_rebuild_enabled:
+            scheduler.add_job(
+                jobs.bm25_rebuild_index,
+                IntervalTrigger(seconds=settings.bm25_rebuild_interval_seconds),
+                id="bm25_rebuild_index",
+                name="BM25 index incremental rebuild",
+                max_instances=1,
+                coalesce=True,
+            )
 
     def _register_analytics_jobs(self, scheduler, jobs, settings) -> None:
         """LLM usage aggregation / briefing / sentiment / trend / causal job registration."""

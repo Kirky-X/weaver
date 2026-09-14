@@ -33,7 +33,7 @@ class MetricsCollector:
         "llm_call_latency_seconds",
         "LLM 调用延迟",
         ["call_point", "provider"],
-        buckets=[0.1, 0.5, 1, 2, 5, 10, 30],
+        buckets=[0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],  # 60/120 覆盖慢 provider 超时档
     )
     fallback_total = Counter(
         "llm_fallback_total",

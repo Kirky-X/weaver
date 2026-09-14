@@ -278,6 +278,7 @@ class ContainerServicesMixin:
                 saga_orchestrator=self.saga_orchestrator(),
                 outbox_repo=self.outbox_repo(),
                 event_bus=self._event_bus,
+                bm25_service_provider=self._init_bm25_index,
             )
         return self._scheduler_jobs_service
 
@@ -307,7 +308,7 @@ class ContainerServicesMixin:
         return self._trend_detector
 
     def sentiment_trend_analyzer(self) -> Any:
-        """Get SentimentTrendAnalyzer instance (T012 / R-sentiment-002).
+        """Get SentimentTrendAnalyzer instance.
 
         Returns None when relational pool is unavailable — the analyzer
         requires a RelationalPool to query sentiment_shifts. The AlertJobs
@@ -511,7 +512,7 @@ class ContainerServicesMixin:
 
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
-                # P1-4 fix: pass [base_ua, *pool] so each request rotates UA.
+                # fix: pass [base_ua, *pool] so each request rotates UA.
                 user_agents=[settings.user_agent, *settings.user_agent_pool],
                 url_validator=url_validator,
             )
@@ -695,7 +696,7 @@ class ContainerServicesMixin:
         return self._bing_searcher
 
     def crawler(self) -> Crawler:
-        """Get crawler (wired with RetryQueue — D4 fix)."""
+        """Get crawler (wired with RetryQueue — fix)."""
         from modules.ingestion import Crawler
 
         if self._crawler is None:
@@ -718,10 +719,10 @@ class ContainerServicesMixin:
         return self._deduplicator
 
     def simhash_dedup(self) -> SimHashDeduplicator | None:
-        """Get SimHash title deduplicator (D1 wiring).
+        """Get SimHash title deduplicator (wiring).
 
         Cross-source title-level deduplication; uses cache pool for
-        fingerprint storage. See ``temp/report.md`` D1 dead-code fix.
+        fingerprint storage.
         Returns None when disabled via ``settings.dedup.enable_simhash_dedup``.
         """
         from modules.ingestion import SimHashDeduplicator
@@ -737,10 +738,10 @@ class ContainerServicesMixin:
         return self._simhash_dedup
 
     def retry_queue(self) -> RetryQueue:
-        """Get dead-letter retry queue (D4 wiring).
+        """Get dead-letter retry queue (wiring).
 
         Cache-backed sorted set for failed crawl items; uses cache pool
-        for host-bucketed retry scheduling. See ``temp/report.md`` D4.
+        for host-bucketed retry scheduling.
         """
         from modules.ingestion.deduplication.retry import RetryQueue
 
@@ -829,7 +830,7 @@ class ContainerServicesMixin:
                 deps=PipelineDeps(
                     llm=self._llm_client,
                     budget=budget,
-                    prompt_loader=self._prompt_loader,
+                    prompt_loader=self.prompt_loader(),
                     event_bus=self._event_bus,
                     repos=PipelineRepos(
                         vector_repo=self.vector_repo(),
@@ -886,7 +887,7 @@ class ContainerServicesMixin:
     def pipeline_worker(self) -> Any | None:
         """Get the pipeline worker (background consumer).
 
-        Reads ``processing_mode`` from pipeline_process settings (D2 fix):
+        Reads ``processing_mode`` from pipeline_process settings (fix):
         "fast" dispatches to process_batch_fast, "deep" to process_batch.
         """
         if self._pipeline_worker is None and self._pipeline is not None:
@@ -908,7 +909,7 @@ class ContainerServicesMixin:
         if self._pipeline_service is None:
             if self._pipeline is None:
                 raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
-            self._pipeline_service = PipelineServiceImpl(self._pipeline)
+            self._pipeline_service = PipelineServiceImpl(self._pipeline, crawler=self.crawler())
         return self._pipeline_service
 
     def task_registry(self) -> TaskRegistryService:
@@ -920,7 +921,7 @@ class ContainerServicesMixin:
         return self._task_registry
 
     def outbox_repo(self):
-        """Get the transactional outbox repository (T018)."""
+        """Get the transactional outbox repository."""
         if self._outbox_repo is None:
             from modules.storage.postgres import OutboxRepo
 

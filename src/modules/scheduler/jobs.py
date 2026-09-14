@@ -7,7 +7,7 @@ four single-responsibility sub-classes:
 - ConsistencyJobs: retry, sync, and consistency checks
 - MaintenanceJobs: cleanup and archival
 - AnalyticsJobs: aggregation, briefing, and signal detection
-- AlertJobs: trend alert evaluation (T019 / R-alert-002)
+- AlertJobs: trend alert evaluation
 
 The registration/scheduling logic and the source-scoring/metrics jobs remain
 in SchedulerJobs itself.
@@ -16,8 +16,9 @@ in SchedulerJobs itself.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 
 from config.settings import SchedulerSettings
 from core.db import Article, PersistStatus
@@ -70,6 +71,7 @@ class SchedulerJobs:
         saga_orchestrator: Any | None = None,
         outbox_repo: Any | None = None,
         event_bus: Any | None = None,
+        bm25_service_provider: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -80,6 +82,9 @@ class SchedulerJobs:
         self._pending_sync_repo = pending_sync_repo
         self._retry_queue = RetryQueue(cache)
         self._pipeline = pipeline
+        # Zero-arg async callable resolving the BM25IndexService lazily
+        # (service init is async and may not exist at construction time).
+        self._bm25_service_provider = bm25_service_provider
         self._settings_impl = settings or SchedulerSettings()
         self._llm_failure_repo = llm_failure_repo
         self._url_validator = url_validator
@@ -240,7 +245,7 @@ class SchedulerJobs:
 
     # ── AlertJobs delegation ─────────────────────────────────────────
     async def evaluate_trend_alerts(self) -> int:
-        """Delegate to AlertJobs.evaluate_trend_alerts (T019 / R-alert-002).
+        """Delegate to AlertJobs.evaluate_trend_alerts.
 
         Hourly trend alert evaluation — queries enabled alert_rules,
         evaluates trend_spike/trend_drop/sentiment_shift rules, and inserts
@@ -250,6 +255,26 @@ class SchedulerJobs:
         return await self._alert_jobs.evaluate_trend_alerts()
 
     # ── Inline jobs (source scoring & metrics) ───────────────────────
+    @scheduled_task("bm25_rebuild_index", timeout_seconds=600)
+    async def bm25_rebuild_index(self) -> int:
+        """Incrementally maintain the BM25 index (watermark-based).
+
+        检索主路径依赖 BM25 索引——不注册本任务时新增文章在 BM25 检索
+        路径上永远搜不到（索引永久陈旧）。服务经 provider 惰性解析，
+        不可用时记 WARNING 并跳过（Rule 12 显性化）。
+
+        Returns:
+            Number of documents indexed.
+        """
+        if self._bm25_service_provider is None:
+            log.debug("bm25_rebuild_provider_unconfigured")
+            return 0
+        service = await self._bm25_service_provider()
+        if service is None:
+            log.warning("bm25_rebuild_service_unavailable")
+            return 0
+        return await service.scheduled_rebuild()
+
     @scheduled_task("update_source_auto_scores", timeout_seconds=600)
     async def update_source_auto_scores(self) -> int:
         """Automatically update source authority scores based on history.
@@ -263,37 +288,28 @@ class SchedulerJobs:
         log.info("update_source_auto_scores_start")
 
         async with self._relational_pool.session() as session:
-            # Get all sources with articles
-            stmt = select(Article.source_host).distinct()
-            result = await session.execute(stmt)
-            hosts = [row[0] for row in result if row[0]]
-
-            update_count = 0
-            for host in hosts:
-                try:
-                    # Calculate average credibility score for this source
-                    avg_stmt = select(Article).where(
-                        Article.source_host == host,
+            # Single aggregate query — the previous per-host loop loaded every
+            # matching Article ORM row into memory just to compute a mean.
+            stmt = (
+                select(Article.source_host, func.avg(Article.credibility_score))
+                .where(
+                    and_(
+                        Article.source_host.isnot(None),
                         Article.credibility_score.isnot(None),
                     )
-                    articles_result = await session.execute(avg_stmt)
-                    articles = articles_result.scalars().all()
+                )
+                .group_by(Article.source_host)
+            )
+            result = await session.execute(stmt)
 
-                    if articles:
-                        avg_score = sum(float(a.credibility_score or 0) for a in articles) / len(
-                            articles
-                        )
-
-                        # Update source authority
-                        await self._source_authority_repo.update_auto_score(host, float(avg_score))
-                        update_count += 1
-
-                        log.debug(
-                            "source_auto_score_updated",
-                            host=host,
-                            score=avg_score,
-                        )
-
+            update_count = 0
+            for host, avg_score in result.all():
+                if host is None or avg_score is None:
+                    continue
+                try:
+                    await self._source_authority_repo.update_auto_score(host, float(avg_score))
+                    update_count += 1
+                    log.debug("source_auto_score_updated", host=host, score=float(avg_score))
                 except Exception as exc:
                     log.error(
                         "source_auto_score_failed",

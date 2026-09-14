@@ -25,9 +25,10 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Bump when the cached snapshot schema changes: entries written by older
-# versions are treated as misses instead of being merged into new states.
-_CACHE_SCHEMA_VERSION = 2
+# Fallback snapshot version when not configured. Production value comes
+# from pipeline.toml ``content_hash_version``（配置驱动失效：prompt/输出
+# 结构变更时 bump 配置值，旧快照立即全部视为 miss）。
+_DEFAULT_SCHEMA_VERSION = 2
 
 # Keys never cached: per-article identity and non-serializable objects.
 # ``_cache_hit`` (and any future private marker) is excluded via the
@@ -47,10 +48,20 @@ class ContentHashCacheService:
 
     Args:
         cache_client: Cache pool (Redis). May be None when caching is disabled.
+        schema_version: Snapshot version; entries written under a different
+            version are treated as misses. Wired from pipeline.toml
+            ``content_hash_version`` so deployments invalidate stale
+            snapshots by config change instead of waiting out the TTL.
     """
 
-    def __init__(self, *, cache_client: CachePool | None) -> None:
+    def __init__(
+        self,
+        *,
+        cache_client: CachePool | None,
+        schema_version: int = _DEFAULT_SCHEMA_VERSION,
+    ) -> None:
         self._cache_client = cache_client
+        self._schema_version = schema_version
 
     async def check(self, articles: list[RawArticle]) -> list[dict[str, Any] | None]:
         """Check content hash cache for a batch of articles.
@@ -67,10 +78,13 @@ class ContentHashCacheService:
         if not self._cache_client:
             return [None] * len(articles)
 
-        # Compute content hashes
+        # Compute content hashes. 长度前缀防止边界碰撞：纯分隔符方案下
+        # (title="A\x00BC", body="C") 与 (title="A", body="BC\x00C") 会
+        # 生成同一字符串（title/body 来自抓取内容，NUL 可被攻击者构造）
+        # ——前缀使 title/body 边界由 title 长度唯一确定。
         cache_keys = []
         for article in articles:
-            content = f"{article.title}{article.body}"
+            content = f"{len(article.title)}:{article.title}\x00{article.body}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             cache_keys.append(f"content_hash:{content_hash}")
 
@@ -85,7 +99,7 @@ class ContentHashCacheService:
                         parsed = None
                     if (
                         isinstance(parsed, dict)
-                        and parsed.get("_schema_version") == _CACHE_SCHEMA_VERSION
+                        and parsed.get("_schema_version") == self._schema_version
                         and "cleaned" in parsed
                     ):
                         results.append(parsed)
@@ -108,11 +122,12 @@ class ContentHashCacheService:
         if not raw:
             return None
 
-        content = f"{raw.title}{raw.body}"
+        # Must mirror check()'s key derivation (see the length-prefix note there).
+        content = f"{len(raw.title)}:{raw.title}\x00{raw.body}"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         cache_key = f"content_hash:{content_hash}"
 
-        snapshot: dict[str, Any] = {"_schema_version": _CACHE_SCHEMA_VERSION}
+        snapshot: dict[str, Any] = {"_schema_version": self._schema_version}
         for key, value in state.items():
             if key in _UNCACHEABLE_KEYS or key.startswith("_"):
                 continue

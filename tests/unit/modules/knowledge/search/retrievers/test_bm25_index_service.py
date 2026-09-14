@@ -11,7 +11,6 @@ import pytest
 
 from modules.knowledge.search.retrievers.bm25_index_service import (
     BM25IndexService,
-    create_bm25_scheduler_job,
 )
 from modules.knowledge.search.retrievers.bm25_retriever import BM25Document
 
@@ -307,24 +306,6 @@ class TestGetStats:
         service._last_build_time = datetime.now(UTC)
         stats = service.get_stats()
         assert stats["last_build_time"] is not None
-
-
-class TestCreateBm25SchedulerJob:
-    """Tests for create_bm25_scheduler_job."""
-
-    def test_creates_job(self) -> None:
-        mock_scheduler = MagicMock()
-        mock_job = MagicMock()
-        mock_job.id = "bm25_rebuild_index"
-        mock_scheduler.add_job.return_value = mock_job
-
-        mock_pg = MagicMock()
-        mock_retriever = MagicMock()
-        service = BM25IndexService(mock_pg, mock_retriever)
-
-        job = create_bm25_scheduler_job(mock_scheduler, service)
-        assert job.id == "bm25_rebuild_index"
-        mock_scheduler.add_job.assert_called_once()
 
 
 # ── Incremental-by-default scheduling, watermark persistence, executor offload ──

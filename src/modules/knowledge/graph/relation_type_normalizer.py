@@ -9,6 +9,7 @@ generation.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -73,6 +74,10 @@ class RelationTypeNormalizer:
         self._name_en_cache: dict[str, NormalizedRelation] = {}
         self._suffixes = ("了", "关系", "于", "中", "的")
         self._loaded = False
+        # Serializes the one-shot cache load: concurrent normalize() calls
+        # would otherwise race past the _loaded check and both run the full
+        # DB query + cache refill.
+        self._load_lock = asyncio.Lock()
 
     async def _ensure_loaded(self) -> None:
         """从数据库加载缓存。
@@ -83,48 +88,53 @@ class RelationTypeNormalizer:
         if self._loaded:
             return
 
-        async with self._pool.session() as session:
-            # 查询所有活跃的关系类型及其别名
-            result = await session.execute(
-                select(RelationType)
-                .where(RelationType.is_active.is_(True))
-                .order_by(RelationType.sort_order)
-            )
-            relation_types = result.scalars().all()
+        async with self._load_lock:
+            if self._loaded:
+                # Another task completed the load while we waited.
+                return
 
-            # 清空缓存
-            self._alias_cache.clear()
-            self._standard_cache.clear()
-            self._name_en_cache.clear()
-
-            for rt in relation_types:
-                # 创建 NormalizedRelation
-                normalized = NormalizedRelation(
-                    raw_type=rt.name,
-                    name=rt.name,
-                    name_en=rt.name_en,
-                    is_symmetric=rt.is_symmetric,
-                    description=rt.description,
+            async with self._pool.session() as session:
+                # 查询所有活跃的关系类型及其别名
+                result = await session.execute(
+                    select(RelationType)
+                    .where(RelationType.is_active.is_(True))
+                    .order_by(RelationType.sort_order)
                 )
+                relation_types = result.scalars().all()
 
-                # 填充标准名缓存
-                self._standard_cache[rt.name] = normalized
-                self._name_en_cache[rt.name_en] = normalized
+                # 清空缓存
+                self._alias_cache.clear()
+                self._standard_cache.clear()
+                self._name_en_cache.clear()
 
-                # Fill alias cache (including standard names themselves)
-                self._alias_cache[rt.name] = normalized
-                self._alias_cache[rt.name_en] = normalized
+                for rt in relation_types:
+                    # 创建 NormalizedRelation
+                    normalized = NormalizedRelation(
+                        raw_type=rt.name,
+                        name=rt.name,
+                        name_en=rt.name_en,
+                        is_symmetric=rt.is_symmetric,
+                        description=rt.description,
+                    )
 
-                # Fill all aliases
-                for alias_obj in rt.aliases:
-                    self._alias_cache[alias_obj.alias] = normalized
+                    # 填充标准名缓存
+                    self._standard_cache[rt.name] = normalized
+                    self._name_en_cache[rt.name_en] = normalized
 
-        self._loaded = True
-        log.info(
-            "relation_type_cache_loaded",
-            standard_count=len(self._standard_cache),
-            alias_count=len(self._alias_cache),
-        )
+                    # Fill alias cache (including standard names themselves)
+                    self._alias_cache[rt.name] = normalized
+                    self._alias_cache[rt.name_en] = normalized
+
+                    # Fill all aliases
+                    for alias_obj in rt.aliases:
+                        self._alias_cache[alias_obj.alias] = normalized
+
+            self._loaded = True
+            log.info(
+                "relation_type_cache_loaded",
+                standard_count=len(self._standard_cache),
+                alias_count=len(self._alias_cache),
+            )
 
     async def normalize(self, raw_type: str) -> NormalizedRelation:
         """归一化原始关系类型。
@@ -331,10 +341,13 @@ class RelationTypeNormalizer:
     async def invalidate_cache(self) -> None:
         """清除缓存，强制重新加载。
 
-        用于关系类型更新后刷新缓存。
+        用于关系类型更新后刷新缓存。与 _ensure_loaded 共用同一把锁：
+        锁外置 _loaded=False 会与持锁中的 reload 交错出「缓存已空但
+        _loaded=True」的窗口。
         """
-        self._loaded = False
-        self._alias_cache.clear()
-        self._standard_cache.clear()
-        self._name_en_cache.clear()
+        async with self._load_lock:
+            self._loaded = False
+            self._alias_cache.clear()
+            self._standard_cache.clear()
+            self._name_en_cache.clear()
         log.info("relation_type_cache_invalidated")

@@ -32,6 +32,11 @@ class PhaseConfig(BaseModel):
 
     concurrency: int = 5
     stages: list[StageConfig] = []
+    # Phase 3 only: analyze+narrative_schema 合并调用开关。开启后必调
+    # chat 从 3 次/篇降为 2 次/篇；回滚只需置 false（无需改代码）。
+    # 注意：若 [phase3.stages] 里 narrative_schema 被 enabled=false 关闭，
+    # 应同时置本开关为 false，避免合并调用白算 narrative 部分。
+    merge_analyze_narrative: bool = False
 
     @property
     def enabled_stages(self) -> list[StageConfig]:
@@ -53,6 +58,16 @@ class PhaseConfig(BaseModel):
                     result.append(StageConfig(**item))
             return result
         return []
+
+
+class MonteCarloConfig(BaseModel):
+    """Monte Carlo evidence sampling configuration (pipeline.toml [monte_carlo])."""
+
+    enabled: bool = True
+    threshold: int = 10000
+    sample_size: int = 5
+    region_size: int = 2000
+    confidence_threshold: float = 0.4
 
 
 class PipelineSettings(BaseSettings):
@@ -81,6 +96,23 @@ class PipelineSettings(BaseSettings):
     # Cleaner settings
     cleaner_min_body_chars: int = 100
     cleaner_min_title_similarity: float = 0.7
+
+    # Monte Carlo evidence sampling（lifecycle.init_mc_sampler 消费；
+    # 缺此字段时 TOML [monte_carlo] 被静默丢弃 → MC 采样永远不生效）
+    monte_carlo: MonteCarloConfig = MonteCarloConfig()
+
+    # Content-hash 缓存版本：prompt/输出结构变更时 bump 此值（或用
+    # WEAVER_PIPELINE__CONTENT_HASH_VERSION 覆盖），旧快照即刻全部失效，
+    # 避免 7 天 TTL 内新旧结果混杂污染 A/B 对比。
+    content_hash_version: int = 2
+
+    @field_validator("monte_carlo", mode="before")
+    @classmethod
+    def parse_monte_carlo(cls, v: Any) -> Any:
+        """Pass dicts to the BaseModel constructor (TOML section)."""
+        if isinstance(v, dict):
+            return MonteCarloConfig(**v)
+        return v
 
     @field_validator("phase1", "phase3", mode="before")
     @classmethod
