@@ -9,12 +9,19 @@
 #   - per-stage `enabled` flags (a false flag disables that stage;
 #     only phase3 stages support disabling, see Pipeline disabled set)
 #   - [monte_carlo] evidence sampling
+#   - [phase3].merge_analyze_narrative (LLM call merge toggle)
+#   - content_hash_version (config-driven snapshot invalidation)
 # Stage node wiring is hard-coded in modules/processing/pipeline/graph.py
 # (no dynamic class loading) — this file intentionally carries no
 # class_path entries.
 # ============================================================
 
 version = "1.0"
+
+# Content-hash 处理结果缓存版本。prompt/输出结构变更时 +1，旧快照立即
+# 全部失效（否则 7 天 TTL 内新旧结果混杂）。本次 2→3：analyze_narrative
+# 合并 prompt 上线 + narrative payload 移除 entities。
+content_hash_version = 3
 
 # ============================================================
 # Phase 1: Initial Processing
@@ -45,6 +52,11 @@ enabled = true
 
 [phase3]
 concurrency = 5
+# analyze + narrative_schema 合并调用（LLM 调用优化：必调 chat 3→2 次/篇）。
+# 回滚置 false 即可，无需改代码。注意：narrative_schema 阶段若被
+# enabled=false 关闭，本开关应同时置 false。开启前建议先完成
+# docs/LLM调用优化方案.md §8.4 最小评测集对比。
+merge_analyze_narrative = true
 
 [[phase3.stages]]
 name = "re_vectorize"
@@ -82,7 +94,7 @@ enabled = true
 name = "sentiment_tracker"
 enabled = true
 
-# T004 BriefingGenerator is NOT registered here — it is an independent
+# BriefingGenerator is NOT registered here — it is an independent
 # generator class invoked by scheduler (daily 08:00) + POST endpoint +
 # service, not as a per-article pipeline node.
 

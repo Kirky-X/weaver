@@ -96,6 +96,12 @@ class PipelineState(TypedDict, total=False):
     degraded_fields: list[str]  # Field names that used fallback values
     degradation_reasons: dict[str, str]  # Field name -> reason for degradation
 
+    # analyze+narrative_schema 合并调用（方案 A）的节点间契约键：
+    # AnalyzeNode 生产（ANALYZE_NARRATIVE 输出的 narrative 半截）→
+    # NarrativeSchemaExtractorNode pop 消费。单生产者单消费者；下划线
+    # 前缀使其被 content_hash 快照排除。
+    _narrative_schema_payload: Any
+
     # Conflict detection
     data_conflicts: list[dict[str, Any]]
 

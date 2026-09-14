@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import warnings
@@ -129,6 +130,9 @@ class LiteLLMCaller:
     def __init__(self) -> None:
         # (api_base, api_key) -> AsyncOpenAI client for custom rerank posts.
         self._rerank_clients: dict[tuple[str, str], AsyncOpenAI] = {}
+        # Guards the check-then-act on _rerank_clients so concurrent first
+        # calls for the same credential build exactly one client.
+        self._rerank_clients_lock = asyncio.Lock()
 
     @staticmethod
     def _build_model_name(provider_type: str, model_id: str) -> str:
@@ -210,8 +214,8 @@ class LiteLLMCaller:
             )
         elif isinstance(response_format, dict):
             # JSON Schema constraint: inject it as an explicit instruction so
-            # providers without response_format support (e.g. Agnes) still
-            # receive it. The schema-validation retry lives in
+            # providers without response_format support still receive it.
+            # The schema-validation retry lives in
             # LLMClient.structured_call.
             schema_instruction = (
                 "\n\n你的输出必须是符合以下 JSON Schema 的单个 JSON 对象，"
@@ -521,23 +525,36 @@ class LiteLLMCaller:
             log.error("rerank_call_failed", provider_type=provider_type, error=str(exc))
             raise
 
-    def _get_rerank_client(self, api_base: str, api_key: str, timeout: float) -> AsyncOpenAI:
+    async def _get_rerank_client(self, api_base: str, api_key: str, timeout: float) -> AsyncOpenAI:
         """Return a cached AsyncOpenAI client for the endpoint credential pair.
 
-        Avoids a fresh TLS handshake per rerank call under load.
+        Avoids a fresh TLS handshake per rerank call under load. The lock
+        serializes the check-then-act sequence; FIFO-evicted clients are
+        closed (outside the lock) to release their TLS connections.
         """
         cache_key = (api_base.rstrip("/"), api_key)
-        client = self._rerank_clients.get(cache_key)
-        if client is None:
-            if len(self._rerank_clients) >= self._RERANK_CLIENT_CAP:
-                oldest = next(iter(self._rerank_clients))
-                self._rerank_clients.pop(oldest, None)
-            client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=cache_key[0],
-                timeout=timeout,
-            )
-            self._rerank_clients[cache_key] = client
+        evicted: AsyncOpenAI | None = None
+        async with self._rerank_clients_lock:
+            client = self._rerank_clients.get(cache_key)
+            if client is None:
+                if len(self._rerank_clients) >= self._RERANK_CLIENT_CAP:
+                    oldest_key = next(iter(self._rerank_clients))
+                    evicted = self._rerank_clients.pop(oldest_key, None)
+                client = AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=cache_key[0],
+                    timeout=timeout,
+                )
+                self._rerank_clients[cache_key] = client
+        if evicted is not None:
+            try:
+                await evicted.close()
+            except Exception as exc:
+                log.warning(
+                    "rerank_client_close_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
         return client
 
     async def _rerank_openai_compatible(
@@ -572,7 +589,7 @@ class LiteLLMCaller:
 
         # Reuse a cached AsyncOpenAI client per endpoint credential pair to
         # keep the HTTP connection (and TLS session) warm across calls.
-        client = self._get_rerank_client(api_base, api_key, timeout)
+        client = await self._get_rerank_client(api_base, api_key, timeout)
 
         # 使用 client.post() 发送自定义请求
         response = await client.post(

@@ -14,6 +14,13 @@ writes: ``GraphWriter.merge_narrative`` (NarrativeNode) and
 independently per Rule 12 — a narrative write failure does not block the
 schema write, and vice versa.
 
+Merged mode (``merge_analyze_narrative`` in pipeline.toml): AnalyzeNode
+performs a single ``call_at(ANALYZE_NARRATIVE)`` covering analyze +
+narrative and stages the narrative half in ``state``, so this node
+degenerates to a pure persistence step and issues no LLM call. Payload
+``entities`` was removed from the standalone call — the prompt template
+never consumed it, and it polluted both the cache key and input tokens.
+
 Exception handling policy (aligned with the merged predecessors):
 - AllProvidersFailedError / CircuitOpenError / ValueError: expected LLM
   failures, degrade gracefully (mark both narrative + schema).
@@ -65,34 +72,66 @@ class NarrativeSchemaExtractorNode:
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
         graph_writer: GraphWriter,
+        merge_narrative: bool = False,
     ) -> None:
         self._llm = llm
         self._budget = budget
         self._prompt_loader = prompt_loader
         self._graph_writer = graph_writer
+        # 与 AnalyzeNode 的合并开关同源（pipeline.toml [phase3]
+        # merge_analyze_narrative）。开启时本节点的 LLM 调用职责完全移交
+        # analyze 合并调用：payload 缺失意味着 analyze 侧已失败并标记
+        # degraded_fields——此时不回落自有调用（拆分重试会抵消合并收益，
+        # 且破坏方案 A 的失败相关性语义）。
+        self._merge_narrative = merge_narrative
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Extract narrative + schema, persist both, degrade per-write.
 
         Uses try/finally to guarantee prompt_versions is recorded on every
-        exit path (success, LLM failure, persistence failure).
+        exit path (success, LLM failure, persistence failure). Merged mode
+        (payload staged by AnalyzeNode) skips the record — the consumed
+        prompt is analyze_narrative, recorded by AnalyzeNode.
         """
+        merged_mode = "_narrative_schema_payload" in state
         try:
             return await self._execute_impl(state)
         finally:
-            self._record_prompt_version(state)
+            if not merged_mode:
+                self._record_prompt_version(state)
 
     async def _execute_impl(self, state: PipelineState) -> PipelineState:
         # Skip terminal (non-news) and merged articles — same guard as AnalyzeNode.
         if state.get("terminal") or state.get("is_merged"):
             return state
 
-        cleaned = state.get("cleaned", {})
+        url = getattr(state.get("raw"), "url", "unknown")
+
+        # 合并模式（pipeline.toml [phase3] merge_analyze_narrative=true）：
+        # AnalyzeNode 已通过 ANALYZE_NARRATIVE 调用点取得 narrative 结果并
+        # 暂存 state——本节点退化为纯持久化，不再产生 chat 调用。
+        merged_payload = state.pop("_narrative_schema_payload", None)
+        if merged_payload is not None:
+            await self._persist_all(state, merged_payload, url)
+            return state
+
+        if self._merge_narrative:
+            # 合并开启但 analyze 侧未产出 payload → analyze 已失败并把
+            # narrative/schema 记入 degraded_fields。此处跳过（不回落
+            # 自有 LLM 调用），与 degraded 标记语义保持一致。
+            log.warning(
+                "narrative_merged_payload_missing_skipped",
+                url=url,
+            )
+            return state
+
+        # 合并开关关闭 → 自有 LLM 调用兜底路径。
+        # `or {}` (not .get(key, {})): cleaned may be explicitly None, and
+        # dict.get's default only applies when the key is absent.
+        cleaned = state.get("cleaned") or {}
         title = cleaned.get("title", "")
         body = cleaned.get("body", "")
-        entities = state.get("entities", [])
         article_id = state.get("article_id")
-        url = getattr(state.get("raw"), "url", "unknown")
 
         truncated_body = self._budget.truncate(body, CallPoint.NARRATIVE_SCHEMA)
 
@@ -102,7 +141,6 @@ class NarrativeSchemaExtractorNode:
                 {
                     "title": title,
                     "body": truncated_body,
-                    "entities": entities,
                     "article_id": article_id,
                     "task_id": state.get("task_id"),
                 },
@@ -122,6 +160,23 @@ class NarrativeSchemaExtractorNode:
             )
             state.setdefault("degraded_fields", []).extend(["narrative", "schema"])
             return state
+
+        await self._persist_all(state, result, url)
+        return state
+
+    async def _persist_all(
+        self,
+        state: PipelineState,
+        result: NarrativeSchemaOutput,
+        url: str,
+    ) -> None:
+        """Persist narrative + schema graph writes, degrading independently.
+
+        NarrativeNode 需要关联文章 EventNode（article_id 缺失时降级）；
+        SchemaNode 按 event_type MERGE，无需 article_id。任一写失败只
+        记降级，不阻断另一写（Rule 12）。
+        """
+        article_id = state.get("article_id")
 
         # --- Narrative persistence (requires article_id to link EventNode) ---
         # SchemaNode is MERGEd by event_type (no article_id), but NarrativeNode
@@ -191,7 +246,6 @@ class NarrativeSchemaExtractorNode:
             frame=result.frame,
             tone=result.tone,
         )
-        return state
 
     def _record_prompt_version(self, state: PipelineState) -> None:
         """Record the prompt template version in pipeline state.

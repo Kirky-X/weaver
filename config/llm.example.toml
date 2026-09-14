@@ -8,7 +8,7 @@
 # ============================================================
 
 # ============================================================
-# Global Settings
+# Global Settings（LLMSettings 显式映射 [global] → 顶层字段，修改即生效）
 # ============================================================
 [global]
 circuit_breaker_threshold = 5       # Consecutive failures before opening circuit
@@ -58,6 +58,28 @@ max_tokens = 4096
 capabilities = ["chat", "vision"]
 
 # ============================================================
+# Provider: Agnes AI (TESTING ONLY — OpenAI-compatible)
+# 项目默认不使用 Agnes；仅本地/CI 测试时把 primary 标签切到
+# chat.agnes.agnes-3.0-flash。文档: agnes-ai.com/docs/agnes-30-flash
+# (512K context / max output 65,536 tokens; 免费档限流严格)
+# ============================================================
+[providers.agnes]
+type = "openai"
+base_url = "https://apihub.agnes-ai.com/v1"
+api_key = ""  # via WEAVER_LLM__PROVIDERS__AGNES__API_KEY
+rpm_limit = 5
+concurrency = 2
+timeout = 120.0
+priority = 100
+weight = 100
+
+[providers.agnes.models.chat]
+model_id = "agnes-3.0-flash"
+temperature = 0.0
+max_tokens = 4096
+capabilities = ["chat"]
+
+# ============================================================
 # Provider: Ollama (Local) - Fallback for embedding
 # ============================================================
 [providers.ollama]
@@ -91,8 +113,9 @@ fallbacks = []
 
 # Per-call-point input truncation limits (characters), overriding the
 # built-in defaults (classifier 600 / categorizer 1100 / quality_scorer
-# 1500 / credibility_checker 2000 / analyze 3000 / summary 2000 /
-# entity_extractor 2000 / default 2000). Only entries listed here override.
+# 1500 / credibility_checker 2000 / analyze 3000 / analyze_narrative 8000 /
+# summary 2000 / entity_extractor 2000 / default 2000). Only entries
+# listed here override.
 [input_limits]
 classifier = 600
 analyze = 3000
@@ -117,6 +140,14 @@ fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 primary = "chat.openai.gpt-4o"
 fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
+# analyze + narrative_schema 合并调用点（pipeline.toml
+# merge_analyze_narrative=true 时启用）。输出 18 字段（含最长 4000 字的
+# pattern），4096 上限会截断 → 双失，必须放宽到 8192。
+[call-points.analyze_narrative]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+max_tokens = 8192
+
 [call-points.entity_extractor]
 primary = "chat.openai.gpt-4o"
 fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
@@ -130,6 +161,22 @@ primary = "chat.openai.gpt-4o"
 fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [call-points.merger]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.community_report]
+primary = "chat.openai.gpt-4o"
+fallbacks = []
+
+[call-points.claim_extraction]
+primary = "chat.openai.gpt-4o"
+fallbacks = []
+
+[call-points.narrative_schema]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.evidence_sampling]
 primary = "chat.openai.gpt-4o"
 fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
@@ -177,17 +224,21 @@ sample_rate = 0.1                  # 10% of requests trigger shadow calls
 target_call_points = ["classifier", "entity_extractor"]
 baseline_model = "chat.openai.gpt-4o"
 candidate_models = ["chat.anthropic.claude-sonnet-4-20250514"]
+
 # ============================================================
 # Cost Rates (USD per 1K tokens)
 # ============================================================
-# agnes 为免费档，费率记 0.0——rates 非空即激活 CostCalculator 接线，
-# 使 cost_usd 走真实计算链路（当前恒为 0.0）。接入付费 provider 时
-# 在此填写真实费率（禁止编造价格）。
-[cost.rates."chat.agnes.agnes-2.0-flash"]
+# OpenAI gpt-4o 刊例价（$2.50/1M input, $10.00/1M output, cached $1.25/1M
+# → cached 比例 0.5）。接入其他 provider 时按其官网刊例填写，禁止编造。
+[cost.rates."chat.openai.gpt-4o"]
+input = 0.0025
+output = 0.01
+cached = 0.5
+
+# Agnes 免费档：官方刊例 $0.05/$0.15（每百万），当前优惠价均为 $0。
+# cached 为缓存命中价占 input 价的折扣比例（刊例 0.005/0.05 = 0.1）；
+# 优惠期内 input/output 已为 0，cached 比例不产生实际成本。
+[cost.rates."chat.agnes.agnes-3.0-flash"]
 input = 0.0
 output = 0.0
-cached = 1.0
-
-[call-points.evidence_sampling]
-primary = "chat.agnes.agnes-2.0-flash"
-fallbacks = []
+cached = 0.1

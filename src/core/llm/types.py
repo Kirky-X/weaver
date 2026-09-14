@@ -28,6 +28,10 @@ class CallPoint(str, Enum):
     CATEGORIZER = "categorizer"
     MERGER = "merger"
     ANALYZE = "analyze"
+    # analyze + narrative_schema 合并调用点（LLM 调用优化：必调 chat 3→2）。
+    # AnalyzeNode 发起合并调用，NarrativeSchemaExtractorNode 退化为读 state
+    # 持久化。开关：config/pipeline.toml [phase3] merge_analyze_narrative。
+    ANALYZE_NARRATIVE = "analyze_narrative"
     CREDIBILITY_CHECKER = "credibility_checker"
     QUALITY_SCORER = "quality_scorer"
     ENTITY_EXTRACTOR = "entity_extractor"
@@ -133,7 +137,12 @@ class Label:
 
 @dataclass
 class TokenUsage:
-    """Token使用量."""
+    """Token使用量.
+
+    Invariant: cached_tokens is a SUBSET of input_tokens (provider
+    prompt_tokens counts cached tokens). Cost calculation relies on this:
+    effective_input = input_tokens - cached_tokens.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -465,6 +474,7 @@ CACHE_TTL: dict[str, int] = {
     "quality_scorer": 24 * 60 * 60,
     "credibility_checker": 24 * 60 * 60,
     "analyze": 24 * 60 * 60,
+    "analyze_narrative": 24 * 60 * 60,
     "summary": 7 * 24 * 60 * 60,
     "entity_extractor": 7 * 24 * 60 * 60,
     "cleaner": 24 * 60 * 60,

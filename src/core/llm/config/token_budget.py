@@ -21,6 +21,9 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.CATEGORIZER: 1000,
     CallPoint.MERGER: 8000,
     CallPoint.ANALYZE: 4000,
+    # 合并调用点取 narrative 侧 8000（保守不折中：narrative 的 event_type/
+    # pattern 依赖更长上下文，且 RPM 是硬约束、token 不是）
+    CallPoint.ANALYZE_NARRATIVE: 8000,
     CallPoint.CREDIBILITY_CHECKER: 3000,
     CallPoint.QUALITY_SCORER: 3000,
     # Entity extraction & resolution

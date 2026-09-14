@@ -204,6 +204,9 @@ class Pipeline:
             prompt_loader,
             mc_sampler=mc_sampler,
             sentiment_analyzer=sentiment_analyzer,
+            merge_narrative=(
+                pipeline_settings.phase3.merge_analyze_narrative if pipeline_settings else False
+            ),
         )
         self._quality_scorer = RuleBasedQualityScorerNode()
         self._credibility = RuleBasedCredibilityCheckerNode(deps.event_bus, source_auth_repo)
@@ -232,8 +235,20 @@ class Pipeline:
         # Replaces the former separate NarrativeGeneratorNode +
         # SchemaExtractorNode (token optimization: 2 calls → 1). Each graph
         # write degrades independently per Rule 12.
+        merge_narrative = (
+            pipeline_settings.phase3.merge_analyze_narrative if pipeline_settings else False
+        )
+        if merge_narrative and "narrative_schema" in self._disabled_phase3_stage_names:
+            # 误配置防护：stage 被禁用时合并调用的 narrative 半截白算
+            # （与 TOML 注释约定一致，把人为纪律变成机器约束）。
+            log.warning(
+                "merge_narrative_with_stage_disabled",
+                hint="disable [phase3] merge_analyze_narrative or re-enable narrative_schema stage",
+            )
         self._narrative_schema = (
-            NarrativeSchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
+            NarrativeSchemaExtractorNode(
+                llm, budget, prompt_loader, graph_writer, merge_narrative=merge_narrative
+            )
             if graph_writer is not None
             else None
         )
@@ -259,7 +274,10 @@ class Pipeline:
             phase3_concurrency=self._phase3_concurrency,
             pending_sync_repo=deps.infrastructure.pending_sync_repo,
         )
-        self._content_hash_cache = ContentHashCacheService(cache_client=cache_client)
+        self._content_hash_cache = ContentHashCacheService(
+            cache_client=cache_client,
+            schema_version=(pipeline_settings.content_hash_version if pipeline_settings else 2),
+        )
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)
         self._memory_publisher = MemoryEventPublisher(
             event_bus=deps.event_bus, outbox_repo=deps.infrastructure.outbox_repo
@@ -911,7 +929,7 @@ class Pipeline:
                 state, PHASE3_STAGES["entity_extractor"], pending_updates
             )
 
-            # === Phase 3 concurrent block (P1-3 fix) ===
+            # === Phase 3 concurrent block (fix) ===
             # fake_news_detector + conflict_detector + narrative_schema are
             # independent (each reads shared state and writes its own keys).
             # Run them via asyncio.gather to cut Phase 3 tail latency from
