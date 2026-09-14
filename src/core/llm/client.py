@@ -385,8 +385,7 @@ class LLMClient:
             task_id,
         )
         # Unreachable: the handler above always raises.
-        raise AllProvidersFailedError(
-            f"all provider candidates failed for {cp.value}"        )
+        raise AllProvidersFailedError(f"all provider candidates failed for {cp.value}")
 
     def _resolve_call_point(self, call_point: CallPoint | str) -> CallPoint:
         """Parse and validate call point."""
