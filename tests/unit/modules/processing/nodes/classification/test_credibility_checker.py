@@ -47,7 +47,7 @@ class TestCalcTimeliness:
                 0.85,
                 "datetime_within_24h",
             ),
-            # Bug-A regression: publish_time as str (from cleaner.py backfill)
+            # Regression: publish_time as str (from cleaner.py backfill)
             # Before fix: TypeError: unsupported operand type(s) for -: 'str' and 'datetime.datetime'
             # After fix: should return 1.00 (within 6h)
             (

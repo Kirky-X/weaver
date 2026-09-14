@@ -78,7 +78,7 @@ log = get_logger(__name__)
 # Matches _TRIGGER_SOURCE_TIMEOUT_SECONDS in src/api/endpoints/content/pipeline.py.
 _PIPELINE_URL_TIMEOUT_SECONDS = 300.0
 
-# MEDIUM-2 (T051-B): total wall-clock budget for a single background task
+# Total wall-clock budget for a single background task
 # that processes N URLs sequentially. Without this, N URLs * 300s per-URL
 # timeout = up to N*300s total wall time (25 minutes for 5 URLs). The
 # total budget bounds the worst case; on timeout, pending URLs are
@@ -88,7 +88,7 @@ _PIPELINE_URL_TIMEOUT_SECONDS = 300.0
 # ``WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT``.
 _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS = 600.0
 
-# MEDIUM-1 (T051-B): default cap on concurrent Bing-fallback background
+# Default cap on concurrent Bing-fallback background
 # tasks. When ``len(background_tasks) >= max_concurrent``, the next call
 # drops (logs warning + returns ``ScheduleResult.THROTTLED``) rather than
 # spawning. Configurable via ``WEAVER_SEARCH__MAX_BACKGROUND_TASKS``.
@@ -300,7 +300,7 @@ def schedule_pipeline_background(
     if not url_list:
         return ScheduleResult.SKIPPED_EMPTY
 
-    # MEDIUM-1: concurrency cap. The set is the in-flight registry;
+    # Concurrency cap. The set is the in-flight registry;
     # len(set) == active task count because add_done_callback(set.discard)
     # removes each task on completion (success or failure).
     if len(background_tasks) >= max_concurrent:

@@ -123,7 +123,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             "content": event.content,
             "timestamp": event.timestamp.isoformat() if event.timestamp else None,
             "attributes": json.dumps(event.attributes) if event.attributes else None,
-            # D2 / Task 6.2-6.3: persist embedding when available (from
+            # Persist embedding when available (from
             # state.vectors.content via EventNode.from_pipeline_state).
             # None for legacy pipeline states without vectors — write does
             # not fail (Neo4j accepts null property).
@@ -195,7 +195,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             "event_time": event_time,
             "created_at": now,
             "attributes": json.dumps(event.attributes) if event.attributes else None,
-            # D2 / Task 6.2-6.3: persist embedding when available.
+            # Persist embedding when available.
             # LadybugDB stores as DOUBLE[] (see ladybug_schema.py).
             # None for legacy pipeline states without vectors — write does
             # not fail (LadybugDB accepts null property).
@@ -377,8 +377,8 @@ class TemporalGraphRepo(BaseGraphRepo):
                         error_type=type(exc).__name__,
                     )
 
-        # D1 / Task 2.3-2.5: semantic re-ranking when query_embedding provided.
-        # When query_embedding is None (Task 2.4), keep legacy behavior:
+        # Semantic re-ranking when query_embedding provided.
+        # When query_embedding is None, keep legacy behavior:
         # CONTAINS + timestamp ordering.
         if query_embedding is None or not results:
             return results

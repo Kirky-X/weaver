@@ -225,7 +225,7 @@ class AlertService:
             # DuckDB's CursorResult.rowcount frequently returns -1 for DELETE
             # statements (driver limitation), which would produce misleading
             # log output. Clamp to >= 0 so operators do not see negative
-            # "removed" counts (MEDIUM-4: delete_rule rowcount logging).
+            # "removed" counts (delete_rule rowcount logging).
             events_removed = max(0, events_result.rowcount) if events_result.rowcount else 0
             rule_removed = max(0, rule_result.rowcount) if rule_result.rowcount else 0
             log.info(

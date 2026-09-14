@@ -45,10 +45,10 @@ class CallPoint(str, Enum):
     EVIDENCE_SAMPLING = "evidence_sampling"
     SENTIMENT = "sentiment"
     CLAIM_EXTRACTION = "claim_extraction"
-    # T004: BriefingGenerator — daily per-category briefing summary generation.
+    # BriefingGenerator — daily per-category briefing summary generation.
     # Used by BriefingGenerator.generate() to summarize articles per category.
     BRIEFING = "briefing"
-    # R-web-search-008: QueryExpander — LLM-driven broad-query expansion
+    # QueryExpander — LLM-driven broad-query expansion
     # (e.g. "菲律宾" → ["菲律宾 仁爱礁", "菲律宾 南海"]). Used by
     # modules.search.web.query_expander.LLMQueryExpander to surface topical
     # news that a literal single-term query would miss.

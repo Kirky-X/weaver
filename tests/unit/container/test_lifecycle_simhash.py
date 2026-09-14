@@ -47,7 +47,7 @@ def _stub_startup_dependencies(container) -> None:
     container.init_bing_searcher = AsyncMock()
     container.init_source_scheduler = AsyncMock()
     container.init_ml_components = AsyncMock()
-    # KnowledgeCache touches the real filesystem; stub it (T005 mock-leak fix)
+    # KnowledgeCache touches the real filesystem; stub it
     container.init_knowledge_cache = AsyncMock()
     container.init_pipeline = AsyncMock()
     container.init_memory_service = AsyncMock()
@@ -62,7 +62,7 @@ def _stub_startup_dependencies(container) -> None:
     container.deduplicator = MagicMock(return_value=MagicMock(name="deduplicator"))
     container.processing_queue = MagicMock(return_value=MagicMock(name="processing_queue"))
 
-    # T002 will add simhash_dedup() factory to services.py.
+    # SimHash dedup factory
     simhash_instance = MagicMock(name="simhash_dedup_instance")
     container.simhash_dedup = MagicMock(return_value=simhash_instance)
 

@@ -18,7 +18,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON, TypeDecorator
 
 
-# PersistStatus moved to core.protocols.types (T020: protocols must not
+# PersistStatus moved to core.protocols.types (protocols must not
 # depend on core.db); re-exported here for backwards-compatible imports.
 from core.protocols.types import PersistStatus  # noqa: E402
 

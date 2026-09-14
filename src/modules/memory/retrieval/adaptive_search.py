@@ -139,7 +139,7 @@ class AdaptiveSearchEngine:
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
         self._event_cache: dict[str, dict[str, Any]] | None = None
-        # D5 / Task 3.5: metadata exposed to endpoint callers via `last_metadata`.
+        # Metadata exposed to endpoint callers via `last_metadata`.
         # Reset on every search() invocation. Contains `causal_edges_traversed`
         # (count of neighbors reached via CAUSES/ENABLES edges) and `degraded`
         # (set when score_range == 0 with >=2 results — D3 normalization fix).
@@ -186,7 +186,7 @@ class AdaptiveSearchEngine:
         """
         start_time = time.monotonic()
 
-        # Reset metadata for this invocation (D5 / Task 3.5)
+        # Reset metadata for this invocation.
         self._last_metadata = {
             "causal_edges_traversed": 0,
             "degraded": False,
@@ -258,7 +258,7 @@ class AdaptiveSearchEngine:
             results = [r for r in results if r.get("score", 0) > 1.0]
 
             # Normalize scores to [0, 1] range (MAGMA Eq.5 exp() output is unbounded)
-            # D3 / Task 4.1-4.3: when score_range == 0 with >=2 results, the
+            # When score_range == 0 with >=2 results, the
             # scoring function FAILED to differentiate (e.g. embedding=None
             # across all candidates, or all candidates hit the same edge_type).
             # Old contract (search-score-normalization spec): 1.0 (pretended
@@ -395,7 +395,7 @@ class AdaptiveSearchEngine:
         all_events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
         self._event_cache = {e["id"]: e for e in all_events if e.get("id")}
 
-        # D4 / Task 3.3: pick anchor edge_type by intent (NOT hard-coded TEMPORAL).
+        # Pick anchor edge_type by intent (NOT hard-coded TEMPORAL).
         # Aligns with INTENT_EDGE_WEIGHTS — WHY intent gets CAUSAL weight 5.0,
         # WHEN gets TEMPORAL weight 5.0, etc.
         anchor_edge_type = _INTENT_TO_ANCHOR_EDGE_TYPE.get(intent, EdgeType.TEMPORAL)
@@ -405,7 +405,7 @@ class AdaptiveSearchEngine:
         for anchor_id in anchors:
             event_data = await self._get_event_data(anchor_id)
             if event_data:
-                # D2 / Task 3.2: fill embedding from query result (None for legacy
+                # Fill embedding from query result (None for legacy
                 # data per Q2 finding). EventNode no longer hard-codes None.
                 anchor_emb = event_data.get("embedding")
                 if anchor_emb is None:
@@ -448,7 +448,7 @@ class AdaptiveSearchEngine:
         neighbor_cache, causal_edges_traversed = await self._prefetch_neighbors(
             candidates, intent, query_embedding
         )
-        # Expose via last_metadata for endpoint callers (D5 / spec requirement)
+        # Expose via last_metadata for endpoint callers.
         self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
         graph_adapter = _IntentGraphAdapter(
             temporal_repo=self._temporal_repo,

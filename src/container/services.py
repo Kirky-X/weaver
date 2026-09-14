@@ -281,10 +281,10 @@ class ContainerServicesMixin:
             )
         return self._scheduler_jobs_service
 
-    # ── Trend Services (T019 / R-alert-002) ─────────────────────────
+    # ── Trend Services ───────────────────────────────────────────
 
     def trend_detector(self) -> Any:
-        """Get TrendDetector instance (T015 / R-trend-002).
+        """Get TrendDetector instance.
 
         Returns None when graph pool is unavailable — TrendDetector requires
         a GraphPool (Neo4j or LadybugDB) to query EventNode frequency. The
@@ -857,7 +857,7 @@ class ContainerServicesMixin:
                         saga_orchestrator=self._saga_orchestrator,
                         pending_sync_repo=self.pending_sync_repo(),
                         outbox_repo=self.outbox_repo(),
-                        # T003: AnalyticsStorage for SentimentTrackerNode.
+                        # AnalyticsStorage for SentimentTrackerNode.
                         # None when relational pool is unavailable; pipeline
                         # skips the node (graph.py guards on None).
                         sentiment_shift_repo=AnalyticsStorage(pool=self.relational_pool()),

@@ -60,7 +60,7 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "TaskRegistryService": TaskRegistryService,
     "KnowledgeCacheProtocol": KnowledgeCacheProtocol,
     "MapperProtocol": MapperProtocol,
-    # T007/T008: Briefing protocols
+    # Briefing protocols
     "AnalyticsStorageProtocol": AnalyticsStorageProtocol,
     "DailyBriefingProtocol": DailyBriefingProtocol,
 }
@@ -99,9 +99,9 @@ PROTOCOL_IMPLEMENTATIONS = [
         "CommunitySearchResultMapper",
         "MapperProtocol",
     ),
-    # T008: Briefing service implementations
+    # Briefing service implementations
     ("modules.briefing.service", "DailyBriefingService", "DailyBriefingProtocol"),
-    # T004/T008: Analytics storage (declares Implements: AnalyticsStorageProtocol)
+    # Analytics storage (declares Implements: AnalyticsStorageProtocol)
     ("modules.analytics.storage", "AnalyticsStorage", "AnalyticsStorageProtocol"),
 ]
 

@@ -131,7 +131,7 @@ class Pipeline:
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
         self._phase3_semaphore = asyncio.Semaphore(self._phase3_concurrency)
 
-        # T004: read independent stage enabled flags from TOML config.
+        # Read independent stage enabled flags from TOML config.
         # Only independent stages (no downstream dependents) respect the
         # disabled flag; dependency stages always execute to preserve DAG
         # integrity. Empty set when TOML doesn't configure stages —
@@ -237,7 +237,7 @@ class Pipeline:
             if graph_writer is not None
             else None
         )
-        # T003: Sentiment tracker node — pure computation (no LLM). Computes
+        # Sentiment tracker node — pure computation (no LLM). Computes
         # per-entity article-level sentiment shifts against the previous
         # article mentioning the same entity, persists to sentiment_shifts
         # (article_id/entity_name/shift_value fields from migration 30).
@@ -999,7 +999,7 @@ class Pipeline:
                     state, PHASE3_STAGES[stage_key], pending_updates
                 )
 
-            # === Sentiment Tracker 阶段 (T003) ===
+            # === Sentiment Tracker 阶段 ===
             # Pure computation node — no LLM. Computes per-entity article-level
             # sentiment shifts and persists to sentiment_shifts. Skipped when
             # sentiment_shift_repo is unavailable, when terminal/merged, or

@@ -190,5 +190,5 @@ class TestProtocolMethodSignatures:
         # entity_name / community_id default to None
         assert sig.parameters["entity_name"].default is None
         assert sig.parameters["community_id"].default is None
-        # window_days defaults to 7 (spec R-sentiment-001)
+        # window_days defaults to 7
         assert sig.parameters["window_days"].default == 7

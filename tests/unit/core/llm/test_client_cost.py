@@ -274,7 +274,7 @@ class TestCreateFromSettingsWiresCostCalculator:
             event_bus=event_bus,
         )
 
-        # MEDIUM-3: empty rates → cost_calculator is None (skip pointless compute)
+        # Empty rates → cost_calculator is None (skip pointless compute)
         assert client._cost_calculator is None
         # cost_usd should be 0.0
         label = _make_label()

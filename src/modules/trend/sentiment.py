@@ -54,10 +54,10 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Spec R-sentiment-001 constraints: only 7 and 30 days are supported.
+# Constraints: only 7 and 30 days are supported.
 _SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
-# Spec R-sentiment-002: direction thresholds.
+# Direction thresholds.
 _UP_THRESHOLD: float = 0.1
 _DOWN_THRESHOLD: float = -0.1
 
@@ -121,7 +121,7 @@ class SentimentTrendAnalyzer:
             cutoff=cutoff,
         )
 
-        # No-data contract (R-sentiment-002): return empty stable result.
+        # No-data contract: return empty stable result.
         if not rows:
             return SentimentTrendResult(
                 entity_name=entity_name,
@@ -142,7 +142,7 @@ class SentimentTrendAnalyzer:
         # Aggregate per-day buckets for the `list` field.
         aggregated = self._aggregate_by_day(rows)
 
-        # Determine trend direction per spec R-sentiment-002 thresholds.
+        # Determine trend direction per thresholds.
         if avg_shift > _UP_THRESHOLD:
             direction = "up"
         elif avg_shift < _DOWN_THRESHOLD:

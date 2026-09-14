@@ -55,10 +55,10 @@ async def get_shifts(
         shifts = await storage.get_shifts(community_id=community_id, limit=limit, scope=scope)
         return success_response({"shifts": shifts, "total": len(shifts)})
     except Exception as exc:
-        # Rule 12: storage layer raises on DB error (T003-sub4 H2). Endpoint
+        # Rule 12: storage layer raises on DB error. Endpoint
         # catches to keep the API contract stable (200 + empty list) but must
         # log loudly — silently swallowing would hide DB failures from
-        # operators (T003-sub4 architecture review H3).
+        # operators.
         log.error(
             "analytics_shifts_endpoint_failed",
             community_id=community_id,

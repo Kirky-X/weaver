@@ -278,7 +278,7 @@ class TestSchedulePipelineBackground:
         background_tasks: set[asyncio.Task] = set()
         schedule_pipeline_background(urls, pipeline_service, background_tasks)
 
-        # HIGH-1 fix: only ONE task should be created (not 3).
+        # Only ONE task should be created (not 3).
         assert len(background_tasks) == 1
 
         # Wait for completion.
@@ -340,7 +340,7 @@ class TestSchedulePipelineBackground:
 
     @pytest.mark.asyncio
     async def test_url_exception_does_not_abort_sequential_batch(self) -> None:
-        """HIGH-1: one URL's failure must NOT abort the sequential for-loop.
+        """One URL's failure must NOT abort the sequential for-loop.
 
         Old test (N tasks) verified exception isolation via separate
         asyncio tasks. New test verifies the same guarantee via
@@ -362,7 +362,7 @@ class TestSchedulePipelineBackground:
         background_tasks: set[asyncio.Task] = set()
         schedule_pipeline_background(urls, pipeline_service, background_tasks)
 
-        # HIGH-1: only one task created.
+        # Only one task created.
         assert len(background_tasks) == 1
 
         # Wait for the single task to complete (no exception propagates
@@ -377,7 +377,7 @@ class TestSchedulePipelineBackground:
 
     @pytest.mark.asyncio
     async def test_urls_processed_sequentially_not_concurrently(self) -> None:
-        """HIGH-1: URLs must be processed SEQUENTIALLY (no overlap).
+        """URLs must be processed SEQUENTIALLY (no overlap).
 
         Verify by recording start/finish timestamps for each URL's
         pipeline call. Sequential → timestamps do NOT overlap.
@@ -415,7 +415,7 @@ class TestSchedulePipelineBackground:
         assert len(background_tasks) == 1
         await asyncio.gather(*background_tasks)
 
-        # HIGH-1 assertion: max 1 active pipeline call at any time
+        # Max 1 active pipeline call at any time
         # (sequential execution, no overlap).
         assert max_active == 1, (
             f"Expected sequential execution (max_active=1), got max_active={max_active}"

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Daily briefing category namespace (spec R-briefing-003).
+# Daily briefing category namespace.
 # Maps to {finance, tech, ai, general} — distinct from articles_core.category
 # which uses CategoryType enum (政治/经济/科技/...).
 VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
@@ -113,7 +113,7 @@ class BriefingGenerator:
             Exception: Storage failures propagate (Rule 12). LLM failures
                 degrade (empty summary) per spec R-briefing-002.
         """
-        # Normalize None → 'general' (spec R-briefing-001: None 表示综合).
+        # Normalize None → 'general' (None 表示综合).
         normalized_category = category or "general"
         if normalized_category not in VALID_BRIEFING_CATEGORIES:
             raise ValueError(

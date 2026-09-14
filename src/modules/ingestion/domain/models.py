@@ -15,10 +15,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
-# NewsItem / RawArticle moved to core.types.ingestion_models (T021:
-# shared pipeline domain models must live in core so processing and
-# storage can depend on them without modules-level import cycles).
+# NewsItem / RawArticle moved to core.types.ingestion_models (shared pipeline
+# domain models must live in core so processing and storage can depend on them
+# without modules-level import cycles).
 from core.types.ingestion_models import NewsItem, RawArticle  # noqa: E402
+
 
 @dataclass
 class SourceConfig:

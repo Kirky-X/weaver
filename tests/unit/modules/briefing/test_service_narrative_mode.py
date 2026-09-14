@@ -482,7 +482,7 @@ class TestBriefingResultNarrativeModeField:
             date=target_date, category="finance", narrative_mode=True
         )
 
-        # Spec R-briefing-008: 降级发生时 BriefingResult.narrative_mode 字段为 False
+        # 降级发生时 BriefingResult.narrative_mode 字段为 False
         # (即使请求是 True)
         assert result.narrative_mode is False
 

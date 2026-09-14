@@ -71,8 +71,8 @@ class LLMSettings(BaseSettings):
     # Shadow evaluation config
     eval_config: EvalConfig = Field(default_factory=EvalConfig)
 
-    # Cost rates for LLM usage accounting (D2 / audit-unintegrated-modules).
-    # Default empty CostConfig → CostCalculator not instantiated (MEDIUM-3).
+    # Cost rates for LLM usage accounting.
+    # Default empty CostConfig → CostCalculator not instantiated.
     # To enable cost tracking: set WEAVER_LLM__COST__RATES__<LABEL>__INPUT
     # and WEAVER_LLM__COST__RATES__<LABEL>__OUTPUT env vars, or extend
     # llm.toml with a [cost] section (AGENTS.md forbids editing llm.toml

@@ -624,7 +624,7 @@ async def _upgrade_schema(session) -> None:
 
     # created_at column: ORM SentimentShift model defines created_at with
     # default NOW(), but pre-existing DuckDB sentiment_shifts tables lacked
-    # this column. T003 SentimentTrackerNode is the first path to write
+    # this column. SentimentTrackerNode is the first path to write
     # sentiment_shifts via ORM (save_shift), which would fail without this
     # column. Idempotent ALTER TABLE for pre-existing files.
     result = await session.execute(
@@ -645,7 +645,7 @@ async def _upgrade_schema(session) -> None:
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_sentiment_shifts_created_at_failed", error=str(exc))
 
-    # Migration 31: covering index for T003 SentimentTrackerNode's
+    # Migration 31: covering index for SentimentTrackerNode's
     # get_last_article_shift query (WHERE entity_name=? AND article_id IS
     # NOT NULL ORDER BY detected_at DESC LIMIT 1). DuckDB does not support
     # partial indexes (postgresql_where is ignored), so this is a regular
@@ -663,7 +663,7 @@ async def _upgrade_schema(session) -> None:
         log.warning("duckdb_schema_upgrade_sentiment_shifts_article_index_failed", error=str(exc))
 
     # Migration 32: Add category column + composite UNIQUE(briefing_date,
-    # category) to daily_briefings for T004 BriefingGenerator's per-category
+    # category) to daily_briefings for BriefingGenerator's per-category
     # briefings (finance/tech/ai/general).
     # Pre-existing DuckDB files won't get the column via CREATE TABLE IF
     # NOT EXISTS. Idempotent ALTER TABLE + CREATE UNIQUE INDEX IF NOT EXISTS

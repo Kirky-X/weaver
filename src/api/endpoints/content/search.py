@@ -54,7 +54,7 @@ from modules.storage import VectorRepo
 router = APIRouter(prefix="/search", tags=["search"])
 
 # Module-level background task registry for web-search fallback pipeline
-# ingestion (T017). Strong references prevent asyncio Task GC; the
+# ingestion. Strong references prevent asyncio Task GC; the
 # ``add_done_callback(set.discard)`` pattern auto-cleans on completion.
 # Matches the convention in src/api/endpoints/content/pipeline.py:283.
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -172,7 +172,7 @@ async def search_unified(
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
 
-    # T015: short-TTL response cache for hot queries
+    # Short-TTL response cache for hot queries
     cache_params = {
         "q": q,
         "mode": mode,
@@ -286,9 +286,9 @@ async def search_unified(
             # Fire-and-forget: schedule background pipeline ingestion for
             # each Bing result URL. URLs are processed sequentially inside
             # a SINGLE background task to avoid DuckDB write lock contention
-            # (HIGH-1: matches pipeline.py:285 convention).
+            # (matches pipeline.py:285 convention).
             urls = [r.url for r in web_results if r.url]
-            # MEDIUM-1 (T051-B): pass concurrency cap + total batch timeout
+            # Pass concurrency cap + total batch timeout
             # from SearchSettings so operators can tune via env vars
             # (WEAVER_SEARCH__MAX_BACKGROUND_TASKS,
             #  WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT). Reading
@@ -306,7 +306,7 @@ async def search_unified(
                 max_concurrent=search_settings.max_background_tasks,
                 total_timeout=search_settings.background_task_total_timeout,
             )
-            # MEDIUM-1: when at concurrency cap, the background task was
+            # When at concurrency cap, the background task was
             # dropped (not spawned). Signal the client via metadata so it
             # can retry ingestion later (the search itself succeeded —
             # Bing snippets are already in the response).
@@ -675,8 +675,8 @@ async def search_causal(
             timeout=60.0,
         )
 
-        # D5 / Task 5.1: pull traversal metadata from engine.last_metadata
-        # (populated by _beam_search → _prefetch_neighbors via Task 3.5).
+        # Pull traversal metadata from engine.last_metadata
+        # (populated by _beam_search → _prefetch_neighbors).
         # causal_edges_traversed counts neighbors reached via CAUSES/ENABLES
         # edges (0 when graph DB has no CAUSAL edges — Q1 finding).
         # degraded is set when score_range == 0 with >=2 results (D3 fix).
@@ -694,7 +694,7 @@ async def search_causal(
             for r in results
         ]
 
-        # D5 / Task 5.2-5.4: answer text reflects actual traversal path,
+        # Answer text reflects actual traversal path,
         # NOT a hardcoded "found N causal chains" lie. Three branches:
         # - causal_edges_traversed > 0: real causal chain traversal
         # - == 0 and results non-empty: only semantic anchors, no causal edge
@@ -709,7 +709,7 @@ async def search_causal(
             answer = f"未找到与查询相关的因果链，返回 {len(causal_chain)} 个语义相关事件"
             confidence = sum(r.get("score", 0) for r in results) / max(len(results), 1)
 
-        # D3 / Task 5.5: when scoring function degraded (all scores identical),
+        # When scoring function degraded (all scores identical),
         # cap confidence at 0.3 to distinguish "no real differentiation" from
         # "high-confidence result". This prevents confidence=1.0 lies when
         # every anchor has the same exp(2.0)=7.389 raw score (the bug).

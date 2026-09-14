@@ -264,14 +264,14 @@ class TestContentHashCacheWrite:
 
         await service.write_batch(states)
 
-        # T009: batch writes go through one pipeline round trip
+        # Batch writes go through one pipeline round trip
         assert pipe.set.call_count == 2
         pipe.execute.assert_awaited_once()
         assert cache_client.set.call_count == 0
 
 
 class TestContentHashCacheBatchPipeline:
-    """T009: write_batch serializes off-loop and writes via a single pipeline."""
+    """write_batch serializes off-loop and writes via a single pipeline."""
 
     @staticmethod
     def _make_states(count: int) -> list[PipelineState]:

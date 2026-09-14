@@ -790,11 +790,9 @@ def pytest_collection_modifyitems(config, items):
                 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# T001: 4 套 DB 组合 fixture 工厂
+# ── 4 套 DB 组合 fixture 工厂 ─────────────────────────────────────────────
 # 通过 pytest.mark.db_combo 标记切换；fixture 读取 WEAVER__DB__TYPE 和
 # WEAVER__GRAPH__TYPE 环境变量，不匹配时 skip。
-# ─────────────────────────────────────────────────────────────────────────────
 
 DB_COMBOS = {
     "pg_ladybug": ("postgres", "ladybug"),
@@ -851,9 +849,7 @@ def duckdb_ladybug():
     return _check_db_combo("duckdb", "ladybug")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# T002/T003: API key fixture + 动态数据获取 fixture
-# ─────────────────────────────────────────────────────────────────────────────
+# ── API key fixture + 动态数据获取 fixture ─────────────────────────────────────
 
 
 def _generate_api_key(suffix: str = "") -> str:

@@ -65,11 +65,11 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Spec R-briefing-003: 4 briefing categories (mirrors BriefingGenerator).
+# 4 briefing categories (mirrors BriefingGenerator).
 VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
 
-# Spec R-briefing-007: minimum NarrativeNode count to produce narrative briefing.
-# Below this threshold, raise InsufficientNarrativeError so the caller (T021)
+# Minimum NarrativeNode count to produce narrative briefing.
+# Below this threshold, raise InsufficientNarrativeError so the caller
 # can degrade to template mode.
 MIN_NARRATIVE_COUNT: int = 3
 
@@ -196,7 +196,7 @@ class NarrativeBriefingGenerator:
             Exception: Graph DB errors and storage failures propagate
                 (Rule 12). LLM failures degrade to empty summary.
         """
-        # Normalize None → 'general' (spec R-briefing-001: None 表示综合).
+        # Normalize None → 'general' (None 表示综合).
         normalized_category = category or "general"
         if normalized_category not in VALID_BRIEFING_CATEGORIES:
             raise ValueError(
@@ -233,7 +233,7 @@ class NarrativeBriefingGenerator:
         ]
         narratives = await self._query_narratives_for_articles(article_ids)
 
-        # Step 3: Check threshold (R-briefing-007).
+        # Step 3: Check threshold.
         if len(narratives) < MIN_NARRATIVE_COUNT:
             log.info(
                 "narrative_briefing_insufficient_data",

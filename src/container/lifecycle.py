@@ -195,7 +195,7 @@ class ContainerLifecycleMixin:
                 event_bus=self._event_bus,
             )
             self._llm_client._smart_router = self._smart_router
-            # Inject GraphPool for schema-driven structured output (T024).
+            # Inject GraphPool for schema-driven structured output.
             # Mirrors _smart_router lazy-injection pattern. If graph_pool is
             # unavailable (e.g. both Neo4j and LadybugDB down at startup),
             # _graph_pool stays None — structured_call will raise ValueError
@@ -370,7 +370,7 @@ class ContainerLifecycleMixin:
             log.warning("gliner_extractor_init_failed", error=str(exc))
 
         # Fire-and-forget background warmup: shifts 7-20s model load
-        # from first user request to startup (Bug-D HIGH-2 mitigation).
+        # from first user request to startup.
         # Isolated from init try/except so mock/scheduling failures don't
         # null out the extractor (lazy init still works as fallback).
         # Store task ref to prevent GC (ruff RUF006).
@@ -394,9 +394,6 @@ class ContainerLifecycleMixin:
 
     def _setup_scheduler(self) -> None:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.date import DateTrigger
-        from apscheduler.triggers.interval import IntervalTrigger
 
         from core.observability import get_logger
 
@@ -438,7 +435,6 @@ class ContainerLifecycleMixin:
     def _register_consistency_jobs(self, scheduler, jobs, settings) -> None:
         """Data sync / saga recovery / outbox dispatch job registration."""
         from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.date import DateTrigger
         from apscheduler.triggers.interval import IntervalTrigger
 
         # Data Sync
@@ -459,7 +455,7 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
-        # Transactional outbox dispatcher (T018): at-least-once event delivery
+        # Transactional outbox dispatcher: at-least-once event delivery
         scheduler.add_job(
             jobs.dispatch_outbox_events,
             IntervalTrigger(seconds=30),
@@ -549,8 +545,6 @@ class ContainerLifecycleMixin:
 
     def _register_maintenance_jobs(self, scheduler, jobs, settings) -> None:
         """Cleanup / archive / pipeline retry / enrichment / crawl retry job registration."""
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.date import DateTrigger
         from apscheduler.triggers.interval import IntervalTrigger
 
         # Pipeline Retry
@@ -717,7 +711,7 @@ class ContainerLifecycleMixin:
                 coalesce=True,
             )
 
-        # Analytics - Daily Briefing Generation (T010 / R-briefing-006)
+        # Analytics - Daily Briefing Generation
         # Generates 4 category briefings (general/finance/tech/ai) at 08:00 Asia/Shanghai.
         from zoneinfo import ZoneInfo
 
@@ -750,7 +744,7 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
-        # Trend Alert Evaluation (T019 / R-alert-002) — hourly at minute=0.
+        # Trend Alert Evaluation — hourly at minute=0.
         # Evaluates trend_spike/trend_drop/sentiment_shift rules and inserts
         # alert_events with 24h dedup. Graceful skip when trend services
         # unavailable (returns 0, does not block scheduler).
@@ -1219,6 +1213,13 @@ class ContainerLifecycleMixin:
                 log.info("live_config_watcher_started")
             except Exception as e:
                 log.error("live_config_watcher_start_failed", error=str(e), exc_info=True)
+
+        # Validate Protocol → implementation bindings (fail-fast on contract drift)
+        from container.protocol_registry import validate_protocol_bindings
+
+        unregistered = validate_protocol_bindings(self)
+        if unregistered:
+            log.debug("unregistered_protocols_summary", count=len(unregistered))
 
         log.info("container_started")
 

@@ -84,7 +84,7 @@ class TestRepairContentField:
         r = CleanerOutput.model_validate({"content": {"title": "t", "body": 67890}})
         assert r.content.body == "67890"
 
-    # --- Bug-C HIGH-2: dict/list must not be str()ed ---
+    # --- dict/list must not be str()ed ---
 
     def test_content_title_dict_extracts_text_field(self) -> None:
         """LLM returns title as dict with 'text' subfield; extract it."""
@@ -273,7 +273,7 @@ class TestRepairTagsField:
         r = CleanerOutput.model_validate({"tags": [], "content": {"title": "t", "body": "b"}})
         assert r.tags == []
 
-    # --- Bug-C HIGH-2: dict/list/bool items must not be str()ed ---
+    # --- dict/list/bool items must not be str()ed ---
 
     def test_tags_dict_item_filtered(self) -> None:
         """dict item must be filtered out, not str()ed to \"{'name': 'x'}\"."""
@@ -432,7 +432,7 @@ class TestRepairComplexScenarios:
         assert r.content.title == "Top Title"
         assert r.content.body == "Top Body"
 
-    # --- Bug-C HIGH-2: 蓝军挑战 — dict/list must not produce garbage strings ---
+    # --- 蓝军挑战 — dict/list must not produce garbage strings ---
 
     def test_content_body_dict_does_not_pollute_downstream(self) -> None:
         """蓝军挑战 1: LLM returns body as dict; must NOT become str(dict) garbage.

@@ -174,7 +174,7 @@ class TestProtocolMethodSignatures:
             "window_days",
             "entity_type",
         ], f"Expected [self, window_days, entity_type], got {params}"
-        # window_days defaults to 7 (spec R-trend-001)
+        # window_days defaults to 7
         assert sig.parameters["window_days"].default == 7
         # entity_type defaults to None
         assert sig.parameters["entity_type"].default is None

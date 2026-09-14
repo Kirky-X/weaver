@@ -940,7 +940,7 @@ class TestArticlesViewDDL:
         assert "LEFT JOIN" in self.view_ddl
 
 
-# ── P0-1: In-memory DuckDB execution tests (T002-T003, T004-T005, T012) ─────
+# ── In-memory DuckDB execution tests ──────────────────────────────────────
 
 
 # 27 tables that must exist in DuckDB schema (matches scripts/data_io.py EXPECTED_TABLES)

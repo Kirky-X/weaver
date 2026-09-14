@@ -57,7 +57,7 @@ class PipelinePersistence:
         self._vector_repo = vector_repo
         self._graph_writer = graph_writer
         self._phase3_concurrency = phase3_concurrency
-        # T016: receives pending_sync rows when the graph write circuit is open
+        # Receives pending_sync rows when the graph write circuit is open
         self._pending_sync_repo = pending_sync_repo
 
     async def persist_batch(
@@ -452,7 +452,7 @@ class PipelinePersistence:
                     mark_error=str(mark_exc),
                 )
 
-        # T016: circuit-open means the graph DB is intentionally bypassed —
+        # Circuit-open means the graph DB is intentionally bypassed —
         # queue the state in pending_sync so the retry job restores it later.
         if isinstance(exc, Neo4jWriteCircuitOpen) and self._pending_sync_repo is not None:
             try:

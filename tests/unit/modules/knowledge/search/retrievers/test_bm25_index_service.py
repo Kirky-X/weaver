@@ -327,9 +327,7 @@ class TestCreateBm25SchedulerJob:
         mock_scheduler.add_job.assert_called_once()
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# T014: incremental-by-default scheduling, watermark persistence, executor offload
-# ────────────────────────────────────────────────────────────────────────────
+# ── Incremental-by-default scheduling, watermark persistence, executor offload ──
 
 from datetime import timedelta
 

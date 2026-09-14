@@ -54,10 +54,10 @@ api_router.include_router(saga_router)
 # Analytics endpoints
 api_router.include_router(analytics_router)
 
-# Briefings endpoints (T009 / R-briefing-004, R-briefing-005)
+# Briefings endpoints
 api_router.include_router(briefings_router)
 
-# Trends endpoints (T013 / R-sentiment-003)
+# Trends endpoints
 api_router.include_router(trends_router)
 
 # Monitoring endpoints (read-only observation)
