@@ -1,20 +1,68 @@
-# Weaver 部署指南
+# 🚀 Weaver 部署指南
 
 本文档详细说明 Weaver 应用的部署流程、环境变量配置、数据库迁移和监控集成。
 
-## 目录
+## 📋 目录
 
-- [环境要求](#环境要求)
-- [环境变量配置](#环境变量配置)
-- [数据库迁移](#数据库迁移)
-- [健康检查端点](#健康检查端点)
-- [Prometheus 指标端点](#prometheus-指标端点)
-- [监控系统集成](#监控系统集成)
-- [故障排查](#故障排查)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [环境要求](#-环境要求)
+- [环境变量配置](#️-环境变量配置)
+- [数据库迁移](#-数据库迁移)
+- [健康检查端点](#-健康检查端点)
+- [Prometheus 指标端点](#-prometheus-指标端点)
+- [监控系统集成](#-监控系统集成)
+- [故障排查](#-故障排查)
+- [安全建议](#-安全建议)
+- [联系与支持](#-联系与支持)
+
+</details>
 
 ---
 
-## 环境要求
+## 🎯 概述
+
+部署前请确认以下环境要求：
+
+| 组件 | 必需 | 版本要求 | 说明 |
+|:-----|:----:|:---------|:-----|
+| **PostgreSQL** | ✅ | 16+ | 带 pgvector 扩展 |
+| **Neo4j** | ✅ | 5.x | 推荐使用 5.25 |
+| **Redis** | ✅ | 7.x | 推荐使用 7.2 |
+| **Python** | ✅ | 3.12+ | 运行时环境 |
+| **Prometheus** | 🔘 可选 | — | 指标收集和告警 |
+| **Grafana** | 🔘 可选 | — | 可视化监控 |
+
+> 💡 **提示**：PostgreSQL 请使用 `pgvector/pgvector:pg16` 镜像。
+
+### 部署架构
+
+```mermaid
+graph TB
+    subgraph App ["Weaver 应用"]
+        API["FastAPI Server<br/>:8000"]
+    end
+
+    subgraph Required ["必需服务"]
+        PG["PostgreSQL 16+<br/>pgvector"]
+        Neo4j["Neo4j 5.x<br/>知识图谱"]
+        Redis["Redis 7.x<br/>缓存/队列"]
+    end
+
+    subgraph Monitoring ["监控 (可选)"]
+        Prom["Prometheus<br/>/metrics"]
+        Grafana["Grafana<br/>可视化"]
+        OTel["OTel Collector<br/>追踪"]
+    end
+
+    API --> PG
+    API --> Neo4j
+    API --> Redis
+    Prom -.->|"拉取"| API
+    Grafana -.->|"查询"| Prom
+    OTel -.->|"接收"| API
+```
 
 ### 必需服务
 
@@ -31,7 +79,7 @@
 
 ---
 
-## 环境变量配置
+## ⚙️ 环境变量配置
 
 ### 核心环境变量
 
@@ -223,11 +271,23 @@ export HNSW_EF_CONSTRUCTION=64        # 构建时的候选列表大小 (默认: 
 
 ---
 
-## 数据库迁移
+## 🗄️ 数据库迁移
 
 ### Alembic 迁移工具
 
 Weaver 使用 Alembic 进行数据库版本管理。迁移脚本位于 `src/alembic/versions/` 目录。
+
+**迁移流程：**
+
+```mermaid
+graph LR
+    A["检查当前版本<br/>alembic current"] --> B["查看迁移历史<br/>alembic history"]
+    B --> C["执行迁移<br/>alembic upgrade head"]
+    C --> D{"迁移成功?"}
+    D -->|"✅ 是"| E["验证索引<br/>pg_indexes"]
+    D -->|"❌ 否"| F["回滚<br/>alembic downgrade -1"]
+    F --> C
+```
 
 #### 查看当前迁移状态
 
@@ -350,11 +410,23 @@ LIMIT 10;
 
 ---
 
-## 健康检查端点
+## ✅ 健康检查端点
 
 ### `/health` 端点
 
 Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；明细请调用 `GET /api/v1/health/dependencies`（需 Admin API Key，返回 `data.dependencies`）。
+
+**健康检查流程：**
+
+```mermaid
+graph LR
+    LB["负载均衡器"] -->|"GET /health"| APP["Weaver"]
+    APP -->|"检查 PG"| PG["PostgreSQL"]
+    APP -->|"检查 Neo4j"| Neo4j["Neo4j"]
+    APP -->|"检查 Redis"| Redis["Redis"]
+    APP -->|"HTTP 200"| LB
+    LB -->|"healthy / unhealthy"| Client["客户端"]
+```
 
 #### 请求示例
 
@@ -456,7 +528,7 @@ healthcheck:
 
 ---
 
-## Prometheus 指标端点
+## 📈 Prometheus 指标端点
 
 ### `/metrics` 端点
 
@@ -534,7 +606,7 @@ scrape_configs:
 
 ---
 
-## 监控系统集成
+## 📊 监控系统集成
 
 ### Prometheus 集成
 
@@ -693,7 +765,7 @@ http://jaeger:16686
 
 ---
 
-## 故障排查
+## 🔧 故障排查
 
 ### 常见问题
 
@@ -862,7 +934,7 @@ redis-cli info memory
 
 ---
 
-## 安全建议
+## 🔒 安全建议
 
 ### 生产环境检查清单
 
@@ -893,12 +965,12 @@ export $(cat .env | xargs)
 
 ---
 
-## 联系与支持
+## 📞 联系与支持
 
 如遇到问题，请参考：
 
-- [API 文档](./API.md)
-- [架构文档](./ARCHITECTURE.md)
-- [用户指南](./USER_GUIDE.md)
-- [项目 README](../README.md)
+- [API 文档](API.md) — 完整 API 接口参考
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [项目 README](../README.md) — 返回首页
 - 项目 Issues: https://github.com/Kirky-X/weaver/issues

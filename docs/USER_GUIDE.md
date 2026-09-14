@@ -1,24 +1,40 @@
-# Weaver 用户指南
+# 📖 Weaver 用户指南
 
-本文档帮助您快速上手 Weaver，了解如何使用其功能来采集、处理和分析新闻数据。
+**Weaver** 是一个智能新闻采集、分析与知识图谱构建平台。本指南将带您从快速上手一路到进阶用法，帮助您掌握如何使用其功能来采集、处理和分析新闻数据。
 
-## 目录
+## 📋 目录
 
-- [快速开始](#快速开始)
-- [配置说明](#配置说明)
-- [基本概念](#基本概念)
-- [管理新闻源](#管理新闻源)
-- [运行 Pipeline](#运行-pipeline)
-- [搜索文章](#搜索文章)
-- [探索知识图谱](#探索知识图谱)
-- [监控和运维](#监控和运维)
-- [常见问题](#常见问题)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [快速开始](#-快速开始)
+- [配置说明](#️-配置说明)
+- [基本概念](#-基本概念)
+- [管理新闻源](#-管理新闻源)
+- [运行 Pipeline](#-运行-pipeline)
+- [搜索文章](#-搜索文章)
+- [探索知识图谱](#-探索知识图谱)
+- [监控和运维](#️-监控和运维)
+- [常见问题](#-常见问题)
+
+</details>
 
 ---
 
-## 快速开始
+## 🚀 快速开始
 
-### 1. 启动服务
+本指南将带您掌握：
+
+| 内容 | 说明 |
+|:-----|:-----|
+| **快速开始** | 5 分钟完成环境搭建 |
+| **灵活配置** | 支持 TOML + 环境变量 |
+| **Pipeline** | 自动化新闻采集与处理 |
+| **搜索与图谱** | 多种搜索模式 + 知识图谱探索 |
+
+> 💡 **提示**：本指南假设您已完成安装。如果尚未安装，请先查看 [部署指南](DEPLOYMENT.md)。
+
+### 📌 启动服务
 
 Weaver 支持端口自动检测，当配置的端口被占用时会自动寻找可用端口：
 
@@ -57,7 +73,7 @@ port_auto_detect = false
 
 服务启动后，访问 `http://localhost:8000/health` 验证健康状态。
 
-### 2. 添加第一个新闻源
+### 📌 添加第一个新闻源
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/sources" \
@@ -75,7 +91,7 @@ curl -X POST "http://localhost:8000/api/v1/sources" \
   }'
 ```
 
-### 3. 触发 Pipeline
+### 📌 触发 Pipeline
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
@@ -87,7 +103,7 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
   }'
 ```
 
-### 4. 查询文章
+### 📌 查询文章
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=10" \
@@ -96,7 +112,7 @@ curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=10" \
 
 ---
 
-## 配置说明
+## ⚙️ 配置说明
 
 Weaver 使用统一的配置系统,支持 TOML 文件和环境变量。
 
@@ -210,23 +226,34 @@ temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模�
 
 ---
 
-## 基本概念
+## 🧩 基本概念
 
 ### 系统架构
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  数据源      │────▶│  采集层      │────▶│  处理流水线  │
-│  (RSS/Web)  │     │  (Fetcher)  │     │  (Pipeline) │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                         ┌─────────────────────┼─────────────────────┐
-                         │                     │                     │
-                         ▼                     ▼                     ▼
-                  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-                  │ PostgreSQL  │      │   Neo4j     │      │   Redis     │
-                  │  (文章存储)  │      │ (知识图谱)   │      │ (缓存/队列)  │
-                  └─────────────┘      └─────────────┘      └─────────────┘
+```mermaid
+graph LR
+    subgraph Input ["数据源"]
+        RSS["RSS/Atom"]
+        Web["网页抓取"]
+    end
+
+    subgraph Core ["处理核心"]
+        Fetcher["采集层<br/>Fetcher"]
+        Pipeline["处理流水线<br/>Pipeline"]
+    end
+
+    subgraph Storage ["存储层"]
+        PG["PostgreSQL<br/>文章存储"]
+        Neo4j["Neo4j<br/>知识图谱"]
+        Redis["Redis<br/>缓存/队列"]
+    end
+
+    RSS --> Fetcher
+    Web --> Fetcher
+    Fetcher --> Pipeline
+    Pipeline --> PG
+    Pipeline --> Neo4j
+    Pipeline --> Redis
 ```
 
 ### 核心概念
@@ -242,7 +269,7 @@ temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模�
 
 ---
 
-## 管理新闻源
+## 📰 管理新闻源
 
 ### 添加 RSS 源
 
@@ -312,11 +339,22 @@ curl -X DELETE "http://localhost:8000/api/v1/sources/bbc-news" \
 
 ---
 
-## 运行 Pipeline
+## ⚡ 运行 Pipeline
 
 ### 触发 Pipeline
 
-Pipeline 会抓取并处理新闻文章。
+Pipeline 会抓取并处理新闻文章。处理流程如下：
+
+```mermaid
+graph LR
+    A["URL 抓取<br/>Fetcher"] --> B["内容解析<br/>Parser"]
+    B --> C["URL 安全检查<br/>SSRF/PhishTank"]
+    C --> D["去重检测<br/>Deduplicator"]
+    D --> E["NLP 处理<br/>spaCy 实体抽取"]
+    E --> F["LLM 分析<br/>分类/摘要/可信度"]
+    F --> G["知识图谱写入<br/>Neo4j"]
+    G --> H["向量索引<br/>PgVector"]
+```
 
 ```bash
 # 触发所有源的 Pipeline
@@ -437,11 +475,22 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
 
 ---
 
-## 搜索文章
+## 🔍 搜索文章
 
 ### 统一搜索端点
 
 使用统一搜索端点，系统采用 **Intent-Aware Routing** 自动识别查询意图并选择最优搜索策略：
+
+```mermaid
+graph TD
+    Q["用户查询"] --> R["意图分类器"]
+    R -->|"实体相关"| L["Local 模式<br/>实体邻里向量搜索"]
+    R -->|"宏观趋势"| G["Global 模式<br/>社区报告聚合搜索"]
+    R -->|"文章检索"| A["Articles 模式<br/>混合向量+BM25"]
+    R -->|"复杂多面"| D["DRIFT 模式<br/>迭代式深度搜索"]
+    R -->|"因果关系"| C["Causal 模式<br/>MAGMA 因果链遍历"]
+    R -->|"时间序列"| T["Temporal 模式<br/>时间线检索"]
+```
 
 ```bash
 # 本地搜索（默认）- 实体聚焦的图谱问答
@@ -585,7 +634,7 @@ curl -X GET "http://localhost:8000/api/v1/articles/{article_id}" \
 
 ---
 
-## 探索知识图谱
+## 🕸️ 探索知识图谱
 
 ### 查询实体
 
@@ -747,7 +796,7 @@ curl -X POST "http://localhost:8000/api/v1/admin/communities/health/repair" \
 
 ---
 
-## 监控和运维
+## 📊 监控和运维
 
 ### 健康检查
 
@@ -794,9 +843,9 @@ db_connection_pool_size{database="postgres"}
 
 ---
 
-## 常见问题
+## ❓ 常见问题
 
-### Q: Pipeline 运行后没有看到文章？
+### ❓ Pipeline 运行后没有看到文章？
 
 **可能原因：**
 
@@ -824,7 +873,7 @@ curl "http://localhost:8000/api/v1/pipeline/queue/stats" \
 # 查看应用日志中的错误信息，特别是 spaCy 模型加载和 LLM 调用错误
 ```
 
-### Q: 搜索返回空结果？
+### ❓ 搜索返回空结果？
 
 **可能原因：**
 
@@ -849,7 +898,7 @@ curl "http://localhost:8000/api/v1/search?q=test" \
   -H "X-API-Key: your-api-key"
 ```
 
-### Q: Neo4j 连接失败？
+### ❓ Neo4j 连接失败？
 
 **排查步骤：**
 
@@ -864,7 +913,7 @@ curl "http://localhost:8000/health"
 # 查看响应中的 neo4j 状态
 ```
 
-### Q: 如何处理重复文章？
+### ❓ 如何处理重复文章？
 
 Weaver 自动处理重复文章：
 
@@ -883,7 +932,7 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
   }'
 ```
 
-### Q: 如何添加自定义实体类型？
+### ❓ 如何添加自定义实体类型？
 
 Weaver 的实体类型由 LLM 提示词和 spaCy 模型决定。你可以通过以下方式影响实体提取：
 
@@ -907,12 +956,12 @@ fallbacks = ["chat.another_provider.model"]
 
 ---
 
-## 下一步
+## 🔗 下一步
 
-- 阅读 [API 文档](./API.md) 了解完整 API 接口
-- 查看 [架构文档](./ARCHITECTURE.md) 了解系统设计
+- 阅读 [API 文档](API.md) 了解完整 API 接口
+- 查看 [架构文档](ARCHITECTURE.md) 了解系统设计
 - 查看 [配置说明](../config/settings.example.toml) 了解所有配置项
-- 参与 [贡献指南](../CONTRIBUTING.md) 帮助改进项目
+- 参与 [贡献指南](CONTRIBUTING.md) 帮助改进项目
 
 ### 管理员功能
 
@@ -935,6 +984,16 @@ Weaver 自动处理重复文章：
 enable_simhash_dedup = true            # 启用 SimHash 标题去重
 simhash_hamming_threshold = 3          # 最大汉明距离（0-64，越低越严格）
 ```
+
+---
+
+## 🔗 相关文档
+
+- [API 文档](API.md) — 完整 API 接口参考
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [贡献指南](CONTRIBUTING.md) — 参与项目贡献
+- [项目 README](../README.md) — 返回首页
 
 ---
 

@@ -1,23 +1,36 @@
-# Weaver 系统架构文档
+# 🏗️ Weaver 系统架构文档
 
-本文档详细说明 Weaver 系统的核心架构设计，包括数据持久化、一致性保证、容错机制和性能优化。
+Weaver 采用 **Protocol + 双数据库故障转移** 架构，通过 FastAPI Depends 模式实现依赖注入，支持 PostgreSQL↔DuckDB、Neo4j↔LadybugDB 启动时自动降级。本文档详细说明核心架构设计，包括数据持久化、一致性保证、容错机制和性能优化。
 
-## 目录
+## 📋 目录
 
-- [依赖注入架构](#依赖注入架构)
-- [端口自动检测](#端口自动检测)
-- [Saga 模式设计](#saga-模式设计)
-- [PersistStatus 状态机](#persiststatus-状态机)
-- [数据一致性保证机制](#数据一致性保证机制)
-- [Circuit Breaker 线程安全设计](#circuit-breaker-线程安全设计)
-- [向量索引架构](#向量索引架构)
-- [社区检测架构](#社区检测架构)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [依赖注入架构](#-依赖注入架构)
+- [端口自动检测](#-端口自动检测)
+- [Smart LLM Router 架构](#-smart-llm-router架构)
+- [Schema-Driven Structured Output](#-schema-driven-structured-output)
+- [MAGMA Memory 集成架构](#-magma-memory集成架构)
+- [Saga 模式设计](#-saga-模式设计)
+- [PersistStatus 状态机](#-persiststatus-状态机)
+- [数据一致性保证机制](#-数据一致性保证机制)
+- [Circuit Breaker 线程安全设计](#-circuit-breaker-线程安全设计)
+- [后台任务调度](#-后台任务调度)
+- [向量索引架构](#-向量索引架构)
+- [社区检测架构](#-社区检测架构)
+- [降级数据处理](#-降级数据处理)
+- [Redis 健康检查与 Fallback](#-redis-健康检查与-fallback)
+- [Embedding 缓存优化](#-embedding-缓存优化)
+- [总结](#-总结)
+
+</details>
 
 ---
 
-## 依赖注入架构
+## 🧱 依赖注入架构
 
-### 概述
+### 🎯 概述
 
 Weaver 采用 **FastAPI Depends 模式** 实现依赖注入,统一管理服务的创建、生命周期和依赖关系。该架构确保了组件间的松耦合,提高了可测试性和可维护性。
 
@@ -43,24 +56,19 @@ Weaver 支持多种数据库后端,根据配置自动选择并使用 Protocol �
 
 ### 架构层次
 
-```
-main.py (lifespan)
-       ↓
-Container.startup() / shutdown()
-       ↓
-Endpoints 类变量设置 (通过 Container 内部管理)
-  - Container 直接管理服务实例,不通过 register_endpoints()
-  - Endpoints 类通过静态变量存储实例
-  - 提供静态 getter 方法
-  - 抛出 HTTPException(503) 而非 RuntimeError
-       ↓
-dependencies.py (依赖函数层)
-  - 调用 Endpoints.get_*() 方法
-  - 定义 Type Aliases 供端点使用
-  - 检查 Container._container 是否初始化
-       ↓
-API Endpoints (使用层)
-  - pool: RelationalPoolDep (推荐)
+```mermaid
+graph TD
+    A["main.py<br/>(lifespan)"] --> B["Container.startup() / shutdown()"]
+    B --> C["Endpoints 类变量设置<br/>(通过 Container 内部管理)"]
+    C --> D["dependencies.py<br/>(依赖函数层)"]
+    D --> E["API Endpoints<br/>(使用层)"]
+
+    C -.- C1["Container 直接管理服务实例"]
+    C -.- C2["静态 getter 方法"]
+    C -.- C3["抛出 HTTPException(503)"]
+    D -.- D1["调用 Endpoints.get_*()"]
+    D -.- D2["定义 Type Aliases"]
+    E -.- E1["pool: RelationalPoolDep"]
 ```
 
 **注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(
@@ -215,9 +223,9 @@ Weaver 使用 EventBus 实现组件间的松耦合通信:
 
 ---
 
-## 端口自动检测
+## 🔌 端口自动检测
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了端口自动检测和分配功能，在应用启动时自动检查配置的端口是否可用，若被占用则自动寻找可用端口，确保服务能够正常启动。
 
@@ -319,9 +327,9 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 
 ---
 
-## Smart LLM Router架构
+## 🧠 Smart LLM Router架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了智能 LLM 路由系统，通过历史性能学习、熔断器集成和多 Provider 自动切换，确保 LLM 调用的可靠性和成本效益。
 
@@ -448,25 +456,25 @@ llm_token_total{provider="openai",model="gpt-4o",call_point="search_local"} 2023
 
 **LLM 调用流程**:
 
-```
-LLMClient.call()
-  ↓
-SmartRouter.select_provider()
-  ↓
-ProviderPool.execute()
-  ↓
-发布 LLMUsageEvent → Redis Buffer
-                  → Database Raw Record
-                  → Prometheus Metrics
-  ↓
-失败时发布 LLMFailureEvent → Database Record
+```mermaid
+graph TD
+    A["LLMClient.call()"] --> B["SmartRouter.select_provider()"]
+    B --> C["ProviderPool.execute()"]
+    C --> D{"调用结果"}
+    D -->|"成功"| E["发布 LLMUsageEvent"]
+    D -->|"失败"| F["发布 LLMFailureEvent"]
+
+    E --> G["Redis Buffer"]
+    E --> H["Database Raw Record"]
+    E --> I["Prometheus Metrics"]
+    F --> J["Database Record"]
 ```
 
 ---
 
-## Schema-Driven Structured Output
+## 📘 Schema-Driven Structured Output
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 SchemaNode 的 LLM 结构化输出能力，将图数据库中存储的 JSON Schema 转换为 LLM `response_format` 参数，并对响应进行校验和重试。该机制使业务事件抽取（融资、政策发布、并购等）能够获得符合预定义 schema 的结构化数据，而非自由文本。
 
@@ -637,9 +645,9 @@ except StructuredOutputValidationError as exc:
 
 ---
 
-## MAGMA Memory集成架构
+## 🔮 MAGMA Memory集成架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 MAGMA 框架的记忆集成服务，支持快速检索、深度整合和因果关系推理，为搜索和对话提供长期记忆能力。
 
@@ -648,6 +656,36 @@ Weaver 实现了基于 MAGMA 框架的记忆集成服务，支持快速检索、
 #### MemoryIntegrationService
 
 记忆集成服务提供三大核心能力:
+
+```mermaid
+graph TB
+    subgraph Input ["Pipeline 事件"]
+        EVT["MemoryIngestEvent"]
+    end
+
+    subgraph Fast ["Fast Path 快速路径 < 100ms"]
+        SYN["SynapticIngestionService<br/>同步摄入"]
+        TG["TemporalGraphRepo<br/>时间骨架图"]
+    end
+
+    subgraph Slow ["Slow Path 慢速路径 后台整合"]
+        WRK["StructuralConsolidationWorker<br/>合并冗余记忆"]
+        CG["CausalGraphRepo<br/>因果关系图"]
+        Q["ConsolidationQueue<br/>Redis 队列"]
+    end
+
+    subgraph Search ["搜索集成"]
+        ASE["AdaptiveSearchEngine<br/>意图感知检索"]
+    end
+
+    EVT --> SYN
+    SYN --> TG
+    EVT --> Q
+    Q --> WRK
+    WRK --> CG
+    TG --> ASE
+    CG --> ASE
+```
 
 **1. Fast Path (快速路径)**:
 
@@ -741,9 +779,9 @@ Memory 服务需要以下组件:
 
 ---
 
-## Saga 模式设计
+## 🔄 Saga 模式设计
 
-### 概述
+### 🎯 概述
 
 Weaver 采用 **Saga 模式** 实现跨数据库（PostgreSQL + Neo4j）的原子性批量持久化，通过两阶段提交和补偿事务确保数据一致性。
 
@@ -813,7 +851,7 @@ new_states = [s for s in valid_states if s["raw"].url not in existing_urls]
 
 ---
 
-## PersistStatus 状态机
+## 🚦 PersistStatus 状态机
 
 ### 状态定义
 
@@ -855,7 +893,7 @@ stateDiagram-v2
 
 ---
 
-## 数据一致性保证机制
+## 🛡️ 数据一致性保证机制
 
 ### 多层次一致性策略
 
@@ -900,9 +938,9 @@ scheduler.add_job(
 
 ---
 
-## Circuit Breaker 线程安全设计
+## ⚡ Circuit Breaker 线程安全设计
 
-### 概述
+### 🎯 概述
 
 Circuit Breaker（熔断器）用于防止级联故障，在依赖服务不可用时快速失败，保护系统稳定性。
 
@@ -987,9 +1025,9 @@ Circuit Breaker 与 SmartRouter 的 ModelSelector 集成:
 
 ---
 
-## 后台任务调度
+## 🕐 后台任务调度
 
-### 概述
+### 🎯 概述
 
 Weaver 使用 **APScheduler** 实现统一的后台任务调度系统，替代了原有的多线程和分散调度器。所有任务通过单一调度器管理，确保资源可控、易于监控。
 
@@ -1110,9 +1148,9 @@ scheduler.shutdown(wait=False)  # 不等待当前任务完成
 
 ---
 
-## 向量索引架构
+## 📐 向量索引架构
 
-### 概述
+### 🎯 概述
 
 Weaver 使用 **pgvector** 扩展在 PostgreSQL 中存储向量嵌入，并采用 **HNSW (Hierarchical Navigable Small World)**
 索引优化相似性搜索性能。
@@ -1150,9 +1188,9 @@ WITH (m = 16, ef_construction = 64);
 
 ---
 
-## 社区检测架构
+## 🏘️ 社区检测架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 **Hierarchical Leiden 算法** 的社区检测系统，用于发现知识图谱中的社区结构，支持更智能的全局搜索和 DRIFT
 搜索。
@@ -1218,9 +1256,9 @@ scheduler.add_job(
 
 ---
 
-## 降级数据处理
+## 📉 降级数据处理
 
-### 概述
+### 🎯 概述
 
 当 LLM 服务不可用或处理失败时，系统需要标记降级数据，确保后续处理能够识别和处理不完整的数据。
 
@@ -1275,22 +1313,24 @@ if "entities" in state.degraded_fields:
 
 ---
 
-## Redis 健康检查与 Fallback
+## 🔄 Redis 健康检查与 Fallback
 
-### 概述
+### 🎯 概述
 
 `Deduplicator` 实现 Redis 健康检查和自动 fallback 到数据库，确保去重服务在 Redis 不可用时仍能正常工作。
 
 ### 架构设计
 
-```
-┌─────────────────┐
-│   Deduplicator  │
-├─────────────────┤
-│ 1. Redis Hash   │ ← 快速缓存层 (crawl:dedup)
-│ 2. 健康检查探测 │ ← 60秒间隔 (time.monotonic)
-│ 3. DB Fallback  │ ← 可靠持久层
-└─────────────────┘
+```mermaid
+graph TB
+    subgraph Dedup ["Deduplicator"]
+        L1["1. Redis Hash<br/>快速缓存层 (crawl:dedup)"]
+        L2["2. 健康检查探<br/>60秒间隔 (time.monotonic)"]
+        L3["3. DB Fallback<br/>可靠持久层"]
+    end
+
+    L1 -.->|"缓存不可用"| L3
+    L2 -.->|"控制"| L1
 ```
 
 ### 健康检查机制
@@ -1368,9 +1408,9 @@ async def dedup(self, items: list) -> list:
 
 ---
 
-## Embedding 缓存优化
+## 🚀 Embedding 缓存优化
 
-### 概述
+### 🎯 概述
 
 LLM Client 使用 Redis `MGET` 批量获取 embedding 缓存，避免 N+1 查询问题。
 
@@ -1407,26 +1447,33 @@ for i, cached in enumerate(cached_values):
 
 ---
 
-## 总结
+## 🎯 总结
 
 Weaver 通过以下核心架构设计确保系统的可靠性、一致性和高性能：
 
-1. **依赖注入架构**: FastAPI Depends 模式 + Container 统一管理,支持多数据库策略 (PostgreSQL/DuckDB, Neo4j/LadybugDB,
-   Redis/Cashews)
-2. **Smart LLM Router**: 智能路由系统,集成 ExperienceStore + ModelSelector + Circuit Breaker,支持影子评估和热重载
-3. **Saga 模式**: 跨数据库原子性保证,补偿事务机制,幂等性支持
-4. **PersistStatus 状态机**: 合法状态转换验证,支持失败重试和终态保护
-5. **多层次一致性**: 同步 Saga + 异步对账 + 自动重试,确保 PostgreSQL ↔ Neo4j 数据一致
-6. **Circuit Breaker**: 基于 pybreaker 实现,支持异步调用、慢请求追踪和自动降级
-7. **HNSW 向量索引**: 高性能相似性搜索 (m=16, ef_construction=200),支持大规模向量数据;ef_construction=200 经性能调优验证,提供更优召回率
-8. **社区检测系统**: Hierarchical Leiden 算法 + 健康检查 + 自动修复,支持智能搜索
-9. **降级数据处理**: TypedDict + 模块级函数跟踪降级字段,确保不完整数据可识别
-10. **Redis 健康检查与 Fallback**: 两级去重 (Hash + DB),自动切换,批量操作优化
-11. **Embedding 缓存优化**: MGET 批量获取,将 O(N) 网络往返降低到 O(1),性能提升高达 480x
-12. **Vault 密钥管理**: 支持 HashiCorp Vault 集成,动态获取敏感配置,默认禁用
-13. **PgBouncer 连接池**: 支持 PgBouncer 代理模式,优化生产环境连接管理,默认禁用
+| # | 架构组件 | 核心能力 |
+|:--:|:---------|:---------|
+| 1 | **依赖注入架构** | FastAPI Depends + Container 统一管理，多数据库策略 |
+| 2 | **Smart LLM Router** | ExperienceStore + Circuit Breaker，影子评估与热重载 |
+| 3 | **Saga 模式** | 跨数据库原子性保证，补偿事务机制 |
+| 4 | **PersistStatus 状态机** | 合法状态转换验证，失败重试与终态保护 |
+| 5 | **多层次一致性** | 同步 Saga + 异步对账 + 自动重试 |
+| 6 | **Circuit Breaker** | 异步调用、慢请求追踪、自动降级 |
+| 7 | **HNSW 向量索引** | 高性能相似性搜索，性能提升 480x |
+| 8 | **社区检测系统** | Hierarchical Leiden + 健康检查 + 自动修复 |
+| 9 | **降级数据处理** | TypedDict + 模块级函数跟踪降级字段 |
+| 10 | **Redis Fallback** | 两级去重，自动切换，批量操作优化 |
+| 11 | **Embedding 缓存** | MGET 批量获取，O(N) → O(1) |
+| 12 | **Vault 密钥管理** | HashiCorp Vault 集成，动态获取敏感配置 |
+| 13 | **PgBouncer 连接池** | 代理模式，优化生产环境连接管理 |
 
-这些设计确保了 Weaver 在生产环境中的稳定运行,能够处理复杂的分布式数据持久化场景。
+## 🔗 相关文档
+
+- [API 文档](API.md) — 完整 API 接口参考
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [贡献指南](CONTRIBUTING.md) — 参与项目贡献
+- [项目 README](../README.md) — 返回首页
 
 ### Vault 密钥管理
 

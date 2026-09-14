@@ -1,92 +1,55 @@
-# Weaver API 文档
+# 📘 Weaver API 参考
 
-本文档详细说明 Weaver 系统 RESTful API 端点的请求/响应格式、状态码和错误处理。
+本文档完整收录 Weaver 系统 RESTful API 端点的请求/响应格式、状态码和错误处理。
 
-## 目录
+## 📋 目录
 
-- [系统端点](#系统端点)
-    - [GET /api/v1/status](#get-apiv1status)
-    - [GET /api/v1/config](#get-apiv1config)
-- [文章端点](#文章端点)
-    - [GET /api/v1/articles](#get-apiv1articles)
-    - [GET /api/v1/articles/{article_id}](#get-apiv1articlesarticle_id)
-- [源管理端点](#源管理端点)
-    - [GET /api/v1/sources](#get-apiv1sources)
-    - [POST /api/v1/sources](#post-apiv1sources)
-    - [PUT /api/v1/sources/{source_id}](#put-apiv1sourcessource_id)
-    - [DELETE /api/v1/sources/{source_id}](#delete-apiv1sourcessource_id)
-- [搜索端点](#搜索端点)
-    - [GET /api/v1/search](#get-apiv1search)
-    - [POST /api/v1/search/drift](#post-apiv1searchdrift)
-    - [POST /api/v1/search/causal](#post-apiv1searchcausal)
-    - [POST /api/v1/search/temporal](#post-apiv1searchtemporal)
-- [Pipeline 端点](#pipeline-端点)
-    - [POST /api/v1/pipeline/trigger](#post-apiv1pipelinetrigger)
-    - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
-    - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
-    - [POST /api/v1/pipeline/url](#post-apiv1pipelineurl)
-- [日报端点](#日报端点)
-    - [GET /api/v1/briefings/daily](#get-apiv1briefingsdaily)
-    - [POST /api/v1/briefings/daily/generate](#post-apiv1briefingsdailygenerate)
-- [图谱端点](#图谱端点)
-    - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
-    - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
-    - [GET /api/v1/graph/relations](#get-apiv1graphrelations)
-    - [GET /api/v1/graph/relations/search](#get-apiv1graphrelationssearch)
-    - [GET /api/v1/graph/metrics](#get-apiv1graphmetrics)
-    - [GET /api/v1/graph/visualization](#get-apiv1graphvisualization)
-    - [POST /api/v1/graph/visualization](#post-apiv1graphvisualization)
-- [社区管理端点](#社区管理端点)
-    - [POST /api/v1/admin/communities/rebuild](#post-apiv1admincommunitiesrebuild)
-    - [POST /api/v1/admin/communities/reports/generate](#post-apiv1admincommunitiesreportsgenerate)
-    - [POST /api/v1/admin/communities/{community_id}/report/regenerate](#post-apiv1admincommunitiescommunity_idreportregenerate)
-    - [GET /api/v1/admin/communities](#get-apiv1admincommunities)
-    - [GET /api/v1/admin/communities/{community_id}](#get-apiv1admincommunitiescommunity_id)
-    - [GET /api/v1/admin/communities/health](#get-apiv1admincommunitieshealth)
-    - [POST /api/v1/admin/communities/health/diagnose](#post-apiv1admincommunitieshealthdiagnose)
-    - [POST /api/v1/admin/communities/health/repair](#post-apiv1admincommunitieshealthrepair)
-- [源权威管理端点](#源权威管理端点)
-    - [GET /api/v1/admin/authorities](#get-apiv1adminauthorities)
-    - [PATCH /api/v1/admin/authorities/{host}](#patch-apiv1adminauthoritieshost)
-- [文章管理端点](#文章管理端点)
-    - [POST /api/v1/admin/articles/deduplicate](#post-apiv1adminarticlesdeduplicate)
-- [LLM 失败监控端点](#llm-失败监控端点)
-    - [GET /api/v1/monitoring/llm/failures](#get-apiv1monitoringllm-failures)
-    - [GET /api/v1/monitoring/llm/failures/stats](#get-apiv1monitoringllm-failuresstats)
-- [LLM 使用统计端点](#llm-使用统计端点)
-    - [GET /api/v1/monitoring/llm/usage](#get-apiv1monitoringllm-usage)
-- [Saga 管理端点](#saga-管理端点)
-    - [GET /api/v1/saga/{saga_id}](#get-apiv1sagasaga_id)
-    - [POST /api/v1/saga/{saga_id}/compensate](#post-apiv1sagasaga_idcompensate)
-    - [POST /api/v1/saga/{saga_id}/retry](#post-apiv1sagasaga_idretry)
-    - [GET /api/v1/saga/article/{article_id}](#get-apiv1sagaarticlearticle_id)
-    - [GET /api/v1/saga/failed/list](#get-apiv1sagafailedlist)
-- [趋势分析端点](#趋势分析端点)
-    - [GET /api/v1/trends/sentiment](#get-apiv1trendssentiment)
-    - [GET /api/v1/trends/detection](#get-apiv1trendsdetection)
-- [分析端点](#分析端点)
-    - [GET /api/v1/analytics/shifts](#get-apiv1analyticsshifts)
-    - [GET /api/v1/analytics/briefings](#get-apiv1analyticsbriefings)
-- [告警管理端点](#告警管理端点)
-    - [POST /api/v1/monitoring/alerts/rules](#post-apiv1monitoringalerts-rules)
-    - [GET /api/v1/monitoring/alerts/rules](#get-apiv1monitoringalerts-rules)
-    - [GET /api/v1/monitoring/alerts/rules/{rule_id}](#get-apiv1monitoringalerts-rulesrule_id)
-    - [PATCH /api/v1/monitoring/alerts/rules/{rule_id}](#patch-apiv1monitoringalerts-rulesrule_id)
-    - [DELETE /api/v1/monitoring/alerts/rules/{rule_id}](#delete-apiv1monitoringalerts-rulesrule_id)
-    - [POST /api/v1/monitoring/alerts/trigger](#post-apiv1monitoringalertstrigger)
-    - [POST /api/v1/monitoring/alerts/events/{event_id}/acknowledge](#post-apiv1monitoringalertseventsevent_idacknowledge)
-    - [GET /api/v1/monitoring/alerts/events](#get-apiv1monitoringalertsevents)
+<details open>
+<summary>📑 目录（点击展开）</summary>
 
-- [健康检查端点](#健康检查端点)
-    - [GET /health](#get-health)
-- [监控指标端点](#监控指标端点)
-    - [GET /metrics](#get-metrics)
-- [错误响应格式](#错误响应格式)
-- [通用规范](#通用规范)
+- [概述](#-概述)
+- [系统端点](#-系统端点)
+- [健康检查端点](#-健康检查端点)
+- [监控指标端点](#-监控指标端点)
+- [文章端点](#-文章端点)
+- [源管理端点](#-源管理端点)
+- [搜索端点](#-搜索端点)
+- [Pipeline 端点](#-pipeline-端点)
+- [日报端点](#-日报端点)
+- [图谱端点](#-图谱端点)
+- [社区管理端点](#-社区管理端点)
+- [源权威管理端点](#-源权威管理端点)
+- [文章管理端点](#-文章管理端点)
+- [LLM 失败监控端点](#-llm-失败监控端点)
+- [LLM 使用统计端点](#-llm-使用统计端点)
+- [Saga 管理端点](#-saga-管理端点)
+- [趋势分析端点](#-趋势分析端点)
+- [分析端点](#-分析端点)
+- [告警管理端点](#-告警管理端点)
+- [错误响应格式](#-错误响应格式)
+- [通用规范](#-通用规范)
+- [总结](#-总结)
+
+</details>
 
 ---
 
-## 系统端点
+## 🎯 概述
+
+### API 设计原则
+
+| 原则 | 说明 |
+|:-----|:-----|
+| **RESTful** | 标准 HTTP 方法与状态码 |
+| **统一格式** | JSON 响应 `{code, message, data}` |
+| **认证安全** | API Key 头部认证 |
+| **完善的监控** | Prometheus 指标 + 告警 |
+
+> 💡 **提示**：所有 API 端点均需在请求头中携带 `X-API-Key` 进行认证（健康检查端点除外）。
+
+---
+
+## 🖥️ 系统端点
 
 ### GET /api/v1/status
 
@@ -184,7 +147,7 @@ Host: api.weaver.example.com
 
 ---
 
-## 健康检查端点
+## ✅ 健康检查端点
 
 ### GET /health
 
@@ -365,7 +328,7 @@ async def check_postgres_health(pool: PostgresPool) -> dict[str, Any]:
 
 ---
 
-## 监控指标端点
+## 📈 监控指标端点
 
 ### GET /metrics
 
@@ -545,7 +508,7 @@ fetch_metrics()
 
 ---
 
-## 文章端点
+## 📄 文章端点
 
 ### GET /api/v1/articles
 
@@ -653,7 +616,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 源管理端点
+## 📰 源管理端点
 
 ### GET /api/v1/sources
 
@@ -845,7 +808,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 搜索端点
+## 🔍 搜索端点
 
 ### GET /api/v1/search
 
@@ -977,7 +940,7 @@ X-API-Key: your-api-key
 
 ---
 
-## Pipeline 端点
+## ⚡ Pipeline 端点
 
 ### POST /api/v1/pipeline/trigger
 
@@ -1189,7 +1152,7 @@ Content-Type: application/json
 
 ---
 
-## 日报端点
+## 📝 日报端点
 
 ### GET /api/v1/briefings/daily
 
@@ -1296,7 +1259,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 图谱端点
+## 🕸️ 图谱端点
 
 ### GET /api/v1/graph/entities/{name}
 
@@ -1721,7 +1684,7 @@ Content-Type: application/json
 
 ---
 
-## 社区管理端点
+## 🏘️ 社区管理端点
 
 ### 社区数据模型
 
@@ -2125,7 +2088,7 @@ Content-Type: application/json
 
 ---
 
-## 源权威管理端点
+## 🏅 源权威管理端点
 
 ### GET /api/v1/admin/authorities
 
@@ -2308,7 +2271,7 @@ curl -X PATCH "http://localhost:8000/api/v1/admin/authorities/example-blog.com" 
 
 ---
 
-## 文章管理端点
+## 📋 文章管理端点
 
 ### POST /api/v1/admin/articles/deduplicate
 
@@ -2352,7 +2315,7 @@ X-API-Key: your-api-key
 
 ---
 
-## LLM 失败监控端点
+## 📊 LLM 失败监控端点
 
 ### GET /api/v1/monitoring/llm/failures
 
@@ -2525,7 +2488,7 @@ curl -X GET "http://localhost:8000/api/v1/monitoring/llm/failures/stats?since=20
 
 ---
 
-## LLM 使用统计端点
+## 📊 LLM 使用统计端点
 
 ### GET /api/v1/monitoring/llm/usage
 
@@ -2820,9 +2783,12 @@ Content-Type: application/json
 
 **DRIFT 搜索流程：**
 
-1. **Primer 阶段**：向量搜索社区报告，生成初步答案和后续问题
-2. **Follow-up 阶段**：迭代执行局部搜索深化理解
-3. **Aggregation 阶段**：聚合所有结果生成最终答案
+```mermaid
+graph LR
+    Q["查询"] --> P["Primer 阶段<br/>向量搜索社区报告"]
+    P --> F["Follow-up 阶段<br/>迭代局部搜索深化"]
+    F --> A["Aggregation 阶段<br/>聚合生成最终答案"]
+```
 
 **适用场景：**
 
@@ -2970,7 +2936,7 @@ Content-Type: application/json
 
 ---
 
-## Saga 管理端点
+## 🔄 Saga 管理端点
 
 Saga 端点用于查询 Pipeline 处理流程的状态、手动触发补偿和重试失败的处理。
 
@@ -3208,7 +3174,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 趋势分析端点
+## 📈 趋势分析端点
 
 趋势分析端点提供情感趋势检测和实体趋势发现功能。
 
@@ -3355,7 +3321,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 分析端点
+## 🔬 分析端点
 
 分析端点提供情感偏移查询和情报简报功能。
 
@@ -3467,7 +3433,7 @@ X-API-Key: your-api-key
 
 ---
 
-## 告警管理端点
+## 🚨 告警管理端点
 
 告警端点用于创建和管理实体监控规则，所有操作需要 Admin API Key。
 
@@ -3808,7 +3774,7 @@ X-Admin-API-Key: your-admin-api-key
 
 ---
 
-## 错误响应格式
+## ❌ 错误响应格式
 
 ### 统一错误响应结构
 
@@ -4084,7 +4050,7 @@ async def call_api_with_retry():
 
 ---
 
-## 通用规范
+## 📏 通用规范
 
 ### 请求规范
 
@@ -4205,23 +4171,32 @@ API 版本通过 URL 前缀指定：
 
 ---
 
-## 总结
+## 🎯 总结
 
 Weaver API 遵循 RESTful 设计原则，提供：
 
-1. **系统状态端点** (`/api/v1/status`, `/api/v1/config`)：检查系统状态和配置
-2. **健康检查端点** (`/health`)：监控服务及依赖项状态
-3. **监控指标端点** (`/metrics`)：Prometheus 格式的运行时指标
-4. **内容管理**：文章、源、Pipeline 的完整 CRUD 操作
-5. **搜索功能**：统一搜索、DRIFT 搜索、因果搜索、时间搜索
-6. **知识图谱**：实体查询、关系搜索、图谱可视化、质量指标
-7. **社区管理**：社区重建、报告生成、健康检查、诊断和修复
-8. **管理功能**：源权威管理、LLM 失败监控、LLM 使用统计、文章去重
-9. **Saga 管理**：Pipeline 处理流程状态查询、手动补偿和重试
-10. **趋势分析**：情感趋势检测和实体趋势发现
-11. **分析功能**：情感偏移查询和情报简报
-12. **告警管理**：实体监控规则 CRUD、告警触发和事件确认
-13. **统一错误格式**：结构化的错误响应，便于客户端处理
-14. **完善的文档**：详细的请求/响应示例和状态码说明
+| # | 功能模块 | 说明 |
+|:--:|:---------|:-----|
+| 1 | **系统状态** | `/api/v1/status`, `/api/v1/config` |
+| 2 | **健康检查** | `/health` 监控服务及依赖项状态 |
+| 3 | **监控指标** | `/metrics` Prometheus 格式运行时指标 |
+| 4 | **内容管理** | 文章、源、Pipeline 完整 CRUD |
+| 5 | **搜索功能** | 统一搜索、DRIFT、因果、时间搜索 |
+| 6 | **知识图谱** | 实体查询、关系搜索、图谱可视化 |
+| 7 | **社区管理** | 社区重建、报告生成、健康检查 |
+| 8 | **管理功能** | 源权威、LLM 监控、文章去重 |
+| 9 | **Saga 管理** | Pipeline 流程状态查询、补偿和重试 |
+| 10 | **趋势分析** | 情感趋势检测和实体趋势发现 |
+| 11 | **分析功能** | 情感偏移查询和情报简报 |
+| 12 | **告警管理** | 实体监控规则 CRUD、告警触发 |
+| 13 | **统一错误格式** | 结构化错误响应，便于客户端处理 |
 
 所有端点均支持高并发访问，并配备完善的监控和告警机制。
+
+## 🔗 相关文档
+
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [贡献指南](CONTRIBUTING.md) — 参与项目贡献
+- [项目 README](../README.md) — 返回首页
