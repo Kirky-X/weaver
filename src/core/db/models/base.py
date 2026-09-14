@@ -20,7 +20,7 @@ from sqlalchemy.types import JSON, TypeDecorator
 
 # PersistStatus moved to core.protocols.types (protocols must not
 # depend on core.db); re-exported here for backwards-compatible imports.
-from core.protocols.types import PersistStatus  # noqa: E402
+from core.protocols.types import PersistStatus as PersistStatus
 
 
 class JSONCompatible(TypeDecorator):

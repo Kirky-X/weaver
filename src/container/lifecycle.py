@@ -433,7 +433,7 @@ class ContainerLifecycleMixin:
         log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
     def _register_consistency_jobs(self, scheduler, jobs, settings) -> None:
-        """Data sync / saga recovery / outbox dispatch job registration."""
+        """Register data sync / saga recovery / outbox dispatch jobs."""
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.triggers.interval import IntervalTrigger
 
@@ -542,7 +542,6 @@ class ContainerLifecycleMixin:
                 max_instances=1,
             )
 
-
     def _register_maintenance_jobs(self, scheduler, jobs, settings) -> None:
         """Cleanup / archive / pipeline retry / enrichment / crawl retry job registration."""
         from apscheduler.triggers.interval import IntervalTrigger
@@ -576,7 +575,6 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
-
 
     def _register_analytics_jobs(self, scheduler, jobs, settings) -> None:
         """LLM usage aggregation / briefing / sentiment / trend / causal job registration."""
@@ -658,16 +656,19 @@ class ContainerLifecycleMixin:
                 )
 
                 async def _ladybug_community_check() -> dict[str, object]:
+                    from core.observability import get_logger
+
+                    _log = get_logger(__name__)
                     try:
                         result = await detector.rebuild_communities()
-                        log.info(
+                        _log.info(
                             "ladybug_community_detection_complete",
                             communities=result.total_communities,
                             modularity=result.modularity,
                         )
                         return {"communities": result.total_communities}
                     except Exception as exc:
-                        log.error("ladybug_community_detection_failed", error=str(exc))
+                        _log.error("ladybug_community_detection_failed", error=str(exc))
                         return {"error": str(exc)}
 
                 scheduler.add_job(
@@ -768,7 +769,7 @@ class ContainerLifecycleMixin:
                 max_instances=1,
                 coalesce=True,
             )
-            log.info("causal_inference_job_registered")
+            log.info("causal_inference_job_registered")  # noqa: F821
 
         # Startup: run sync once immediately
         scheduler.add_job(
@@ -777,7 +778,6 @@ class ContainerLifecycleMixin:
             id="startup_sync_pending_to_neo4j",
             replace_existing=True,
         )
-
 
     # ── Community Health Check ─────────────────────────────────
 
