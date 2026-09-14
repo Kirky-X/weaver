@@ -1,31 +1,14 @@
-<span id="top"></span>
-
 <div align="center">
 
-<p align="center">
-  <img src="docs/asserts/logo.png" alt="Weaver Logo" width="150">
-</p>
+<img src="docs/asserts/logo.png" alt="Weaver Logo" width="180">
 
-<p align="center">
-  <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
-</p>
+[![Version](https://img.shields.io/github/v/release/Kirky-X/weaver.svg)](https://github.com/Kirky-X/weaver/releases) [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE) [![FastAPI](https://img.shields.io/badge/fastapi-0.135+-teal.svg)](https://fastapi.tiangolo.com/)
 
-<p>
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/github/v/release/Kirky-X/weaver.svg" alt="Version" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/license-Apache--2.0-yellow.svg" alt="License" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
-</p>
+**中文** | [English](README_EN.md)
 
+**智能新闻采集、分析与知识图谱构建平台**
 
-<p align="center">
-  <a href="#features" style="color:#3B82F6">✨ 功能特性</a> •
-  <a href="#quick-start" style="color:#3B82F6">🚀 快速开始</a> •
-  <a href="#architecture" style="color:#3B82F6">🏗️ 架构设计</a> •
-  <a href="#api" style="color:#3B82F6">📡 API 文档</a> •
-  <a href="#scheduler-config" style="color:#3B82F6">📅 调度器配置</a> •
-  <a href="#contributing" style="color:#3B82F6">🤝 参与贡献</a>
-</p>
+[✨ 功能特性](#-功能特性) • [🚀 快速开始](#-快速开始) • [📚 文档](#-文档) • [💻 示例](#-示例) • [🤝 参与贡献](#-参与贡献)
 
 </div>
 
@@ -33,32 +16,30 @@
 
 ## 📋 目录
 
-<details open style="padding:16px">
-<summary style="cursor:pointer; font-weight:600; color:#1E293B">📑 目录（点击展开）</summary>
+<details open>
+<summary>📑 目录</summary>
 
-- [✨ 功能特性](#features)
-- [🚀 快速开始](#quick-start)
-    - [📦 环境要求](#requirements)
-    - [🔧 安装](#installation)
-    - [⚙️ 配置](#configuration)
-    - [📅 调度器配置](#scheduler-config)
-    - [🗄️ 数据库迁移](#migration)
-    - [▶️ 启动服务](#start)
-- [🏗️ 架构设计](#architecture)
-- [📡 API 文档](#api)
-- [🔄 Pipeline 流程](#pipeline)
-- [📊 可信度评分](#credibility)
-- [🤖 LLM 调用点](#llm-callpoints)
-- [⏰ 定时任务](#scheduled-jobs)
-- [🧪 开发指南](#development)
-- [🤝 参与贡献](#contributing)
-- [📄 许可证](#license)
+- [✨ 功能特性](#-功能特性)
+- [🚀 快速开始](#-快速开始)
+- [📚 文档](#-文档)
+- [💻 示例](#-示例)
+- [🏗️ 架构](#️-架构)
+- [🧪 测试](#-测试)
+- [📊 性能](#-性能)
+- [🔒 安全](#-安全)
+- [🗺️ 开发路线图](#️-开发路线图)
+- [🤝 参与贡献](#-参与贡献)
+- [📋 更新日志](#-更新日志)
+- [📄 许可证](#-许可证)
+- [🙏 致谢](#-致谢)
+- [📞 联系与支持](#-联系与支持)
+- [⭐ Star 历史](#-star-历史)
 
 </details>
 
 ---
 
-## <span id="features">✨ 功能特性</span>
+## ✨ 功能特性
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
@@ -108,9 +89,9 @@
 
 ---
 
-## <span id="quick-start">🚀 快速开始</span>
+## 🚀 快速开始
 
-### <span id="requirements">📦 环境要求</span>
+### 📦 环境要求
 
 | 依赖         | 版本    | 说明                                |
 |------------|-------|-----------------------------------|
@@ -119,7 +100,7 @@
 | Neo4j      | 5+    | 图数据库 (或使用 LadybugDB 作为嵌入式备选)      |
 | Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选)        |
 
-### <span id="installation">🔧 安装</span>
+### 🔧 安装
 
 #### 一键初始化（推荐）
 
@@ -188,7 +169,7 @@ uv run python -m spacy download en_core_web_lg
 
 </details>
 
-### <span id="configuration">⚙️ 配置</span>
+### ⚙️ 配置
 
 Weaver 使用分层配置策略，支持环境变量和 TOML 文件：
 
@@ -304,7 +285,7 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 
 </details>
 
-#### <span id="scheduler-config">📅 调度器配置</span>
+#### 📅 调度器配置
 
 Pipeline 处理失败后支持智能重试机制：
 
@@ -321,7 +302,7 @@ Pipeline 处理失败后支持智能重试机制：
 - 成功率 ≥ 阈值：批次大小不变或增加
 - 成功率 < 阈值：批次大小减半，避免大量任务连续失败
 
-#### <span id="entity-config">🏷️ 实体提取配置</span>
+#### 🏷️ 实体提取配置
 
 控制实体提取阶段的行为：
 
@@ -346,7 +327,7 @@ disable_data_metrics_nodes = true
 - **LLM 阶段**：过滤 LLM 返回的"数据指标"类型实体
 - **Resolver 阶段**：阻止"数据指标"实体的创建和合并
 
-#### <span id="url-security-config">🔒 URL 安全配置</span>
+#### 🔒 URL 安全配置
 
 多层 URL 安全检查，保护爬虫免受恶意 URL 攻击：
 
@@ -386,14 +367,14 @@ cache_safe_ttl_seconds = 21600
 
 ---
 
-### <span id="migration">🗄️ 数据库迁移</span>
+### 🗄️ 数据库迁移
 
 ```bash
 # 运行迁移
 uv run alembic upgrade head
 ```
 
-### <span id="start">▶️ 启动服务</span>
+### ▶️ 启动服务
 
 ```bash
 # 开发模式
@@ -405,7 +386,20 @@ uv run python -m src.main
 
 ---
 
-## <span id="architecture">🏗️ 架构设计</span>
+## 📚 文档
+
+| 文档 | 说明 |
+|------|------|
+| [📖 用户指南](docs/USER_GUIDE.md) | 从安装到进阶的完整使用教程 |
+| [📘 API 参考](docs/API.md) | 全部 API 端点的详细说明 |
+| [🏗️ 架构文档](docs/ARCHITECTURE.md) | 设计原则、模块划分与数据流 |
+| [🚀 部署指南](docs/DEPLOYMENT.md) | Docker 部署与生产环境配置 |
+| [📋 更新日志](docs/CHANGELOG.md) | 每个版本的变更记录 |
+| [🤝 贡献指南](docs/CONTRIBUTING.md) | 如何参与项目开发 |
+
+---
+
+## 🏗️ 架构
 
 ### 系统架构
 
@@ -487,223 +481,33 @@ DuckDB。此设计消除了图数据库与关系数据库之间的字段冗余�
 
 ---
 
-## <span id="api">📡 API 文档</span>
+## 💻 示例
 
-### 认证
+Weaver 提供多种使用方式，从 API 调用到命令行工具。
 
-所有 API 请求需要在 Header 中携带 API Key：
+### API 示例
 
-```
-X-API-Key: your-api-key
-```
-
-### 端点列表
-
-| 端点                                                 | 方法     | 描述                                                                        |
-|----------------------------------------------------|--------|---------------------------------------------------------------------------|
-| `/health`                                          | GET    | 健康检查（无需认证）                                                                |
-| `/api/v1/status`                                   | GET    | 系统状态（需认证）                                                                 |
-| `/api/v1/config`                                   | GET    | 系统配置（需认证）                                                                 |
-| `/api/v1/sources`                                  | GET    | 获取源列表                                                                     |
-| `/api/v1/sources/{source_id}`                      | GET    | 获取指定源                                                                     |
-| `/api/v1/sources`                                  | POST   | 添加新源                                                                      |
-| `/api/v1/sources/{source_id}`                      | PUT    | 更新源配置                                                                     |
-| `/api/v1/sources/{source_id}`                      | DELETE | 删除源                                                                       |
-| `/api/v1/pipeline/trigger`                         | POST   | 触发 Pipeline 任务（异步 fire-and-forget，返回 task_id 用于轮询）                       |
-| `/api/v1/pipeline/tasks/{task_id}`                 | GET    | 获取任务状态                                                                    |
-| `/api/v1/pipeline/queue/stats`                     | GET    | 获取队列统计                                                                    |
-| `/api/v1/pipeline/status`                          | GET    | 获取整体 Pipeline 状态（running/idle + 队列统计）                                    |
-| `/api/v1/pipeline/url`                             | POST   | 处理单个 URL                                                                  |
-| `/api/v1/pipeline/url/stream`                      | POST   | 处理单个 URL（SSE 流式响应，3 并发上限）                                                |
-| `/api/v1/articles`                                 | GET    | 查询文章列表（支持分页、过滤、排序）                                                        |
-| `/api/v1/articles/{id}`                            | GET    | 获取文章详情                                                                    |
-| `/api/v1/search`                                   | GET    | 统一搜索（mode 参数路由：local/global/articles）                                     |
-| `/api/v1/search/drift`                             | POST   | DRIFT 迭代式探索搜索                                                             |
-| `/api/v1/search/causal`                            | POST   | 因果关系搜索                                                                    |
-| `/api/v1/search/temporal`                          | POST   | 时间推理搜索                                                                    |
-| `/api/v1/graph/entities/{name}`                    | GET    | 查询实体及其关系                                                                  |
-| `/api/v1/graph/articles/{id}/graph`                | GET    | 获取文章的知识图谱                                                                 |
-| `/api/v1/graph/relations`                          | GET    | 查询实体关系                                                                    |
-| `/api/v1/graph/relations/search`                   | GET    | 搜索实体关系                                                                    |
-| `/api/v1/graph/metrics`                            | GET    | 图谱指标（health/full/components/orphans/high-degree/modularity/distributions） |
-| `/api/v1/graph/visualization`                      | GET    | 获取图谱可视化数据                                                                 |
-| `/api/v1/graph/visualization`                      | POST   | 获取子图数据                                                                    |
-| `/api/v1/admin/authorities`                        | GET    | 获取源权威度列表                                                                  |
-| `/api/v1/admin/authorities/{host}`                 | PATCH  | 更新源权威度                                                                    |
-| `/api/v1/monitoring/llm/failures`                  | GET    | LLM 失败记录查询                                                                |
-| `/api/v1/monitoring/llm/failures/stats`            | GET    | LLM 失败统计                                                                  |
-| `/api/v1/monitoring/llm/usage`                     | GET    | LLM 使用统计（支持多维度分组查询）                                                       |
-| `/api/v1/admin/articles/deduplicate`               | POST   | 文章去重                                                                      |
-| `/api/v1/admin/communities`                        | GET    | 社区列表查询                                                                    |
-| `/api/v1/admin/communities/{id}`                   | GET    | 社区详情                                                                      |
-| `/api/v1/admin/communities/rebuild`                | POST   | 重建社区                                                                      |
-| `/api/v1/admin/communities/health`                 | GET    | 社区健康概览                                                                    |
-| `/api/v1/admin/communities/health/diagnose`        | POST   | 社区健康诊断                                                                    |
-| `/api/v1/admin/communities/health/repair`          | POST   | 社区健康修复                                                                    |
-| `/api/v1/admin/communities/reports/generate`       | POST   | 生成社区报告                                                                    |
-| `/api/v1/admin/communities/{id}/report/regenerate` | POST   | 重新生成社区报告                                                                  |
-| `/api/v1/briefings/daily`                          | GET    | 按日期 + category 获取日报（不存在返回 data=null,非 404）                              |
-| `/api/v1/briefings/daily/generate`                 | POST   | 按需生成日报（narrative_mode 可选,已存在返回 409 Conflict）                            |
-| `/api/v1/analytics/shifts`                         | GET    | 情感时序变化点查询                                                                 |
-| `/api/v1/analytics/briefings`                      | GET    | 历史日报列表查询                                                                  |
-| `/api/v1/trends/sentiment`                         | GET    | 情感趋势分析                                                                    |
-| `/api/v1/trends/detection`                         | GET    | 趋势检测                                                                      |
-| `/api/v1/saga/{saga_id}`                           | GET    | 获取 Saga 状态                                                                |
-| `/api/v1/saga/{saga_id}/compensate`                | POST   | 触发手动补偿                                                                    |
-| `/api/v1/saga/{saga_id}/retry`                     | POST   | 重试失败的 Saga                                                                |
-| `/api/v1/saga/article/{article_id}`                | GET    | 获取文章关联 Saga                                                               |
-| `/api/v1/saga/failed/list`                         | GET    | 列出失败 Saga                                                                 |
-| `/api/v1/monitoring/alerts/rules`                  | GET/POST | 告警规则查询/创建                                                                |
-| `/api/v1/monitoring/alerts/rules/{rule_id}`        | GET/PATCH/DELETE | 告警规则详情/更新/删除（删除事务化级联清理 events,F2）                              |
-| `/api/v1/monitoring/alerts/events`                 | GET    | 告警事件查询                                                                    |
-| `/metrics`                                         | GET    | Prometheus 指标                                                             |
-
-<details style="padding:16px; margin: 16px 0">
-<summary style="cursor:pointer; font-weight:600; color:#166534">📖 API 示例</summary>
-
-#### 获取文章列表
+所有 API 请求需要在 Header 中携带 API Key：`X-API-Key: your-api-key`
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7&sort_by=publish_time&sort_order=desc" \
+# 获取文章列表
+curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20" \
   -H "X-API-Key: your-api-key"
-```
 
-#### 创建源
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/sources" \
+# 处理单个 URL
+ curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "id": "xinhua-news",
-    "name": "新华社",
-    "url": "http://www.xinhuanet.com/politics/news_politics.xml",
-    "source_type": "rss",
-    "enabled": true,
-    "interval_minutes": 30,
-    "credibility": 0.98,
-    "tier": 1
-  }'
-```
+  -d '{"url": "https://example.com/article"}'
 
-**新字段说明**：
-
-- `credibility`: 预设可信度 (0.0-1.0)，用于可信度评估的来源权威度信号
-- `tier`: 来源层级 (1=权威, 2=可信, 3=普通)
-
-#### 查询实体
-
-```bash
+# 查询实体
 curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
   -H "X-API-Key: your-api-key"
 ```
 
-</details>
+完整端点列表与详细参数见 [📡 API 文档](docs/API.md)。
 
----
-
-## <span id="pipeline">🔄 Pipeline 流程</span>
-
-### Phase 1: 单文章并发处理
-
-```mermaid
-flowchart LR
-    A[Raw Article] --> B[Classifier]
-    B --> C[Cleaner]
-    C --> D[Categorizer]
-    D --> E[Vectorize]
-
-    B -->|非新闻| F[终止]
-```
-
-- **Classifier**: 判断是否为新闻，非新闻直接终止
-- **Cleaner**: 清洗 HTML、提取正文
-- **Categorizer**: 分类（政治/军事/经济/科技等）、语言、地区
-- **Vectorize**: 生成内容向量 (1024维)
-
-### Phase 2: 批量合并
-
-```
-BatchMerger (Union-Find 相似度聚类)
-```
-
-- 相似度阈值: 0.80
-- 合并相似文章，保留最完整版本
-
-### Phase 3: 单文章后处理 (并发执行)
-
-```mermaid
-flowchart LR
-    A[Merged Article] --> B[ReVectorize]
-    B --> C[Analyze]
-    B --> D[QualityScorer]
-    C --> E[Credibility]
-    D --> E
-    E --> F[EntityExtractor]
-    F --> G[fake_news_detector]
-    F --> H[conflict_detector]
-    F --> I[narrative_generator]
-    F --> J[schema_extractor]
-    G --> K[sentiment_tracker]
-    H --> K
-    I --> K
-    J --> K
-    K --> L[EntityResolver]
-```
-
-- **ReVectorize**: 合并后重新生成向量 (对 terminal 文章跳过)
-- **Analyze + QualityScorer**: 并行执行 - 摘要/情感分析/关键数据提取 + 内容质量评分
-- **Credibility**: 可信度评分 (依赖 Analyze 结果)
-- **EntityExtractor**: spaCy + LLM 实体提取
-- **fake_news_detector**: 假新闻检测
-- **conflict_detector**: 数据冲突检测
-- **narrative_generator**: 叙述生成
-- **schema_extractor**: 结构化数据提取
-- **sentiment_tracker**: 实体级别情感偏移计算
-- **EntityResolver**: 实体消歧和合并
-
----
-
-## <span id="credibility">📊 可信度评分</span>
-
-采用三信号类别自适应可信度评估算法：
-
-| 信号    | 说明                            |
-|-------|-------------------------------|
-| 来源权威性 | 三级优先级：预设值 > 历史自动计算 > 默认值 0.50 |
-| 内容核查  | 基于正文长度的启发式评分                   |
-| 时效性   | 发布时间与事件时间差                    |
-
-### 类别自适应权重
-
-权重根据文章类型动态调整：
-
-| 类别       | 来源       | 内容       | 时效性      | 特点       |
-|----------|----------|----------|----------|----------|
-| 政治/国际/军事 | 0.25     | 0.25     | **0.50** | 突发新闻时效优先 |
-| 经济       | **0.45** | 0.35     | 0.20     | 来源权威优先   |
-| 科技       | 0.30     | **0.50** | 0.20     | 内容质量优先   |
-| 社会/文化/体育 | 0.40     | 0.40     | 0.20     | 均衡分布     |
-
-### 时效性评分规则
-
-| 时间差    | 评分   |
-|--------|------|
-| ≤6小时   | 1.00 |
-| ≤24小时  | 0.85 |
-| ≤72小时  | 0.65 |
-| ≤168小时 | 0.45 |
-| >168小时 | 0.30 |
-
-### 来源权威度三级优先级
-
-1. **预设可信度**：通过 API 为权威来源（央视、新华社等）预设可信度
-2. **历史自动计算**：基于历史文章平均分自动计算
-3. **默认值**：新来源默认 0.50
-
----
-
-## <span id="llm-callpoints">🤖 LLM 调用点</span>
+### LLM 调用点
 
 | 调用点                 | 类型        | 说明     |
 |---------------------|-----------|--------|
@@ -728,9 +532,7 @@ flowchart LR
 | embedding           | EMBEDDING | 向量生成   |
 | rerank              | RERANK    | 重排序    |
 
----
-
-## <span id="scheduled-jobs">⏰ 定时任务</span>
+### 定时任务
 
 | 任务                            | 间隔       | 说明                            |
 |-------------------------------|----------|-------------------------------|
@@ -755,7 +557,7 @@ flowchart LR
 
 ---
 
-## <span id="development">🧪 开发指南</span>
+## 🧪 测试
 
 ### 测试概述
 
@@ -902,7 +704,55 @@ uv run alembic downgrade -1
 
 ---
 
-## <span id="contributing">🤝 参与贡献</span>
+## 📊 性能
+
+Weaver 的性能关键路径经过优化：
+
+| 路径 | 说明 | 备注 |
+|------|------|------|
+| Pipeline 处理 | Phase 1 单文章并发，Phase 3 后处理并发 | 受 LLM 调用延迟影响 |
+| 向量检索 | HNSW 索引，pgvector 后端 | 1024 维向量，毫秒级查询 |
+| 知识簇缓存 | 语义搜索持久化缓存（DuckDB + Parquet） | 命中率 40-70%，FIFO + 热度评分 |
+| 蒙特卡洛采样 | 长文档智能采样 | 节省 60%+ token |
+| 连接池 | SQLAlchemy AsyncPG + Neo4j 连接池 | 默认 pool_size=20 |
+
+性能瓶颈通常在 LLM 调用环节，建议配置多 Provider Fallback 和合理的超时参数。
+
+---
+
+## 🔒 安全
+
+### 🛡️ 安全设计
+
+Weaver 的安全设计覆盖多层防护：URL 安全多层检查（SSRF 防护、URLhaus API、PhishTank 钓鱼数据库、启发式分析、SSL 验证）、API Key 认证、环境变量注入敏感配置（密码、API 密钥不硬编码）、启动时安全配置审计（扫描 f-string SQL/Cypher 注入）。
+
+### ⛓️ 供应链与门禁
+
+- `bandit -r src/`：安全漏洞扫描，无 HIGH/CRITICAL 问题
+- Semgrep SAST 扫描：代码级安全检查
+- pre-commit 钩子：提交前自动安全审查
+
+### 🚨 报告安全漏洞
+
+请勿通过公开 issue 报告安全漏洞。请使用 GitHub [Security Advisories](https://github.com/Kirky-X/weaver/security/advisories/new) 私密披露通道提交报告。
+
+---
+
+## 🗺️ 开发路线图
+
+<table style="width:100%; border-collapse: collapse">
+<tr><th style="text-align:center">状态</th><th style="text-align:left">方向</th><th style="text-align:left">条目</th></tr>
+<tr><td align="center">✅</td><td>核心引擎</td><td>RSS/Atom 源管理、智能爬取、LLM Pipeline、知识图谱构建</td></tr>
+<tr><td align="center">✅</td><td>搜索与检索</td><td>四模式搜索（local/global/drift/hybrid）、向量检索、知识簇缓存</td></tr>
+<tr><td align="center">✅</td><td>安全与可信度</td><td>URL 多层安全检查、三信号可信度评估、启动安全审计</td></tr>
+<tr><td align="center">✅</td><td>可观测性</td><td>Prometheus 指标、OpenTelemetry、LLM 使用统计、告警系统</td></tr>
+<tr><td align="center">🚧</td><td>记忆系统</td><td>MAGMA 多图记忆、时序图演化、自适应检索</td></tr>
+<tr><td align="center">📋</td><td>性能优化</td><td>大规模知识图谱查询优化、缓存命中率提升、并发处理增强</td></tr>
+</table>
+
+---
+
+## 🤝 参与贡献
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
@@ -984,16 +834,68 @@ uv run alembic downgrade -1
 
 ---
 
-## <span id="license">📄 许可证</span>
+## 📋 更新日志
 
-本项目采用 **Apache-2.0 许可证**：
-
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-yellow.svg)](LICENSE)
+完整版本历史见 [📋 更新日志](docs/CHANGELOG.md)。
 
 ---
 
-**[⬆ 返回顶部](#top)**
+## 📄 许可证
+
+本项目采用 **Apache-2.0 许可证**，详见 [LICENSE](LICENSE)。
 
 ---
 
-<sub>© 2026 WEAVER. 保留所有权利。</sub>
+## 🙏 致谢
+
+### 🌟 核心依赖
+
+Weaver 站在以下优秀开源项目的肩膀上：
+
+| 依赖 | 用途 |
+|------|------|
+| [FastAPI](https://github.com/tiangolo/fastapi) | Web 框架 |
+| [LiteLLM](https://github.com/BerriAI/litellm) | 统一 LLM 接口 |
+| [spaCy](https://github.com/explosion/spaCy) | NLP 实体识别 |
+| [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) | 异步 ORM |
+| [Crawl4AI](https://github.com/unclecode/crawl4ai) | 动态网页爬取 |
+| [APScheduler](https://github.com/agronholm/apscheduler) | 定时任务调度 |
+
+### 💝 特别感谢
+
+感谢 Python 社区与所有 [贡献者](https://github.com/Kirky-X/weaver/graphs/contributors)。
+
+---
+
+## 📞 联系与支持
+
+<table style="width:100%; max-width: 600px">
+<tr>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/issues"><b style="color:#991B1B">Issues</b></a><br>
+<span style="color:#64748B">报告问题和 Bug</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/discussions"><b style="color:#1E40AF">讨论区</b></a><br>
+<span style="color:#64748B">提问和分享想法</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver"><b style="color:#1E293B">GitHub</b></a><br>
+<span style="color:#64748B">查看源代码</span>
+</td>
+</tr>
+</table>
+
+---
+
+## ⭐ Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/weaver&type=Date)](https://star-history.com/#Kirky-X/weaver&Date)
+
+如果这个项目对您有帮助，请考虑给它一个 ⭐️！
+
+**由 Kirky.X 构建**
+
+---
+
+<sub>© 2026 Kirky.X. 保留所有权利。</sub>

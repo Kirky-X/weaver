@@ -1,30 +1,14 @@
-<span id="top"></span>
-
 <div align="center">
 
-<p align="center">
-  <img src="docs/asserts/logo.png" alt="Weaver Logo" width="180" height="180">
-</p>
+<img src="docs/asserts/logo.png" alt="Weaver Logo" width="180">
 
-<p align="center">
-  <strong>WEAVER - Intelligent News Collection, Analysis & Knowledge Graph Platform</strong>
-</p>
+[![Version](https://img.shields.io/github/v/release/Kirky-X/weaver.svg)](https://github.com/Kirky-X/weaver/releases) [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE) [![FastAPI](https://img.shields.io/badge/fastapi-0.135+-teal.svg)](https://fastapi.tiangolo.com/)
 
-<p>
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/license-Apache--2.0-yellow.svg" alt="License" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
-</p>
+[中文](README.md) | **English**
 
-<p align="center">
-  <a href="#features" style="color:#3B82F6">✨ Features</a> •
-  <a href="#quick-start" style="color:#3B82F6">🚀 Quick Start</a> •
-  <a href="#architecture" style="color:#3B82F6">🏗️ Architecture</a> •
-  <a href="#api" style="color:#3B82F6">📡 API</a> •
-  <a href="#pipeline" style="color:#3B82F6">🔄 Pipeline</a> •
-  <a href="#contributing" style="color:#3B82F6">🤝 Contributing</a>
-</p>
+**Intelligent News Collection, Analysis & Knowledge Graph Platform**
+
+[✨ Features](#-features) • [🚀 Quick Start](#-quick-start) • [📚 Documentation](#-documentation) • [💻 Examples](#-examples) • [🤝 Contributing](#-contributing)
 
 </div>
 
@@ -32,31 +16,30 @@
 
 ## 📋 Table of Contents
 
-<details open style="padding:16px">
-<summary style="cursor:pointer; font-weight:600; color:#1E293B">📑 Click to expand</summary>
+<details open>
+<summary>📑 Table of Contents</summary>
 
-- [Features](#features)
-- [Quick Start](#quick-start)
-    - [Requirements](#requirements)
-    - [Installation](#installation)
-    - [Configuration](#configuration)
-    - [Database Migration](#migration)
-    - [Start Service](#start)
-- [Architecture](#architecture)
-- [API](#api)
-- [Pipeline](#pipeline)
-- [Credibility Scoring](#credibility)
-- [LLM Call Points](#llm-callpoints)
-- [Scheduled Jobs](#scheduled-jobs)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [📚 Documentation](#-documentation)
+- [💻 Examples](#-examples)
+- [🏗️ Architecture](#️-architecture)
+- [🧪 Testing](#-testing)
+- [📊 Performance](#-performance)
+- [🔒 Security](#-security)
+- [🗺️ Roadmap](#️-roadmap)
+- [🤝 Contributing](#-contributing)
+- [📋 Changelog](#-changelog)
+- [📄 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+- [📞 Contact & Support](#-contact--support)
+- [⭐ Star History](#-star-history)
 
 </details>
 
 ---
 
-## <span id="features">✨ Features</span>
+## ✨ Features
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
@@ -106,9 +89,9 @@
 
 ---
 
-## <span id="quick-start">🚀 Quick Start</span>
+## 🚀 Quick Start
 
-### <span id="requirements">📦 Requirements</span>
+### 📦 Requirements
 
 | Dependency | Version | Description |
 |-----------|---------|-------------|
@@ -117,7 +100,7 @@
 | Neo4j | 5+ | Graph database (or LadybugDB as embedded alternative) |
 | Redis | 7+ | Cache & queue (or built-in Cashews as alternative) |
 
-### <span id="installation">🔧 Installation</span>
+### 🔧 Installation
 
 ```bash
 # Clone
@@ -147,7 +130,7 @@ uv run python -m spacy download en_core_web_lg
 
 </details>
 
-### <span id="configuration">⚙️ Configuration</span>
+### ⚙️ Configuration
 
 Weaver uses a layered configuration strategy supporting environment variables and TOML files:
 
@@ -178,13 +161,13 @@ WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
 WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
 ```
 
-### <span id="migration">🗄️ Database Migration</span>
+### 🗄️ Database Migration
 
 ```bash
 uv run alembic upgrade head
 ```
 
-### <span id="start">▶️ Start Service</span>
+### ▶️ Start Service
 
 ```bash
 # Development
@@ -196,7 +179,20 @@ uv run python -m src.main
 
 ---
 
-## <span id="architecture">🏗️ Architecture</span>
+## 📚 Documentation
+
+| Documentation | Description |
+|---------------|-------------|
+| [📖 User Guide](docs/USER_GUIDE.md) | Complete usage tutorial from installation to advanced topics |
+| [📘 API Reference](docs/API.md) | Full API endpoint documentation |
+| [🏗️ Architecture](docs/ARCHITECTURE.md) | Design principles, module structure & data flow |
+| [🚀 Deployment](docs/DEPLOYMENT.md) | Docker deployment & production configuration |
+| [📋 Changelog](docs/CHANGELOG.md) | Version history |
+| [🤝 Contributing](docs/CONTRIBUTING.md) | How to contribute |
+
+---
+
+## 🏗️ Architecture
 
 ### System Architecture
 
@@ -262,177 +258,33 @@ Neo4j / LadybugDB `Article` nodes store only `{id, pg_id}`. Business fields (`ti
 
 ---
 
-## <span id="api">📡 API</span>
+## 💻 Examples
 
-### Authentication
+Weaver provides multiple usage patterns, from API calls to CLI tools.
 
-All API requests require an API Key in the header:
+### API Examples
 
-```
-X-API-Key: your-api-key
-```
+All API requests require an API Key in the header: `X-API-Key: your-api-key`
 
-### Endpoint List
+```bash
+# Get article list
+curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20" \
+  -H "X-API-Key: your-api-key"
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check (no auth required) |
-| `/api/v1/status` | GET | System status (auth required) |
-| `/api/v1/config` | GET | System configuration (auth required) |
-| `/api/v1/sources` | GET | List sources |
-| `/api/v1/sources/{source_id}` | GET | Get source details |
-| `/api/v1/sources` | POST | Add source |
-| `/api/v1/sources/{source_id}` | PUT | Update source |
-| `/api/v1/sources/{source_id}` | DELETE | Delete source |
-| `/api/v1/pipeline/trigger` | POST | Trigger Pipeline (async fire-and-forget) |
-| `/api/v1/pipeline/tasks/{task_id}` | GET | Get task status |
-| `/api/v1/pipeline/queue/stats` | GET | Queue statistics |
-| `/api/v1/pipeline/status` | GET | Pipeline status (running/idle + queue stats) |
-| `/api/v1/pipeline/url` | POST | Process single URL |
-| `/api/v1/pipeline/url/stream` | POST | Process single URL (SSE streaming, 3-concurrency limit) |
-| `/api/v1/articles` | GET | Article list (paginated, filterable, sortable) |
-| `/api/v1/articles/{id}` | GET | Article details |
-| `/api/v1/search` | GET | Unified search (mode routing: local/global/articles) |
-| `/api/v1/search/drift` | POST | DRIFT iterative exploration search |
-| `/api/v1/search/causal` | POST | Causal relationship search |
-| `/api/v1/search/temporal` | POST | Temporal reasoning search |
-| `/api/v1/graph/entities/{name}` | GET | Query entity and its relations |
-| `/api/v1/graph/articles/{id}/graph` | GET | Article knowledge graph |
-| `/api/v1/graph/relations` | GET | Query entity relations |
-| `/api/v1/graph/relations/search` | GET | Search entity relations |
-| `/api/v1/graph/metrics` | GET | Graph metrics |
-| `/api/v1/graph/visualization` | GET/POST | Graph visualization data |
-| `/api/v1/admin/authorities` | GET | List source authority scores |
-| `/api/v1/admin/authorities/{host}` | PATCH | Update source authority |
-| `/api/v1/monitoring/llm/failures` | GET | LLM failure records |
-| `/api/v1/monitoring/llm/failures/stats` | GET | LLM failure statistics |
-| `/api/v1/monitoring/llm/usage` | GET | LLM usage statistics |
-| `/api/v1/admin/articles/deduplicate` | POST | Article deduplication |
-| `/api/v1/admin/communities` | GET | Community list |
-| `/api/v1/admin/communities/{id}` | GET | Community details |
-| `/api/v1/admin/communities/rebuild` | POST | Rebuild communities |
-| `/api/v1/admin/communities/health` | GET | Community health overview |
-| `/api/v1/admin/communities/health/diagnose` | POST | Community health diagnosis |
-| `/api/v1/admin/communities/health/repair` | POST | Community health repair |
-| `/api/v1/admin/communities/reports/generate` | POST | Generate community reports |
-| `/api/v1/admin/communities/{id}/report/regenerate` | POST | Regenerate community report |
-| `/api/v1/briefings/daily` | GET | Daily briefing (by date + category) |
-| `/api/v1/briefings/daily/generate` | POST | Generate daily briefing |
-| `/api/v1/analytics/shifts` | GET | Sentiment shift detection |
-| `/api/v1/analytics/briefings` | GET | Historical briefing list |
-| `/api/v1/trends/sentiment` | GET | Sentiment trend analysis |
-| `/api/v1/trends/detection` | GET | Trend detection |
-| `/api/v1/saga/{saga_id}` | GET | Saga status |
-| `/api/v1/saga/{saga_id}/compensate` | POST | Trigger manual compensation |
-| `/api/v1/saga/{saga_id}/retry` | POST | Retry failed Saga |
-| `/api/v1/saga/article/{article_id}` | GET | Article-related Sagas |
-| `/api/v1/saga/failed/list` | GET | List failed Sagas |
-| `/api/v1/monitoring/alerts/rules` | GET/POST | Alert rule query/create |
-| `/api/v1/monitoring/alerts/rules/{rule_id}` | GET/PATCH/DELETE | Alert rule detail/update/delete |
-| `/api/v1/monitoring/alerts/events` | GET | Alert event query |
-| `/metrics` | GET | Prometheus metrics |
+# Process a single URL
+curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/article"}'
 
----
-
-## <span id="pipeline">🔄 Pipeline</span>
-
-### Phase 1: Per-Article Concurrent Processing
-
-```mermaid
-flowchart LR
-    A[Raw Article] --> B[Classifier]
-    B --> C[Cleaner]
-    C --> D[Categorizer]
-    D --> E[Vectorize]
-    B -->|Not news| F[Terminate]
+# Query entities
+curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
+  -H "X-API-Key: your-api-key"
 ```
 
-- **Classifier**: Determines if article is news; non-news is terminated immediately
-- **Cleaner**: HTML cleaning, body extraction
-- **Categorizer**: Category (politics/military/economy/tech etc.), language, region
-- **Vectorize**: Generate content embedding (1024-dim)
+For the full endpoint list and detailed parameters, see [📡 API Documentation](docs/API.md).
 
-### Phase 2: Batch Merge
-
-```
-BatchMerger (Union-Find similarity clustering)
-```
-
-- Similarity threshold: 0.80
-- Merges similar articles, keeps the most complete version
-
-### Phase 3: Per-Article Post-Processing (Concurrent)
-
-```mermaid
-flowchart LR
-    A[Merged Article] --> B[ReVectorize]
-    B --> C[Analyze]
-    B --> D[QualityScorer]
-    C --> E[Credibility]
-    D --> E
-    E --> F[EntityExtractor]
-    F --> G[fake_news_detector]
-    F --> H[conflict_detector]
-    F --> I[narrative_generator]
-    F --> J[schema_extractor]
-    G --> K[sentiment_tracker]
-    H --> K
-    I --> K
-    J --> K
-    K --> L[EntityResolver]
-```
-
-- **ReVectorize**: Regenerate vector after merge (skipped for terminal articles)
-- **Analyze + QualityScorer**: Parallel - summary/sentiment/key data extraction + content quality scoring
-- **Credibility**: Trustworthiness score (depends on Analyze results)
-- **EntityExtractor**: spaCy + LLM entity extraction
-- **fake_news_detector**: Fake news detection
-- **conflict_detector**: Data conflict detection
-- **narrative_generator**: Narrative generation
-- **schema_extractor**: Structured data extraction
-- **sentiment_tracker**: Entity-level sentiment shift calculation
-- **EntityResolver**: Entity disambiguation and merging
-
----
-
-## <span id="credibility">📊 Credibility Scoring</span>
-
-Three-signal category-adaptive credibility assessment:
-
-| Signal | Description |
-|--------|-------------|
-| Source Authority | Three-tier priority: preset > historical auto-calc > default 0.50 |
-| Content Check | Body-length based heuristic scoring |
-| Timeliness | Time gap between publish and event time |
-
-### Category-Adaptive Weights
-
-| Category | Source | Content | Timeliness | Note |
-|----------|--------|---------|------------|------|
-| Politics/International/Military | 0.25 | 0.25 | **0.50** | Breaking news prioritizes timeliness |
-| Economy | **0.45** | 0.35 | 0.20 | Source authority prioritized |
-| Technology | 0.30 | **0.50** | 0.20 | Content quality prioritized |
-| Society/Culture/Sports | 0.40 | 0.40 | 0.20 | Balanced |
-
-### Timeliness Scoring
-
-| Time Gap | Score |
-|----------|-------|
-| ≤6 hours | 1.00 |
-| ≤24 hours | 0.85 |
-| ≤72 hours | 0.65 |
-| ≤168 hours | 0.45 |
-| >168 hours | 0.30 |
-
-### Source Authority Priority
-
-1. **Preset credibility**: Set via API for authoritative sources (Xinhua, CCTV, etc.)
-2. **Historical auto-calc**: Based on historical article average scores
-3. **Default**: 0.50 for new sources
-
----
-
-## <span id="llm-callpoints">🤖 LLM Call Points</span>
+### LLM Call Points
 
 | Call Point | Type | Description |
 |-----------|------|-------------|
@@ -457,9 +309,7 @@ Three-signal category-adaptive credibility assessment:
 | embedding | EMBEDDING | Vector generation |
 | rerank | RERANK | Re-ranking |
 
----
-
-## <span id="scheduled-jobs">⏰ Scheduled Jobs</span>
+### Scheduled Jobs
 
 | Job | Interval | Description |
 |-----|----------|-------------|
@@ -484,7 +334,7 @@ Three-signal category-adaptive credibility assessment:
 
 ---
 
-## <span id="development">🧪 Development</span>
+## 🧪 Testing
 
 ### Test Overview
 
@@ -532,7 +382,55 @@ uv run pytest --cov=src --cov-report=term-missing
 
 ---
 
-## <span id="contributing">🤝 Contributing</span>
+## 📊 Performance
+
+Weaver's performance-critical paths are optimized:
+
+| Path | Description | Notes |
+|------|-------------|-------|
+| Pipeline Processing | Phase 1 per-article concurrent, Phase 3 post-processing concurrent | LLM call latency dependent |
+| Vector Search | HNSW index, pgvector backend | 1024-dim vectors, millisecond queries |
+| Knowledge Cluster Cache | Semantic search persistent cache (DuckDB + Parquet) | 40-70% hit rate, FIFO + heat scoring |
+| Monte Carlo Sampling | Smart long-document sampling | Saves 60%+ tokens |
+| Connection Pool | SQLAlchemy AsyncPG + Neo4j connection pool | Default pool_size=20 |
+
+The bottleneck is usually the LLM call layer. Configure multi-Provider Fallback and appropriate timeout parameters.
+
+---
+
+## 🔒 Security
+
+### 🛡️ Security Design
+
+Weaver's security design covers multi-layer protection: URL security multi-layer checks (SSRF protection, URLhaus API, PhishTank phishing database, heuristic analysis, SSL verification), API Key authentication, environment variable injection for sensitive configuration (passwords and API keys are never hardcoded), and startup security configuration audit (scanning for f-string SQL/Cypher injection).
+
+### ⛓️ Supply Chain & Gate
+
+- `bandit -r src/`: Security vulnerability scanning, no HIGH/CRITICAL issues
+- Semgrep SAST scanning: Code-level security checks
+- pre-commit hooks: Automatic security review before commits
+
+### 🚨 Reporting Security Vulnerabilities
+
+Please do not report security vulnerabilities through public issues. Use the GitHub [Security Advisories](https://github.com/Kirky-X/weaver/security/advisories/new) private disclosure channel.
+
+---
+
+## 🗺️ Roadmap
+
+<table style="width:100%; border-collapse: collapse">
+<tr><th style="text-align:center">Status</th><th style="text-align:left">Direction</th><th style="text-align:left">Items</th></tr>
+<tr><td align="center">✅</td><td>Core Engine</td><td>RSS/Atom source management, smart fetching, LLM Pipeline, knowledge graph construction</td></tr>
+<tr><td align="center">✅</td><td>Search & Retrieval</td><td>Four-mode search (local/global/drift/hybrid), vector search, knowledge cluster cache</td></tr>
+<tr><td align="center">✅</td><td>Security & Credibility</td><td>Multi-layer URL security, three-signal credibility assessment, startup security audit</td></tr>
+<tr><td align="center">✅</td><td>Observability</td><td>Prometheus metrics, OpenTelemetry, LLM usage statistics, alerting system</td></tr>
+<tr><td align="center">🚧</td><td>Memory System</td><td>MAGMA multi-graph memory, temporal graph evolution, adaptive retrieval</td></tr>
+<tr><td align="center">📋</td><td>Performance Optimization</td><td>Large-scale knowledge graph query optimization, cache hit rate improvement, concurrency enhancement</td></tr>
+</table>
+
+---
+
+## 🤝 Contributing
 
 1. **Fork** the repo
 2. **Clone** your fork
@@ -552,14 +450,68 @@ uv run pytest --cov=src --cov-report=term-missing
 
 ---
 
-## <span id="license">📄 License</span>
+## 📋 Changelog
 
-This project is licensed under the **Apache 2.0 License**.
-
----
-
-**[⬆ Back to Top](#top)**
+Full version history at [📋 Changelog](docs/CHANGELOG.md).
 
 ---
 
-<sub>© 2026 WEAVER. All rights reserved.</sub>
+## 📄 License
+
+This project is licensed under the **Apache 2.0 License**, see [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Acknowledgments
+
+### 🌟 Core Dependencies
+
+Weaver stands on the shoulders of these excellent open-source projects:
+
+| Dependency | Purpose |
+|-----------|--------|
+| [FastAPI](https://github.com/tiangolo/fastapi) | Web framework |
+| [LiteLLM](https://github.com/BerriAI/litellm) | Unified LLM interface |
+| [spaCy](https://github.com/explosion/spaCy) | NLP entity recognition |
+| [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) | Async ORM |
+| [Crawl4AI](https://github.com/unclecode/crawl4ai) | Dynamic web scraping |
+| [APScheduler](https://github.com/agronholm/apscheduler) | Task scheduling |
+
+### 💝 Special Thanks
+
+Thanks to the Python community and all [contributors](https://github.com/Kirky-X/weaver/graphs/contributors).
+
+---
+
+## 📞 Contact & Support
+
+<table style="width:100%; max-width: 600px">
+<tr>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/issues"><b style="color:#991B1B">Issues</b></a><br>
+<span style="color:#64748B">Report bugs and issues</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/discussions"><b style="color:#1E40AF">Discussions</b></a><br>
+<span style="color:#64748B">Ask questions and share ideas</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver"><b style="color:#1E293B">GitHub</b></a><br>
+<span style="color:#64748B">View source code</span>
+</td>
+</tr>
+</table>
+
+---
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/weaver&type=Date)](https://star-history.com/#Kirky-X/weaver&Date)
+
+If this project is helpful, please consider giving it a ⭐️!
+
+**Built by Kirky.X**
+
+---
+
+<sub>© 2026 Kirky.X. All rights reserved.</sub>
