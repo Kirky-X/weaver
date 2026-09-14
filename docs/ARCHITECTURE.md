@@ -67,8 +67,7 @@ graph TD
     C -.- C2["静态 getter 方法"]
     C -.- C3["抛出 HTTPException(503)"]
     D -.- D1["调用 Endpoints.get_*()"]
-    D -.- D2["定义 Type Aliases"]
-    E -.- E1["pool: RelationalPoolDep"]
+    E -.- E1["pool: RelationalPool = Depends(get_relational_pool)"]
 ```
 
 **注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(
@@ -123,12 +122,17 @@ relational_pool = container.relational_pool()
 集中式依赖注册中心,供所有端点模块使用:
 
 ```python
+from typing import Annotated
+
+from fastapi import Depends
+
 from api.dependencies import get_relational_pool
+from core.protocols import RelationalPool
 
 # 在端点中使用
 @router.get("/items")
 async def list_items(
-    pool: RelationalPoolDep,
+    pool: Annotated[RelationalPool, Depends(get_relational_pool)],
 ):
     ...
 ```
@@ -164,16 +168,6 @@ async def list_items(
 | `get_llm_usage_repo()`        | `LLMUsageRepo`         | LLM 使用统计仓库                       |
 | `get_pipeline_service()`      | `PipelineServiceImpl`  | Pipeline 服务                          |
 | `get_task_registry()`         | `InMemoryTaskRegistry` | 任务注册表                             |
-
-**Type Aliases** (用于更简洁的函数签名):
-
-```python
-RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
-GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
-LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
-# ... 更多类型别名见 dependencies.py
-```
 
 **数据库类型查询** (Endpoints 类方法):
 
@@ -558,7 +552,7 @@ LLM 响应缓存（内存 TTLCache + Redis, TTL 按 call_point 1-7 天）的 key
 
 Prompt 侧的时间锚定采用**日粒度 + 尾置**：`call_at` 在 system prompt 模板尾部追加 `当前日期: YYYY-MM-DD`,而非前缀注入秒级时间戳。这保证同一自然日内 request_payload 逐字节稳定——客户端缓存 key 可命中、服务端前缀缓存自当日第二次调用起命中；跨日自然轮换,保留缓存新鲜度。
 
-成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.agnes.agnes-2.0-flash`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。免费档费率记 0.0。
+成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.openai.gpt-4o`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。项目默认接入 OpenAI 等大型 LLM,Agnes 仅为测试档。
 
 ### Token 消耗控制
 
