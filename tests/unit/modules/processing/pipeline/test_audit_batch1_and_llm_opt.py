@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Contributors
 """Unit tests for audit-batch-1 fixes + LLM 优化配套机制.
 
-Covers (docs/技术缺口审计报告.md 第一批 + 优化方案配套):
+Covers (audit batch 1 fixes + LLM optimization supporting changes):
 1. PipelineSettings carries the ``monte_carlo`` field — TOML [monte_carlo]
    is no longer silently dropped (audit P0 #2), so the MC sampler actually
    initializes.

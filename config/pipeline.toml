@@ -54,8 +54,8 @@ enabled = true
 concurrency = 5
 # analyze + narrative_schema 合并调用（LLM 调用优化：必调 chat 3→2 次/篇）。
 # 回滚置 false 即可，无需改代码。注意：narrative_schema 阶段若被
-# enabled=false 关闭，本开关应同时置 false。开启前建议先完成
-# docs/LLM调用优化方案.md §8.4 最小评测集对比。
+# enabled=false 关闭，本开关应同时置 false。开启前建议先用最小评测集
+# 对比合并前后的摘要与叙事抽取质量。
 merge_analyze_narrative = true
 
 [[phase3.stages]]

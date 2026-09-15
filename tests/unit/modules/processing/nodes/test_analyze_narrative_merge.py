@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Contributors
 """Unit tests for the analyze + narrative_schema merge (LLM 调用优化方案 A/B).
 
-Covers (docs/LLM调用优化方案.md §9.1):
+Covers:
 1. AnalyzeNarrativeOutput parses a full 18-field JSON; to_narrative_payload
    splits correctly with field constraints mirroring NarrativeSchemaOutput.
 2. AnalyzeNode merged mode: single ANALYZE_NARRATIVE call, narrative payload
