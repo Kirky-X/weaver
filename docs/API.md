@@ -1,6 +1,6 @@
 # 📘 Weaver API 参考
 
-本文档完整收录 Weaver 系统 RESTful API 端点的请求/响应格式、状态码和错误处理。
+本文档收录 Weaver 系统 RESTful API 主要端点的请求/响应格式、状态码和错误处理。
 
 ## 📋 目录
 
@@ -35,6 +35,7 @@
 - [API Key 管理端点](#-api-key-管理端点)
 - [错误响应格式](#-错误响应格式)
 - [通用规范](#-通用规范)
+- [其他端点速览](#-其他端点速览)
 - [总结](#-总结)
 
 </details>
@@ -77,14 +78,20 @@ Host: api.weaver.example.com
 
 **成功响应 (200 OK)**
 
+实际返回 `APIResponse` 信封结构 `{code, message, data}`：
+
 ```json
 {
-  "status": "running",
-  "version": "0.2.0",
-  "database": {
-    "relational": "postgres",
-    "graph": "neo4j",
-    "cache": "redis"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "running",
+    "version": "0.2.0",
+    "database": {
+      "relational": "postgres",
+      "graph": "neo4j",
+      "cache": "redis"
+    }
   }
 }
 ```
@@ -537,6 +544,9 @@ X-API-Key: your-api-key
 | `page_size`       | integer | 20             | 每页数量（最大100）                                                  |
 | `category`        | string  | -              | 按类别过滤（如 `政治`、`军事`、`经济`）                                      |
 | `source_host`     | string  | -              | 按来源主机名过滤                                                     |
+| `source_id`       | string  | -              | 按源配置 ID 过滤                                                   |
+| `is_news`         | boolean | -              | 仅返回新闻文章（按 `is_news` 标志过滤）                                    |
+| `language`        | string  | -              | 按语言代码过滤（如 `zh`、`en`）                                         |
 | `min_score`       | float   | -              | 最低评分过滤（0-1）                                                  |
 | `min_credibility` | float   | -              | 最低可信度过滤（0-1）                                                 |
 | `sort_by`         | string  | `publish_time` | 排序字段：`publish_time`、`score`、`credibility_score`、`created_at` |
@@ -546,41 +556,47 @@ X-API-Key: your-api-key
 
 **成功响应 (200 OK)**
 
+实际返回 `APIResponse` 信封结构 `{code, message, data}`，文章列表位于 `data` 字段：
+
 ```json
 {
-  "items": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "source_url": "https://example.com/article",
-      "source_host": "example.com",
-      "is_news": true,
-      "title": "文章标题",
-      "body": "文章内容...",
-      "category": "政治",
-      "language": "zh",
-      "region": "中国",
-      "summary": "摘要内容",
-      "event_time": "2024-01-15T10:00:00+08:00",
-      "subjects": ["主题A", "主题B"],
-      "key_data": ["关键数据1"],
-      "impact": "高",
-      "score": 0.85,
-      "sentiment": "positive",
-      "sentiment_score": 0.72,
-      "primary_emotion": "中性",
-      "credibility_score": 0.88,
-      "source_credibility": 0.95,
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "source_url": "https://example.com/article",
+        "source_host": "example.com",
+        "is_news": true,
+        "title": "文章标题",
+        "body": "文章内容...",
+        "category": "政治",
+        "language": "zh",
+        "region": "中国",
+        "summary": "摘要内容",
+        "event_time": "2024-01-15T10:00:00+08:00",
+        "subjects": ["主题A", "主题B"],
+        "key_data": ["关键数据1"],
+        "impact": "高",
+        "score": 0.85,
+        "sentiment": "positive",
+        "sentiment_score": 0.72,
+        "primary_emotion": "中性",
+        "credibility_score": 0.88,
+        "source_credibility": 0.95,
 
-      "content_check_score": 0.87,
-      "publish_time": "2024-01-15T09:30:00+08:00",
-      "created_at": "2024-01-15T10:30:00Z",
-      "updated_at": "2024-01-15T10:30:00Z"
-    }
-  ],
-  "total": 150,
-  "page": 1,
-  "page_size": 20,
-  "total_pages": 8
+        "content_check_score": 0.87,
+        "publish_time": "2024-01-15T09:30:00+08:00",
+        "created_at": "2024-01-15T10:30:00Z",
+        "updated_at": "2024-01-15T10:30:00Z"
+      }
+    ],
+    "total": 150,
+    "page": 1,
+    "page_size": 20,
+    "total_pages": 8
+  }
 }
 ```
 
@@ -846,6 +862,7 @@ X-API-Key: your-api-key
 | 参数                | 类型      | 默认值          | 说明                                          |
 |-------------------|---------|--------------|---------------------------------------------|
 | `q`               | string  | -            | 搜索查询（必填）                                    |
+| `mode`            | string  | `auto`       | 搜索模式：`local`（向量搜索）/`global`（社区搜索）/`auto`（默认，按意图自动路由） |
 | `community_level` | integer | 0            | 社区层级（global 模式，0-10）                        |
 | `threshold`       | float   | 0.0          | 最低相似度（articles 模式，0-1）                      |
 | `limit`           | integer | 20           | 最大结果数（articles 模式，1-100）                    |
@@ -854,6 +871,7 @@ X-API-Key: your-api-key
 | `global_mode`     | string  | `map_reduce` | 全局搜索模式：`map_reduce` 或 `simple`              |
 | `output_mode`     | string  | `context`    | 输出格式：`context`（原始片段）或 `narrative`（LLM 合成答案） |
 | `enrich_entities` | boolean | false        | 启用实体聚合，丰富结果中的实体邻居信息                         |
+| `no_cache`        | boolean | false        | 跳过短期 TTL 响应缓存                                |
 
 **output_mode 说明：**
 
@@ -1014,8 +1032,8 @@ Content-Type: application/json
 
 - **顺序触发**：所有 source 顺序调用 `scheduler.trigger_now`（避免 DuckDB 写锁竞争），单源超时 300s
 - **GC 防护**：后台任务强引用存入 `_background_tasks: set`，`add_done_callback` 自动清理
-- **状态流转**：`queued` → `running` → `completed` / `failed`（部分失败时 `failed` 含错误摘要）
-- **CancelledError 处理**：单独跟踪取消事件，不混入 failures 列表
+- **状态流转**：`queued` → `running` → `completed` / `failed`（部分失败时 `failed` 含错误摘要）。任务全集：`queued` / `running` / `paused` / `completed` / `cancelled` / `failed`（`paused` 为暂停，`cancelled` 为取消）
+- **CancelledError 处理**：单独跟踪取消事件（状态置为 `cancelled`），不混入 failures 列表
 
 ---
 
@@ -1156,6 +1174,64 @@ Content-Type: application/json
 - 阻止回环地址（127.0.0.1, localhost）
 - 阻止云元数据端点（169.254.169.254）
 - 白名单模式：仅允许配置的域名
+
+---
+
+### POST /api/v1/pipeline/url/stream
+
+SSE 流式处理单个 URL，通过 `text/event-stream` 实时推送 Pipeline 处理进度。
+
+#### 请求
+
+```http
+POST /api/v1/pipeline/url/stream HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "url": "https://example.com/article",
+  "whitelist_mode": false
+}
+```
+
+**请求字段：** 与 `POST /api/v1/pipeline/url` 相同（`url`、`whitelist_mode`）。
+
+#### 响应
+
+返回 `StreamingResponse`（`Content-Type: text/event-stream`），逐条推送 SSE 事件。
+
+**事件类型：**
+
+| 事件         | 说明                               |
+|------------|----------------------------------|
+| `log`      | Pipeline 处理进度日志                   |
+| `heartbeat`| 心跳保活（0.5s 间隔）                     |
+| `result`   | 处理完成，携带最终结果数据                     |
+| `error`    | 处理失败，携带错误信息                       |
+
+**事件示例：**
+
+```
+event: log
+data: {"stage": "fetch", "message": "抓取完成"}
+
+event: result
+data: {"article_id": "550e8400-...", "title": "文章标题"}
+```
+
+#### 并发限制
+
+默认最大并发流式处理数为 **3**，超限时立即返回 **429 Too Many Requests**。
+
+#### 状态码
+
+| 状态码                       | 说明                    |
+|---------------------------|-----------------------|
+| 200 OK                    | SSE 流建立成功，开始推送事件      |
+| 401 Unauthorized          | API Key 无效或缺失         |
+| 403 Forbidden             | URL 被阻止（SSRF防护或不在白名单） |
+| 429 Too Many Requests     | 超过最大并发数（3）            |
 
 ---
 
@@ -1409,7 +1485,7 @@ X-API-Key: your-api-key
 | 参数            | 类型     | 默认值    | 说明       |
 |---------------|--------|--------|----------|
 | `entity`      | string | -      | 实体名称（必填） |
-| `entity_type` | string | `组织机构` | 实体类型     |
+| `entity_type` | string | -      | 实体类型（可选，无默认） |
 
 #### 响应
 
@@ -1449,7 +1525,7 @@ X-API-Key: your-api-key
 | 参数               | 类型      | 默认值    | 说明           |
 |------------------|---------|--------|--------------|
 | `entity`         | string  | -      | 实体名称（必填）     |
-| `entity_type`    | string  | `组织机构` | 实体类型         |
+| `entity_type`    | string  | -      | 实体类型（可选，无默认） |
 | `relation_types` | string  | -      | 逗号分隔的关系类型过滤  |
 | `limit`          | integer | 50     | 最大结果数（1-200） |
 
@@ -1488,14 +1564,15 @@ X-API-Key: your-api-key
 
 | 参数        | 类型     | 默认值      | 说明                                                                                  |
 |-----------|--------|----------|-------------------------------------------------------------------------------------|
-| `view`    | string | `health` | 指标视图：`health`、`full`、`community`                                                    |
+| `view`    | string | `health` | 指标视图：`health`、`full`                                                            |
 | `include` | string | -        | full 视图的包含项（逗号分隔）：`components`、`orphans`、`high_degree`、`modularity`、`distributions` |
 
 **view 说明：**
 
 - `health`（默认）：快速健康摘要，包含健康评分和建议。适合仪表盘和健康检查
 - `full`：完整指标，包含连通分量、孤立实体、高度数实体、模块度、类型分布等。缓存 5 分钟
-- `community`：社区级指标和健康评估
+
+> ⚠️ **注记**：community 视图已迁移至 `GET /api/v1/admin/communities/health`，传入 `view=community` 将返回 400。
 
 **full 视图 include 参数：**
 
@@ -1556,40 +1633,13 @@ X-API-Key: your-api-key
 }
 ```
 
-**community 视图 (200 OK)**
+#### 状态码
 
-```json
-{
-  "total_communities": 25,
-  "total_reports": 20,
-  "levels": 2,
-  "average_entity_count": 14.0,
-  "average_rank": 7.5,
-  "modularity_score": 0.42,
-  "level_distribution": [
-    { "level": 0, "count": 20 },
-    { "level": 1, "count": 5 }
-  ],
-  "top_communities": [
-    {
-      "id": "comm-1",
-      "title": "AI研究",
-      "level": 0,
-      "entity_count": 25,
-      "rank": 8.5
-    },
-    {
-      "id": "comm-2",
-      "title": "机器学习",
-      "level": 0,
-      "entity_count": 20,
-      "rank": 7.8
-    }
-  ],
-  "health_score": 72.0,
-  "health_status": "moderate"
-}
-```
+| 状态码              | 说明                                                                          |
+|-------------------|-------------------------------------------------------------------------------|
+| 200 OK            | 成功返回指标数据                                                                |
+| 400 Bad Request   | 无效的 `view` 值（含已迁移的 `community`，改用 `GET /api/v1/admin/communities/health`） |
+| 401 Unauthorized  | API Key 无效或缺失                                                              |
 
 ---
 
@@ -1683,11 +1733,10 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码             | 说明                 |
-|-----------------|--------------------|
-| 200 OK          | 成功返回子图             |
-| 400 Bad Request | 参数错误（max_hops 超范围） |
-| 404 Not Found   | 未找到相关节点            |
+| 状态码                       | 说明                        |
+|--------------------------|---------------------------|
+| 200 OK                   | 成功返回子图（无邻居时返回空图）          |
+| 422 Unprocessable Entity | 参数越界（`max_hops` 超出 1-4 范围） |
 
 ---
 
@@ -1861,6 +1910,7 @@ X-API-Key: your-api-key
 | 参数       | 类型      | 必填 | 默认值  | 说明           |
 |----------|---------|----|------|--------------|
 | `level`  | integer | 否  | null | 按社区层级过滤      |
+| `page`   | integer | 否  | -    | 便捷分页参数（页码，从 1 开始） |
 | `limit`  | integer | 否  | 20   | 最大结果数（1-100） |
 | `offset` | integer | 否  | 0    | 结果偏移量        |
 
@@ -2153,7 +2203,7 @@ X-API-Key: your-api-key
 | `id`           | integer | 权威度记录 ID             |
 | `host`         | string  | 源域名                  |
 | `authority`    | float   | 权威度评分 (0-1)          |
-| `tier`         | integer | 层级 (1=高, 2=中, 3=低)   |
+| `tier`         | integer | 层级（取值 1-5，常用 1=高、2=中、3=低） |
 | `description`  | string  | 描述信息 (可选)            |
 | `needs_review` | boolean | 是否需要人工审核             |
 | `auto_score`   | float   | 自动计算的权威度评分 (可选)      |
@@ -2222,7 +2272,7 @@ Content-Type: application/json
 | 字段            | 类型      | 必填 | 说明                 |
 |---------------|---------|----|--------------------|
 | `authority`   | float   | 否  | 权威度评分 (0-1)        |
-| `tier`        | integer | 否  | 层级 (1=高, 2=中, 3=低) |
+| `tier`        | integer | 否  | 层级（取值 1-5，常用 1=高、2=中、3=低） |
 | `description` | string  | 否  | 描述信息               |
 
 > **注意**: 至少需要提供一个字段进行更新。
@@ -2545,6 +2595,7 @@ X-API-Key: your-api-key
   "max_latency_ms": 3500.0,
   "min_latency_ms": 200.0,
   "success_rate": 0.9912,
+  "total_cost_usd": 42.75,
   "error_types": {
     "rate_limit_exceeded": 67,
     "timeout": 34
@@ -3437,6 +3488,7 @@ X-API-Key: your-api-key
 |------------------|---------------|
 | 200 OK           | 成功返回简报（存储层失败时返回空列表） |
 | 401 Unauthorized | API Key 无效或缺失 |
+| 503 Service Unavailable | narrative 服务不可用 |
 
 ---
 
@@ -3471,7 +3523,7 @@ Content-Type: application/json
 | 字段                  | 类型      | 必填 | 默认值     | 说明                          |
 |---------------------|---------|----|---------|-----------------------------|
 | `entity_name`       | string  | 是  | -       | 监控的实体名称（最长 200 字符）         |
-| `metric`            | string  | 是  | -       | 指标：`reference_count` / `sentiment_change` / `volume_spike` |
+| `metric`            | string  | 是  | -       | 指标：`reference_count` / `sentiment_change` / `volume_spike` / `saga_failure` / `compensation_failure` / `saga_timeout` |
 | `operator`          | string  | 是  | -       | 运算符：`z_score>` / `pct_change>` / `absolute>` |
 | `threshold`         | float   | 是  | -       | 阈值                          |
 | `channel`           | string  | 否  | webhook | 通知渠道                         |
@@ -3704,6 +3756,7 @@ Content-Type: application/json
 |------------------|---------------|
 | 200 OK           | 告警触发成功或冷却阻止   |
 | 401 Unauthorized | Admin API Key 无效或缺失 |
+| 404 Not Found    | 告警规则不存在       |
 
 ---
 
@@ -4946,7 +4999,7 @@ async def call_api_with_retry():
 #### 分页参数
 
 ```
-GET /api/articles?page=2&page_size=20
+GET /api/v1/articles?page=2&page_size=20
 ```
 
 - `page`: 页码，从 1 开始（默认: 1）
@@ -4955,11 +5008,11 @@ GET /api/articles?page=2&page_size=20
 #### 排序参数
 
 ```
-GET /api/articles?sort=publish_time&order=desc
+GET /api/v1/articles?sort_by=publish_time&sort_order=desc
 ```
 
-- `sort`: 排序字段
-- `order`: 排序方向（`asc` 或 `desc`）
+- `sort_by`: 排序字段
+- `sort_order`: 排序方向（`asc` 或 `desc`）
 
 ### 响应规范
 
@@ -5039,6 +5092,22 @@ API 版本通过 URL 前缀指定：
 ```
 
 当前版本: **v1**
+
+## 📎 其他端点速览
+
+以下端点本文档未单独展开，供快速检索：
+
+| 方法   | 路径                                            | 说明                       |
+|------|-----------------------------------------------|--------------------------|
+| GET  | `/api/v1/sources/{source_id}`                 | 获取指定源配置详情                |
+| GET  | `/api/v1/search/local`                        | 本地向量搜索（实体 + 文章上下文）       |
+| GET  | `/api/v1/search/global`                       | 全局社区报告搜索                 |
+| GET  | `/api/v1/graph/entities`                      | 实体列表查询（分页 + 类型过滤）        |
+| POST | `/api/v1/graph/traverse`                      | 图谱多跳遍历                   |
+| GET  | `/api/v1/pipeline/status`                     | Pipeline 整体运行状态          |
+| POST | `/api/v1/admin/authorities/refresh-auto-scores` | 重新计算源自动权威度评分           |
+| POST | `/api/v1/admin/cache/clear`                   | 清空管理缓存                   |
+| POST | `/api/v1/admin/config/reload`                 | 热重载配置                    |
 
 ---
 
