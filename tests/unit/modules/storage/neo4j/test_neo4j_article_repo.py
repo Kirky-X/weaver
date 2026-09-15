@@ -4,7 +4,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Unit tests for Neo4jArticleRepo.
 
-After the Article node slim-down (design.md §D2), the graph Article node
+After the Article node slim-down (design.md §), the graph Article node
 stores only ``{pg_id, created_at}`` (Neo4j). Business fields
 (title / category / publish_time / score) are no longer persisted on the
 node — callers that need them must batch-fetch from PostgreSQL via
@@ -33,7 +33,7 @@ class TestCreateArticle:
 
     @pytest.mark.asyncio
     async def test_create_article_accepts_only_article_id(self):
-        """T028: create_article must accept only article_id (pg_id).
+        """create_article must accept only article_id (pg_id).
 
         After the slim-down, title / category / publish_time / score are
         no longer accepted. Verifies the Cypher only sets pg_id (and
@@ -70,7 +70,7 @@ class TestCreateArticle:
 
     @pytest.mark.asyncio
     async def test_create_article_uses_merg_on_create_created_at(self):
-        """T028: Cypher must MERGE on pg_id and set created_at on create."""
+        """Cypher must MERGE on pg_id and set created_at on create."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"neo4j_id": "neo4j-456"}])
 
@@ -89,7 +89,7 @@ class TestCreateArticle:
 
     @pytest.mark.asyncio
     async def test_create_article_failure_raises_runtime_error(self):
-        """T028: empty result raises RuntimeError."""
+        """empty result raises RuntimeError."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
@@ -103,7 +103,7 @@ class TestFindArticleByPgId:
 
     @pytest.mark.asyncio
     async def test_find_article_by_id_returns_only_slim_fields(self):
-        """T028: find_article_by_id returns only {neo4j_id, pg_id, created_at}."""
+        """find_article_by_id returns only {neo4j_id, pg_id, created_at}."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
@@ -128,7 +128,7 @@ class TestFindArticleByPgId:
 
     @pytest.mark.asyncio
     async def test_find_article_by_id_not_found(self):
-        """T028: find_article_by_id returns None for nonexistent article."""
+        """find_article_by_id returns None for nonexistent article."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
@@ -143,7 +143,7 @@ class TestFindArticleByNeo4jId:
 
     @pytest.mark.asyncio
     async def test_find_by_graph_id_returns_only_slim_fields(self):
-        """T028: find_article_by_graph_id returns only {neo4j_id, pg_id, created_at}."""
+        """find_article_by_graph_id returns only {neo4j_id, pg_id, created_at}."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
@@ -168,7 +168,7 @@ class TestFindArticleByNeo4jId:
 
     @pytest.mark.asyncio
     async def test_find_by_graph_id_not_found(self):
-        """T028: find_article_by_graph_id returns None for nonexistent ID."""
+        """find_article_by_graph_id returns None for nonexistent ID."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
@@ -219,7 +219,7 @@ class TestGetFollowedArticles:
 
     @pytest.mark.asyncio
     async def test_get_outgoing_followed_returns_slim_fields(self):
-        """T028: get_followed_articles returns only {neo4j_id, pg_id, time_gap_hours}."""
+        """get_followed_articles returns only {neo4j_id, pg_id, time_gap_hours}."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
@@ -253,7 +253,7 @@ class TestGetFollowedArticles:
 
     @pytest.mark.asyncio
     async def test_get_incoming_followed_returns_slim_fields(self):
-        """T028: incoming direction also returns only slim fields."""
+        """incoming direction also returns only slim fields."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
@@ -277,6 +277,36 @@ class TestGetFollowedArticles:
         assert result[0]["pg_id"] == "pg-3"
 
     @pytest.mark.asyncio
+    async def test_outgoing_query_binds_relationship_variable(self):
+        """Regression: the MATCHed relationship must be bound as ``r``.
+
+        RETURN references ``r.time_gap_hours``; with an anonymous relationship
+        the query would always fail with "Variable `r` not defined".
+        """
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[])
+
+        repo = Neo4jArticleRepo(mock_pool)
+        await repo.get_followed_articles(article_id="a-1", direction="outgoing", limit=3)
+
+        query = mock_pool.execute_query.call_args[0][0]
+        assert "-[r:FOLLOWED_BY]->" in query
+        assert "r.time_gap_hours" in query
+
+    @pytest.mark.asyncio
+    async def test_incoming_query_binds_relationship_variable(self):
+        """Regression: incoming direction must also bind ``r``."""
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[])
+
+        repo = Neo4jArticleRepo(mock_pool)
+        await repo.get_followed_articles(article_id="a-1", direction="incoming", limit=3)
+
+        query = mock_pool.execute_query.call_args[0][0]
+        assert "<-[r:FOLLOWED_BY]-" in query
+        assert "r.time_gap_hours" in query
+
+    @pytest.mark.asyncio
     async def test_get_followed_empty(self):
         """Test getting followed articles when none exist."""
         mock_pool = MagicMock()
@@ -294,7 +324,7 @@ class TestGetFollowedArticles:
 class TestDeleteArticle:
     """Tests for delete_article method.
 
-    T051 LOW-1: return type unified to ``int`` (count of nodes actually
+    return type unified to ``int`` (count of nodes actually
     deleted) for LSP consistency with LadybugArticleRepo.
     """
 
@@ -348,7 +378,7 @@ class TestDeleteOldArticles:
 
     @pytest.mark.asyncio
     async def test_delete_old_articles_accepts_pg_ids_list(self):
-        """T028: delete_old_articles accepts cutoff_pg_ids list (not days int).
+        """delete_old_articles accepts cutoff_pg_ids list (not days int).
 
         P2/P7 fix: Cypher now uses ``collect`` + ``size`` to compute the
         deleted count *before* DETACH DELETE, and returns it as ``deleted``
@@ -374,7 +404,7 @@ class TestDeleteOldArticles:
 
     @pytest.mark.asyncio
     async def test_delete_old_articles_empty_list_returns_zero(self):
-        """T028: empty cutoff_pg_ids short-circuits without DB call."""
+        """empty cutoff_pg_ids short-circuits without DB call."""
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
@@ -423,7 +453,7 @@ class TestGetArticleEntities:
 
 
 class TestUpdateArticleScoreRemoved:
-    """T028: update_article_score is removed (graph node has no score field)."""
+    """update_article_score is removed (graph node has no score field)."""
 
     def test_update_article_score_attribute_does_not_exist(self):
         """Neo4jArticleRepo must NOT have update_article_score method.
@@ -434,7 +464,7 @@ class TestUpdateArticleScoreRemoved:
         """
         assert not hasattr(Neo4jArticleRepo, "update_article_score"), (
             "Neo4jArticleRepo.update_article_score must be removed after "
-            "the Article node slim-down (design.md §D2)."
+            "the Article node slim-down (design.md §)."
         )
 
 
@@ -499,10 +529,10 @@ class TestListAllArticlePgIds:
 class TestDeleteArticlesWithoutMentions:
     """Tests for delete_articles_without_mentions method.
 
-    LOW-2 (T051): Neo4j version previously hardcoded ``return 0``, hiding
-    successful deletions from callers (Rule 12 violation — silent failure).
-    Now mirrors the LadybugDB implementation pattern: ``collect + size +
-    DETACH DELETE`` returns the actual count via a single Cypher query.
+    Neo4j version previously hardcoded ``return 0``, hiding
+        successful deletions from callers (Rule 12 violation — silent failure).
+        Now mirrors the LadybugDB implementation pattern: ``collect + size +
+        DETACH DELETE`` returns the actual count via a single Cypher query.
     """
 
     @pytest.mark.asyncio
@@ -520,7 +550,7 @@ class TestDeleteArticlesWithoutMentions:
 
     @pytest.mark.asyncio
     async def test_delete_articles_without_mentions_returns_real_count_neo4j(self):
-        """LOW-2: returns actual deleted count (not hardcoded 0).
+        """returns actual deleted count (not hardcoded 0).
 
         When 3 orphan Article nodes are deleted, the return value must
         equal 3 — mirroring the LadybugDB implementation that uses

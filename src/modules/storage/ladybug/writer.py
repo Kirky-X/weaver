@@ -7,20 +7,17 @@ Coordinates entity and article repositories for graph write operations.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from typing import Any
 
 from core.db import PersistStatus
+from core.db.ladybug_pool import ladybug_write_lock as _write_lock
 from core.observability import get_logger
 from modules.storage.ladybug.article_repo import LadybugArticleRepo
 from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
 log = get_logger(__name__)
-
-# Global write lock for LadybugDB (only one write transaction at a time)
-_write_lock = asyncio.Lock()
 
 
 class LadybugWriter:
@@ -106,7 +103,7 @@ class LadybugWriter:
         publish_time = int(raw_publish_time.timestamp()) if raw_publish_time else None
         score = state.get("score")
 
-        # After the Article node slim-down (design.md §D2), the Article
+        # After the Article node slim-down (design.md §), the Article
         # node stores only {id, pg_id}. Title / category / publish_time /
         # score are no longer persisted on the node; the EventNode below
         # still carries them (EventNode is the business-data carrier).
@@ -176,7 +173,10 @@ class LadybugWriter:
                     tier=tier,
                 )
                 entity_ids.append(entity_id)
-                entity_name_to_id[entity_name] = entity_id  # Store for later relation lookup
+                # Cache key is whitespace-normalized (corr#445) so later
+                # relation-endpoint lookups hit even with stray spaces/case
+                # drift; the stored canonical_name itself is unchanged.
+                entity_name_to_id[str(entity_name).strip()] = entity_id
 
                 # Create MENTIONS relationship
                 await self.entity_repo.merge_mentions_relation(
@@ -218,9 +218,11 @@ class LadybugWriter:
                     if not source_name or not target_name:
                         continue
 
-                    # Find entity IDs
-                    source_id = entity_name_to_id.get(source_name)
-                    target_id = entity_name_to_id.get(target_name)
+                    # Find entity IDs (cache keys normalized as above)
+                    source_key = str(source_name).strip()
+                    target_key = str(target_name).strip()
+                    source_id = entity_name_to_id.get(source_key)
+                    target_id = entity_name_to_id.get(target_key)
 
                     log.debug(
                         "ladybug_relation_lookup",
@@ -236,7 +238,7 @@ class LadybugWriter:
                         source_ent = await self.entity_repo.find_entity_by_name(source_name)
                         if source_ent:
                             source_id = source_ent["id"]
-                            entity_name_to_id[source_name] = source_id
+                            entity_name_to_id[source_key] = source_id
                         else:
                             # Entity not found - create it (ensure existence for relation)
                             source_id = await self.entity_repo.merge_entity(
@@ -245,7 +247,7 @@ class LadybugWriter:
                                 description=None,
                                 tier=3,  # Lower tier for auto-created entities
                             )
-                            entity_name_to_id[source_name] = source_id
+                            entity_name_to_id[source_key] = source_id
                             log.debug(
                                 "ladybug_entity_auto_created",
                                 name=source_name,
@@ -257,7 +259,7 @@ class LadybugWriter:
                         target_ent = await self.entity_repo.find_entity_by_name(target_name)
                         if target_ent:
                             target_id = target_ent["id"]
-                            entity_name_to_id[target_name] = target_id
+                            entity_name_to_id[target_key] = target_id
                         else:
                             # Entity not found - create it (ensure existence for relation)
                             target_id = await self.entity_repo.merge_entity(
@@ -266,7 +268,7 @@ class LadybugWriter:
                                 description=None,
                                 tier=3,  # Lower tier for auto-created entities
                             )
-                            entity_name_to_id[target_name] = target_id
+                            entity_name_to_id[target_key] = target_id
                             log.debug(
                                 "ladybug_entity_auto_created",
                                 name=target_name,
@@ -280,7 +282,11 @@ class LadybugWriter:
                             normalized = await self._relation_type_normalizer.normalize(edge_type)
                             edge_type = normalized.name_en or edge_type
                         except Exception as exc:
-                            log.warning("relation_normalization_failed", error=str(exc))
+                            log.warning(
+                                "relation_normalization_failed",
+                                error=str(exc),
+                                exc_type=type(exc).__name__,
+                            )
 
                     await self.entity_repo.merge_relation(
                         from_entity_id=source_id,
@@ -298,6 +304,7 @@ class LadybugWriter:
                     log.error(
                         "ladybug_relation_loop_error",
                         error=str(exc),
+                        exc_type=type(exc).__name__,
                     )
 
         return entity_ids
@@ -366,7 +373,7 @@ class LadybugWriter:
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive/delete articles whose pg_id is in ``cutoff_pg_ids``.
 
-        After the Article node slim-down (design.md §D2), the graph node
+        After the Article node slim-down (design.md §), the graph node
         no longer carries ``publish_time``, so the caller must compute the
         cutoff by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'`` and pass the

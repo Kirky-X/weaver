@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Neo4j article repository for article graph operations.
 
-After the Article node slim-down (design.md §D2), the graph Article node
+After the Article node slim-down (design.md §), the graph Article node
 stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
 Business fields (title / category / publish_time / score) are batch-fetched
 from PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -37,7 +37,7 @@ class Neo4jArticleRepo:
     ) -> str:
         """Create an Article node in Neo4j.
 
-        After the Article node slim-down (design.md §D2), the graph node
+        After the Article node slim-down (design.md §), the graph node
         stores only ``pg_id`` (and ``created_at`` for audit). Title /
         category / publish_time / score are no longer persisted on the
         node — callers that need them must batch-fetch from PostgreSQL
@@ -223,7 +223,9 @@ class Neo4jArticleRepo:
         """
         params = {"relations": relations}
         result = await self._pool.execute_query(query, params)
-        return result[0].get("created", 0) if result else 0
+        # Wrap in int(): Neo4j returns a distinct Integer subclass; the
+        # other deletion methods in this file do the same for consistency.
+        return int(result[0].get("created", 0)) if result else 0
 
     async def get_followed_articles(
         self,
@@ -248,7 +250,7 @@ class Neo4jArticleRepo:
         """
         if direction == "outgoing":
             query = """
-            MATCH (a:Article {pg_id: $pg_id})-[:FOLLOWED_BY]->(followed)
+            MATCH (a:Article {pg_id: $pg_id})-[r:FOLLOWED_BY]->(followed)
             RETURN elementId(followed) AS neo4j_id,
                    followed.pg_id AS pg_id,
                    r.time_gap_hours AS time_gap_hours
@@ -256,7 +258,7 @@ class Neo4jArticleRepo:
             """
         else:
             query = """
-            MATCH (a:Article {pg_id: $pg_id})<-[:FOLLOWED_BY]-(predecessor)
+            MATCH (a:Article {pg_id: $pg_id})<-[r:FOLLOWED_BY]-(predecessor)
             RETURN elementId(predecessor) AS neo4j_id,
                    predecessor.pg_id AS pg_id,
                    r.time_gap_hours AS time_gap_hours
@@ -272,7 +274,7 @@ class Neo4jArticleRepo:
 
         This will also remove all MENTIONS and FOLLOWED_BY relationships.
 
-        T051 LOW-1: return type unified to ``int`` (count of nodes
+        Return type unified to ``int`` (count of nodes
         actually deleted) to match LadybugArticleRepo. The previous
         ``bool`` return always returned ``True`` even when no node
         matched — an LSP inconsistency that hid silent no-ops (rule 12).
@@ -382,11 +384,14 @@ class Neo4jArticleRepo:
             Number of articles deleted.
         """
         if not valid_article_ids:
+            # collect(a) + size() — `count(a)` per-row always yields 1,
+            # not the total number of deleted nodes (corr#446).
             query = """
             MATCH (a:Article)
-            WITH a, count(a) AS total
+            WITH collect(a) AS articles
+            UNWIND articles AS a
             DETACH DELETE a
-            RETURN total
+            RETURN size(articles) AS total
             """
             result = await self._pool.execute_query(query)
             return result[0]["total"] if result else 0
@@ -394,9 +399,10 @@ class Neo4jArticleRepo:
         query = """
         MATCH (a:Article)
         WHERE NOT a.pg_id IN $valid_pg_ids
-        WITH a, count(a) AS orphan_count
+        WITH collect(a) AS orphans
+        UNWIND orphans AS a
         DETACH DELETE a
-        RETURN orphan_count
+        RETURN size(orphans) AS orphan_count
         """
         result = await self._pool.execute_query(query, {"valid_pg_ids": valid_article_ids})
         return result[0]["orphan_count"] if result else 0
@@ -417,23 +423,23 @@ class Neo4jArticleRepo:
     async def delete_articles_without_mentions(self) -> int:
         """Delete Article nodes that have no MENTIONS relationships and no FOLLOWED_BY outgoing relationships.
 
-        An orphan article is defined as:
-        - No incoming MENTIONS relationship (no article mentions this one as related)
-        - No outgoing FOLLOWED_BY relationship (this article doesn't follow another)
+                An orphan article is defined as:
+                - No incoming MENTIONS relationship (no article mentions this one as related)
+                - No outgoing FOLLOWED_BY relationship (this article doesn't follow another)
 
-        These articles are considered orphaned because they have no meaningful
-        connections in the knowledge graph.
+                These articles are considered orphaned because they have no meaningful
+                connections in the knowledge graph.
 
-        LOW-2 (T051): previously this method executed the DETACH DELETE
-        then hardcoded ``return 0``, leaving callers unable to distinguish
-        "0 deleted" from "error swallowed" (Rule 12 violation). Now uses
-        the same ``collect + size + DETACH DELETE`` pattern as
-        ``delete_old_articles`` and the LadybugDB counterpart — the count
-        is computed BEFORE the delete (counting after DELETE is unreliable
-        in Neo4j).
+        Previously, this method executed the DETACH DELETE
+                then hardcoded ``return 0``, leaving callers unable to distinguish
+                "0 deleted" from "error swallowed" (Rule 12 violation). Now uses
+                the same ``collect + size + DETACH DELETE`` pattern as
+                ``delete_old_articles`` and the LadybugDB counterpart — the count
+                is computed BEFORE the delete (counting after DELETE is unreliable
+                in Neo4j).
 
-        Returns:
-            Number of articles deleted.
+                Returns:
+                    Number of articles deleted.
         """
         query = """
         MATCH (a:Article)

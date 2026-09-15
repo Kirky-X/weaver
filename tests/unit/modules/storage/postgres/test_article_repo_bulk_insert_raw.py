@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T004 RED: bulk_insert_raw batch insert for RawArticle.
+"""RED: bulk_insert_raw batch insert for RawArticle.
 
-Bug (P0-2):
+Bug:
     ``src/modules/ingestion/domain/processor.py:170-176`` calls
     ``insert_raw`` per-article in a for-loop, triggering N session
     round-trips and N commits per crawl batch. This is the second
-    largest token/wall-time waste after D1.
+    largest token/wall-time waste after.
 
-Fix (T005-T006):
+Fix:
     Add ``bulk_insert_raw(articles, task_id=None) -> list[uuid.UUID]``
     to ``PostgresArticleRepository``:
     - Batch pre-query existing URLs via ``WHERE source_url = ANY(:urls)``

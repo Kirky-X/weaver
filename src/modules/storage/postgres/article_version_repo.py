@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from core.db import ArticleVersion
 from core.observability import get_logger
@@ -33,6 +34,10 @@ class ArticleVersionRepo:
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
+    # Concurrent create_version calls for the same article race on the
+    # (article_id, version) unique constraint; bounded retry resolves them.
+    MAX_VERSION_RETRY_ATTEMPTS = 3
+
     async def create_version(
         self,
         article_id: uuid.UUID,
@@ -41,12 +46,15 @@ class ArticleVersionRepo:
         summary: str | None,
         category: str | None,
         score: float | None,
-        changed_fields: list[str],
+        changed_fields: list[str] | None,
     ) -> ArticleVersion:
         """Create a version snapshot before updating.
 
         Auto-increments the version number based on the latest
-        existing version for the article.
+        existing version for the article. On concurrent creation the
+        ``uq_article_version`` unique constraint rejects the loser, which
+        is retried with a fresh MAX(version) read (corr#453) instead of
+        surfacing an IntegrityError.
 
         Args:
             article_id: UUID of the article.
@@ -55,41 +63,69 @@ class ArticleVersionRepo:
             summary: Article summary at this version.
             category: Article category at this version.
             score: Article score at this version.
-            changed_fields: List of field names that changed.
+            changed_fields: List of field names that changed. An empty list
+                is stored as an empty array (not NULL); pass ``None``
+                explicitly when no change metadata is wanted.
 
         Returns:
             The created ArticleVersion instance.
         """
-        async with self._pool.session() as session:
-            # Get current max version for this article
-            result = await session.execute(
-                select(func.max(ArticleVersion.version)).where(
-                    ArticleVersion.article_id == article_id
+        last_exc: IntegrityError | None = None
+        for attempt in range(self.MAX_VERSION_RETRY_ATTEMPTS):
+            async with self._pool.session() as session:
+                # Get current max version for this article
+                result = await session.execute(
+                    select(func.max(ArticleVersion.version)).where(
+                        ArticleVersion.article_id == article_id
+                    )
                 )
-            )
-            max_version = result.scalar_one_or_none()
-            next_version = (max_version or 0) + 1
+                max_version = result.scalar_one_or_none()
+                next_version = (max_version or 0) + 1
 
-            version = ArticleVersion(
-                article_id=article_id,
-                version=next_version,
-                title=title,
-                body=body,
-                summary=summary,
-                category=category,
-                score=score,
-                changed_fields=changed_fields or None,
-            )
-            session.add(version)
-            await session.commit()
+                version = ArticleVersion(
+                    article_id=article_id,
+                    version=next_version,
+                    title=title,
+                    body=body,
+                    summary=summary,
+                    category=category,
+                    score=score,
+                    # Keep [] as []: callers passing an empty list mean
+                    # "no fields changed", which is data, not absence.
+                    changed_fields=changed_fields,
+                )
+                session.add(version)
+                try:
+                    await session.commit()
+                except IntegrityError as exc:
+                    # Concurrent writer took next_version — retry with a
+                    # fresh read (SELECT ... FOR UPDATE is unavailable on
+                    # DuckDB, so the constraint is the serialization point).
+                    await session.rollback()
+                    last_exc = exc
+                    log.debug(
+                        "version_create_race_retry",
+                        article_id=str(article_id),
+                        attempt=attempt + 1,
+                    )
+                    continue
 
-            log.debug(
-                "version_created",
-                article_id=str(article_id),
-                version=next_version,
-                changed_fields=changed_fields,
+                log.debug(
+                    "version_created",
+                    article_id=str(article_id),
+                    version=next_version,
+                    changed_fields=changed_fields,
+                )
+                return version
+
+        # Explicit failure — never silently swallow a lost update
+        raise (
+            last_exc
+            if last_exc
+            else RuntimeError(
+                f"create_version failed after {self.MAX_VERSION_RETRY_ATTEMPTS} attempts"
             )
-            return version
+        )
 
     async def get_version_history(
         self, article_id: uuid.UUID, limit: int = 10

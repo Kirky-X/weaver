@@ -734,7 +734,11 @@ class TestArticleRepoDetectMergeCycle:
 
 
 class TestArticleRepoResolveFinalMergeTarget:
-    """Tests for ArticleRepo.resolve_final_merge_target method."""
+    """Tests for ArticleRepo.resolve_final_merge_target method.
+
+    corr#104: the method now resolves the whole chain with a single
+    recursive CTE; rows carry (id, merged_into, path).
+    """
 
     @pytest.fixture
     def mock_pool(self):
@@ -747,19 +751,24 @@ class TestArticleRepoResolveFinalMergeTarget:
         """Create ArticleRepo instance."""
         return ArticleRepo(mock_pool)
 
+    def _mock_pool_with_rows(self, mock_pool, rows):
+        mock_result = MagicMock()
+        mock_result.all.return_value = rows
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        return mock_session
+
     @pytest.mark.asyncio
     async def test_resolve_final_merge_target_no_merge(self, repo, mock_pool):
         """Test returns same ID when no merge."""
         article_id = uuid.uuid4()
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        row = MagicMock()
+        row.id = article_id
+        row.merged_into = None
+        row.path = [article_id]
+        self._mock_pool_with_rows(mock_pool, [row])
 
         result = await repo.resolve_final_merge_target(article_id)
 
@@ -768,25 +777,59 @@ class TestArticleRepoResolveFinalMergeTarget:
     @pytest.mark.asyncio
     async def test_resolve_final_merge_target_with_merge(self, repo, mock_pool):
         """Test follows merge chain to final target."""
-        article_id = uuid.uuid4()
+        start_id = uuid.uuid4()
         intermediate_id = uuid.uuid4()
         final_id = uuid.uuid4()
 
-        mock_results = [
-            MagicMock(scalar_one_or_none=MagicMock(return_value=intermediate_id)),
-            MagicMock(scalar_one_or_none=MagicMock(return_value=final_id)),
-            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
-        ]
+        row_start = MagicMock()
+        row_start.id = start_id
+        row_start.merged_into = intermediate_id
+        row_start.path = [start_id]
+        row_inter = MagicMock()
+        row_inter.id = intermediate_id
+        row_inter.merged_into = final_id
+        row_inter.path = [start_id, intermediate_id]
+        row_final = MagicMock()
+        row_final.id = final_id
+        row_final.merged_into = None
+        row_final.path = [start_id, intermediate_id, final_id]
 
-        mock_session = AsyncMock()
-        mock_session.execute.side_effect = mock_results
+        self._mock_pool_with_rows(mock_pool, [row_start, row_inter, row_final])
 
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await repo.resolve_final_merge_target(article_id)
+        result = await repo.resolve_final_merge_target(start_id)
 
         assert result == final_id
+
+    @pytest.mark.asyncio
+    async def test_resolve_final_merge_target_cycle_returns_none(self, repo, mock_pool):
+        """A merge cycle is reported and resolves to None."""
+        start_id = uuid.uuid4()
+        row = MagicMock()
+        row.id = start_id
+        row.merged_into = start_id  # self-loop terminal
+        row.path = [start_id]
+
+        self._mock_pool_with_rows(mock_pool, [row])
+
+        result = await repo.resolve_final_merge_target(start_id)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_resolve_final_merge_target_uses_single_cte_query(self, repo, mock_pool):
+        """corr#104: exactly one SQL round-trip resolves the whole chain."""
+        article_id = uuid.uuid4()
+        row = MagicMock()
+        row.id = article_id
+        row.merged_into = None
+        row.path = [article_id]
+        mock_session = self._mock_pool_with_rows(mock_pool, [row])
+
+        await repo.resolve_final_merge_target(article_id)
+
+        mock_session.execute.assert_awaited_once()
+        sql = str(mock_session.execute.await_args[0][0]).upper()
+        assert "WITH RECURSIVE" in sql
 
 
 class TestArticleRepoGetIncompleteArticles:

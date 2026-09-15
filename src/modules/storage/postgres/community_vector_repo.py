@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from core.db.query_builders import DatabaseType, VectorQueryBuilder
+from core.db.query_builders import (
+    DatabaseType,
+    VectorQueryBuilder,
+    validate_limit,
+    validate_threshold,
+)
 from core.mappers.community_search_result_mapper import CommunitySearchResultMapper
 from core.models.shared import CommunitySearchResultView
 from core.observability import get_logger
@@ -49,18 +54,36 @@ class CommunityVectorRepo:
 
         Returns:
             List of CommunitySearchResultView with community_id, score, and title.
+
+        Raises:
+            ValueError: If limit/threshold are out of bounds.
         """
+        # Same guards as every VectorQueryBuilder method (sec#70): a huge
+        # limit forces a full HNSW scan, a negative threshold silently
+        # returns unranked results.
+        # NOTE: no embedding-dimension check here — the active embedding
+        # model is config-dependent (OpenAI 3072-dim vs Ollama 1024-dim),
+        # so a hard 1024 assertion could reject a legitimately configured
+        # model; a mis-sized vector still fails loudly at the PG CAST.
+        limit = validate_limit(limit)
+        threshold = validate_threshold(threshold)
+
         # Build query for community_vectors table
-        # Uses HNSW index for fast approximate nearest neighbor search
+        # Uses HNSW index for fast approximate nearest neighbor search.
+        # The cosine distance is computed once in a CTE (perf#106) so the
+        # WHERE filter and ORDER BY reuse the alias instead of recomputing
+        # the 1024-dim expression three times per candidate row.
         query_sql = """
-            SELECT
-                community_id,
-                1 - (embedding <=> CAST(:embedding AS vector)) AS score,
-                title,
-                summary
-            FROM community_vectors
-            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) > :threshold
-            ORDER BY embedding <=> CAST(:embedding AS vector)
+            WITH sim AS (
+                SELECT community_id,
+                       1 - (embedding <=> CAST(:embedding AS vector)) AS score,
+                       title, summary
+                FROM community_vectors
+            )
+            SELECT sim.community_id, sim.score, sim.title, sim.summary
+            FROM sim
+            WHERE sim.score > :threshold
+            ORDER BY sim.score DESC
             LIMIT :limit
         """
 

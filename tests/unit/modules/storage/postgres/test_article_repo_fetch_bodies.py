@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T051 RED: ArticleRepo.fetch_bodies_by_pg_ids batch body lookup.
+"""RED: ArticleRepo.fetch_bodies_by_pg_ids batch body lookup.
 
 Mirrors the contract of ``fetch_titles_by_pg_ids`` but for article body
 content. Used by ``ContextBuilder.fetch_article_bodies`` to replace the
@@ -33,7 +33,7 @@ def _make_body_row(pg_id: str, body: str) -> tuple:
 
 
 class TestFetchBodiesByPgIds:
-    """Tests for ArticleRepo.fetch_bodies_by_pg_ids (T051)."""
+    """Tests for ArticleRepo.fetch_bodies_by_pg_ids."""
 
     @pytest.fixture
     def mock_pool(self):

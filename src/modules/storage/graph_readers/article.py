@@ -6,7 +6,7 @@ Handles article-centric read operations: article node lookup, entities
 mentioned in an article, intra-article entity relationships, and
 related-article discovery.
 
-After the Article node slim-down (design.md §D2), graph Article nodes only
+After the Article node slim-down (design.md §), graph Article nodes only
 store ``pg_id`` (and ``created_at`` on Neo4j). Business fields (title /
 category / publish_time / score) are batch-fetched from PostgreSQL via
 ``ArticleRepository.fetch_titles_by_pg_ids`` when ``article_repo`` is
@@ -15,14 +15,11 @@ injected; otherwise the reader degrades to returning ``{id: pg_id}`` dicts.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.observability import get_logger
 from core.utils.time_utils import convert_timestamp
 from modules.storage.graph_readers.base import GraphReaderBase
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger(__name__)
 
@@ -201,8 +198,8 @@ class GraphArticleReader(GraphReaderBase):
             created_at = convert_timestamp(row.get("created_at"))
             relationships.append(
                 {
-                    "source_id": row["source"],
-                    "target_id": row["target"],
+                    "source_id": row.get("source") or "",
+                    "target_id": row.get("target") or "",
                     "relation_type": row["relation_type"] or "RELATED_TO",
                     "properties": {
                         "description": row.get("description"),

@@ -79,7 +79,7 @@ class GraphVisualizer(GraphReaderBase):
                     "source": row.get("source") or "",
                     "target": row.get("target") or "",
                     "relation_type": row.get("relation_type") or "RELATED_TO",
-                    "weight": row.get("weight"),
+                    "weight": row.get("weight") or 0,
                 }
             )
         return edges

@@ -18,6 +18,8 @@ the read methods to the composed readers.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query_builders import GraphQueryBuilder
@@ -54,7 +56,7 @@ class GraphRepository:
         article_repo: Optional ``ArticleRepository``-compatible instance
             used by ``GraphArticleReader`` to batch-fetch article business
             fields (title/category/publish_time/score) from PostgreSQL
-            after the Article node slim-down (design.md §D2). ``None``
+            after the Article node slim-down (design.md §). ``None``
             triggers degraded mode (pg_id only).
     """
 
@@ -62,7 +64,7 @@ class GraphRepository:
         self,
         pool: GraphPool,
         query_builder: GraphQueryBuilder,
-        fallback_pool_factory: callable | None = None,
+        fallback_pool_factory: Callable[[], Any] | None = None,
         fallback_query_builder: GraphQueryBuilder | None = None,
         article_repo: Any = None,
     ) -> None:
@@ -71,6 +73,9 @@ class GraphRepository:
         self._fallback_pool_factory = fallback_pool_factory
         self._fallback_query_builder = fallback_query_builder
         self._fallback_pool: GraphPool | None = None  # Lazy-initialized
+        # Serializes lazy fallback-pool creation across concurrent coroutines
+        # (corr#125: check-then-act on _fallback_pool is not atomic).
+        self._fallback_lock = asyncio.Lock()
 
         # Compose readers, injecting shared dependencies. The execute_fn
         # callable binds _execute_with_fallback so all readers share the
@@ -90,17 +95,21 @@ class GraphRepository:
     async def _get_fallback_pool(self) -> GraphPool | None:
         """Get or lazily initialize the fallback pool with schema."""
         if self._fallback_pool is None and self._fallback_pool_factory is not None:
-            pool = self._fallback_pool_factory()
-            await pool.startup()
+            async with self._fallback_lock:
+                # Re-check inside the lock: a concurrent coroutine may have
+                # initialized the pool while this one was waiting.
+                if self._fallback_pool is None and self._fallback_pool_factory is not None:
+                    pool = self._fallback_pool_factory()
+                    await pool.startup()
 
-            # Initialize LadybugDB schema (create EventNode, CAUSES, etc.)
-            from core.db.ladybug_schema import initialize_ladybug_schema
+                    # Initialize LadybugDB schema (create EventNode, CAUSES, etc.)
+                    from core.db.ladybug_schema import initialize_ladybug_schema
 
-            await initialize_ladybug_schema(pool)
-            log.info("ladybug_schema_initialized_for_fallback")
+                    await initialize_ladybug_schema(pool)
+                    log.info("ladybug_schema_initialized_for_fallback")
 
-            self._fallback_pool = pool
-            log.info("graph_repo_fallback_initialized")
+                    self._fallback_pool = pool
+                    log.info("graph_repo_fallback_initialized")
         return self._fallback_pool
 
     async def _execute_with_fallback(
@@ -108,9 +117,18 @@ class GraphRepository:
         build_query_fn: Any,
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Execute query on primary, fallback if empty."""
+        """Execute query on primary, fallback if empty or on primary failure."""
         query = build_query_fn(self._query_builder)
-        result = await self._pool.execute_query(query, params or {})
+        try:
+            result = await self._pool.execute_query(query, params or {})
+        except Exception as exc:
+            # HA fallback (corr#437): a transient primary failure falls back
+            # to the secondary instead of surfacing directly. Without a
+            # configured fallback pool the original error is re-raised.
+            log.warning("graph_repo_primary_failed", error=str(exc))
+            if self._fallback_query_builder is None:
+                raise
+            result = []
         if result or self._fallback_query_builder is None:
             return result
         try:

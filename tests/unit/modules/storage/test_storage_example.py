@@ -295,7 +295,7 @@ class TestStorageMigration:
         base_path.write_bytes(b"Version 2")
         version_file.write_text("2")
 
-        assert version_file.read_text() == "2"
+        assert version_file.read_text(encoding="utf-8") == "2"
 
     @pytest.mark.asyncio
     async def test_backup_creation(self, temp_dir: Path) -> None:

@@ -172,7 +172,7 @@ class TestGraphRepositoryGetRelatedEntities:
 class TestGraphRepositoryGetArticle:
     """Test get_article method.
 
-    After the Article node slim-down (design.md §D2), graph queries only
+    After the Article node slim-down (design.md §), graph queries only
     return ``a.pg_id AS id``; business fields are batch-fetched from
     PostgreSQL via ``article_repo.fetch_titles_by_pg_ids``.
     """

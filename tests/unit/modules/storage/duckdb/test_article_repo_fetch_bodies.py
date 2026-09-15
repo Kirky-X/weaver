@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T051 RED: DuckDBArticleRepo.fetch_bodies_by_pg_ids batch body lookup.
+"""RED: DuckDBArticleRepo.fetch_bodies_by_pg_ids batch body lookup.
 
 ``DuckDBArticleRepo`` is currently an alias for ``ArticleRepo`` (see
 ``src/modules/storage/duckdb/article_repo.py``); both share the same ORM
@@ -28,7 +28,7 @@ def _make_body_row(pg_id, body):
 
 
 class TestDuckDBFetchBodiesByPgIds:
-    """Mirror tests for DuckDBArticleRepo.fetch_bodies_by_pg_ids (T051)."""
+    """Mirror tests for DuckDBArticleRepo.fetch_bodies_by_pg_ids."""
 
     @pytest.fixture
     def mock_pool(self):

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T025 RED: LadybugArticleRepo Article node slim-down (design.md §D2).
+"""RED: LadybugArticleRepo Article node slim-down (design.md §).
 
 After the graph Article node is slimmed to only ``{id, pg_id}``, the
 LadybugArticleRepo methods must:
@@ -28,7 +28,7 @@ from modules.storage.ladybug.article_repo import LadybugArticleRepo
 
 
 class TestLadybugArticleRepoCreateArticle:
-    """T025: create_article only accepts article_id (pg_id)."""
+    """create_article only accepts article_id (pg_id)."""
 
     @pytest.mark.asyncio
     async def test_create_article_accepts_only_article_id(self):
@@ -84,7 +84,7 @@ class TestLadybugArticleRepoCreateArticle:
 
 
 class TestLadybugArticleRepoFindById:
-    """T025: find_article_by_id returns only {id, pg_id}."""
+    """find_article_by_id returns only {id, pg_id}."""
 
     @pytest.mark.asyncio
     async def test_find_article_by_id_returns_only_id_and_pg_id(self):
@@ -111,7 +111,7 @@ class TestLadybugArticleRepoFindById:
 
 
 class TestLadybugArticleRepoFindByGraphId:
-    """T025: find_article_by_graph_id returns only {id, pg_id}."""
+    """find_article_by_graph_id returns only {id, pg_id}."""
 
     @pytest.mark.asyncio
     async def test_find_article_by_graph_id_returns_only_id_and_pg_id(self):
@@ -128,7 +128,7 @@ class TestLadybugArticleRepoFindByGraphId:
 
 
 class TestLadybugArticleRepoCreateArticlesBatch:
-    """T025: create_articles_batch only writes id, pg_id."""
+    """create_articles_batch only writes id, pg_id."""
 
     @pytest.mark.asyncio
     async def test_create_articles_batch_uses_only_pg_id(self):
@@ -184,7 +184,7 @@ class TestLadybugArticleRepoCreateArticlesBatch:
 
 
 class TestLadybugArticleRepoGetFollowedArticles:
-    """T025: get_followed_articles returns only id, pg_id, time_gap_hours."""
+    """get_followed_articles returns only id, pg_id, time_gap_hours."""
 
     @pytest.mark.asyncio
     async def test_get_followed_articles_returns_slim_fields(self):
@@ -222,7 +222,7 @@ class TestLadybugArticleRepoGetFollowedArticles:
 
 
 class TestLadybugArticleRepoDeleteOldArticles:
-    """T025: delete_old_articles takes cutoff_pg_ids (not days)."""
+    """delete_old_articles takes cutoff_pg_ids (not days)."""
 
     @pytest.mark.asyncio
     async def test_delete_old_articles_accepts_pg_ids_list(self):
@@ -255,7 +255,7 @@ class TestLadybugArticleRepoDeleteOldArticles:
 
 
 class TestLadybugArticleRepoUpdateArticleScoreRemoved:
-    """T025: update_article_score is removed (graph node has no score)."""
+    """update_article_score is removed (graph node has no score)."""
 
     def test_update_article_score_attribute_does_not_exist(self):
         """LadybugArticleRepo must NOT have update_article_score method.
@@ -272,9 +272,9 @@ class TestLadybugArticleRepoUpdateArticleScoreRemoved:
 
 
 class TestLadybugArticleRepoDeleteArticle:
-    """T051: delete_article returns int (count of nodes actually deleted).
+    """delete_article returns int (count of nodes actually deleted).
 
-    LOW-1 fix: unify return semantic with Neo4jArticleRepo.delete_article.
+    Return semantics unified with Neo4jArticleRepo.delete_article.
     Both backends now return ``int`` (number of nodes actually deleted)
     rather than ``bool``. The previous LadybugDB implementation returned
     ``bool`` while Neo4j returned ``True`` unconditionally even when no
@@ -332,9 +332,9 @@ class TestLadybugArticleRepoDeleteArticle:
 
 
 class TestLadybugArticleRepoDeleteOrphanArticles:
-    """T051: delete_orphan_articles uses a single UNWIND batch Cypher.
+    """delete_orphan_articles uses a single UNWIND batch Cypher.
 
-    MEDIUM-1 fix: previous implementation looped over orphan pg_ids and
+    Previous implementation looped over orphan pg_ids and
     issued one DELETE per id — classic N+1 (N round-trips). The batched
     implementation issues exactly ONE execute_query call regardless of
     orphan count, matching the pattern already used by
@@ -404,12 +404,11 @@ class TestLadybugArticleRepoDeleteOrphanArticles:
 
     @pytest.mark.asyncio
     async def test_delete_orphans_empty_valid_list_deletes_all(self):
-        """Empty valid_article_ids must delete every Article node.
+        """Empty valid_article_ids must return 0 (guard against mass deletion).
 
-        Preserves the existing semantic (also matches Neo4j's empty-list
-        branch): an empty valid list means every graph article is an
-        orphan. The batched Cypher handles this naturally because
-        ``NOT a.pg_id IN []`` is true for all rows.
+        An empty valid list would match ALL Article nodes
+        (``NOT a.pg_id IN []`` is true for all rows). The method now
+        refuses to execute and returns 0 with a WARNING log.
         """
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 10}])
@@ -417,8 +416,9 @@ class TestLadybugArticleRepoDeleteOrphanArticles:
         repo = LadybugArticleRepo(mock_pool)
         result = await repo.delete_orphan_articles([])
 
-        assert result == 10
-        assert mock_pool.execute_query.await_count == 1
+        assert result == 0
+        # Must NOT execute any query (guard prevents mass deletion)
+        assert mock_pool.execute_query.await_count == 0
 
     @pytest.mark.asyncio
     async def test_delete_orphans_zero_deleted_when_all_valid(self):
@@ -433,9 +433,9 @@ class TestLadybugArticleRepoDeleteOrphanArticles:
 
 
 class TestLadybugArticleRepoDeleteArticlesWithoutMentions:
-    """T051: delete_articles_without_mentions uses a single batch Cypher.
+    """delete_articles_without_mentions uses a single batch Cypher.
 
-    LOW-3 fix: same N+1 pattern as delete_orphan_articles. Batched into
+    Same N+1 pattern as delete_orphan_articles. Batched into
     a single Cypher that collects matching articles and DETACH DELETEs
     them in one transaction.
     """
@@ -467,7 +467,7 @@ class TestLadybugArticleRepoDeleteArticlesWithoutMentions:
         The task is to fix N+1, NOT to change business semantics. The
         LadybugDB backend uses the outgoing-MENTIONS definition while
         Neo4j uses incoming-MENTIONS + outgoing-FOLLOWED_BY — that
-        divergence is pre-existing and out of scope for T051.
+        divergence is pre-existing and out of scope for.
         """
         mock_pool = MagicMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])

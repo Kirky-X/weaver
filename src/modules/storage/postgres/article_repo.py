@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""PostgreSQL article repository — composite facade (T022).
+"""PostgreSQL article repository — composite facade.
 
 Combines ArticleReader / ArticleWriter / RawBulkWriter; the public surface
 is unchanged so all callers keep working.
@@ -12,7 +12,11 @@ Implements:
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from core.protocols.types import ArticleTitleMeta
+    from core.types.ingestion_models import RawArticle
 
 
 from core.db import Article, PersistStatus

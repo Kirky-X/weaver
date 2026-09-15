@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# Delimiter for string_agg dimension columns. Uses the ASCII unit separator
+# (0x1F) instead of a comma: labels/providers/models may legitimately contain
+# commas, which would silently split into fake entries on parsing. Mirrors
+# LLMUsageRepo.AGG_DELIMITER.
+AGG_DELIMITER = "\x1f"
+
 
 class DuckDBLLMUsageRepo:
     """DuckDB LLM usage repository.
@@ -255,11 +261,17 @@ class DuckDBLLMUsageRepo:
                 func.max(LLMUsageHourly.latency_max_ms).label("latency_max_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
                 func.sum(LLMUsageHourly.failure_count).label("failure_count"),
-                func.string_agg(func.distinct(LLMUsageHourly.label), ",").label("labels"),
-                func.string_agg(func.distinct(LLMUsageHourly.call_point), ",").label("call_points"),
-                func.string_agg(func.distinct(LLMUsageHourly.llm_type), ",").label("llm_types"),
-                func.string_agg(func.distinct(LLMUsageHourly.provider), ",").label("providers"),
-                func.string_agg(func.distinct(LLMUsageHourly.model), ",").label("models"),
+                func.string_agg(func.distinct(LLMUsageHourly.label), AGG_DELIMITER).label("labels"),
+                func.string_agg(func.distinct(LLMUsageHourly.call_point), AGG_DELIMITER).label(
+                    "call_points"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.llm_type), AGG_DELIMITER).label(
+                    "llm_types"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.provider), AGG_DELIMITER).label(
+                    "providers"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.model), AGG_DELIMITER).label("models"),
             )
             .where(
                 and_(
@@ -296,17 +308,27 @@ class DuckDBLLMUsageRepo:
                 "latency_max_ms": float(row.latency_max_ms or 0),
                 "success_count": row.success_count or 0,
                 "failure_count": row.failure_count or 0,
-                "label": ", ".join(sorted(set(row.labels.split(",")))) if row.labels else "",
+                "label": (
+                    ", ".join(sorted(set(row.labels.split(AGG_DELIMITER)))) if row.labels else ""
+                ),
                 "call_point": (
-                    ", ".join(sorted(set(row.call_points.split(",")))) if row.call_points else ""
+                    ", ".join(sorted(set(row.call_points.split(AGG_DELIMITER))))
+                    if row.call_points
+                    else ""
                 ),
                 "llm_type": (
-                    ", ".join(sorted(set(row.llm_types.split(",")))) if row.llm_types else ""
+                    ", ".join(sorted(set(row.llm_types.split(AGG_DELIMITER))))
+                    if row.llm_types
+                    else ""
                 ),
                 "provider": (
-                    ", ".join(sorted(set(row.providers.split(",")))) if row.providers else ""
+                    ", ".join(sorted(set(row.providers.split(AGG_DELIMITER))))
+                    if row.providers
+                    else ""
                 ),
-                "model": ", ".join(sorted(set(row.models.split(",")))) if row.models else "",
+                "model": (
+                    ", ".join(sorted(set(row.models.split(AGG_DELIMITER)))) if row.models else ""
+                ),
             }
             for row in rows
         ]
@@ -388,6 +410,8 @@ class DuckDBLLMUsageRepo:
         start_time: datetime,
         end_time: datetime,
         llm_type: str | None = None,
+        model: str | None = None,
+        call_point: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by provider.
 
@@ -395,6 +419,8 @@ class DuckDBLLMUsageRepo:
             start_time: Start of time range.
             end_time: End of time range.
             llm_type: Filter by LLM type.
+            model: Filter by model name.
+            call_point: Filter by call point.
 
         Returns:
             List of provider statistics.
@@ -405,6 +431,10 @@ class DuckDBLLMUsageRepo:
         ]
         if llm_type:
             conditions.append(LLMUsageHourly.llm_type == llm_type)
+        if model:
+            conditions.append(LLMUsageHourly.model == model)
+        if call_point:
+            conditions.append(LLMUsageHourly.call_point == call_point)
 
         stmt = (
             select(
@@ -450,6 +480,8 @@ class DuckDBLLMUsageRepo:
         start_time: datetime,
         end_time: datetime,
         provider: str | None = None,
+        llm_type: str | None = None,
+        call_point: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by model.
 
@@ -457,6 +489,8 @@ class DuckDBLLMUsageRepo:
             start_time: Start of time range.
             end_time: End of time range.
             provider: Filter by provider name.
+            llm_type: Filter by LLM type.
+            call_point: Filter by call point.
 
         Returns:
             List of model statistics.
@@ -467,6 +501,10 @@ class DuckDBLLMUsageRepo:
         ]
         if provider:
             conditions.append(LLMUsageHourly.provider == provider)
+        if llm_type:
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
+        if call_point:
+            conditions.append(LLMUsageHourly.call_point == call_point)
 
         stmt = (
             select(
@@ -513,16 +551,33 @@ class DuckDBLLMUsageRepo:
         self,
         start_time: datetime,
         end_time: datetime,
+        provider: str | None = None,
+        model: str | None = None,
+        llm_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by call point.
 
         Args:
             start_time: Start of time range.
             end_time: End of time range.
+            provider: Filter by provider name.
+            model: Filter by model name.
+            llm_type: Filter by LLM type.
 
         Returns:
             List of call point statistics.
         """
+        conditions = [
+            LLMUsageHourly.time_bucket >= start_time,
+            LLMUsageHourly.time_bucket <= end_time,
+        ]
+        if provider:
+            conditions.append(LLMUsageHourly.provider == provider)
+        if model:
+            conditions.append(LLMUsageHourly.model == model)
+        if llm_type:
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
+
         stmt = (
             select(
                 LLMUsageHourly.call_point,
@@ -538,12 +593,7 @@ class DuckDBLLMUsageRepo:
                 ).label("avg_latency_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
             )
-            .where(
-                and_(
-                    LLMUsageHourly.time_bucket >= start_time,
-                    LLMUsageHourly.time_bucket <= end_time,
-                )
-            )
+            .where(and_(*conditions))
             .group_by(LLMUsageHourly.call_point)
             .order_by(func.sum(LLMUsageHourly.total_tokens_sum).desc())
         )
@@ -576,11 +626,30 @@ class DuckDBLLMUsageRepo:
         """
         cutoff = datetime.now(UTC) - timedelta(days=days)
         async with self._pool.session() as session:
+            # DuckDB returns -1 for DELETE rowcount: measure via
+            # before/after COUNT (corr#433) instead of trusting rowcount.
+            before = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(LLMUsageRaw)
+                    .where(LLMUsageRaw.created_at < cutoff)
+                )
+            ).scalar() or 0
             result = await session.execute(
                 delete(LLMUsageRaw).where(LLMUsageRaw.created_at < cutoff)
             )
             await session.commit()
-            removed = result.rowcount
+            if result.rowcount and result.rowcount > 0:
+                removed = result.rowcount
+            else:
+                after = (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(LLMUsageRaw)
+                        .where(LLMUsageRaw.created_at < cutoff)
+                    )
+                ).scalar() or 0
+                removed = max(0, before - after)
 
         log.info("llm_usage_raw_cleanup_done", days=days, removed=removed)
         return removed

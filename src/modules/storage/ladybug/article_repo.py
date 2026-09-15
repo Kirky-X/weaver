@@ -5,7 +5,7 @@
 LadybugDB-adapted version of Neo4jArticleRepo.
 Uses id property instead of elementId(), and timestamp integers instead of datetime().
 
-After the Article node slim-down (design.md §D2), the graph Article node
+After the Article node slim-down (design.md §), the graph Article node
 stores only ``{id, pg_id}``. Business fields (title / category /
 publish_time / score) are batch-fetched from PostgreSQL via
 ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -39,7 +39,7 @@ class LadybugArticleRepo:
     ) -> str:
         """Create or update an article node.
 
-        After the Article node slim-down (design.md §D2), the graph node
+        After the Article node slim-down (design.md §), the graph node
         stores only ``{id, pg_id}``. Title / category / publish_time /
         score are no longer persisted on the node — callers that need
         them must batch-fetch from PostgreSQL via
@@ -56,7 +56,11 @@ class LadybugArticleRepo:
             article_id: PostgreSQL article ID (pg_id).
 
         Returns:
-            The graph-internal id of the article node.
+            The graph-internal id of the article node. This is an upsert:
+            when a node with the same ``pg_id`` already exists, its stored
+            id is returned — the freshly generated ``id`` is only assigned
+            to new nodes, so callers must not compare the return value
+            against a pre-generated id to detect "creation".
 
         Raises:
             RuntimeError: If the MERGE returns no rows (unexpected
@@ -134,10 +138,8 @@ class LadybugArticleRepo:
             to_create = [{"id": str(uuid.uuid4()), "pg_id": pid} for pid in missing_pg_ids]
             create_query = """
             UNWIND $articles AS article
-            CREATE (a:Article {
-                id: article.id,
-                pg_id: article.pg_id
-            })
+            MERGE (a:Article {pg_id: article.pg_id})
+            ON CREATE SET a.id = article.id
             RETURN a.id AS id
             """
             create_result = await self._pool.execute_query(create_query, {"articles": to_create})
@@ -216,21 +218,25 @@ class LadybugArticleRepo:
         to_article_id: str,
         time_gap_hours: float | None = None,
     ) -> None:
-        """Create a FOLLOWED_BY relationship between two articles."""
+        """Create a FOLLOWED_BY relationship between two articles.
+
+        A ``None`` gap means "unknown" and leaves any existing value
+        untouched (corr#439: mirrors the Neo4j ``is not None`` guard —
+        ``or 0.0`` would cement an explicit unknown as a concrete 0.0).
+        """
         query = """
         MATCH (from:Article {pg_id: $from_pg_id})
         MATCH (to:Article {pg_id: $to_pg_id})
         MERGE (from)-[r:FOLLOWED_BY]->(to)
-        SET r.time_gap_hours = $time_gap_hours
         """
-        await self._pool.execute_query(
-            query,
-            {
-                "from_pg_id": from_article_id,
-                "to_pg_id": to_article_id,
-                "time_gap_hours": time_gap_hours or 0.0,
-            },
-        )
+        params: dict[str, Any] = {
+            "from_pg_id": from_article_id,
+            "to_pg_id": to_article_id,
+        }
+        if time_gap_hours is not None:
+            query += " SET r.time_gap_hours = $time_gap_hours"
+            params["time_gap_hours"] = time_gap_hours
+        await self._pool.execute_query(query, params)
 
     async def create_followed_by_batch(
         self,
@@ -291,7 +297,7 @@ class LadybugArticleRepo:
     async def delete_article(self, article_id: str) -> int:
         """Delete an article and its relationships.
 
-        T051 LOW-1: return type unified to ``int`` (count of nodes
+        Return type unified to ``int`` (count of nodes
         actually deleted) to match Neo4jArticleRepo. The previous
         ``bool`` return masked the no-op case (Neo4j returned
         ``True`` unconditionally even when no node matched) — callers
@@ -373,7 +379,7 @@ class LadybugArticleRepo:
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
         """Delete articles that don't exist in PostgreSQL.
 
-        T051 MEDIUM-1: replaced the per-id ``delete_article`` loop
+        Replaced the per-id ``delete_article`` loop
         (N round-trips — classic N+1) with a single batch Cypher that
         filters via ``NOT a.pg_id IN $valid_pg_ids`` and DETACH
         DELETEs all orphans in one transaction. Uses ``collect`` +
@@ -381,10 +387,17 @@ class LadybugArticleRepo:
         DELETE is unreliable in Kùzu). Same pattern as
         ``delete_old_articles``.
 
-        An empty ``valid_article_ids`` list deletes every Article
-        node (no pg_id is in the empty valid set) — matches the
-        previous semantic and Neo4j's empty-list branch.
+        An empty ``valid_article_ids`` list would match ALL Article
+        nodes (no pg_id is in the empty valid set).  Guard against
+        accidental mass deletion — return 0 with a WARNING.
         """
+        if not valid_article_ids:
+            log.warning(
+                "delete_orphan_articles_empty_list_guard",
+                reason="valid_article_ids is empty; refusing to delete all Article nodes",
+            )
+            return 0
+
         query = """
         MATCH (a:Article)
         WHERE NOT a.pg_id IN $valid_pg_ids
@@ -410,7 +423,7 @@ class LadybugArticleRepo:
     async def delete_articles_without_mentions(self) -> int:
         """Delete articles that have no MENTIONS relationships.
 
-        T051 LOW-3: replaced the per-id ``delete_article`` loop
+        Replaced the per-id ``delete_article`` loop
         (1 + N round-trips — N+1) with a single batch Cypher that
         collects matching articles and DETACH DELETEs them in one
         transaction. Uses ``collect`` + ``size`` to compute the
@@ -420,7 +433,7 @@ class LadybugArticleRepo:
         Note: LadybugDB uses the outgoing-MENTIONS definition
         (``NOT (a)-[:MENTIONS]->()``). Neo4j uses a different
         definition (incoming MENTIONS + outgoing FOLLOWED_BY) —
-        that divergence is pre-existing and out of scope for T051
+        that divergence is pre-existing and out of scope for
         (rule 3: surgical changes only).
         """
         query = """

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for ArticleRepo module (task 4.1.6)."""
+"""Unit tests for ArticleRepo module."""
 
 from __future__ import annotations
 

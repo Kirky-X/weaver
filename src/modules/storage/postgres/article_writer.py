@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.change_detector import ChangeDetector
@@ -99,7 +100,7 @@ class ArticleRepo:
 
 
 class ArticleWriter:
-    """ArticleWriter half of the ArticleRepo split (T022)."""
+    """ArticleWriter half of the ArticleRepo split."""
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
@@ -252,24 +253,40 @@ class ArticleWriter:
                 )
                 next_ver = (max_ver_result.scalar_one_or_none() or 0) + 1
 
-                session.add(
-                    ArticleVersion(
-                        article_id=existing_id,
+                # Concurrent upserts of the same URL can compute the same
+                # next_ver (corr#454). The snapshot is auxiliary audit data:
+                # isolate it in a SAVEPOINT so a unique-constraint loser
+                # rolls back only the snapshot instead of aborting the whole
+                # ArticleCore/ArticleBody upsert transaction.
+                try:
+                    async with session.begin_nested():
+                        session.add(
+                            ArticleVersion(
+                                article_id=existing_id,
+                                version=next_ver,
+                                title=old_title,
+                                body=old_body,
+                                summary=old_summary,
+                                category=old_category,
+                                score=old_score,
+                                changed_fields=changed_fields or None,
+                            )
+                        )
+                except IntegrityError:
+                    log.warning(
+                        "version_snapshot_race_skipped",
+                        article_id=str(existing_id),
                         version=next_ver,
-                        title=old_title,
-                        body=old_body,
-                        summary=old_summary,
-                        category=old_category,
-                        score=old_score,
-                        changed_fields=changed_fields or None,
+                        hint="concurrent upsert took this version number; "
+                        "snapshot skipped, main upsert continues",
                     )
-                )
-                log.debug(
-                    "version_snapshot_created",
-                    article_id=str(existing_id),
-                    version=next_ver,
-                    changed_fields=changed_fields,
-                )
+                else:
+                    log.debug(
+                        "version_snapshot_created",
+                        article_id=str(existing_id),
+                        version=next_ver,
+                        changed_fields=changed_fields,
+                    )
 
         # Upsert articles_core with ON CONFLICT DO UPDATE
         stmt = pg_insert(ArticleCore).values(**core_values)
@@ -437,7 +454,7 @@ class ArticleWriter:
         neutral fallback values so the API returns meaningful data instead
         of all-null rows.
 
-        REM-004: Previously only filled 4 fields (persist_status, score,
+        Previously only filled 4 fields (persist_status, score,
         sentiment_score, is_news, sentiment), leaving 6 fields NULL
         (category, language, region, credibility_score, publish_time, summary).
         Now fills all required fields for API responses.
@@ -450,7 +467,7 @@ class ArticleWriter:
         """
         async with self._pool.session() as session:
             # Update ArticleCore: persist_status + score/sentiment_score fallback
-            # + REM-004: category/language/region/credibility_score/publish_time fallbacks
+            # + category/language/region/credibility_score/publish_time fallbacks
             # Note: score and sentiment_score are in ArticleCore, NOT ArticleAnalysis
             result = await session.execute(
                 update(ArticleCore)
@@ -460,7 +477,7 @@ class ArticleWriter:
                     persist_status=PersistStatus.PG_DONE,
                     score=0.0,
                     sentiment_score=0.0,
-                    # REM-004: Fill fields that would otherwise be NULL for terminal articles
+                    # Fill fields that would otherwise be NULL for terminal articles
                     # category='其他' (CategoryType.OTHER) — valid ENUM value, see migration 26
                     category="其他",
                     language="zh",
@@ -472,13 +489,36 @@ class ArticleWriter:
                 )
             )
 
+            # Flush so the match check below observes the core UPDATE in
+            # this session on both backends (DuckDB reports rowcount -1).
+            await session.flush()
+            matched = await self._row_affected(
+                session,
+                result,
+                select(ArticleCore.id).where(
+                    ArticleCore.source_url == source_url,
+                    ArticleCore.persist_status == PersistStatus.PG_DONE,
+                ),
+            )
+            if not matched:
+                # Nothing transitioned from PENDING: an already-processed
+                # article keeps its real analysis data instead of being
+                # overwritten with neutral fallbacks (corr#455).
+                await session.rollback()
+                return False
+
             # Update ArticleAnalysis: is_news=False + neutral sentiment
-            # This prevents all-null rows for terminal articles
+            # This prevents all-null rows for terminal articles.
+            # Only reachable when this call transitioned the row (see above),
+            # so the PG_DONE guard below matches exactly that row.
             await session.execute(
                 update(ArticleAnalysis)
                 .where(
                     ArticleAnalysis.article_id.in_(
-                        select(ArticleCore.id).where(ArticleCore.source_url == source_url)
+                        select(ArticleCore.id).where(
+                            ArticleCore.source_url == source_url,
+                            ArticleCore.persist_status == PersistStatus.PG_DONE,
+                        )
                     )
                 )
                 .values(
@@ -487,13 +527,16 @@ class ArticleWriter:
                 )
             )
 
-            # REM-004: Update ArticleBody summary for terminal articles
+            # Update ArticleBody summary for terminal articles
             # Terminal articles skip cleaner, so summary would be NULL without this
             await session.execute(
                 update(ArticleBody)
                 .where(
                     ArticleBody.article_id.in_(
-                        select(ArticleCore.id).where(ArticleCore.source_url == source_url)
+                        select(ArticleCore.id).where(
+                            ArticleCore.source_url == source_url,
+                            ArticleCore.persist_status == PersistStatus.PG_DONE,
+                        )
                     )
                 )
                 .values(
@@ -502,17 +545,8 @@ class ArticleWriter:
             )
 
             await session.commit()
-            updated = await self._row_affected(
-                session,
-                result,
-                select(ArticleCore.id).where(
-                    ArticleCore.source_url == source_url,
-                    ArticleCore.persist_status == PersistStatus.PG_DONE,
-                ),
-            )
-            if updated:
-                log.info("terminal_article_marked_done", source_url=source_url[:100])
-            return updated
+            log.info("terminal_article_marked_done", source_url=source_url[:100])
+            return True
 
     async def update_credibility(
         self,

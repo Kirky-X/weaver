@@ -20,6 +20,7 @@ from core.db import (
 )
 from core.observability import get_logger
 from core.protocols import RelationalPool
+from core.types.ingestion_models import RawArticle
 from core.url_utils import normalize_url
 
 if TYPE_CHECKING:
@@ -92,7 +93,7 @@ class ArticleRepo:
 
 
 class ArticleReader:
-    """ArticleReader half of the ArticleRepo split (T022)."""
+    """ArticleReader half of the ArticleRepo split."""
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
@@ -128,8 +129,6 @@ class ArticleReader:
         if not ids:
             return []
 
-        from core.types.ingestion_models import RawArticle
-
         async with self._pool.session() as session:
             uuid_ids = [uuid.UUID(id) for id in ids]
             query = select(Article).where(Article.id.in_(uuid_ids))
@@ -144,6 +143,7 @@ class ArticleReader:
                     body=a.body or "",
                     source=a.source_host or "",
                     source_host=a.source_host or "",
+                    source_id=a.source_id,
                     publish_time=a.publish_time,
                 )
                 raw_articles.append(raw)
@@ -166,11 +166,21 @@ class ArticleReader:
             return set()
 
         normalized_urls = [normalize_url(u) for u in urls]
+        # Chunk large inputs (perf#105): same 500-item expanding-bindparam
+        # strategy as fetch_titles_by_pg_ids — avoids PG parameter limits
+        # and plan-cache bloat from a single giant IN clause.
+        CHUNK_SIZE = 500
+        found: set[str] = set()
         async with self._pool.session() as session:
-            result = await session.execute(
-                select(ArticleCore.source_url).where(ArticleCore.source_url.in_(normalized_urls))
-            )
-            return {row[0] for row in result}
+            for i in range(0, len(normalized_urls), CHUNK_SIZE):
+                chunk = normalized_urls[i : i + CHUNK_SIZE]
+                result = await session.execute(
+                    select(ArticleCore.source_url).where(
+                        ArticleCore.source_url.in_(bindparam("urls", chunk, expanding=True))
+                    )
+                )
+                found.update(row[0] for row in result)
+            return found
 
     async def get_existing_titles(self, titles: set[str]) -> set[str]:
         """Check which titles already exist in the database (exact match).
@@ -248,15 +258,32 @@ class ArticleReader:
             )
             return list(result.scalars().all())
 
+    # Full-table ID loads are inherently unbounded; log when the result set
+    # grows past this so operators notice before memory becomes a problem.
+    ALL_IDS_WARN_THRESHOLD = 500_000
+
     async def get_all_article_ids(self) -> set[str]:
         """Get all article IDs from PostgreSQL.
+
+        Deliberately unbounded: callers (orphan cleanup, consistency jobs)
+        need the complete ID set for set-difference checks — a LIMIT would
+        break correctness. A guard log fires when the set exceeds
+        ``ALL_IDS_WARN_THRESHOLD`` rows.
 
         Returns:
             Set of article ID strings.
         """
         async with self._pool.session() as session:
             result = await session.execute(select(ArticleCore.id))
-            return {str(row[0]) for row in result}
+            ids = {str(row[0]) for row in result}
+
+        if len(ids) > self.ALL_IDS_WARN_THRESHOLD:
+            log.warning(
+                "get_all_article_ids_large_result",
+                count=len(ids),
+                threshold=self.ALL_IDS_WARN_THRESHOLD,
+            )
+        return ids
 
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
         """Get articles with neo4j_done status but missing enrichment data.
@@ -321,7 +348,7 @@ class ArticleReader:
         """Batch fetch article metadata by PostgreSQL IDs.
 
         Used by graph-query callers that, after the Article node slim-down
-        (design.md §D2), can only read ``pg_id`` from the graph DB and must
+        (design.md §), can only read ``pg_id`` from the graph DB and must
         look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
         the relational DB in a single batched query (avoids N+1).
 
@@ -684,7 +711,10 @@ class ArticleReader:
         from sqlalchemy import text
 
         async with self._pool.session() as session:
-            # Use recursive CTE to get entire merge chain in single query
+            # Use recursive CTE to get entire merge chain in single query.
+            # array_append(mc.path, a.id) instead of `mc.path || a.id`:
+            # DuckDB rejects UUID[] || UUID without an explicit cast, while
+            # array_append works on both PostgreSQL and DuckDB.
             result = await session.execute(
                 text("""
                      WITH RECURSIVE merge_chain AS (SELECT id, merged_into, ARRAY[id] as path, false as cycle
@@ -693,7 +723,7 @@ class ArticleReader:
 
                                                     UNION ALL
 
-                                                    SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY (mc.path)
+                                                    SELECT a.id, a.merged_into, array_append(mc.path, a.id), a.id = ANY (mc.path)
                                                     FROM articles_core a
                                                              INNER JOIN merge_chain mc ON a.id = mc.merged_into
                                                     WHERE NOT mc.cycle)
@@ -732,37 +762,53 @@ class ArticleReader:
     async def resolve_final_merge_target(self, article_id: uuid.UUID) -> uuid.UUID | None:
         """Resolve the final target of a merge chain.
 
-        Follows the merged_into chain to the end, detecting cycles.
+        Follows the merged_into chain to the end, detecting cycles. Uses a
+        single recursive CTE (same pattern as ``detect_merge_cycle``)
+        instead of one SELECT per hop (corr#104: N+1 queries).
 
         Args:
             article_id: The article to resolve.
 
         Returns:
-            The final target ID, or None if no merge.
+            The final target ID, or None if no merge or a cycle was found.
         """
-        visited: set[uuid.UUID] = set()
-        current_id: uuid.UUID | None = article_id
+        from sqlalchemy import text
 
         async with self._pool.session() as session:
-            while current_id is not None:
-                if current_id in visited:
-                    log.error(
-                        "merge_cycle_in_chain",
-                        article_id=str(article_id),
-                        cycle_at=str(current_id),
-                    )
-                    return None
+            # array_append(mc.path, a.id) instead of `mc.path || a.id`:
+            # DuckDB rejects UUID[] || UUID without an explicit cast, while
+            # array_append works on both PostgreSQL and DuckDB.
+            result = await session.execute(
+                text("""
+                     WITH RECURSIVE merge_chain AS (SELECT id, merged_into, ARRAY[id] as path
+                                                    FROM articles_core
+                                                    WHERE id = :article_id
 
-                visited.add(current_id)
+                                                    UNION ALL
 
-                result = await session.execute(
-                    select(ArticleCore.merged_into).where(ArticleCore.id == current_id)
+                                                    SELECT a.id, a.merged_into, array_append(mc.path, a.id)
+                                                    FROM articles_core a
+                                                             INNER JOIN merge_chain mc ON a.id = mc.merged_into
+                                                    WHERE NOT (a.id = ANY (mc.path)))
+                     SELECT id, merged_into, path
+                     FROM merge_chain
+                     """),
+                {"article_id": str(article_id)},
+            )
+
+            rows = result.all()
+            if not rows:
+                return None
+
+            # The terminal row carries the longest path (chain start → end)
+            terminal = max(rows, key=lambda r: len(r.path))
+
+            if terminal.merged_into is not None and terminal.merged_into in terminal.path:
+                log.error(
+                    "merge_cycle_in_chain",
+                    article_id=str(article_id),
+                    cycle_at=str(terminal.id),
                 )
-                next_id = result.scalar_one_or_none()
+                return None
 
-                if next_id is None:
-                    return current_id
-
-                current_id = next_id
-
-        return None
+            return terminal.path[-1]

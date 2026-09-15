@@ -93,7 +93,7 @@ class TestFindSimilarHybrid:
         sim_rows = [
             MockRow(
                 {
-                    "article_id": "article-001",
+                    "article_id": "00000000-0000-0000-0000-000000000001",
                     "category": "tech",
                     "similarity": 0.3,
                 }
@@ -103,7 +103,7 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "id": "article-001",
+                    "id": "00000000-0000-0000-0000-000000000001",
                     "title": "AI is transforming the industry",
                     "body": "",
                 }
@@ -122,7 +122,7 @@ class TestFindSimilarHybrid:
 
         assert len(result) == 1
         article = result[0]
-        assert article.article_id == "article-001"
+        assert article.article_id == "00000000-0000-0000-0000-000000000001"
         assert article.category == "tech"
         assert article.hybrid_score is not None
         assert abs(article.hybrid_score - 0.51) < 0.01
@@ -134,14 +134,14 @@ class TestFindSimilarHybrid:
         sim_rows = [
             MockRow(
                 {
-                    "article_id": "article-A",
+                    "article_id": "00000000-0000-0000-0000-00000000000a",
                     "category": "tech",
                     "similarity": 0.52,
                 }
             ),
             MockRow(
                 {
-                    "article_id": "article-B",
+                    "article_id": "00000000-0000-0000-0000-00000000000b",
                     "category": "tech",
                     "similarity": 0.455,
                 }
@@ -150,14 +150,14 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "id": "article-A",
+                    "id": "00000000-0000-0000-0000-00000000000a",
                     "title": "小米投资新兴公司",
                     "body": "",
                 }
             ),
             MockRow(
                 {
-                    "id": "article-B",
+                    "id": "00000000-0000-0000-0000-00000000000b",
                     "title": "小米投资科技领域",
                     "body": "",
                 }
@@ -175,8 +175,8 @@ class TestFindSimilarHybrid:
         )
 
         assert len(result) == 2
-        assert result[0].article_id == "article-B"
-        assert result[1].article_id == "article-A"
+        assert result[0].article_id == "00000000-0000-0000-0000-00000000000b"
+        assert result[1].article_id == "00000000-0000-0000-0000-00000000000a"
         assert result[0].hybrid_score > result[1].hybrid_score
 
     @pytest.mark.asyncio
@@ -185,14 +185,14 @@ class TestFindSimilarHybrid:
         sim_rows = [
             MockRow(
                 {
-                    "article_id": "article-low",
+                    "article_id": "00000000-0000-0000-0000-000000000010",
                     "category": "tech",
                     "similarity": 0.5,
                 }
             ),
             MockRow(
                 {
-                    "article_id": "article-high",
+                    "article_id": "00000000-0000-0000-0000-000000000011",
                     "category": "tech",
                     "similarity": 0.8,
                 }
@@ -201,14 +201,14 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "id": "article-low",
+                    "id": "00000000-0000-0000-0000-000000000010",
                     "title": "unrelated content",
                     "body": "",
                 }
             ),
             MockRow(
                 {
-                    "id": "article-high",
+                    "id": "00000000-0000-0000-0000-000000000011",
                     "title": "AI and machine learning",
                     "body": "",
                 }
@@ -226,7 +226,7 @@ class TestFindSimilarHybrid:
         )
 
         assert len(result) == 1
-        assert result[0].article_id == "article-high"
+        assert result[0].article_id == "00000000-0000-0000-0000-000000000011"
 
     @pytest.mark.asyncio
     async def test_find_similar_hybrid_empty_when_no_candidates(self):
@@ -372,7 +372,7 @@ class TestFindSimilar:
         sim_rows = [
             MockRow(
                 {
-                    "article_id": "article-001",
+                    "article_id": "00000000-0000-0000-0000-000000000001",
                     "category": "tech",
                     "similarity": 0.85,
                 }
@@ -389,7 +389,7 @@ class TestFindSimilar:
         )
 
         assert len(result) == 1
-        assert result[0].article_id == "article-001"
+        assert result[0].article_id == "00000000-0000-0000-0000-000000000001"
         assert result[0].similarity == 0.85
 
     @pytest.mark.asyncio
@@ -427,7 +427,7 @@ class TestBatchFindSimilar:
         sim_rows = [
             MockRow(
                 {
-                    "article_id": "article-001",
+                    "article_id": "00000000-0000-0000-0000-000000000001",
                     "category": "tech",
                     "similarity": 0.85,
                 }

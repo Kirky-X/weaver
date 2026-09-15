@@ -13,7 +13,7 @@ import asyncio
 import uuid
 from typing import Any
 
-from sqlalchemy import String, delete, func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.db import Article, ArticleVector, EntityVector, VectorType
@@ -303,18 +303,29 @@ class VectorRepo:
         if not vector_results:
             return []
 
-        # Fetch article bodies for keyword overlap scoring using ORM
-        # Use string comparison for article_ids to handle both UUID and non-UUID formats
-        article_id_strings = [r.article_id for r in vector_results]
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(Article.id, Article.title, Article.body).where(
-                    func.cast(Article.id, String).in_(article_id_strings)
+        # Fetch article bodies for keyword overlap scoring using ORM.
+        # Parse the string ids into UUID objects so the comparison binds
+        # typed parameters against the UUID primary key (corr#465) — a
+        # string cast would break index usage and depends on PostgreSQL's
+        # exact text representation of UUIDs.
+        article_uuids: list[uuid.UUID] = []
+        for raw_id in (r.article_id for r in vector_results):
+            try:
+                article_uuids.append(raw_id if isinstance(raw_id, uuid.UUID) else uuid.UUID(raw_id))
+            except (ValueError, AttributeError, TypeError):
+                log.warning("find_similar_hybrid_invalid_article_id", article_id=str(raw_id))
+        article_texts: dict[str, str] = {}
+        if article_uuids:
+            async with self._pool.session() as session:
+                result = await session.execute(
+                    select(Article.id, Article.title, Article.body).where(
+                        Article.id.in_(article_uuids)
+                    )
                 )
-            )
-            rows = result.all()
-
-        article_texts = {str(row.id): f"{row.title or ''} {row.body or ''}".lower() for row in rows}
+                rows = result.all()
+            article_texts = {
+                str(row.id): f"{row.title or ''} {row.body or ''}".lower() for row in rows
+            }
 
         # Calculate hybrid scores
         scored = []
@@ -507,14 +518,19 @@ class VectorRepo:
                 key = f"temp:{name}" if use_temp_key else name
                 seen[key] = embedding
 
+            # One session/transaction for all chunks (corr#290): chunking
+            # still bounds each statement far below PG's 65535
+            # bind-parameter cap, but a mid-batch failure now rolls back the
+            # whole upsert instead of leaving chunks 1..N-1 committed while
+            # N+1.. are lost. Retry is safe (upserts are idempotent).
             CHUNK = 1000  # stay far below PG's 65535 bind-parameter cap
-            for chunk_start in range(0, len(seen), CHUNK):
-                chunk_keys = list(seen.items())[chunk_start : chunk_start + CHUNK]
-                values = [
-                    {"neo4j_id": key, "embedding": embedding, "model_id": model_id}
-                    for key, embedding in chunk_keys
-                ]
-                async with self._pool.session() as session:
+            async with self._pool.session() as session:
+                for chunk_start in range(0, len(seen), CHUNK):
+                    chunk_keys = list(seen.items())[chunk_start : chunk_start + CHUNK]
+                    values = [
+                        {"neo4j_id": key, "embedding": embedding, "model_id": model_id}
+                        for key, embedding in chunk_keys
+                    ]
                     stmt = pg_insert(EntityVector).values(values)
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["neo4j_id"],
@@ -524,7 +540,7 @@ class VectorRepo:
                         },
                     )
                     await session.execute(stmt)
-                    await session.commit()
+                await session.commit()
 
     async def _upsert_entity_vectors_duckdb(
         self,
@@ -741,7 +757,9 @@ class VectorRepo:
         instead of temporary UUIDs that were assigned during extraction.
 
         Args:
-            temp_key_to_neo4j: Mapping from temp keys (UUIDs) to real Neo4j IDs.
+            temp_key_to_neo4j: Mapping from temp keys to real Neo4j IDs.
+                Keys are the ``"temp:{entity_name}"`` strings written by
+                ``upsert_entity_vectors(use_temp_key=True)`` — not UUIDs.
 
         Returns:
             Number of vectors updated.

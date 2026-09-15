@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Repository for the transactional event outbox (T018).
+"""Repository for the transactional event outbox.
 
 Implements: OutboxRepository protocol (core/protocols/services.py).
 """
@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 
 from core.db.models import EventOutbox
 from core.observability import get_logger
@@ -83,34 +83,47 @@ class OutboxRepo:
     async def mark_failed(self, row_id: int, error: str) -> str:
         """Record a dispatch failure.
 
-        Increments retry_count; parks the row as 'dead' once retries are
-        exhausted (ERROR-level visibility for operators).
+        Atomically increments retry_count in SQL (corr#456): a Python-side
+        read-then-write race between overlapping dispatchers could lose
+        increments and keep rows out of 'dead' forever. The row parks as
+        'dead' once retries are exhausted (ERROR-level visibility).
 
         Returns:
-            The new status ('pending' or 'dead').
+            The new status ('pending', 'dead', or 'missing').
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(EventOutbox).where(EventOutbox.id == row_id))
-            row = result.scalars().first()
-            if row is None:
-                return "missing"
-            retry_count = (row.retry_count or 0) + 1
-            new_status = "dead" if retry_count >= MAX_OUTBOX_RETRIES else "pending"
+            # Single-statement atomic increment + status transition
             await session.execute(
                 update(EventOutbox)
                 .where(EventOutbox.id == row_id)
                 .values(
-                    retry_count=retry_count,
-                    status=new_status,
+                    retry_count=func.coalesce(EventOutbox.retry_count, 0) + 1,
                     last_error=error[:2000],
+                    status=case(
+                        (
+                            func.coalesce(EventOutbox.retry_count, 0) + 1 >= MAX_OUTBOX_RETRIES,
+                            "dead",
+                        ),
+                        else_="pending",
+                    ),
                 )
             )
             await session.commit()
-        if new_status == "dead":
-            log.error(
-                "outbox_event_dead",
-                row_id=row_id,
-                event_type=row.event_type,
-                retries=retry_count,
+
+            status_result = await session.execute(
+                select(EventOutbox.status, EventOutbox.retry_count, EventOutbox.event_type).where(
+                    EventOutbox.id == row_id
+                )
             )
-        return new_status
+            row = status_result.first()
+            if row is None:
+                return "missing"
+            new_status = row.status
+            if new_status == "dead":
+                log.error(
+                    "outbox_event_dead",
+                    row_id=row_id,
+                    event_type=row.event_type,
+                    retries=row.retry_count,
+                )
+            return new_status

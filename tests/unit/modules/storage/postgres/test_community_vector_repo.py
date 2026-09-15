@@ -99,9 +99,9 @@ class TestFindSimilarCommunities:
 
     @pytest.mark.asyncio
     async def test_find_similar_communities_duckdb_mode_skips_hnsw(self):
-        """DuckDB mode must NOT execute SET hnsw.ef_search (verifies T001 bug fix).
+        """DuckDB mode must NOT execute SET hnsw.ef_search (verifies bug fix).
 
-        Before T001 fix, DatabaseType was undefined → NameError on PG check.
+        Before fix, DatabaseType was undefined → NameError on PG check.
         After fix, DuckDB branch correctly skips the SET statement.
         """
         session = _make_mock_session()
