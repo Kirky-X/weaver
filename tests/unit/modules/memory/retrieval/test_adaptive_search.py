@@ -241,8 +241,8 @@ class TestAdaptiveSearchFindAnchors:
         anchors = await engine._find_anchors("why query", [0.1] * 384, IntentType.WHY)
 
         assert len(anchors) == 1
-        # Task 3.1: _find_anchors now passes query_embedding + embedding_service
-        # so search_temporal_events can re-rank by cosine similarity (D1).
+        # _find_anchors now passes query_embedding + embedding_service
+        # so search_temporal_events can re-rank by cosine similarity.
         engine._temporal_repo.search_temporal_events.assert_called_once_with(
             query="why query",
             limit=5,
@@ -400,9 +400,9 @@ class TestAdaptiveSearchGetEventData:
             embedding_service=MockEmbeddingService(),
             intent_classifier=MockIntentClassifier(),
         )
-        engine._event_cache = {"event-1": {"id": "event-1", "content": "cached content"}}
+        cache = {"event-1": {"id": "event-1", "content": "cached content"}}
 
-        result = await engine._get_event_data("event-1")
+        result = await engine._get_event_data("event-1", cache)
 
         assert result is not None
         assert result["content"] == "cached content"
@@ -444,16 +444,16 @@ class TestAdaptiveSearchGetEventData:
         assert result is None
 
 
-# --- D3/D4 normalization + intent-aware edge_type tests ---
+# --- /normalization + intent-aware edge_type tests ---
 # (spec: search-score-normalization, search-engine)
 
 
 class TestAdaptiveSearchIntentAwareEdgeType:
-    """Tests for D4 intent-aware anchor edge_type selection."""
+    """Tests for intent-aware anchor edge_type selection."""
 
     @pytest.mark.asyncio
     async def test_beam_search_uses_intent_aware_edge_type(self):
-        """WHY intent 应使用 CAUSAL edge_type 计算 anchor 分数（D4 / Task 3.3）。
+        """WHY intent 应使用 CAUSAL edge_type 计算 anchor 分数。
 
         旧实现硬编码 ``EdgeType.TEMPORAL``，导致 WHY intent 无法沿因果链扩展。
         修复后 ``_INTENT_TO_ANCHOR_EDGE_TYPE[WHY] == EdgeType.CAUSAL``。
@@ -504,7 +504,7 @@ class TestAdaptiveSearchIntentAwareEdgeType:
                 intent=IntentType.WHY,
             )
 
-        # Anchor 评分必须用 CAUSAL edge_type（D4）
+        # Anchor 评分必须用 CAUSAL edge_type
         assert len(captured_edge_types) >= 1
         assert all(et == EdgeType.CAUSAL for et in captured_edge_types), (
             f"WHY intent 应使用 CAUSAL，实际: {captured_edge_types}"
@@ -512,7 +512,7 @@ class TestAdaptiveSearchIntentAwareEdgeType:
 
 
 class TestAdaptiveSearchNormalization:
-    """Tests for D3 normalization degradation fix."""
+    """Tests for normalization degradation fix."""
 
     @pytest.fixture
     def engine(self):
@@ -526,7 +526,7 @@ class TestAdaptiveSearchNormalization:
 
     @pytest.mark.asyncio
     async def test_normalization_degraded_when_all_scores_identical(self, engine):
-        """多结果同分时归一化分数应为 0.0 且标记 degraded（D3 / Task 4.1-4.3）。
+        """多结果同分时归一化分数应为 0.0 且标记 degraded。
 
         场景：beam search 返回 2 个结果且 score 全为 5.0（exp(2.0) 一致）。
         旧行为：归一化为 1.0（谎称完美匹配）。
@@ -535,10 +535,13 @@ class TestAdaptiveSearchNormalization:
         # Bypass real beam search; control returned scores directly.
         engine._find_anchors = AsyncMock(return_value=["a1", "a2"])
         engine._beam_search = AsyncMock(
-            return_value=[
-                {"id": "a1", "content": "x", "score": 5.0},
-                {"id": "a2", "content": "y", "score": 5.0},
-            ]
+            return_value=(
+                [
+                    {"id": "a1", "content": "x", "score": 5.0},
+                    {"id": "a2", "content": "y", "score": 5.0},
+                ],
+                0,
+            )
         )
 
         results = await engine.search("query", intent=IntentType.OPEN)
@@ -548,23 +551,26 @@ class TestAdaptiveSearchNormalization:
         assert all(r["score"] == 0.0 for r in results)
         # 每个结果都携带 degraded 标记（暴露给端点调用方）
         assert all(r.get("degraded") is True for r in results)
-        # metadata 暴露 degraded flag（D5）
+        # metadata 暴露 degraded flag
         assert engine.last_metadata["degraded"] is True
-        # causal_edges_traversed 在 metadata 中始终存在（D5）
+        # causal_edges_traversed 在 metadata 中始终存在
         assert "causal_edges_traversed" in engine.last_metadata
 
     @pytest.mark.asyncio
     async def test_normalization_single_result_retains_1_0(self, engine):
-        """单结果时即使 score_range==0 仍保留 1.0（Task 4.2）。
+        """单结果时即使 score_range==0 仍保留 1.0。
 
         理由：单个结果无统计意义做"区分"，1.0 表示"有结果返回"。
         degraded 不应触发（仅 >=2 同分场景视为退化）。
         """
         engine._find_anchors = AsyncMock(return_value=["a1"])
         engine._beam_search = AsyncMock(
-            return_value=[
-                {"id": "a1", "content": "x", "score": 5.0},
-            ]
+            return_value=(
+                [
+                    {"id": "a1", "content": "x", "score": 5.0},
+                ],
+                0,
+            )
         )
 
         results = await engine.search("query", intent=IntentType.OPEN)
@@ -584,11 +590,14 @@ class TestAdaptiveSearchNormalization:
         """
         engine._find_anchors = AsyncMock(return_value=["a1", "a2", "a3"])
         engine._beam_search = AsyncMock(
-            return_value=[
-                {"id": "a1", "content": "high", "score": 10.0},
-                {"id": "a2", "content": "mid", "score": 6.0},
-                {"id": "a3", "content": "low", "score": 2.0},
-            ]
+            return_value=(
+                [
+                    {"id": "a1", "content": "high", "score": 10.0},
+                    {"id": "a2", "content": "mid", "score": 6.0},
+                    {"id": "a3", "content": "low", "score": 2.0},
+                ],
+                0,
+            )
         )
 
         results = await engine.search("query", intent=IntentType.OPEN)

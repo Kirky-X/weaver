@@ -42,13 +42,13 @@ def calculate_transition_score(
     structural_score = INTENT_EDGE_WEIGHTS[query_intent].get(edge_type, 0.0)
 
     # Semantic similarity: sim(v_j, q)
-    semantic_score = _cosine_similarity(neighbor.embedding, query_embedding)
+    semantic_score = cosine_similarity(neighbor.embedding, query_embedding)
 
     # Combined score
     return math.exp(lambda_structure * structural_score + lambda_semantic * semantic_score)
 
 
-def _cosine_similarity(a: list[float] | None, b: list[float]) -> float:
+def cosine_similarity(a: list[float] | None, b: list[float]) -> float:
     """Compute cosine similarity between two vectors.
 
     Args:
@@ -56,7 +56,8 @@ def _cosine_similarity(a: list[float] | None, b: list[float]) -> float:
         b: Second vector.
 
     Returns:
-        Cosine similarity in range [0, 1], or 0 if a is None.
+        Cosine similarity in range [-1, 1], or 0 if a is None.
+        Negative values occur when vectors point in opposite directions.
     """
     if a is None or not a or not b:
         return 0.0

@@ -134,7 +134,13 @@ class CausalInferenceService:
             "relations_analyzed": 0,
         }
 
-        log.info("causal_inference_start", entities=len(entity_names) if entity_names else "all")
+        # Keep the log schema homogeneous: entities is always an int, the
+        # all-vs-subset distinction lives in scope (#226).
+        log.info(
+            "causal_inference_start",
+            entities=len(entity_names) if entity_names else 0,
+            scope="subset" if entity_names else "all",
+        )
 
         # Step 1: Get entity relationships
         relations = await self._get_entity_relations(entity_names, relation_types)
@@ -245,21 +251,23 @@ class CausalInferenceService:
             validated_causal = [validate_edge_type(t) for t in causal_relation_types]
             causal_types_str = "|".join(validated_causal)
 
-            type_filter = ""
+            where_parts: list[str] = []
             if relation_types:
                 validated_rel = [validate_edge_type(t) for t in relation_types]
-                type_filter = "AND type(r) IN $relation_types"
+                where_parts.append("type(r) IN $relation_types")
 
-            entity_filter = ""
             if entity_names:
-                entity_filter = (
-                    "AND (e1.canonical_name IN $entity_names OR e2.canonical_name IN $entity_names)"
+                where_parts.append(
+                    "(e1.canonical_name IN $entity_names OR e2.canonical_name IN $entity_names)"
                 )
+
+            where_clause = ""
+            if where_parts:
+                where_clause = "WHERE " + " AND ".join(where_parts)
 
             query = f"""
             MATCH (e1:Entity)-[r:{causal_types_str}]->(e2:Entity)
-            {type_filter}
-            {entity_filter}
+            {where_clause}
             RETURN e1.canonical_name AS source,
                    e2.canonical_name AS target,
                    type(r) AS relation_type,
@@ -301,12 +309,30 @@ class CausalInferenceService:
         batch_size = self._config.batch_size
         batches = [relations[i : i + batch_size] for i in range(0, len(relations), batch_size)]
 
-        for batch in batches:
+        failed_batches = 0
+        for batch_index, batch in enumerate(batches):
             try:
                 batch_results = await self._infer_batch(batch)
                 inferences.extend(batch_results)
             except Exception as exc:
-                log.warning("batch_inference_failed", error=str(exc))
+                failed_batches += 1
+                log.warning(
+                    "batch_inference_failed",
+                    batch_index=batch_index,
+                    batch_size=len(batch),
+                    total_batches=len(batches),
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+
+        if failed_batches:
+            # Swallowed batches mean silent under-coverage of the relation
+            # set; surface the ratio so degraded runs are detectable (#98).
+            log.error(
+                "batch_inference_partial_failure",
+                failed_batches=failed_batches,
+                total_batches=len(batches),
+            )
 
         return inferences
 
@@ -375,6 +401,17 @@ class CausalInferenceService:
                 json_str = response_text[json_start:json_end]
                 parsed = json.loads(json_str)
 
+                def _norm(s: object) -> str:
+                    return str(s).strip().replace("\u3000", " ").strip()
+
+                # O(1) lookup by (source, target) with normalized fallback so
+                # LLM paraphrase/whitespace drift does not silently drop items.
+                by_key: dict[tuple[str, str], dict[str, Any]] = {
+                    (str(r.get("source", "")), str(r.get("target", ""))): r for r in relations
+                }
+                by_norm: dict[tuple[str, str], dict[str, Any]] = {
+                    (_norm(r.get("source", "")), _norm(r.get("target", ""))): r for r in relations
+                }
                 inferences = []
                 for item in parsed:
                     try:
@@ -385,14 +422,21 @@ class CausalInferenceService:
                         source = item.get("source", "")
                         target = item.get("target", "")
 
-                        matching_relation = next(
-                            (
-                                r
-                                for r in relations
-                                if r["source"] == source and r["target"] == target
-                            ),
-                            None,
-                        )
+                        matching_relation = by_key.get((str(source), str(target)))
+                        if matching_relation is None:
+                            matching_relation = by_norm.get((_norm(source), _norm(target)))
+                            if matching_relation is None:
+                                log.warning(
+                                    "causal_inference_unmatched",
+                                    source=source,
+                                    target=target,
+                                )
+                                continue
+                            log.warning(
+                                "causal_inference_normalized_match",
+                                source=source,
+                                target=target,
+                            )
 
                         if matching_relation:
                             inference = CausalInference(
@@ -466,16 +510,10 @@ class CausalInferenceService:
         Returns:
             New EventNode ID or None.
         """
-        # Get entity details
-        if self._is_ladybug:
-            query = f"""
-            MATCH (e:Entity {{canonical_name: '{entity_name}'}})
-            RETURN e.id AS entity_id,
-                   e.description AS description,
-                   e.created_at AS created_at
-            """
-        else:
-            query = """
+        # Get entity details (parameterized for both Neo4j and LadybugDB —
+        #: raw f-string interpolation breaks on single quotes
+        # and allows Cypher injection).
+        query = """
             MATCH (e:Entity {canonical_name: $entity_name})
             RETURN e.id AS entity_id,
                    e.description AS description,
@@ -485,7 +523,7 @@ class CausalInferenceService:
         try:
             result = await self._pool.execute_query(
                 query,
-                {"entity_name": entity_name} if not self._is_ladybug else {},
+                {"entity_name": entity_name},
             )
 
             if not result:
@@ -501,17 +539,17 @@ class CausalInferenceService:
             event_id = entity_id  # Use entity ID as event ID
 
             if self._is_ladybug:
-                create_query = f"""
-                CREATE (e:EventNode {{
-                    id: '{event_id}',
-                    content: '{entity_name}: {description}',
-                    attributes: '{{}}',
+                create_query = """
+                CREATE (e:EventNode {
+                    id: $event_id,
+                    content: $content,
+                    attributes: '{}',
                     event_type: 'derived',
-                    name: '{entity_name}',
-                    description: '{description}',
-                    event_time: {created_at},
-                    created_at: {now}
-                }})
+                    name: $name,
+                    description: $description,
+                    event_time: $event_time,
+                    created_at: $created_at
+                })
                 RETURN e.id AS id
                 """
             else:
@@ -535,12 +573,10 @@ class CausalInferenceService:
                 "name": entity_name,
                 "description": description,
                 "event_time": created_at,
+                "created_at": now,
             }
 
-            create_result = await self._pool.execute_query(
-                create_query,
-                params if not self._is_ladybug else {},
-            )
+            create_result = await self._pool.execute_query(create_query, params)
 
             if create_result:
                 log.info("event_node_created_from_entity", entity=entity_name)

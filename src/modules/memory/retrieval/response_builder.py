@@ -8,6 +8,7 @@ Integrates AdaptiveSearch, EntityAggregator, and NarrativeSynthesizer.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
@@ -60,6 +61,8 @@ class SearchResponseBuilder:
         output_mode: OutputMode = OutputMode.CONTEXT,
         enrich_entities: bool = False,
         entity_names: list[str] | None = None,
+        anchors: list[str] | None = None,
+        intent: Any | None = None,
     ) -> dict[str, Any]:
         """Build a comprehensive search response.
 
@@ -68,6 +71,8 @@ class SearchResponseBuilder:
             output_mode: Output format mode.
             enrich_entities: Whether to enrich with entity aggregations.
             entity_names: Optional specific entities to aggregate.
+            anchors: Optional anchor event IDs to start traversal from.
+            intent: Optional pre-classified intent for retrieval.
 
         Returns:
             Complete search response dictionary.
@@ -79,8 +84,11 @@ class SearchResponseBuilder:
             enrich_entities=enrich_entities,
         )
 
-        # 1. Execute adaptive search
-        search_results = await self._search_engine.search(query=query)
+        # 1. Execute adaptive search (anchors/intent forwarded so callers
+        # get intent-aware, anchor-rooted retrieval — corr#365)
+        search_results = await self._search_engine.search(
+            query=query, anchors=anchors, intent=intent
+        )
 
         # 2. Optionally enrich with entity aggregations
         entity_results: list[dict[str, Any]] = []
@@ -168,30 +176,40 @@ class SearchResponseBuilder:
                         entities_to_aggregate.append(name)
                         seen_entities.add(name)
 
-        # Aggregate each entity
-        results: list[dict[str, Any]] = []
-        for entity_name in entities_to_aggregate:
+        # Aggregate each entity concurrently: aggregations are independent
+        # I/O-bound LLM calls, so gather them instead of serial awaits.
+        async def _aggregate_one(entity_name: str) -> dict[str, Any] | None:
             try:
                 agg_result = await self._entity_aggregator.aggregate(
                     entity_name=entity_name,
                     aggregation_type=AggregationType.FACTS,
                     hops=2,
                 )
-                results.append(
-                    {
-                        "entity": agg_result.entity_name,
-                        "type": agg_result.entity_type,
-                        "facts": agg_result.facts,
-                        "count": agg_result.count,
-                        "confidence": agg_result.confidence,
-                    }
-                )
+                return {
+                    "entity": agg_result.entity_name,
+                    "type": agg_result.entity_type,
+                    "facts": agg_result.facts,
+                    "count": agg_result.count,
+                    "confidence": agg_result.confidence,
+                }
             except Exception as exc:
                 log.warning(
                     "entity_aggregation_failed",
                     entity=entity_name,
                     error=str(exc),
                 )
+                return None
+
+        gathered = await asyncio.gather(
+            *[_aggregate_one(name) for name in entities_to_aggregate],
+            return_exceptions=True,
+        )
+        results: list[dict[str, Any]] = []
+        for item in gathered:
+            if isinstance(item, dict):
+                results.append(item)
+            elif item is not None:
+                log.warning("entity_aggregation_failed", error=str(item)[:200])
 
         return results
 

@@ -16,7 +16,7 @@ from typing import Any
 from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.memory.core.event_node import EventNode
-from modules.memory.core.traversal import _cosine_similarity
+from modules.memory.core.traversal import cosine_similarity
 from modules.memory.graphs.base import BaseGraphRepo
 
 log = get_logger(__name__)
@@ -142,28 +142,37 @@ class TemporalGraphRepo(BaseGraphRepo):
         """Append event using LadybugDB-compatible syntax.
 
         LadybugDB uses INT64 timestamps instead of datetime functions.
+
+        Idempotency (other#101 / corr#364): node creation uses MERGE so a
+        concurrent append of the same id cannot duplicate the node, and the
+        link step re-runs when a previous attempt created the node but failed
+        to link it (orphan retry). The edge itself is MERGEd (endpoint match)
+        with the gap set afterwards, so repeated appends never duplicate
+        EVENT_FOLLOWED_BY edges.
         """
         now = int(time.time())
         event_time = int(event.timestamp.timestamp()) if event.timestamp else now
 
-        # Check if event already exists
+        # Fast path: node exists AND is already linked into the chain.
         check_query = """
         MATCH (e:EventNode {id: $id})
-        RETURN e.id
+        OPTIONAL MATCH (prev:EventNode)-[:EVENT_FOLLOWED_BY]->(e)
+        RETURN e.id AS id, count(prev) AS linked
         """
         try:
             existing = await self._pool.execute_query(check_query, {"id": event.id})
-            if existing:
+            if existing and existing[0].get("linked", 0) > 0:
                 log.debug("temporal_event_exists", event_id=event.id)
                 return True
         except Exception:
             log.warning("temporal_event_exists_check_failed", event_id=event.id, exc_info=True)
-            pass  # Continue to create
+            # Continue — MERGE below is idempotent either way
 
         # Find the most recent event
         find_prev_query = """
         MATCH (prev:EventNode)
         WHERE NOT (prev)-[:EVENT_FOLLOWED_BY]->(:EventNode)
+          AND prev.id <> $id
         RETURN prev.id AS prev_id, prev.event_time AS prev_time
         ORDER BY prev.event_time DESC
         LIMIT 1
@@ -171,25 +180,26 @@ class TemporalGraphRepo(BaseGraphRepo):
 
         prev_result = []
         try:
-            prev_result = await self._pool.execute_query(find_prev_query)
+            prev_result = await self._pool.execute_query(find_prev_query, {"id": event.id})
         except Exception:
             log.warning("find_previous_event_failed", exc_info=True)
             pass  # No previous events
 
-        # Create new event node
-        create_query = """
-        CREATE (e:EventNode {
-            id: $id,
-            content: $content,
-            event_time: $event_time,
-            created_at: $created_at,
-            attributes: $attributes,
-            embedding: $embedding
-        })
+        # Create-or-get the event node (MERGE: no duplicate on retry/race)
+        merge_query = """
+        MERGE (e:EventNode {id: $id})
         RETURN e.id
         """
+        set_query = """
+        MATCH (e:EventNode {id: $id})
+        SET e.content = $content,
+            e.event_time = $event_time,
+            e.created_at = $created_at,
+            e.attributes = $attributes,
+            e.embedding = $embedding
+        """
 
-        create_params = {
+        params = {
             "id": event.id,
             "content": event.content,
             "event_time": event_time,
@@ -203,9 +213,13 @@ class TemporalGraphRepo(BaseGraphRepo):
         }
 
         try:
-            await self._pool.execute_query(create_query, create_params)
+            await self._pool.execute_query(merge_query, {"id": event.id})
+            await self._pool.execute_query(set_query, params)
 
-            # Create EVENT_FOLLOWED_BY relationship if there was a previous event
+            # Link to the chain tail if there was a previous event.
+            # MERGE on endpoints (no properties in the pattern) is idempotent;
+            # the time gap is set separately so a re-run overwrites it instead
+            # of creating a second edge.
             if prev_result and prev_result[0].get("prev_id"):
                 prev_id = prev_result[0]["prev_id"]
                 prev_time = prev_result[0].get("prev_time", event_time)
@@ -214,7 +228,8 @@ class TemporalGraphRepo(BaseGraphRepo):
                 link_query = """
                 MATCH (prev:EventNode {id: $prev_id})
                 MATCH (curr:EventNode {id: $curr_id})
-                CREATE (prev)-[r:EVENT_FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
+                MERGE (prev)-[r:EVENT_FOLLOWED_BY]->(curr)
+                SET r.time_gap_hours = $time_gap
                 """
                 await self._pool.execute_query(
                     link_query,
@@ -293,7 +308,7 @@ class TemporalGraphRepo(BaseGraphRepo):
     ) -> list[dict[str, Any]]:
         """Search events by content similarity and return ranked by relevance.
 
-        Implements D1 hybrid strategy: when ``query_embedding`` is provided,
+        Implements hybrid strategy: when ``query_embedding`` is provided,
         CONTAINS is used to fetch candidates (avoiding full-table scan), then
         in-memory cosine similarity re-ranks them against ``query_embedding``.
 
@@ -302,7 +317,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             limit: Maximum number of events to return.
             query_embedding: Optional query embedding for semantic ranking.
                 When provided, results are re-ranked by cosine similarity
-                against each candidate's content embedding (D1).
+                against each candidate's content embedding.
             start_time: Optional start timestamp (INT64). When both start_time
                 and end_time are provided, filters events to [start_time, end_time].
             end_time: Optional end timestamp (INT64). See start_time.
@@ -315,8 +330,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             List of event dictionaries. When ``query_embedding`` is provided,
             results are sorted by descending similarity and include a
             ``similarity_score`` field. Otherwise results keep legacy
-            behavior: ordered by timestamp ascending (D1 / spec
-            ``search-engine#temporal-search-semantic-ranking``).
+            behavior: ordered by timestamp ascending.
 
         """
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
@@ -335,7 +349,7 @@ class TemporalGraphRepo(BaseGraphRepo):
 
         # Simple content-based search (CONTAINS is case-sensitive in Neo4j)
         # Use toLower for case-insensitive matching.
-        # D2: RETURN e.embedding AS embedding so callers can construct
+        # RETURN e.embedding AS embedding so callers can construct
         # EventNode without an extra query (None for legacy data, Q2).
         query_cypher = f"""
         MATCH (e:EventNode)
@@ -384,7 +398,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             return results
 
         # Resolve candidate embeddings (Q2 fallback):
-        # ① Prefer EventNode embedding persisted via D2 (task 6.x writes it).
+        # ① Prefer the EventNode embedding persisted by the graph writer.
         # ② If None and embedding_service provided, compute on-the-fly
         #    via embed_batch (mirrors _semantic_temporal_search).
         candidate_embeddings: list[list[float] | None] = []
@@ -414,14 +428,14 @@ class TemporalGraphRepo(BaseGraphRepo):
                     candidate_embeddings[idx] = computed[offset]
                     results[idx]["embedding"] = computed[offset]
 
-        # Compute cosine similarity and attach similarity_score (Task 2.5)
+        # Compute cosine similarity and attach similarity_score
         scored: list[tuple[float, dict[str, Any]]] = []
         for record, emb in zip(results, candidate_embeddings, strict=True):
-            sim = _cosine_similarity(emb, query_embedding)
+            sim = cosine_similarity(emb, query_embedding)
             record["similarity_score"] = round(sim, 4)
             scored.append((sim, record))
 
-        # Re-rank by similarity descending (D1)
+        # Re-rank by similarity descending
         scored.sort(key=lambda x: x[0], reverse=True)
         return [r for _, r in scored[:limit]]
 
@@ -441,6 +455,15 @@ class TemporalGraphRepo(BaseGraphRepo):
         Returns:
             List of neighbor events with direction indicator.
         """
+        import operator
+
+        try:
+            before_n = operator.index(before)
+            after_n = operator.index(after)
+        except TypeError as exc:
+            raise TypeError(f"before/after must be integers, got {before!r}/{after!r}") from exc
+        if before_n < 1 or before_n > 10 or after_n < 1 or after_n > 10:
+            raise ValueError(f"before/after must be in [1, 10], got {before_n}/{after_n}")
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
 
@@ -448,7 +471,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         MATCH (center:EventNode {{id: $event_id}})
 
         // Get preceding events
-        OPTIONAL MATCH (prev:EventNode)-[:EVENT_FOLLOWED_BY*1..{before}]->(center)
+        OPTIONAL MATCH (prev:EventNode)-[:EVENT_FOLLOWED_BY*1..{before_n}]->(center)
         WITH center, collect(DISTINCT {{
             id: prev.id,
             content: prev.content,
@@ -458,7 +481,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         }}) AS prev_neighbors
 
         // Get following events
-        OPTIONAL MATCH (center)-[:EVENT_FOLLOWED_BY*1..{after}]->(next:EventNode)
+        OPTIONAL MATCH (center)-[:EVENT_FOLLOWED_BY*1..{after_n}]->(next:EventNode)
         WITH prev_neighbors, collect(DISTINCT {{
             id: next.id,
             content: next.content,

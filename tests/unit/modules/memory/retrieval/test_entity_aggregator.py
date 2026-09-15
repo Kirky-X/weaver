@@ -188,7 +188,17 @@ class TestEntityAggregatorCount:
         assert result.confidence == min(1.0, 3 / 10)
 
     @pytest.mark.asyncio
-    async def test_count_entity_type_from_related_entities(self, mock_entity_repo, mock_llm):
+    async def test_count_entity_type_from_center_type(self, mock_entity_repo, mock_llm):
+        """corr#369: 中心实体类型只能来自 center_type，不从邻居众数推断。"""
+        mock_entity_repo.get_entity_neighborhood = AsyncMock(
+            return_value={
+                "center": "腾讯",
+                "center_type": "TECH",
+                "events": [],
+                "related_entities": [],
+                "relations": [],
+            }
+        )
         aggregator = EntityAggregator(entity_repo=mock_entity_repo, llm=mock_llm)
 
         result = await aggregator.aggregate(
@@ -197,6 +207,29 @@ class TestEntityAggregatorCount:
         )
 
         assert result.entity_type == "TECH"
+
+    @pytest.mark.asyncio
+    async def test_count_entity_type_not_inferred_from_neighbors(self, mock_entity_repo, mock_llm):
+        """邻居全是 TECH 时，中心实体类型不得被推断为 TECH。"""
+        mock_entity_repo.get_entity_neighborhood = AsyncMock(
+            return_value={
+                "center": "腾讯",
+                "events": [],
+                "related_entities": [
+                    {"name": "a", "type": "TECH"},
+                    {"name": "b", "type": "TECH"},
+                ],
+                "relations": [],
+            }
+        )
+        aggregator = EntityAggregator(entity_repo=mock_entity_repo, llm=mock_llm)
+
+        result = await aggregator.aggregate(
+            entity_name="腾讯",
+            aggregation_type=AggregationType.COUNT,
+        )
+
+        assert result.entity_type == "unknown"
 
     @pytest.mark.asyncio
     async def test_count_no_related_entities(self, mock_entity_repo, mock_llm):

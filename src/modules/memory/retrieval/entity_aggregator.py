@@ -100,13 +100,15 @@ class EntityAggregator:
                     confidence=0.0,
                 )
 
-            # Route to appropriate aggregation method
+            # Route to appropriate aggregation method, forwarding the caller
+            # supplied entity_name so a neighborhood missing "center" still
+            # yields a valid entity_name instead of "".
             if aggregation_type == AggregationType.FACTS:
-                return await self._aggregate_facts(neighborhood)
+                return await self._aggregate_facts(neighborhood, entity_name=entity_name)
             elif aggregation_type == AggregationType.COUNT:
-                return await self._aggregate_count(neighborhood)
+                return await self._aggregate_count(neighborhood, entity_name=entity_name)
             elif aggregation_type == AggregationType.TIMELINE:
-                return await self._aggregate_timeline(neighborhood)
+                return await self._aggregate_timeline(neighborhood, entity_name=entity_name)
             else:
                 log.warning("unknown_aggregation_type", agg_type=aggregation_type)
                 return AggregationResult(
@@ -132,6 +134,7 @@ class EntityAggregator:
     async def _aggregate_facts(
         self,
         neighborhood: dict[str, Any],
+        entity_name: str = "",
     ) -> AggregationResult:
         """Extract key facts about the entity using LLM.
 
@@ -141,6 +144,7 @@ class EntityAggregator:
         Returns:
             AggregationResult with extracted facts.
         """
+        resolved_name = neighborhood.get("center") or entity_name or ""
         # Build context from neighborhood
         context = self._build_neighborhood_context(neighborhood)
 
@@ -149,18 +153,37 @@ class EntityAggregator:
             response = await self._llm.call_at(
                 call_point="ENTITY_FACTS",
                 payload={
-                    "entity_name": neighborhood.get("center", ""),
+                    "entity_name": resolved_name,
                     "context": context,
                     "task": "extract_facts",
                 },
             )
 
-            # Parse response
+            # Parse response with type coercion: LLM may return confidence as
+            # a string like "high" and facts as a bare string or mixed list.
             if isinstance(response, dict):
-                facts = response.get("facts", [])
+                raw_facts = response.get("facts", [])
+                if isinstance(raw_facts, str):
+                    facts: list[str] = [raw_facts] if raw_facts.strip() else []
+                elif isinstance(raw_facts, list):
+                    facts = [str(f) for f in raw_facts if isinstance(f, (str, int, float))]
+                else:
+                    facts = []
                 entity_type = response.get("entity_type", "unknown")
+                if not isinstance(entity_type, str):
+                    entity_type = str(entity_type)
                 reasoning = response.get("reasoning", "")
+                if not isinstance(reasoning, str):
+                    reasoning = str(reasoning)
                 confidence = response.get("confidence", 0.7)
+                if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+                    log.warning(
+                        "fact_confidence_non_numeric",
+                        entity=resolved_name,
+                        confidence_type=type(confidence).__name__,
+                    )
+                    confidence = 0.5
+                confidence = float(confidence)
             else:
                 # Fallback: treat response as raw text
                 facts = [line.strip() for line in str(response).split("\n") if line.strip()]
@@ -169,7 +192,7 @@ class EntityAggregator:
                 confidence = 0.5
 
             return AggregationResult(
-                entity_name=neighborhood.get("center", ""),
+                entity_name=resolved_name,
                 entity_type=entity_type,
                 aggregation_type=AggregationType.FACTS,
                 facts=facts[:10],  # Limit to top 10 facts
@@ -180,7 +203,7 @@ class EntityAggregator:
         except Exception as exc:
             log.warning("fact_extraction_failed", error=str(exc))
             return AggregationResult(
-                entity_name=neighborhood.get("center", ""),
+                entity_name=resolved_name,
                 entity_type="unknown",
                 aggregation_type=AggregationType.FACTS,
                 confidence=0.0,
@@ -189,6 +212,7 @@ class EntityAggregator:
     async def _aggregate_count(
         self,
         neighborhood: dict[str, Any],
+        entity_name: str = "",
     ) -> AggregationResult:
         """Count events and relationships involving the entity.
 
@@ -206,26 +230,21 @@ class EntityAggregator:
         related_entity_count = len(related_entities)
         relation_count = len(relations)
 
-        # Determine entity type from related entities
-        entity_type = "unknown"
-        if related_entities:
-            # Use the most common type from related entities
-            type_counts: dict[str, int] = {}
-            for e in related_entities:
-                et = e.get("type", "unknown")
-                type_counts[et] = type_counts.get(et, 0) + 1
-            if type_counts:
-                entity_type = max(type_counts, key=type_counts.get)
+        # The center entity's own type when the neighborhood supplies it;
+        # neighbor types carry no information about the center, so we must
+        # not infer from them (corr#369) — default to "unknown".
+        entity_type = neighborhood.get("center_type") or "unknown"
 
+        resolved_name = neighborhood.get("center") or entity_name or ""
         # Build summary reasoning
         reasoning = (
-            f"Entity {neighborhood.get('center', '')} appears in {event_count} events, "
+            f"Entity {resolved_name} appears in {event_count} events, "
             f"has {related_entity_count} related entities, "
             f"and {relation_count} relationships."
         )
 
         return AggregationResult(
-            entity_name=neighborhood.get("center", ""),
+            entity_name=resolved_name,
             entity_type=entity_type,
             aggregation_type=AggregationType.COUNT,
             count=event_count,
@@ -236,6 +255,7 @@ class EntityAggregator:
     async def _aggregate_timeline(
         self,
         neighborhood: dict[str, Any],
+        entity_name: str = "",
     ) -> AggregationResult:
         """Generate chronological sequence of entity-related events.
 
@@ -268,7 +288,7 @@ class EntityAggregator:
             entity_type = related_entities[0].get("type", "unknown")
 
         return AggregationResult(
-            entity_name=neighborhood.get("center", ""),
+            entity_name=neighborhood.get("center") or entity_name or "",
             entity_type=entity_type,
             aggregation_type=AggregationType.TIMELINE,
             facts=timeline_facts,

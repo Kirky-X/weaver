@@ -195,10 +195,6 @@ class MemoryIntegrationService:
             event_lookup_limit=self._config.event_lookup_limit,
         )
 
-        # Store for retrieval components
-        self._llm_client = llm_client
-        self._entity_repo = entity_repo
-
         # Initialize retrieval components (optional)
         self._entity_aggregator: Any = None
         self._narrative_synthesizer: Any = None
@@ -352,12 +348,16 @@ class MemoryIntegrationService:
 
         from modules.memory.core.graph_types import OutputMode
 
+        if output_mode not in ("context", "narrative"):
+            raise ValueError(f"output_mode must be 'context' or 'narrative', got {output_mode!r}")
         mode = OutputMode.NARRATIVE if output_mode == "narrative" else OutputMode.CONTEXT
 
         return await self._response_builder.build(
             query=query,
             output_mode=mode,
             enrich_entities=enrich_entities,
+            anchors=anchors,
+            intent=intent,
         )
 
     async def get_queue_depth(self) -> int:

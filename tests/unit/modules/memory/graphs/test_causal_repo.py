@@ -130,3 +130,26 @@ async def test_ensure_constraints(repo, mock_pool):
     await repo.ensure_constraints()
 
     assert mock_pool.execute_query.call_count >= 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_add_causal_edge_ladybug_sets_created_at():
+    """Regression (#360): the Ladybug write path used time.time() without
+    importing time, raising NameError before the query was sent."""
+    pool = MagicMock()
+    pool.database_type = "ladybug"
+    pool.execute_query = AsyncMock(return_value=[{"r": {}}])
+    repo = CausalGraphRepo(pool=pool)
+
+    result = await repo.add_causal_edge(
+        source_id="event-001",
+        target_id="event-002",
+        relation_type=CausalRelationType.CAUSES,
+        confidence=0.9,
+        evidence="Test evidence",
+    )
+
+    assert result is True
+    query = pool.execute_query.call_args[0][0]
+    assert "$created_at" in query

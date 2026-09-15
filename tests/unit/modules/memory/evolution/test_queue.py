@@ -17,6 +17,9 @@ def mock_redis():
     redis.lpush = AsyncMock(return_value=1)
     redis.rpop = AsyncMock(return_value=None)
     redis.llen = AsyncMock(return_value=0)
+    redis.set_nx = AsyncMock(return_value=True)
+    redis.delete = AsyncMock(return_value=1)
+    redis.lrange = AsyncMock(return_value=[])
     return redis
 
 

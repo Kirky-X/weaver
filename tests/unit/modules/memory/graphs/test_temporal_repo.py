@@ -225,7 +225,7 @@ async def test_search_temporal_events_with_time_window(repo, mock_pool):
 async def test_search_temporal_events_without_time_window_backward_compat(repo, mock_pool):
     """不传时间参数时 WHERE 不含时间条件（向后兼容）。
 
-    验证 task 2.2 的向后兼容承诺：start_time/end_time 为 None 时
+    验证向后兼容承诺：start_time/end_time 为 None 时
     查询行为与修改前一致，不引入时间过滤。
     """
     mock_pool.execute_query.return_value = []
@@ -247,7 +247,7 @@ async def test_search_temporal_events_without_time_window_backward_compat(repo, 
     assert params["candidate_limit"] == 10
 
 
-# --- D1 semantic re-ranking tests (spec: search-engine) ---
+# --- semantic re-ranking tests (spec: search-engine) ---
 
 
 @pytest.mark.unit
@@ -279,7 +279,7 @@ async def test_search_temporal_events_semantic_mode_fetches_wider_window(repo, m
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_search_temporal_events_uses_query_embedding(repo, mock_pool):
-    """query_embedding 提供时按余弦相似度降序重排（D1 / Task 2.3-2.5）。
+    """query_embedding 提供时按余弦相似度降序重排。
 
     构造 3 个候选事件，故意按时间戳升序排列（alpha<beta<gamma），
     但语义相似度顺序为 alpha > gamma > beta。重排后应得到
@@ -381,7 +381,7 @@ async def test_search_temporal_events_query_embedding_with_missing_persistence(r
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_search_temporal_events_no_embedding_falls_back_to_contains(repo, mock_pool):
-    """query_embedding=None 时保留旧行为：CONTAINS + timestamp 排序（Task 2.4）。
+    """query_embedding=None 时保留旧行为：CONTAINS + timestamp 排序。
 
     关键断言：
     1. 结果中不应添加 ``similarity_score`` 字段（避免误导下游）
@@ -422,13 +422,13 @@ async def test_search_temporal_events_no_embedding_falls_back_to_contains(repo, 
     embedding_service.embed_batch.assert_not_called()
 
 
-# --- D2 EventNode embedding persistence tests (spec: event-node-integration) ---
+# --- EventNode embedding persistence tests (spec: event-node-integration) ---
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_persists_embedding_neo4j(repo, mock_pool):
-    """Neo4j 写入路径持久化 EventNode embedding（D2 / Task 6.2-6.4）。
+    """Neo4j 写入路径持久化 EventNode embedding。
 
     旧行为：``ON CREATE SET`` 不包含 embedding，EventNode 永远无 embedding
     属性（Q2 finding），导致 search_temporal_events 的 query_embedding 重排
@@ -460,7 +460,7 @@ async def test_append_to_chain_persists_embedding_neo4j(repo, mock_pool):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_persists_embedding_ladybug():
-    """LadybugDB 写入路径持久化 EventNode embedding（D2 / Task 6.2-6.4）。
+    """LadybugDB 写入路径持久化 EventNode embedding。
 
     LadybugDB 使用 ``CREATE (e:EventNode {..., embedding: $embedding})``
     语法，schema 中 EventNode 表已添加 ``embedding DOUBLE[]`` 列
@@ -472,12 +472,13 @@ async def test_append_to_chain_persists_embedding_ladybug():
     3. CREATE EventNode → 返回 [{"id": "event-emb-lb"}]
     """
     pool = MagicMock()
-    # 按调用顺序返回：existence_check=[], find_prev=[], create=[{...}]
+    # 按调用顺序返回：existence_check(linked)=[], find_prev=[], merge=[{...}]
     pool.execute_query = AsyncMock(
         side_effect=[
-            [],  # check existence → not exists
+            [],  # check existence+linked → not exists
             [],  # find previous event → none
-            [{"e.id": "event-emb-lb"}],  # CREATE returns
+            [{"e.id": "event-emb-lb"}],  # MERGE node returns
+            [],  # SET properties
         ]
     )
     pool.database_type = DatabaseType.LADYBUG.value
@@ -493,22 +494,24 @@ async def test_append_to_chain_persists_embedding_ladybug():
 
     await repo.append_to_chain(event)
 
-    # 第 3 次调用是 CREATE EventNode
-    create_call = pool.execute_query.call_args_list[2]
-    create_query = create_call[0][0]
-    create_params = create_call[0][1]
-    assert "CREATE" in create_query
-    assert "EventNode" in create_query
-    # CREATE 语句包含 embedding 字段
-    assert "embedding: $embedding" in create_query
-    # params 透传 embedding
-    assert create_params["embedding"] == embedding
+    # 第 2 次调用是 SET 属性（MERGE 节点本身只带 id）
+    set_call = pool.execute_query.call_args_list[3]
+    set_query = set_call[0][0]
+    set_params = set_call[0][1]
+    assert "SET" in set_query
+    assert "EventNode" in set_query
+    # SET 语句透传 embedding
+    assert set_params["embedding"] == embedding
+    # 第 1 次调用（MERGE 节点）必须是幂等 MERGE 而非 CREATE（corr#361/#364）
+    merge_query = pool.execute_query.call_args_list[2][0][0]
+    assert "MERGE" in merge_query
+    assert "CREATE" not in merge_query
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_embedding_none_does_not_fail(repo, mock_pool):
-    """EventNode embedding=None 时写入不失败（Task 6.3 向后兼容）。
+    """EventNode embedding=None 时写入不失败。
 
     老的 pipeline state 无 vectors.content，EventNode.embedding=None。
     Cypher 写入 null property 应被接受（Neo4j/LadybugDB 均支持）。

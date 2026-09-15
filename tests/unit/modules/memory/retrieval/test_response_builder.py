@@ -205,7 +205,9 @@ class TestSearchResponseBuilderBuild:
 
         await builder.build(query="find this")
 
-        mock_search_engine.search.assert_called_once_with(query="find this")
+        mock_search_engine.search.assert_called_once_with(
+            query="find this", anchors=None, intent=None
+        )
 
     @pytest.mark.asyncio
     async def test_build_calls_synthesizer(

@@ -265,7 +265,8 @@ class TestNarrativeSynthesizerNarrativeMode:
         )
 
         assert "First piece of context" in result.output
-        assert result.mode == OutputMode.NARRATIVE
+        # LLM fallback serves raw context: labeled CONTEXT, not NARRATIVE (#374)
+        assert result.mode == OutputMode.CONTEXT
 
     @pytest.mark.asyncio
     async def test_narrative_mode_custom_max_tokens(self, mock_llm, context_nodes):

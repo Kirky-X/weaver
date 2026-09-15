@@ -99,10 +99,15 @@ class SynapticIngestionService:
 
         try:
             # 2. Append to Temporal Graph (deterministic, O(1)) — with retry
+            # Only transient DB conflicts are retried; programming errors
+            # (AttributeError/TypeError/KeyError/ValueError) fail immediately
+            # so bugs are not masked behind backoff delay and log noise.
             for attempt in range(max_retries):
                 try:
                     await self._temporal_repo.append_to_chain(event)
                     break
+                except (AttributeError, TypeError, KeyError, ValueError):
+                    raise
                 except Exception as exc:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2**attempt)
@@ -120,7 +125,13 @@ class SynapticIngestionService:
 
             # 3. Index embedding in Vector Database
             if event.embedding and self._vector_repo:
-                await self._vector_repo.upsert_event_embedding(event, self._embedding_model)
+                indexed = await self._vector_repo.upsert_event_embedding(
+                    event, self._embedding_model
+                )
+                if not indexed:
+                    # VectorRepository signals failure with False; partial
+                    # ingestion must stay observable (rule 12).
+                    log.warning("fast_path_embedding_upsert_failed", event_id=event.id)
 
             # 4. Update Entity Graph (deterministic extraction)
             entities = state.get("entities") or []
@@ -140,10 +151,13 @@ class SynapticIngestionService:
 
             return event
 
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except Exception as exc:
             log.error(
                 "fast_path_ingestion_failed",
                 event_id=event.id,
                 error=str(exc),
+                exc_type=type(exc).__name__,
             )
             return None
