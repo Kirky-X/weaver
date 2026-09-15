@@ -2,7 +2,7 @@
 # ============================================================
 # News processing pipeline configuration
 # Environment variables can override any value:
-#   WEAVER__PIPELINE__PHASE1__CONCURRENCY=10
+#   WEAVER_PIPELINE__PHASE1__CONCURRENCY=10
 # ------------------------------------------------------------
 # Consumed at runtime:
 #   - [phase1].concurrency / [phase3].concurrency

@@ -13,7 +13,10 @@
 [global]
 circuit_breaker_threshold = 5       # Consecutive failures before opening circuit
 circuit_breaker_timeout = 60.0      # Cooldown period before half-open (seconds)
-default_timeout = 120.0             # Default timeout for all LLM calls (seconds)
+default_timeout = 120.0             # Timeout for providers without an explicit `timeout`
+# request_delay_enabled = false     # Global request throttling (per-provider override supported)
+# request_delay_min = 1.0
+# request_delay_max = 2.0
 
 # ============================================================
 # Provider: OpenAI
@@ -24,7 +27,7 @@ base_url = "https://api.openai.com/v1"
 api_key = ""  # via WEAVER_LLM__PROVIDERS__OPENAI__API_KEY
 rpm_limit = 500
 concurrency = 10
-timeout = 120.0
+timeout = 120.0  # Omit to fall back to [global].default_timeout
 priority = 100
 weight = 100
 

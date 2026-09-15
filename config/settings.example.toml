@@ -15,7 +15,7 @@ host = "localhost"                      # Database server hostname
 port = 5432                            # Database server port
 database = "weaver"                    # Database name
 user = "postgres"                      # Database username
-# password: Set via POSTGRES_PASSWORD environment variable
+# password: Set via WEAVER_POSTGRES__PASSWORD environment variable
 pool_size = 20                         # Initial connection pool size
 max_overflow = 10                      # Maximum overflow connections
 pool_timeout = 30.0                    # Connection acquisition timeout (seconds)
@@ -24,7 +24,7 @@ pool_timeout = 30.0                    # Connection acquisition timeout (seconds
 # Neo4j graph database connection settings
 uri = "bolt://localhost:7687"         # Neo4j bolt connection URI
 user = "neo4j"                         # Neo4j username
-# password: Set via NEO4J_PASSWORD environment variable
+# password: Set via WEAVER_NEO4J__PASSWORD environment variable
 enabled = true                         # Enable/disable Neo4j connection
 
 [redis]
@@ -32,19 +32,14 @@ enabled = true                         # Enable/disable Neo4j connection
 host = "localhost"                     # Redis server hostname
 port = 6379                            # Redis server port
 db = 0                                 # Redis database number (0-15)
-# password: Set via REDIS_PASSWORD environment variable (optional)
+# password: Set via WEAVER_REDIS__PASSWORD environment variable (optional)
 
 # ============================================================
 # LLM Configuration
 # ============================================================
-
-[llm]
-# See config/llm.toml for full LLM provider and call-point configuration
-# These fields are simplified references for quick lookups
-embedding_provider = "your_embedding_provider"   # Provider name for embeddings
-embedding_model = "your_embedding_model"         # Embedding model name
-rerank_provider = "your_rerank_provider"        # Provider name for reranking
-rerank_model = "your_rerank_model"              # Reranking model name
+# LLM providers / routing live in config/llm.toml (copy from
+# config/llm.example.toml). API keys go through environment variables:
+# WEAVER_LLM__PROVIDERS__<NAME>__API_KEY
 
 # ============================================================
 # Fetcher Configuration (Web Crawler)
@@ -53,7 +48,6 @@ rerank_model = "your_rerank_model"              # Reranking model name
 [fetcher]
 # HTTP fetcher and crawler settings
 default_per_host_concurrency = 2         # Max concurrent requests per host
-global_max_concurrency = 32             # Max total concurrent requests
 httpx_timeout = 15.0                  # HTTP request timeout (seconds)
 user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
 
@@ -61,12 +55,6 @@ user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
 crawl4ai_headless = true                 # Run browser in headless mode
 crawl4ai_stealth_enabled = true          # Enable stealth mode to avoid bot detection
 crawl4ai_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-crawl4ai_viewport_width = 1920          # Browser viewport width (pixels)
-crawl4ai_viewport_height = 1080         # Browser viewport height (pixels)
-crawl4ai_locale = "zh-CN"               # Browser locale (language-country code)
-crawl4ai_timezone = "Asia/Shanghai"     # Browser timezone
-crawl4ai_random_delay_min = 0.5         # Min random delay between requests (seconds)
-crawl4ai_random_delay_max = 2.0         # Max random delay between requests (seconds)
 crawl4ai_timeout = 30.0                  # Browser page load timeout (seconds)
 
 # Rate limiting
@@ -94,7 +82,7 @@ rate_limit = "100/minute"               # Global API rate limit
 host = "0.0.0.0"                       # Bind address (0.0.0.0 for all interfaces)
 port = 8000                             # HTTP port
 port_auto_detect = true                 # Enable automatic port detection
-# port_env_file = ".env.weaver"          # Port env file path (only used when WEAVER_WRITE_PORT_ENV=true)
+# Set WEAVER_WRITE_PORT_ENV=true to announce the resolved port to a .env file
 
 # HTTP 日志隐私治理
 log_response_body = false               # 记录响应体预览（仅 DEBUG 级且 true 时生效）
@@ -122,6 +110,9 @@ rerank_enabled = true                  # Enable cross-encoder reranking
 rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
 mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
 mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
+hybrid_enabled = true                    # Hybrid (vector+BM25 RRF) retrieval master switch
+temporal_decay_enabled = false           # Temporal decay applied after RRF fusion
+temporal_decay_half_life_days = 30.0     # Half-life for temporal decay (days)
 
 # 搜索结果缓存（Redis，0=关闭）
 result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 300，0=关闭）
@@ -181,18 +172,13 @@ urlhaus_api_timeout = 5.0                # URLhaus API request timeout (seconds)
 # PhishTank offline blacklist
 phishtank_enabled = true                  # Enable PhishTank phishing URL database
 phishtank_data_url = "https://data.phishtank.com/data/online-valid.json"
-phishtank_sync_interval_hours = 6         # Data sync interval (hours)
-phishtank_data_path = "data/phishtank.json"  # Local data storage path
+# Sync interval lives in [scheduler]: sync_phishtank_interval_hours
 
 # Heuristic URL analysis
 heuristic_enabled = true                  # Enable heuristic URL analysis
-heuristic_check_encoded_chars = true      # Detect URL encoding obfuscation
-heuristic_check_suspicious_keywords = true  # Detect suspicious keywords
-heuristic_check_domain_structure = true   # Detect domain structure anomalies
 
 # SSL certificate verification
-ssl_verify_enabled = true                 # Enable SSL certificate checking
-ssl_verify_timeout = 10.0                 # SSL verification timeout (seconds)
+ssl_verify_enabled = true                 # SSL certificate checking
 
 # Result caching (differential TTL)
 cache_enabled = true                      # Enable check result caching

@@ -1,4 +1,4 @@
-# Weaver Settings Configuration - DeepSeek Testing
+# Weaver Settings Configuration
 # ============================================================
 
 [postgres]
@@ -19,8 +19,6 @@ enabled = true
 host = "localhost"
 port = 6379
 db = 0
-
-[llm]
 
 [fetcher]
 default_per_host_concurrency = 2
@@ -91,9 +89,6 @@ ssl_verify_enabled = true
 cache_enabled = true
 cache_safe_ttl_seconds = 21600
 cache_malicious_ttl_seconds = 900
-
-[vault]
-enabled = false
 
 [pgbouncer]
 enabled = false
