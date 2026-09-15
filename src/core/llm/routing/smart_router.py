@@ -61,6 +61,9 @@ class SmartRouter:
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
                 circuit_breaker_timeout=settings.circuit_breaker_timeout,
                 default_timeout=settings.default_timeout,
+                request_delay_enabled=settings.request_delay_enabled,
+                request_delay_min=settings.request_delay_min,
+                request_delay_max=settings.request_delay_max,
                 defaults=settings.defaults,
                 call_points=settings.call_points,
             )

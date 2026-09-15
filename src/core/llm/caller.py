@@ -17,7 +17,7 @@ from litellm import acompletion, aembedding, arerank
 from litellm.utils import token_counter
 from openai import AsyncOpenAI
 
-from core.llm.types import CacheUsage, Label, LLMResponse, LLMType, TokenUsage
+from core.llm.types import DEFAULT_LLM_TIMEOUT, CacheUsage, Label, LLMResponse, LLMType, TokenUsage
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -159,7 +159,7 @@ class LiteLLMCaller:
         max_tokens: int | None = None,
         think: bool | None = None,
         response_format: str | dict[str, Any] | None = None,
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_LLM_TIMEOUT,
     ) -> LLMResponse:
         """执行chat调用.
 
@@ -492,7 +492,7 @@ class LiteLLMCaller:
             all_text = query + " " + " ".join(documents)
             try:
                 # Pass the model so LiteLLM picks the matching tokenizer
-                # instead of an arbitrary default (OCR LOW #37).
+                # instead of an arbitrary default.
                 estimated_tokens = token_counter(text=all_text, model=label.model)
             except Exception:
                 # token_counter 可能因模型不支持而失败, 使用简单估算
@@ -627,7 +627,7 @@ class LiteLLMCaller:
         api_key: str,
         api_base: str,
         payload: dict[str, Any],
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_LLM_TIMEOUT,
     ) -> LLMResponse:
         """通用调用方法，根据label类型分发.
 

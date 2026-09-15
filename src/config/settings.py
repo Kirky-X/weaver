@@ -23,8 +23,13 @@ Examples:
 
 from __future__ import annotations
 
+import tomllib
+from pathlib import Path
+from types import UnionType
+from typing import Any, Union, get_args, get_origin
+
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -35,8 +40,8 @@ from pydantic_settings import (
 # Import sub-configurations
 from config.subconfigs import (
     APISettings,
-    SecuritySettings,
     BingSettings,
+    DedupSettings,
     DuckDBSettings,
     EntitySettings,
     FakeNewsDetectorSettings,
@@ -57,11 +62,11 @@ from config.subconfigs import (
     SagaSettings,
     SchedulerSettings,
     SearchSettings,
+    SecuritySettings,
     SpacySettings,
     TemporalMemorySettings,
     TrafficAnomalySettings,
     URLSecuritySettings,
-    DedupSettings,
 )
 from core.llm.config.config import LLMSettings
 from core.utils.paths import PROJECT_ROOT
@@ -69,6 +74,55 @@ from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+def _unknown_toml_keys(toml_path: Path, settings_cls: type[BaseModel]) -> list[tuple[str, str]]:
+    """Return (section, key) pairs present in the TOML but absent from the model.
+
+    Root Settings uses extra="ignore", so a typo'd TOML key is silently
+    dropped — exactly how zombie config survives. Sections are walked
+    recursively through BaseModel-typed fields (Optional unwrapped); the
+    section label is a dotted path, "<root>" for top-level scalars.
+    """
+    try:
+        with open(toml_path, "rb") as f:
+            data = tomllib.load(f)
+    except FileNotFoundError:
+        return []
+
+    unknown: list[tuple[str, str]] = []
+    _collect_unknown_keys(data, settings_cls, "", unknown)
+    return unknown
+
+
+def _base_model_annotation(annotation: Any) -> type[BaseModel] | None:
+    """Unwrap ``Optional[X]`` and return X when it is a BaseModel subclass."""
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        non_none = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(non_none) != 1:
+            return None
+        annotation = non_none[0]
+    return (
+        annotation if isinstance(annotation, type) and issubclass(annotation, BaseModel) else None
+    )
+
+
+def _collect_unknown_keys(
+    section: dict[str, Any],
+    model: type[BaseModel],
+    path: str,
+    unknown: list[tuple[str, str]],
+) -> None:
+    known_fields = model.model_fields
+    for key, value in section.items():
+        field_info = known_fields.get(key)
+        if field_info is None:
+            unknown.append((path or "<root>", key))
+            continue
+        sub_model = _base_model_annotation(field_info.annotation)
+        if sub_model is not None and isinstance(value, dict):
+            _collect_unknown_keys(value, sub_model, f"{path}.{key}" if path else key, unknown)
 
 
 class Settings(BaseSettings):
@@ -136,6 +190,21 @@ class Settings(BaseSettings):
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Log settings.toml keys that no config model declares.
+
+        Non-blocking: unknown keys keep being ignored, but a typo now
+        surfaces as a startup warning instead of never.
+        """
+        unknown = _unknown_toml_keys(PROJECT_ROOT / "config" / "settings.toml", type(self))
+        if not unknown:
+            return
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+        for section, key in unknown:
+            log.warning("settings_toml_unknown_key", section=section, key=key)
 
     @classmethod
     def settings_customise_sources(

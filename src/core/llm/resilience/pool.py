@@ -74,6 +74,15 @@ class ProviderPool:
         self.name = config.name
         self._event_bus = event_bus
 
+        # provider 未配置 timeout 时回落全局默认（llm.toml [global].default_timeout）
+        self._effective_timeout = (
+            config.timeout
+            if config.timeout is not None
+            else (
+                global_config.default_timeout if global_config else GlobalConfig().default_timeout
+            )
+        )
+
         # LiteLLM调用器
         self._caller = LiteLLMCaller()
 
@@ -82,7 +91,7 @@ class ProviderPool:
             name=config.name,
             fail_max=circuit_breaker_threshold,
             reset_timeout=circuit_breaker_timeout,
-            timeout=config.timeout,
+            timeout=self._effective_timeout,
         )
 
         # 速率限制器
@@ -223,7 +232,7 @@ class ProviderPool:
                 response = await self._execute_single(
                     label=label,
                     payload=merged_payload,
-                    timeout=timeout or self.config.timeout,
+                    timeout=timeout or self._effective_timeout,
                     call_point=call_point,
                     article_id=article_id,
                     task_id=task_id,
@@ -259,7 +268,7 @@ class ProviderPool:
                 )
                 continue
 
-        # 显式串联最后一次失败，保留因果链（OCR LOW #142）。
+        # 显式串联最后一次失败，保留因果链。
         raise AllProvidersFailedError(labels, last_error) from last_error
 
     async def _execute_single(

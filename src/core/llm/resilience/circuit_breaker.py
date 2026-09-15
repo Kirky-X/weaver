@@ -20,7 +20,7 @@ from typing import Any
 
 from pybreaker import CircuitBreaker as PyBreaker, CircuitBreakerError as PyCircuitBreakerError
 
-from core.llm.types import CircuitState
+from core.llm.types import DEFAULT_LLM_TIMEOUT, CircuitState
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -52,7 +52,7 @@ class ProviderCircuitBreaker:
         reset_timeout: float = 60.0,
         exclude_exceptions: list[type[Exception]] | None = None,
         slow_threshold: float = 0.5,
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_LLM_TIMEOUT,
         slow_threshold_count: int = 5,
     ) -> None:
         """初始化熔断器.
@@ -173,7 +173,7 @@ class ProviderCircuitBreaker:
         else:
             # In closed state, reset counters on success. Only touch the
             # breaker when it is not already closed — close() is a no-op then,
-            # but guarding keeps the hot path read-only (OCR LOW #141).
+            # but guarding keeps the hot path read-only.
             self._success_counter = 0
             self._failure_counter = 0
             if self._breaker.current_state != "closed":

@@ -11,6 +11,9 @@ from typing import Any
 
 from pydantic import BaseModel, SecretStr, field_validator
 
+# LLM 调用超时的单一默认值来源（GlobalConfig / LLMSettings / 调用方默认参数共用）
+DEFAULT_LLM_TIMEOUT: float = 120.0
+
 
 class LLMType(str, Enum):
     """LLM调用类型."""
@@ -339,7 +342,8 @@ class ProviderConfig(BaseModel):
     base_url: str = ""
     rpm_limit: int = 60
     concurrency: int = 5
-    timeout: float = 120.0
+    # None = 未配置，运行时回落 GlobalConfig.default_timeout（llm.toml [global]）
+    timeout: float | None = None
     priority: int = 100
     weight: int = 100
     models: dict[str, ModelConfig] = {}
@@ -358,7 +362,7 @@ class GlobalConfig(BaseModel):
 
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
-    default_timeout: float = 120.0
+    default_timeout: float = DEFAULT_LLM_TIMEOUT
     # 请求延迟配置
     request_delay_enabled: bool = False
     request_delay_min: float = 1.0

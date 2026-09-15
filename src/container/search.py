@@ -156,7 +156,16 @@ class ContainerSearchMixin:
                 bm25_retriever=bm25_retriever,
                 reranker=reranker,
                 mmr_reranker=mmr_reranker,
-                config=HybridSearchConfig(),
+                config=HybridSearchConfig(
+                    hybrid_enabled=self._settings.search.hybrid_enabled,
+                    rerank_enabled=self._settings.search.rerank_enabled,
+                    rerank_model=self._settings.search.rerank_model,
+                    mmr_enabled=self._settings.search.mmr_enabled,
+                    mmr_lambda=self._settings.search.mmr_lambda,
+                    mmr_similarity_mode=self._settings.search.mmr_similarity_mode,
+                    temporal_decay_enabled=self._settings.search.temporal_decay_enabled,
+                    temporal_decay_half_life_days=self._settings.search.temporal_decay_half_life_days,
+                ),
             )
         return self._hybrid_engine
 

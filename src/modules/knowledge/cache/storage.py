@@ -27,10 +27,12 @@ import duckdb
 from core.db.safe_query import validate_sql_identifier
 from core.observability import get_logger
 from core.protocols import KnowledgeCacheProtocol, KnowledgeCluster
+from core.utils.paths import DATA_DIR
 
 log = get_logger(__name__)
 
-DEFAULT_CACHE_PATH = "data/.cache/knowledge"
+# 与 KnowledgeCacheSettings.path 默认值同源（DATA_DIR 派生），避免两处定义漂移
+DEFAULT_CACHE_PATH = str(DATA_DIR / ".cache" / "knowledge")
 
 
 class KnowledgeCache(KnowledgeCacheProtocol):
@@ -66,7 +68,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         """
         # Setup paths
         if cache_path is None:
-            cache_path = os.getenv("KNOWLEDGE_CACHE_PATH", DEFAULT_CACHE_PATH)
+            cache_path = DEFAULT_CACHE_PATH
         # Concrete str/Path only: os.PathLike is too permissive here because
         # MagicMock satisfies it via auto-created __fspath__, which historically
         # materialised mock reprs as real directories on disk.

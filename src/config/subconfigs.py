@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from core.constants import CHROME_USER_AGENT
 from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
 
@@ -344,7 +345,7 @@ class FetcherSettings(BaseModel):
     # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True
     crawl4ai_stealth_enabled: bool = True
-    crawl4ai_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    crawl4ai_user_agent: str = CHROME_USER_AGENT
     crawl4ai_timeout: float = 30.0
 
     rate_limit_enabled: bool = True
@@ -360,6 +361,8 @@ class FetcherSettings(BaseModel):
 class SearchSettings(BaseModel):
     """Search enhancement settings."""
 
+    # Hybrid 检索引擎总开关与融合后处理(接线到 HybridSearchConfig)
+    hybrid_enabled: bool = True
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
     # Min cosine similarity for community-level (global) vector search
@@ -370,6 +373,9 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
+    # 时序衰减(RRF 融合后、MMR 前应用;接线到 HybridSearchConfig)
+    temporal_decay_enabled: bool = False
+    temporal_decay_half_life_days: float = 30.0
     # Short-TTL response cache for hot search queries (seconds; 0 = off)
     result_cache_ttl: int = 300
     # Max concurrent Bing-fallback background pipeline
@@ -486,7 +492,7 @@ class PipelineUrlEndpointSettings(BaseModel):
 class PipelineProcessSettings(BaseModel):
     """Pipeline processing configuration."""
 
-    drain_timeout: float = 30.0  # Pipeline drain timeout
+    causal_llm_timeout: float = 30.0  # 因果推理 LLM 调用超时(秒)
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
@@ -529,7 +535,7 @@ class SagaSettings(BaseModel):
 class DedupSettings(BaseModel):
     """Cross-source deduplication configuration.
 
-    Environment variables: WEAVER__DEDUP__ENABLE_SIMHASH_DEDUP, etc.
+    Environment variables: WEAVER_DEDUP__ENABLE_SIMHASH_DEDUP, etc.
     Backed by settings.toml [dedup]; consumed by the SimHash title
     deduplicator wiring in the container.
     """
@@ -541,7 +547,7 @@ class DedupSettings(BaseModel):
 class FakeNewsDetectorSettings(BaseModel):
     """Fake news detector configuration (5-dimensional feature fusion).
 
-    Environment variables: WEAVER_ANALYTICS__FAKE_NEWS_DETECTOR__ENABLED, etc.
+    Environment variables: WEAVER_FAKE_NEWS_DETECTOR__ENABLED, etc.
     """
 
     enabled: bool = True
@@ -556,7 +562,7 @@ class FakeNewsDetectorSettings(BaseModel):
 class PaddleNLPSentimentSettings(BaseModel):
     """PaddleNLP SKEP sentiment analysis configuration.
 
-    Environment variables: WEAVER__PADDLENLP__SENTIMENT__ENABLED, etc.
+    Environment variables: WEAVER_PADDLENLP_SENTIMENT__ENABLED, etc.
     """
 
     enabled: bool = True
@@ -652,10 +658,7 @@ class BingSettings(BaseModel):
     max_results: int = 5
     timeout: int = 15  # seconds (passed to asyncio.wait_for in BingSearcher)
     cache_ttl_seconds: int = 1800  # 30 minutes; 0 disables caching
-    user_agent: str = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    )
+    user_agent: str = CHROME_USER_AGENT
 
     # News vertical search (cn.bing.com/news/search). Parallel to general
     # search; results merged + deduplicated.

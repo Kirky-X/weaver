@@ -106,7 +106,7 @@ def build_stable_cache_key(call_point: str, payload: dict[str, Any]) -> str:
 # ``cache:llm:v2:`` (see _make_llm_cache_key). The generic ``call()`` cache-read
 # path does ``json.loads(cached)["content"]``, which assumes a JSON object — an
 # embedding entry is a bare JSON list, so any overlap would raise
-# TypeError/KeyError. Keep these prefixes distinct (OCR LOW #131).
+# TypeError/KeyError. Keep these prefixes distinct.
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
 EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60  # 7 days
 
@@ -696,7 +696,7 @@ class LLMClient:
                 cp = CallPoint(call_point)
             except ValueError:
                 # 与 call() 保持一致：非法 call_point 必须留可观测信号，
-                # 否则 batch 路径会静默降级为 CLASSIFIER（OCR LOW #39）。
+                # 否则 batch 路径会静默降级为 CLASSIFIER。
                 log.warning(
                     "batch_call_point_invalid",
                     call_point=call_point,
@@ -1466,6 +1466,9 @@ class LLMClient:
             circuit_breaker_threshold=llm_settings.circuit_breaker_threshold,
             circuit_breaker_timeout=llm_settings.circuit_breaker_timeout,
             default_timeout=llm_settings.default_timeout,
+            request_delay_enabled=llm_settings.request_delay_enabled,
+            request_delay_min=llm_settings.request_delay_min,
+            request_delay_max=llm_settings.request_delay_max,
             defaults=llm_settings.defaults,
             call_points=llm_settings.call_points,
         )

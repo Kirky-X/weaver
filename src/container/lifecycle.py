@@ -645,6 +645,10 @@ class ContainerLifecycleMixin:
         from apscheduler.triggers.date import DateTrigger
         from apscheduler.triggers.interval import IntervalTrigger
 
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+
         # LLM Usage Aggregation
         scheduler.add_job(
             jobs.aggregate_llm_usage,
@@ -832,7 +836,7 @@ class ContainerLifecycleMixin:
                 max_instances=1,
                 coalesce=True,
             )
-            log.info("causal_inference_job_registered")  # noqa: F821
+            log.info("causal_inference_job_registered")
 
         # Startup: run sync once immediately
         scheduler.add_job(
@@ -1000,7 +1004,7 @@ class ContainerLifecycleMixin:
                 batch_size=self._settings.pipeline_process.worker_batch_size,
                 confidence_threshold=self._settings.memory.causal_confidence_threshold,
                 max_relations_per_entity=self._settings.memory.max_relations_per_entity,
-                llm_timeout_seconds=self._settings.pipeline_process.drain_timeout,
+                llm_timeout_seconds=self._settings.pipeline_process.causal_llm_timeout,
                 enable_parallel_inference=True,
             )
 

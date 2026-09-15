@@ -17,6 +17,15 @@ from __future__ import annotations
 
 import enum
 
+# ── Shared User-Agent Constants ────────────────────────────────
+
+# Chrome UA for browser-fingerprint fetchers (crawl4ai) and the Bing
+# fallback; single source so fingerprint rotation stays in one place.
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
 # ── Redis Key Constants ────────────────────────────────────────
 
 

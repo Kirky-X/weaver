@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -16,6 +17,7 @@ from pydantic_settings import (
 
 from core.llm.config.cost import CostConfig
 from core.llm.types import (
+    DEFAULT_LLM_TIMEOUT,
     EvalConfig,
     ModelConfig,
     ProviderConfig,
@@ -50,7 +52,11 @@ class LLMSettings(BaseSettings):
     # Global settings
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
-    default_timeout: float = 120.0
+    default_timeout: float = DEFAULT_LLM_TIMEOUT
+    # 全局请求延迟（llm.toml [global] 映射；provider 级可覆盖）
+    request_delay_enabled: bool = False
+    request_delay_min: float = 1.0
+    request_delay_max: float = 2.0
 
     # Provider configurations (dynamic keys)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -107,10 +113,13 @@ class LLMSettings(BaseSettings):
                         base_url=cfg.get("base_url", ""),
                         rpm_limit=cfg.get("rpm_limit", 60),
                         concurrency=cfg.get("concurrency", 5),
-                        timeout=cfg.get("timeout", 120.0),
+                        timeout=cfg.get("timeout"),
                         priority=cfg.get("priority", 100),
                         weight=cfg.get("weight", 100),
                         models=models,
+                        request_delay_enabled=cfg.get("request_delay_enabled"),
+                        request_delay_min=cfg.get("request_delay_min"),
+                        request_delay_max=cfg.get("request_delay_max"),
                     )
             return result
         return {}
@@ -180,14 +189,17 @@ class LLMSettings(BaseSettings):
             TomlConfigSettingsSource(settings_cls),  # TOML file
         )
 
-    def __init__(self, **data: Any) -> None:
-        """Initialize with TOML data, handling hyphenated keys."""
+    def __init__(self, toml_path: Path | None = None, **data: Any) -> None:
+        """Initialize with TOML data, handling hyphenated keys.
+
+        toml_path 仅供测试注入临时配置文件；默认读项目 config/llm.toml。
+        """
         # Load TOML manually to handle hyphenated keys
         import tomllib
 
-        toml_path = PROJECT_ROOT / "config" / "llm.toml"
-        if toml_path.exists():
-            with open(toml_path, "rb") as f:
+        config_path = toml_path if toml_path is not None else PROJECT_ROOT / "config" / "llm.toml"
+        if config_path.exists():
+            with open(config_path, "rb") as f:
                 toml_data = tomllib.load(f)
 
             # Map hyphenated keys to underscored keys
@@ -206,13 +218,16 @@ class LLMSettings(BaseSettings):
 
             # Map [global] section → top-level fields. pydantic-settings 的
             # TOML source 只映射顶层键，[global] 表会被静默丢弃（僵尸配置）：
-            # 改 [global] 永不生效。显式映射使熔断阈值/超时可配置。
+            # 改 [global] 永不生效。显式映射使熔断阈值/超时/请求延迟可配置。
             global_cfg = toml_data.get("global", {})
             if isinstance(global_cfg, dict):
                 for key in (
                     "circuit_breaker_threshold",
                     "circuit_breaker_timeout",
                     "default_timeout",
+                    "request_delay_enabled",
+                    "request_delay_min",
+                    "request_delay_max",
                 ):
                     if key in global_cfg and key not in data:
                         data[key] = global_cfg[key]
