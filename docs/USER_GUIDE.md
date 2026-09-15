@@ -501,8 +501,10 @@ curl -X GET "http://localhost:8000/api/v1/search?q=雷军是谁" \
 curl -X GET "http://localhost:8000/api/v1/search?q=中国经济&mode=global" \
   -H "X-API-Key: your-api-key"
 
-# 文章搜索 - 混合向量+关键词检索
-curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&threshold=0.7" \
+# 文章搜索 - 意图路由自动选中文章检索（混合向量+关键词检索）
+# mode 仅支持 local/global/auto；文章检索由 auto 意图路由触发，
+# threshold/limit/category/use_hybrid 等参数仅在选中文章检索时生效
+curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=auto&threshold=0.7" \
   -H "X-API-Key: your-api-key"
 ```
 
@@ -521,10 +523,10 @@ curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&th
 | `q`               | string  | 必填           | 搜索查询                                    |
 | `mode`            | string  | `auto`       | 搜索模式：local/global/auto                  |
 | `community_level` | int     | 0            | 社区层级（global 模式），范围 0-10                 |
-| `threshold`       | float   | 0.0          | 相似度阈值（articles 模式），范围 0.0-1.0           |
-| `limit`           | int     | 20           | 最大结果数（articles 模式），范围 1-100             |
-| `category`        | string  | null         | 类别过滤（articles 模式）                       |
-| `use_hybrid`      | boolean | true         | 使用混合搜索（articles 模式）                     |
+| `threshold`       | float   | 0.0          | 相似度阈值（文章检索意图），范围 0.0-1.0                |
+| `limit`           | int     | 20           | 最大结果数（文章检索意图），范围 1-100                  |
+| `category`        | string  | null         | 类别过滤（文章检索意图）                            |
+| `use_hybrid`      | boolean | true         | 使用混合搜索（文章检索意图）                          |
 | `global_mode`     | string  | `map_reduce` | Global 搜索模式：map_reduce 或 simple         |
 | `output_mode`     | string  | `context`    | 输出格式：context（原始片段）或 narrative（LLM 综合答案） |
 | `enrich_entities` | boolean | false        | 启用实体聚合以丰富结果                             |

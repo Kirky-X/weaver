@@ -77,6 +77,20 @@ graph TB
 - **Grafana** - 用于可视化监控
 - **OpenTelemetry Collector** - 用于分布式追踪
 
+### Docker Compose 快速部署
+
+仓库提供 `docker/docker-compose.yml`，默认只启动基础设施（PostgreSQL / Neo4j / Redis）：
+
+```bash
+# 仅启动基础服务
+docker compose -f docker/docker-compose.yml up -d
+
+# 一体化部署（含应用，--profile full；应用启动前自动执行 alembic upgrade head）
+docker compose -f docker/docker-compose.yml --profile full up -d --build
+```
+
+应用容器内通过 `uv` 运行，API 默认监听 `8000` 端口。敏感配置（数据库密码、API Key、LLM Key）通过 `.env` 注入，见下文环境变量配置。
+
 ---
 
 ## ⚙️ 环境变量配置

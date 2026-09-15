@@ -51,6 +51,15 @@
 
 ### 🔄 变更
 
+#### 文档
+
+- **Docs Cleanup**: Removed process documents (`docs/技术缺口审计报告.md`, `docs/LLM调用优化方案.md`) and renamed
+  `docs/asserts/` → `docs/assets/`; READMEs restructured with a unified CN/EN section layout
+- **Docs Accuracy**: README test counts, LLM call-point table (25 `CallPoint` entries) and scheduled-jobs table (30
+  jobs) synced with implementation; API.md added 7 missing endpoint groups (monitoring memory/causal/graph/communities,
+  admin database monitoring, api-keys, memory diagnostics); CONTRIBUTING.md switched black → `ruff format`; USER_GUIDE
+  fixed unsupported `mode=articles`; DEPLOYMENT.md added Docker Compose deployment path
+
 #### 架构
 
 - **Scripts Consolidation**: Merged `scripts` directory from 12 to 4 core scripts for better maintainability

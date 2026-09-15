@@ -189,8 +189,7 @@ uv run python -m src.main
 
 | 工具             | 用途                | 配置位置                      |
 |----------------|-------------------|---------------------------|
-| **Ruff**       | 代码 Lint 和格式化      | `pyproject.toml`          |
-| **Black**      | 代码格式化 (与 Ruff 配合) | `pyproject.toml`          |
+| **Ruff**       | 代码 Lint 和格式化 (唯一格式化真源) | `pyproject.toml`          |
 | **isort**      | Import 排序         | `pyproject.toml`          |
 | **mypy**       | 静态类型检查 (部分启用)     | `pyproject.toml`          |
 | **bandit**     | 安全漏洞扫描            | `pyproject.toml`          |
@@ -200,30 +199,30 @@ uv run python -m src.main
 ### 运行代码检查
 
 ```bash
-# 使用 pre-commit hooks (推荐 - 自动运行所有检查)
+# 使用 pre-commit hooks (推荐)
+# 注意: mypy 与 bandit 未挂载为 hook, 需手动运行
 pre-commit run --all-files
 
 # 或手动运行各个工具
 
-# 格式化代码 (isort + black)
+# 格式化代码 (ruff format 是唯一格式化真源; black 已移除)
+uv run ruff format src/ tests/ scripts/
 uv run isort src/ tests/ scripts/
-uv run black src/ tests/ scripts/
 
 # Lint 检查并自动修复
 uv run ruff check --fix src/ tests/ scripts/
 
 # 类型检查 (mypy - 目前仅部分启用)
-uv run mypy src/
+uv run mypy --ignore-missing-imports src/
 
 # 安全扫描
-uv run bandit -r src/ -ll
+uv run bandit -c pyproject.toml -r src/
 
 # 运行所有检查
-uv run ruff check src/ && uv run mypy src/ && uv run bandit -r src/
+uv run ruff check src/ && uv run mypy src/ && uv run bandit -c pyproject.toml -r src/
 ```
 
-> **注意**: 项目使用 Ruff 作为主要 Linter,Black 和 isort 作为格式化工具。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目同时配置了独立的
-> isort 和 black。
+> **注意**: 项目使用 Ruff 同时承担 Lint 和格式化（`ruff format` 是唯一格式化真源，black 已从依赖中移除）。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目仍配置了独立的 isort。
 
 ### 代码风格指南
 
@@ -464,7 +463,7 @@ graph LR
 2. **自动化检查**
     - CI 会运行测试套件
     - 代码覆盖率检查 (要求 ≥80%)
-    - Pre-commit hooks 检查 (ruff, black, isort)
+    - Pre-commit hooks 检查 (isort, ruff, ruff-format)
     - 提交信息格式验证 (commitizen)
 
 3. **代码审查**
