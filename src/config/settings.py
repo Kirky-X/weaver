@@ -199,6 +199,20 @@ class Settings(BaseSettings):
                 "Using default PostgreSQL password. Set WEAVER_POSTGRES__PASSWORD for production."
             )
 
+        # Check Redis credentials (empty password = unauthenticated Redis)
+        if not self.redis.password or self.redis.password in ["redis", "password"]:
+            if environment == "production":
+                raise ValueError(
+                    "Production environment requires a secure Redis password. "
+                    "Set WEAVER_REDIS__PASSWORD environment variable."
+                )
+            warnings.append(
+                "Using default/empty Redis password. Set WEAVER_REDIS__PASSWORD for production."
+            )
+
+        # DuckDB and PgBouncer have no password fields (file DB / infra-level
+        # proxy reusing PostgreSQL credentials), so no checks are possible.
+
         # Check LLM API keys
         warnings.append(
             "LLM API keys should be configured via WEAVER_LLM__PROVIDERS__<NAME>__API_KEY environment variable."
@@ -216,16 +230,20 @@ def get_settings() -> Settings:
     Returns:
         Settings instance.
     """
+    # Only fall back when the container module itself is not importable
+    # (circular import / missing package). container.get_settings() builds its
+    # own instance when uninitialized instead of raising, so any other error
+    # (e.g. config validation) must surface rather than be masked.
     try:
         from container import get_settings as container_get_settings
 
         return container_get_settings()
-    except Exception:
+    except ImportError:
         from core.observability import get_logger
 
         log = get_logger(__name__)
         log.warning(
-            "settings_container_not_initialized",
-            message="Container not initialized when get_settings() called. Creating standalone Settings instance.",
+            "settings_container_module_unavailable",
+            message="Container module unavailable when get_settings() called. Creating standalone Settings instance.",
         )
         return Settings()

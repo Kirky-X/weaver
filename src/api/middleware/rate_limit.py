@@ -18,6 +18,7 @@ token bucket that provides:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -25,6 +26,10 @@ from api.utils.client_ip import get_client_ip_from_scope
 from core.observability import get_logger
 
 log = get_logger(__name__)
+
+# Seconds a Redis outage must persist before the half-open recovery probe is
+# retried (matches CachePool's 60s recovery interval convention).
+_FALLBACK_RECOVERY_INTERVAL = 60.0
 
 # ── Lua script for atomic token bucket ─────────────────────────────
 
@@ -87,14 +92,14 @@ class LocalTokenBucket:
         self._refill_rate = refill_rate
         self._buckets: dict[str, tuple[float, float]] = {}  # key -> (tokens, last_time)
 
-    def acquire(self, key: str = "_default") -> bool:
+    def acquire(self, key: str = "_default") -> tuple[bool, int]:
         """Try to consume one token from the bucket for the given key.
 
         Args:
             key: Bucket key (e.g., client IP or API key).
 
         Returns:
-            True if a token was available and consumed, False otherwise.
+            Tuple of (allowed, remaining_tokens). remaining is 0 when denied.
 
         """
         now = time.monotonic()
@@ -112,10 +117,9 @@ class LocalTokenBucket:
         if tokens >= 1:
             tokens -= 1
             self._buckets[key] = (tokens, last_time)
-            return True
-        else:
-            self._buckets[key] = (tokens, last_time)
-            return False
+            return True, int(tokens)
+        self._buckets[key] = (tokens, last_time)
+        return False, 0
 
 
 class TokenBucketRateLimiter:
@@ -156,6 +160,10 @@ class TokenBucketRateLimiter:
         self._per_key_max_tokens = per_key_max_tokens
         self._per_key_refill_rate = per_key_refill_rate
         self._fallback_active: bool = False
+        self._fallback_since: float | None = None
+        # Serializes the local fallback's global→IP→key check-then-act
+        # sequence across concurrent requests.
+        self._local_lock = asyncio.Lock()
 
         # Local fallback buckets (used when Redis is unavailable)
         self._local_global_bucket = LocalTokenBucket(
@@ -179,11 +187,13 @@ class TokenBucketRateLimiter:
             if hasattr(redis, "primary_healthy") and not redis.primary_healthy:
                 self._script = None
                 self._fallback_active = True
+                self._fallback_since = time.monotonic()
             else:
                 self._script = redis.register_script(TOKEN_BUCKET_LUA_SCRIPT)
         else:
             self._script = None
             self._fallback_active = True
+            self._fallback_since = time.monotonic()
 
     @property
     def fallback_active(self) -> bool:
@@ -209,7 +219,21 @@ class TokenBucketRateLimiter:
 
         """
         if self._fallback_active:
-            return self._acquire_local(client_key, api_key)
+            # fallback must not be permanent. After a recovery
+            # interval, tentatively retry the Redis path (half-open probe);
+            # if Redis is still down the except branch below re-activates
+            # fallback and restarts the interval. Never probe when no Redis
+            # script is registered (redis=None or unhealthy primary).
+            if (
+                self._script is not None
+                and self._fallback_since is not None
+                and time.monotonic() - self._fallback_since >= _FALLBACK_RECOVERY_INTERVAL
+            ):
+                log.info("rate_limit_fallback_recovery_probe", client_ip=client_key)
+                self._fallback_active = False
+                self._fallback_since = None
+            else:
+                return await self._acquire_local(client_key, api_key)
 
         now = time.time()
         per_key_id = api_key if api_key else client_key
@@ -273,44 +297,49 @@ class TokenBucketRateLimiter:
                 exc_type=type(exc).__name__,
                 client_ip=client_key,
             )
-            # Fail-close: switch to local token bucket
+            # Fail-close: switch to local token bucket (with recovery probe)
             self._fallback_active = True
-            return self._acquire_local(client_key, api_key)
+            self._fallback_since = time.monotonic()
+            return await self._acquire_local(client_key, api_key)
 
-    def _acquire_local(
+    async def _acquire_local(
         self,
         client_key: str,
         api_key: str | None = None,
     ) -> tuple[bool, int]:
         """Rate limit using local in-memory token bucket.
 
-        Check order: global → per-IP → per-key.
+        Check order: global → per-IP → per-key. The whole sequence runs under
+        a lock so concurrent requests cannot race the check-then-act windows
+        .
 
         Args:
             client_key: Client identifier.
             api_key: Optional API key for per-key limiting.
 
         Returns:
-            Tuple of (allowed, remaining_tokens).
+            Tuple of (allowed, remaining_tokens) — the minimum remaining
+            across the three buckets when allowed, 0 when denied.
 
         """
-        global_allowed = self._local_global_bucket.acquire("_global")
-        if not global_allowed:
-            log.debug("rate_limit_local_global_exceeded", client=client_key)
-            return False, 0
+        async with self._local_lock:
+            global_allowed, global_remaining = self._local_global_bucket.acquire("_global")
+            if not global_allowed:
+                log.debug("rate_limit_local_global_exceeded", client=client_key)
+                return False, 0
 
-        per_ip_allowed = self._local_per_ip_bucket.acquire(client_key)
-        if not per_ip_allowed:
-            log.debug("rate_limit_local_per_ip_exceeded", client_ip=client_key)
-            return False, 0
+            per_ip_allowed, per_ip_remaining = self._local_per_ip_bucket.acquire(client_key)
+            if not per_ip_allowed:
+                log.debug("rate_limit_local_per_ip_exceeded", client_ip=client_key)
+                return False, 0
 
-        per_key_id = api_key if api_key else client_key
-        per_key_allowed = self._local_per_key_bucket.acquire(per_key_id)
-        if not per_key_allowed:
-            log.debug("rate_limit_local_per_key_exceeded", key=per_key_id)
-            return False, 0
+            per_key_id = api_key if api_key else client_key
+            per_key_allowed, per_key_remaining = self._local_per_key_bucket.acquire(per_key_id)
+            if not per_key_allowed:
+                log.debug("rate_limit_local_per_key_exceeded", key=per_key_id)
+                return False, 0
 
-        return True, self._global_max_tokens
+            return True, min(global_remaining, per_ip_remaining, per_key_remaining)
 
 
 class RateLimitMiddleware:

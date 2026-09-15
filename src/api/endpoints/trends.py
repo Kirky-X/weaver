@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Trends API endpoints (T013 / R-sentiment-003, T016 / R-trend-004).
+"""Trends API endpoints.
 
 Endpoints:
-- GET /api/v1/trends/sentiment — sentiment trend analysis for an entity (T013)
+- GET /api/v1/trends/sentiment — sentiment trend analysis for an entity
 - GET /api/v1/trends/detection — trend detection over a window with optional
-  entity_type filter (T016)
+  entity_type filter
 
 Service construction (lazy pattern, mirrors briefings.py):
     SentimentTrendAnalyzer and TrendDetector are not registered in the
@@ -15,7 +15,7 @@ Service construction (lazy pattern, mirrors briefings.py):
     ``api.endpoints.trends._get_trend_detection_service``.
 
 Spec conflict (Rule 7 — exposed):
-    R-sentiment-003 says "entity 参数可选" (entity param optional), but
+    says "entity 参数可选" (entity param optional), but
     Constraints say "entity_name 和 community_id 不能同时为 None". The
     sentiment endpoint only exposes ``entity`` (no community_id param), so
     entity is declared Optional in the signature (spec compliance) but the
@@ -24,14 +24,14 @@ Spec conflict (Rule 7 — exposed):
     is the deliberate resolution — cover the scenario explicitly (Rule 24)
     rather than silently forwarding None to the service.
 
-    T016: spec R-trend-002 says "按 entity_type 过滤" but EventNode schema
+    spec says "按 entity_type 过滤" but EventNode schema
     field is ``name`` (not ``event_type``). The detection endpoint exposes
     ``entity_type`` param (spec compliance) and forwards it to
     TrendDetector which internally maps to EventNode.name (Rule 7 — exposed
     in TrendDetector docstring; spec param name preserved for API
     compatibility).
 
-    T016 insufficient-data contract (R-trend-003/004): status='insufficient_data'
+    insufficient-data contract (/004): status='insufficient_data'
     returns HTTP 200 (not 400/500). Data insufficiency (EventNode < 50) is
     a legitimate state reported via the status field, not an error.
 """
@@ -230,7 +230,7 @@ async def get_sentiment_trend(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to analyze sentiment trend: {exc}",
+            detail="Internal error while analyzing sentiment trend.",
         ) from exc
 
     return success_response(_serialize_trend_result(result))
@@ -395,7 +395,7 @@ async def get_trend_detection(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to detect trends: {exc}",
+            detail="Internal error while detecting trends.",
         ) from exc
 
     return success_response(_serialize_detection_result(result))

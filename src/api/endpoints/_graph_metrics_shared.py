@@ -19,7 +19,9 @@ def parse_include_param(include: str | None) -> set[str] | None:
     """
     if include is None or include.lower() == "all":
         return None
-    return {item.strip().lower() for item in include.split(",")}
+    # An empty `?include=` must behave like no filter, not an unmatchable {""}.
+    parsed = {item.strip().lower() for item in include.split(",") if item.strip()}
+    return parsed or None
 
 
 def should_include(item: str, include_set: set[str] | None) -> bool:

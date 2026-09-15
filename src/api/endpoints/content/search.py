@@ -276,7 +276,12 @@ async def search_unified(
                 for r in web_results
                 if r.url
             ]
-            result_confidence = 0.5  # web-search fallback confidence
+            # Only claim fallback confidence when at least one Bing result
+            # actually contributed a URL/snippet; results with empty URLs
+            # produce empty answer/sources and must not mask the engine's
+            # (correctly low) confidence.
+            if result_sources:
+                result_confidence = 0.5  # web-search fallback confidence
             # M1 fix: update context_tokens to reflect the new answer
             # length (rough estimate: 1 token ≈ 4 chars for English/CJK
             # mixed text). Without this, context_tokens would stay at 0
@@ -347,8 +352,8 @@ async def _execute_explicit_search(
     q: str,
     mode: str,
     community_level: int,
-    local_engine: LocalSearchEngine,
-    global_engine: GlobalSearchEngine,
+    local_engine: LocalSearchEngine | None,
+    global_engine: GlobalSearchEngine | None,
 ) -> SearchResponse:
     """Build SearchResponse for explicit local/global mode.
 
@@ -408,7 +413,7 @@ async def search_local(
     Shortcut for ``GET /search?mode=local``. Returns entity-focused results
     with article context from the local subgraph.
     """
-    result = await _execute_explicit_search(q, "local", 0, local_engine, None)  # type: ignore[arg-type]
+    result = await _execute_explicit_search(q, "local", 0, local_engine, None)
     return success_response(result)
 
 
@@ -425,7 +430,7 @@ async def search_global(
     Shortcut for ``GET /search?mode=global``. Returns community-report-based
     answers spanning multiple entities.
     """
-    result = await _execute_explicit_search(q, "global", community_level, None, global_engine)  # type: ignore[arg-type]
+    result = await _execute_explicit_search(q, "global", community_level, None, global_engine)
     return success_response(result)
 
 
@@ -436,9 +441,9 @@ class DriftSearchRequest(BaseModel):
     """Request model for DRIFT search."""
 
     query: str = Field(..., min_length=1, description="Search query (non-empty)")
-    primer_k: int = 3
-    max_follow_ups: int = 2
-    confidence_threshold: float = 0.7
+    primer_k: int = Field(default=3, ge=1)
+    max_follow_ups: int = Field(default=2, ge=0)
+    confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class DriftSearchResponse(BaseModel):
@@ -488,18 +493,28 @@ async def search_drift(
         Hierarchical search result with primer and follow-up answers.
 
     """
-    from modules.knowledge.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
-
     try:
+        from modules.knowledge.search.engines.drift_search import (
+            DriftConfig,
+            DRIFTSearchEngine,
+        )
+
         config = DriftConfig(
             primer_k=body.primer_k,
             max_follow_ups=body.max_follow_ups,
             confidence_threshold=body.confidence_threshold,
         )
 
-        # Get context builder and LLM from global engine
-        context_builder = global_engine._context_builder
-        llm = global_engine._llm
+        # use the public accessor instead of private attributes; it
+        # validates that an LLM client is actually configured before DRIFT
+        # construction, surfacing a clean 503 instead of an AttributeError.
+        try:
+            context_builder, llm = global_engine.get_drift_deps()
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="DRIFT search unavailable: LLM client not configured",
+            ) from exc
 
         engine = DRIFTSearchEngine(
             context_builder=context_builder,
@@ -528,6 +543,10 @@ async def search_drift(
             )
         )
 
+    except HTTPException:
+        # let deliberate HTTP errors (e.g. 503 LLM not configured)
+        # pass through instead of being rewritten as a generic 500.
+        raise
     except Exception as exc:
         # CWE-200: log full error server-side (with traceback context),
         # expose only generic message to client to avoid disclosing
@@ -679,7 +698,7 @@ async def search_causal(
         # (populated by _beam_search → _prefetch_neighbors).
         # causal_edges_traversed counts neighbors reached via CAUSES/ENABLES
         # edges (0 when graph DB has no CAUSAL edges — Q1 finding).
-        # degraded is set when score_range == 0 with >=2 results (D3 fix).
+        # degraded is set when score_range == 0 with >=2 results (fix).
         engine_metadata = engine.last_metadata
         causal_edges_traversed = int(engine_metadata.get("causal_edges_traversed", 0))
         degraded = bool(engine_metadata.get("degraded", False))
@@ -722,7 +741,7 @@ async def search_causal(
                 answer=answer,
                 causal_chain=causal_chain,
                 confidence=confidence,
-                # Task 5.6: expose causal_edges_traversed + degraded for callers
+                # expose causal_edges_traversed + degraded for callers
                 metadata={
                     "depth": body.max_depth,
                     "causal_edges_traversed": causal_edges_traversed,
@@ -918,7 +937,7 @@ async def search_temporal(
                 )
             except Exception as emb_exc:
                 # Embedding batch timeout/failure → fall back to substring search
-                # (P0-2: previously returned 500; now degrades gracefully)
+                # (previously returned 500; now degrades gracefully)
                 log.warning(
                     "temporal_search_embedding_fallback",
                     error=str(emb_exc),

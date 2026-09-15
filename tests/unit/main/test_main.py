@@ -1333,7 +1333,7 @@ class TestAppIntegration:
 
 
 class TestStartupSecurityAudit:
-    """T004: lifespan runs the startup security audit; strict mode blocks on criticals."""
+    """lifespan runs the startup security audit; strict mode blocks on criticals."""
 
     @staticmethod
     def _critical_report() -> SecurityAuditReport:
@@ -1417,7 +1417,7 @@ class TestStartupSecurityAudit:
 
 
 class TestHTTPLogPrivacy:
-    """T006: response body logging is opt-in and DEBUG-level; query strings redacted."""
+    """response body logging is opt-in and DEBUG-level; query strings redacted."""
 
     @staticmethod
     def _json_app():
@@ -1497,7 +1497,7 @@ class TestHTTPLogPrivacy:
 
 
 class TestSecurityHeadersCSP:
-    """T031: API responses carry a restrictive CSP header."""
+    """API responses carry a restrictive CSP header."""
 
     @pytest.mark.asyncio
     async def test_csp_header_present(self):

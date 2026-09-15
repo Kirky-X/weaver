@@ -17,12 +17,8 @@ from typing import TYPE_CHECKING
 from prometheus_client import Counter, Histogram, generate_latest
 from starlette.responses import Response
 
-from core.observability import get_logger
-
 if TYPE_CHECKING:
     from starlette.requests import Request
-
-log = get_logger(__name__)
 
 # Prometheus metrics
 HTTP_REQUEST_DURATION = Histogram(

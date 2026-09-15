@@ -8,6 +8,8 @@ here to reduce ``create_app()`` responsibility.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import tomllib
 from typing import Any
 
@@ -35,6 +37,18 @@ system_router = APIRouter(tags=["system"])
 
 
 @system_router.get("/status", response_model=APIResponse[dict])
+@lru_cache(maxsize=1)
+def _read_app_version() -> str:
+    """Read the app version from pyproject.toml once (result is process-stable)."""
+    try:
+        with open("pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+        return pyproject.get("project", {}).get("version", "unknown")
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        log.warning("read_version_failed", error=str(exc))
+        return "unknown"
+
+
 async def system_status(
     _: str = Depends(verify_api_key),
     relational_type: str = Depends(get_relational_type_dep),
@@ -45,13 +59,7 @@ async def system_status(
 
     Returns overall system status including database types and processing stats.
     """
-    version = "unknown"
-    try:
-        with open("pyproject.toml", "rb") as f:
-            pyproject = tomllib.load(f)
-        version = pyproject.get("project", {}).get("version", "unknown")
-    except OSError as exc:
-        log.warning("read_version_failed", error=str(exc))
+    version = _read_app_version()
 
     return success_response(
         {
@@ -148,6 +156,8 @@ async def health_dependencies(
 
     details: dict[str, Any] = {}
 
+    import time
+
     try:
         container = get_container()
     except RuntimeError:
@@ -158,7 +168,6 @@ async def health_dependencies(
         try:
             pool = container.relational_pool()
             pool_type = container.relational_pool_type
-            import time
 
             start = time.monotonic()
             async with pool.session_context() as session:
@@ -186,7 +195,6 @@ async def health_dependencies(
         try:
             gpool = container.graph_pool()
             gtype = container.graph_pool_type
-            import time
 
             start = time.monotonic()
             await gpool.execute_query("RETURN 1")
@@ -211,7 +219,6 @@ async def health_dependencies(
         try:
             cache = container.cache_client()
             cache_type = getattr(cache, "cache_type", "unknown")
-            import time
 
             start = time.monotonic()
             await cache.ping()
@@ -236,6 +243,10 @@ async def health_dependencies(
         try:
             llm = container.llm_client()
             providers = getattr(llm, "_providers", {})
+            if not isinstance(providers, dict):
+                raise TypeError(
+                    f"LLM client _providers is {type(providers).__name__}, expected dict"
+                )
             details["llm"] = {
                 "status": "ok",
                 "providers": list(providers.keys()),
@@ -251,6 +262,19 @@ async def health_dependencies(
                 "status": "error",
                 "error_type": type(e).__name__,
             }
+    else:
+        # An uninitialized container means nothing was actually checked;
+        # report it as an error so the endpoint can never claim "healthy"
+        # over an empty details dict.
+        log.error(
+            "system_health_container_not_initialized",
+            error="container is not initialized",
+            exc_type="RuntimeError",
+        )
+        details["container"] = {
+            "status": "error",
+            "error_type": "RuntimeError",
+        }
 
     overall_healthy = all(v.get("status") == "ok" for v in details.values() if isinstance(v, dict))
     return success_response(
@@ -281,9 +305,16 @@ async def clear_cache(
         raise HTTPException(status_code=503, detail="Cache pool not initialized")
 
     deleted = 0
+    batch: list[str] = []
     async for key in cache_client.scan_iter(pattern=pattern, count=500):
-        await cache_client.delete(key)
-        deleted += 1
+        batch.append(key)
+        if len(batch) >= 500:
+            deleted += await cache_client.delete(*batch)
+            batch.clear()
+
+    # Flush the final partial batch (scan_iter ended below the batch size).
+    if batch:
+        deleted += await cache_client.delete(*batch)
 
     log.info("cache_cleared", pattern=pattern, deleted=deleted)
     return success_response(

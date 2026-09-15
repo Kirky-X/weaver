@@ -1401,7 +1401,7 @@ class TestSearchUnifiedWebSearchFallback:
         mock_hybrid_engine: MagicMock,
         api_key: str,
     ) -> None:
-        """MEDIUM-1: when ``schedule_pipeline_background`` returns THROTTLED,
+        """when ``schedule_pipeline_background`` returns THROTTLED,
         ``metadata.background_task_throttled`` is set to True.
 
         Simulates the at-cap scenario (8 background tasks already running)
@@ -1477,7 +1477,7 @@ class TestSearchUnifiedWebSearchFallback:
         mock_hybrid_engine: MagicMock,
         api_key: str,
     ) -> None:
-        """MEDIUM-1: when schedule_pipeline_background returns SCHEDULED,
+        """when schedule_pipeline_background returns SCHEDULED,
         ``metadata.background_task_throttled`` is NOT set (or False).
 
         Regression guard: ensures the flag is only set when actually
@@ -1669,7 +1669,7 @@ class TestSortResponseLists:
 
 
 class TestSearchResponseCache:
-    """T015: hot queries hit the short-TTL cache; no_cache bypasses it."""
+    """hot queries hit the short-TTL cache; no_cache bypasses it."""
 
     @pytest.fixture
     def cache_env(self):

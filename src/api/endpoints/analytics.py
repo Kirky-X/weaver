@@ -17,11 +17,11 @@ log = get_logger(__name__)
 
 def _get_analytics_storage():
     """Lazy import and create AnalyticsStorage from container."""
-    from api.dependencies import get_relational_pool
+    from container.access import get_container
     from modules.analytics import AnalyticsStorage
 
-    pool = get_relational_pool()
-    return AnalyticsStorage(pool=pool)
+    container = get_container()
+    return AnalyticsStorage(pool=container.relational_pool())
 
 
 @router.get("/shifts", response_model=APIResponse)
@@ -32,7 +32,7 @@ async def get_shifts(
         "community",
         description=(
             "Which shifts to return: 'community' (default, article_id IS NULL), "
-            "'article' (article_id IS NOT NULL, T003 per-entity article-level), "
+            "'article' (article_id IS NOT NULL, per-entity article-level), "
             "or 'all' (both)."
         ),
         pattern="^(community|article|all)$",
@@ -46,7 +46,7 @@ async def get_shifts(
 
     The ``scope`` parameter separates community-level shifts (detected by the
     scheduled SentimentShiftDetector) from article-level shifts (recorded by
-    T003 SentimentTrackerNode when each article is processed). Default
+    SentimentTrackerNode when each article is processed). Default
     ``scope=community`` preserves historical behavior and avoids polluting
     community queries with per-entity article-level rows (Rule 14).
     """
@@ -84,7 +84,16 @@ async def get_briefings(
     """
     try:
         storage = _get_analytics_storage()
-        briefings = await storage.get_briefings_with_items(date=date, limit=limit)
+        briefings = await storage.get_briefings_with_items(briefing_date=date, limit=limit)
         return success_response({"briefings": briefings, "total": len(briefings)})
-    except Exception:
+    except Exception as exc:
+        # Rule 12: mirror get_shifts — degraded response must not hide the
+        # storage failure from operators.
+        log.error(
+            "analytics_briefings_endpoint_failed",
+            date=date,
+            limit=limit,
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
         return success_response({"briefings": [], "total": 0})

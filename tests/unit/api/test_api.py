@@ -166,10 +166,10 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
-        # Mock scheduler with registry
+        # Mock scheduler public API (endpoints no longer touch _registry)
         mock_scheduler = MagicMock()
-        mock_scheduler._registry = MagicMock()
-        mock_scheduler._registry.add_source = MagicMock()
+        mock_scheduler.register_source = MagicMock()
+        mock_scheduler.schedule_source = MagicMock()
 
         # Mock fetcher for feed validation
         valid_rss = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -201,7 +201,8 @@ class TestSourcesEndpoint:
         )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
-        mock_scheduler._registry.add_source.assert_called_once()
+        mock_scheduler.register_source.assert_called_once()
+        mock_scheduler.schedule_source.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
@@ -253,6 +254,7 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
+            scheduler=MagicMock(),
         )
         assert mock_existing.name == "New Name"
         assert mock_existing.enabled is False
@@ -290,6 +292,7 @@ class TestSourcesEndpoint:
             source_id="source-1",
             _="test-key",
             repo=mock_repo,
+            scheduler=MagicMock(),
         )
         mock_repo.delete.assert_called_once_with("source-1")
 
@@ -743,16 +746,7 @@ class TestArticlesEndpoint:
             side_effect=[mock_count_result, mock_articles_result]
         )
 
-        from unittest.mock import MagicMock as ReqMock
-
-        from starlette.requests import Request
-
-        mock_request = ReqMock(spec=Request)
-        mock_request.client = ReqMock()
-        mock_request.client.host = "127.0.0.1"
-
         result = await list_articles(
-            request=mock_request,
             page=1,
             page_size=20,
             category=None,
@@ -1139,6 +1133,7 @@ class TestAdminEndpoint:
         mock_authority = MagicMock()
         mock_authority.authority = 0.7
         mock_authority.tier = 2
+        mock_authority.description = "existing description"
 
         mock_repo = MagicMock()
         mock_repo.get = AsyncMock(return_value=mock_authority)

@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for briefings API endpoints (T009 / T022 / R-briefing-004, R-briefing-005).
+"""Unit tests for briefings API endpoints.
 
 Covers:
 - GET /briefings/daily — fetch existing briefing by date + category
 - POST /briefings/daily/generate — on-demand generation with narrative_mode param
 - narrative_mode=true forwards to service.generate_briefing(narrative_mode=True)
-  (T022 removed the T009 501 挡板)
-- narrative_mode=true without narrative_generator → 503 (T022 fail-loud)
-- Other ValueError (invalid category) → 400 (T022 client error)
+(removed the 501 挡板)
+- narrative_mode=true without narrative_generator → 503 (fail-loud)
+- Other ValueError (invalid category) → 400 (client error)
 - Router registration (prefix, tags, routes)
 
 Patch surface: ``api.endpoints.briefings._get_briefing_service`` returns a mock
@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from api.endpoints.briefings import router
 from modules.briefing.models import BriefingResult
+from modules.briefing.service import NarrativeGeneratorUnavailableError
 from tests.helpers import create_test_client
 
 
@@ -69,7 +70,7 @@ class TestBriefingsRouterRegistration:
 
 
 class TestGetDailyBriefing:
-    """Tests for GET /briefings/daily endpoint (R-briefing-004)."""
+    """Tests for GET /briefings/daily endpoint."""
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
@@ -165,14 +166,14 @@ class TestGetDailyBriefing:
 
 
 class TestGenerateDailyBriefing:
-    """Tests for POST /briefings/daily/generate endpoint (R-briefing-005)."""
+    """Tests for POST /briefings/daily/generate endpoint."""
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
         self.client = create_test_client(router)
 
     def test_generate_daily_briefing_default_narrative_mode_false(self) -> None:
-        """POST without narrative_mode defaults to False and generates (T022)."""
+        """POST without narrative_mode defaults to False and generates."""
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(
             return_value=_make_briefing_result(category="finance")
@@ -237,16 +238,17 @@ class TestGenerateDailyBriefing:
     def test_generate_daily_briefing_narrative_mode_unavailable_returns_503(self) -> None:
         """narrative_mode=true without narrative_generator → 503.
 
-        Service raises ValueError when narrative_mode=True but narrative_generator
-        is None (graph_pool unavailable). Handler maps to 503 so caller can
-        retry with narrative_mode=false (Rule 12 fail-loud + actionable).
+        Service raises NarrativeGeneratorUnavailableError when narrative_mode=True
+        but narrative_generator is None (graph_pool unavailable). Handler maps to
+        503 so caller can retry with narrative_mode=false (Rule 12 fail-loud +
+        actionable).
         """
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(
-            side_effect=ValueError(
+            side_effect=NarrativeGeneratorUnavailableError(
                 "narrative_mode=True requested but narrative_generator is None. "
                 "Caller must inject NarrativeBriefingGenerator when constructing "
-                "DailyBriefingService to use narrative mode (R-briefing-008)."
+                "DailyBriefingService to use narrative mode."
             )
         )
 
@@ -263,10 +265,10 @@ class TestGenerateDailyBriefing:
         assert "narrative" in detail.lower() or "graph pool" in detail.lower()
 
     def test_generate_daily_briefing_invalid_category_value_error_returns_400(self) -> None:
-        """ValueError from invalid category (not narrative_generator) → 400 (T022).
+        """ValueError from invalid category (not narrative_generator) → 400.
 
         Handler distinguishes:
-        - ValueError containing 'narrative_generator' → 503 (service unavailable)
+        - NarrativeGeneratorUnavailableError → 503 (service unavailable)
         - Other ValueError (invalid category, etc.) → 400 (client error)
         """
         mock_service = MagicMock()
@@ -303,7 +305,7 @@ class TestGenerateDailyBriefing:
         assert response.status_code == 422
 
     def test_generate_daily_briefing_service_failure_returns_500(self) -> None:
-        """Service failure returns HTTP 500 (R-briefing-005, Rule 12)."""
+        """Service failure returns HTTP 500 (Rule 12)."""
         mock_service = MagicMock()
         mock_service.generate_briefing = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 

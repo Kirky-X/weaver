@@ -69,7 +69,7 @@ class TestAdminAuthMiddleware:
 
         with patch("container.get_settings", return_value=mock_settings):
             # verify_admin_api_key now returns "env-admin" (super-admin
-            # identifier) instead of the raw key value (vuln-0009 fix).
+            # identifier) instead of the raw key value.
             result = await verify_admin_api_key(key=admin_key)
             assert result == "env-admin"
 
@@ -97,7 +97,7 @@ class TestAdminAuthMiddleware:
     ) -> None:
         """Test verify_admin_api_key returns 403 when admin key not configured in production.
 
-        After CWE-200 fix (vuln-0015): unconfigured admin key returns generic 403
+        After CWE-200 fix unconfigured admin key returns generic 403
         ``Access denied.`` instead of 503 ``Admin API key not configured`` to avoid
         disclosing configuration state to attackers.
         """
@@ -127,7 +127,7 @@ class TestAdminAuthMiddleware:
     ) -> None:
         """Test verify_admin_api_key returns 403 when admin key not configured even in dev.
 
-        After CWE-200 fix (vuln-0015): same generic 403 response in all
+        After CWE-200 fix same generic 403 response in all
         environments to avoid environment-based information disclosure.
         """
         from api.middleware.auth import verify_admin_api_key

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for search endpoint mock detection and dependency injection (Tasks 2.1-2.3).
+"""Tests for search endpoint mock detection and dependency injection.
 
 These tests verify that the causal/temporal search endpoints use proper
 dependency injection instead of inline mock services, and that

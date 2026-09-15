@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for proxy-aware client IP resolution (T007)."""
+"""Tests for proxy-aware client IP resolution."""
 
 from __future__ import annotations
 

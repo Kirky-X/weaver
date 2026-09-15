@@ -7,6 +7,7 @@ Implements: Weaver-数据库设计文档 §12.3
 
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -193,7 +194,10 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             if not key_id:
                 auth_header = request.headers.get("Authorization", "")
                 if auth_header.startswith("Bearer "):
-                    key_id = auth_header[7:15] + "..."
+                    #: store an irreversible fingerprint instead of
+                    # the token prefix, which is guessable/correlatable.
+                    token = auth_header[7:]
+                    key_id = "bearer:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]
                 else:
                     key_id = "anonymous"
 

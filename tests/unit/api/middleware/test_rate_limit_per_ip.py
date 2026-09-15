@@ -49,7 +49,8 @@ class TestPerIPConfiguration:
 class TestPerIPLocalBucket:
     """Test per-IP limiting with local token bucket (Redis unavailable)."""
 
-    def test_per_ip_bucket_independent_of_per_key(self) -> None:
+    @pytest.mark.asyncio
+    async def test_per_ip_bucket_independent_of_per_key(self) -> None:
         """Per-IP bucket should be independent from per-key bucket."""
         # With very small per-IP limit, should be blocked quickly
         limiter = TokenBucketRateLimiter(
@@ -60,15 +61,16 @@ class TestPerIPLocalBucket:
             per_key_refill_rate=100,
         )
         # Consume 2 tokens for same IP
-        allowed1, _ = limiter._acquire_local(client_key="1.2.3.4", api_key=None)
-        allowed2, _ = limiter._acquire_local(client_key="1.2.3.4", api_key=None)
-        allowed3, _ = limiter._acquire_local(client_key="1.2.3.4", api_key=None)
+        allowed1, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key=None)
+        allowed2, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key=None)
+        allowed3, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key=None)
 
         assert allowed1 is True
         assert allowed2 is True
         assert allowed3 is False  # per-IP exhausted
 
-    def test_same_ip_multiple_api_keys_per_ip_limit(self) -> None:
+    @pytest.mark.asyncio
+    async def test_same_ip_multiple_api_keys_per_ip_limit(self) -> None:
         """Same IP with different API keys should still hit per-IP limit."""
         limiter = TokenBucketRateLimiter(
             redis=None,
@@ -78,15 +80,16 @@ class TestPerIPLocalBucket:
             per_key_refill_rate=100,
         )
         # Same IP, different API keys
-        allowed1, _ = limiter._acquire_local(client_key="1.2.3.4", api_key="key-a")
-        allowed2, _ = limiter._acquire_local(client_key="1.2.3.4", api_key="key-b")
-        allowed3, _ = limiter._acquire_local(client_key="1.2.3.4", api_key="key-c")
+        allowed1, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key="key-a")
+        allowed2, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key="key-b")
+        allowed3, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key="key-c")
 
         assert allowed1 is True
         assert allowed2 is True
         assert allowed3 is False  # per-IP exhausted despite different API keys
 
-    def test_different_ips_independent(self) -> None:
+    @pytest.mark.asyncio
+    async def test_different_ips_independent(self) -> None:
         """Different IPs should have independent per-IP buckets."""
         limiter = TokenBucketRateLimiter(
             redis=None,
@@ -96,13 +99,14 @@ class TestPerIPLocalBucket:
             per_key_refill_rate=100,
         )
         # Different IPs
-        allowed1, _ = limiter._acquire_local(client_key="1.2.3.4", api_key=None)
-        allowed2, _ = limiter._acquire_local(client_key="5.6.7.8", api_key=None)
+        allowed1, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key=None)
+        allowed2, _ = await limiter._acquire_local(client_key="5.6.7.8", api_key=None)
 
         assert allowed1 is True
         assert allowed2 is True
 
-    def test_per_ip_limit_with_api_key(self) -> None:
+    @pytest.mark.asyncio
+    async def test_per_ip_limit_with_api_key(self) -> None:
         """Per-IP limit should still apply when API key is present."""
         limiter = TokenBucketRateLimiter(
             redis=None,
@@ -111,8 +115,8 @@ class TestPerIPLocalBucket:
             per_key_max_tokens=100,
             per_key_refill_rate=100,
         )
-        allowed1, _ = limiter._acquire_local(client_key="1.2.3.4", api_key="my-key")
-        allowed2, _ = limiter._acquire_local(client_key="1.2.3.4", api_key="my-key")
+        allowed1, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key="my-key")
+        allowed2, _ = await limiter._acquire_local(client_key="1.2.3.4", api_key="my-key")
 
         assert allowed1 is True
         assert allowed2 is False  # per-IP exhausted

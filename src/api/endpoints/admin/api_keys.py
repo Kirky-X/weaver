@@ -95,7 +95,6 @@ class ApiKeyItem(BaseModel):
 
 @router.post("/api-keys", response_model=APIResponse[CreateApiKeyResponse])
 async def create_api_key(
-    request: Request,
     body: CreateApiKeyRequest,
     _: str = Depends(verify_admin_api_key),
 ) -> APIResponse[CreateApiKeyResponse]:
@@ -130,7 +129,6 @@ async def create_api_key(
 
 @router.get("/api-keys", response_model=APIResponse[list[ApiKeyItem]])
 async def list_api_keys(
-    request: Request,
     include_revoked: bool = Query(False, description="Include revoked keys"),
     _: str = Depends(verify_admin_api_key),
 ) -> APIResponse[list[ApiKeyItem]]:

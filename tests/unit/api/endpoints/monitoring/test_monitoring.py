@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.exc import OperationalError
 from fastapi.testclient import TestClient
 
 from api.endpoints.admin.monitoring import router as monitoring_router
@@ -326,14 +327,14 @@ class TestSlowQueriesEndpoint:
             assert data["code"] == 0  # 0 means success
 
     def test_get_slow_queries_extension_not_available(self, app, mock_container, mock_pool):
-        """Test slow queries when pg_stat_statements not available."""
+        """Test slow queries when pg_stat_statements is missing (OperationalError)."""
         from api.middleware.auth import verify_admin_api_key
 
         # Mock exception when extension not available
         # Need to set pool type to postgres first
         mock_container.relational_pool_type = "postgres"
-        mock_pool.session.return_value.__aenter__.return_value.execute.side_effect = Exception(
-            "pg_stat_statements does not exist"
+        mock_pool.session.return_value.__aenter__.return_value.execute.side_effect = (
+            OperationalError("SELECT 1", {}, Exception("pg_stat_statements does not exist"))
         )
         app.dependency_overrides[verify_admin_api_key] = lambda: "test-admin-key"
 
@@ -343,4 +344,21 @@ class TestSlowQueriesEndpoint:
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0  # 0 means success
-            # Error response includes error message
+            # Expected failure mode degrades gracefully with a hint message
+            assert "pg_stat_statements" in data.get("message", "")
+
+    def test_get_slow_queries_unexpected_error_surfaces(self, app, mock_container, mock_pool):
+        """Non-OperationalError failures must surface (Rule 12), not fake success."""
+        from api.middleware.auth import verify_admin_api_key
+
+        mock_container.relational_pool_type = "postgres"
+        mock_pool.session.return_value.__aenter__.return_value.execute.side_effect = Exception(
+            "connection reset by peer"
+        )
+        app.dependency_overrides[verify_admin_api_key] = lambda: "test-admin-key"
+
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            # raise_server_exceptions=False so the 500 reaches the assertion
+            response = test_client.get("/admin/monitoring/database/slow-queries")
+
+            assert response.status_code == 500

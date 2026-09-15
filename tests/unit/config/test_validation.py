@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for deep LLM config reference validation (T011)."""
+"""Tests for deep LLM config reference validation."""
 
 from __future__ import annotations
 

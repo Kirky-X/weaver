@@ -24,8 +24,10 @@ def _trusted_proxies() -> list[str]:
         from container.access import get_settings
 
         return list(get_settings().api.trusted_proxies)
-    except (RuntimeError, ImportError) as exc:
-        log.debug("trusted_proxies_unavailable", error=str(exc))
+    except Exception as exc:
+        # Docstring contract: degrade to zero-trust on ANY settings failure
+        # (container not initialized, malformed config, ...) rather than 500.
+        log.debug("trusted_proxies_unavailable", error=str(exc), exc_type=type(exc).__name__)
         return []
 
 
@@ -54,7 +56,8 @@ def get_client_ip(request: object, trusted_proxies: Sequence[str] | None = None)
     proxies = trusted_proxies if trusted_proxies is not None else _trusted_proxies()
     client = getattr(request, "client", None)
     client_host = client.host if client else None
-    forwarded_for = request.headers.get("x-forwarded-for")  # type: ignore[attr-defined]
+    headers = getattr(request, "headers", None)
+    forwarded_for = headers.get("x-forwarded-for") if headers is not None else None
     return resolve_client_ip(client_host, forwarded_for, proxies)
 
 

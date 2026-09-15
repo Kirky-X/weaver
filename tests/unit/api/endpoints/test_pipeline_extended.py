@@ -16,6 +16,8 @@ import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import socket
+
 import pytest
 from fastapi import HTTPException
 
@@ -217,16 +219,24 @@ class TestURLValidationExtended:
 
         mock_settings.pipeline_url_endpoint.allowed_domains = allowed_domains
 
-        if should_pass:
-            result = await _validate_url_for_processing(
-                url, whitelist_mode=True, settings=mock_settings
-            )
-            assert result == url
-        else:
-            with pytest.raises(HTTPException) as exc_info:
-                await _validate_url_for_processing(url, whitelist_mode=True, settings=mock_settings)
-            assert exc_info.value.status_code == 403
-            assert "not in the allowed list" in exc_info.value.detail
+        # SSRFChecker 现为 DNS fail-closed：mock 解析成功，聚焦白名单匹配逻辑。
+        # patch socket.getaddrinfo（loop.getaddrinfo 的底层实现），比 patch
+        # asyncio.get_event_loop / get_running_loop 更稳定。
+        fake_addr_info = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80))]
+
+        with patch("socket.getaddrinfo", return_value=fake_addr_info):
+            if should_pass:
+                result = await _validate_url_for_processing(
+                    url, whitelist_mode=True, settings=mock_settings
+                )
+                assert result == url
+            else:
+                with pytest.raises(HTTPException) as exc_info:
+                    await _validate_url_for_processing(
+                        url, whitelist_mode=True, settings=mock_settings
+                    )
+                assert exc_info.value.status_code == 403
+                assert "not in the allowed list" in exc_info.value.detail
 
 
 class TestProcessSingleUrlExtended:

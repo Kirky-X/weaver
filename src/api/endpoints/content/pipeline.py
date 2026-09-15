@@ -147,7 +147,7 @@ _url_processing_semaphore = asyncio.Semaphore(_URL_PROCESSING_CONCURRENCY)
 # background task to make progress and update task status.
 _TRIGGER_SOURCE_TIMEOUT_SECONDS = 300.0
 
-# Per-source dedup lock (vuln-0002 fix: CWE-362).
+# Per-source dedup lock (CWE-362).
 # Prevents concurrent trigger_pipeline requests from scheduling the same
 # source multiple times. Lock is set in trigger_pipeline and released in
 # _execute_trigger_background's finally block. TTL matches trigger timeout
@@ -193,7 +193,7 @@ def _build_trigger_status_payload(
     Centralizes task status construction so RUNNING / COMPLETED / FAILED
     updates share a consistent shape (``task_id`` + ``status`` + extra
     fields) without duplicating the ``json.dumps`` boilerplate at every
-    call site (LOW-2 performance: avoid repeating dict construction).
+    call site (performance: avoid repeating dict construction).
 
     Args:
         task_id: Task UUID string.
@@ -229,7 +229,7 @@ async def _execute_trigger_background(
     crash regardless of scheduler / cache / database failures.
 
     Source triggers are executed **sequentially** to avoid DuckDB write lock
-    contention (HIGH-1). Per-source timeout still applies.
+    contention. Per-source timeout still applies.
     """
     started_at = datetime.now(UTC).isoformat()
     try:
@@ -436,12 +436,20 @@ async def _release_source_locks(
     locked_source_ids: list[str] | None,
     task_id: str,
 ) -> None:
-    """Release per-source dedup locks (vuln-0002 fix)."""
+    """Release per-source dedup locks."""
     if not locked_source_ids:
         return
     release_keys = [f"{_SOURCE_LOCK_KEY_PREFIX}{sid}" for sid in locked_source_ids]
     try:
-        await cache.delete(*release_keys)
+        # Compare-and-delete: only release locks we still own. If our TTL
+        # expired and another task re-acquired, blindly deleting the key
+        # would release the *new* owner's lock.
+        stale_keys = []
+        for key in release_keys:
+            if await cache.get(key) == task_id:
+                stale_keys.append(key)
+        if stale_keys:
+            await cache.delete(*stale_keys)
     except Exception:
         log.warning(
             "source_lock_release_failed",
@@ -575,7 +583,7 @@ async def trigger_pipeline(
         # sources (preserves the original "crawl everything" behaviour).
         target_source_ids = None
 
-    # ── Per-source dedup lock (vuln-0002 fix: CWE-362) ──
+    # ── Per-source dedup lock (CWE-362) ──
     # Atomic acquire using SET NX: each lock is acquired atomically,
     # eliminating the TOCTOU window of the previous check-then-set
     # pattern (two concurrent requests could both pass ``cache.get``
@@ -708,6 +716,11 @@ async def get_task_status(
         )
 
     data = json_repair.loads(status_data)
+    if not isinstance(data, dict):
+        # Corrupt cache payload: json_repair can return list/str/None.
+        raise HTTPException(
+            status_code=404, detail=f"Task '{_safe_echo(task_id)}' status corrupted"
+        )
 
     # Get article progress statistics for this task
     article_repo = ArticleRepo(relational_pool)
@@ -1177,33 +1190,67 @@ async def _stream_url_processing(
         heartbeat_gen = _heartbeat()
         processing_task = asyncio.ensure_future(_do_process(url, task_id, crawler, pipeline))
 
-        # Alternate between heartbeat and processing
-        heartbeat_iter = heartbeat_gen.__aiter__()
-        while not processing_task.done():
+        try:
+            # Alternate between heartbeat and processing.
+            # asyncio.wait (not wait_for) so a quiet 0.5s window does NOT
+            # cancel the pending heartbeat __anext__ — injecting cancellation
+            # into the heartbeat generator would kill it on the first quiet
+            # interval and leave the loop spinning without events.
+            heartbeat_iter = heartbeat_gen.__aiter__()
+            hb_next: asyncio.Future[str] | None = None
+            while not processing_task.done():
+                if hb_next is None:
+                    hb_next = asyncio.ensure_future(heartbeat_iter.__anext__())
+                done, _pending = await asyncio.wait({hb_next}, timeout=0.5)
+                if hb_next in done:
+                    event: str | None = None
+                    with contextlib.suppress(StopAsyncIteration):
+                        event = hb_next.result()
+                    hb_next = None
+                    if event is not None:
+                        yield event
+                else:
+                    await asyncio.sleep(0)
+
+            # Stop heartbeat
+            heartbeat_stop.set()
+
+            # Get result from processing
+            result = processing_task.result()
+            yield result
+
+            # Update cache status
+            if result_event := _parse_result_event(result):
+                await _update_task_status(cache, task_id, **result_event)
+            else:
+                await _update_task_status(
+                    cache,
+                    task_id,
+                    PipelineTaskStatus.COMPLETED.value,
+                    completed_at=datetime.now(UTC).isoformat(),
+                )
+        finally:
+            # If the SSE stream is interrupted (client disconnect /
+            # generator aclose / GeneratorExit), the processing task would
+            # keep crawling and writing to DuckDB untracked. Cancel it and
+            # observe its outcome so nothing leaks.
+            heartbeat_stop.set()
+            if hb_next is not None and not hb_next.done():
+                hb_next.cancel()
+            if not processing_task.done():
+                processing_task.cancel()
             try:
-                event = await asyncio.wait_for(heartbeat_iter.__anext__(), timeout=0.5)
-                yield event
-            except (StopAsyncIteration, TimeoutError):
+                await processing_task
+            except asyncio.CancelledError:
                 pass
-            await asyncio.sleep(0)
-
-        # Stop heartbeat
-        heartbeat_stop.set()
-
-        # Get result from processing
-        result = processing_task.result()
-        yield result
-
-        # Update cache status
-        if result_event := _parse_result_event(result):
-            await _update_task_status(cache, task_id, **result_event)
-        else:
-            await _update_task_status(
-                cache,
-                task_id,
-                PipelineTaskStatus.COMPLETED.value,
-                completed_at=datetime.now(UTC).isoformat(),
-            )
+            except Exception as exc:
+                log.debug(
+                    "sse_processing_task_ended_with_error",
+                    task_id=task_id,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+            await heartbeat_gen.aclose()
 
     except Exception as exc:
         heartbeat_stop.set()

@@ -143,7 +143,7 @@ class TestDailyRotationScheduler:
         mock_session.execute.return_value = mock_result
 
         # check_expiring_keys now calls rotate_key with actor="system" and
-        # expects a KeyOpResult (vuln-0009 fix). Mock the return value.
+        # expects a KeyOpResult. Mock the return value.
         from core.security.api_key_manager import KeyOpResult
 
         ok_result = KeyOpResult(status=KeyOpStatus.OK, data={"key_id": "new_key"})
@@ -193,7 +193,7 @@ class TestGracePeriod:
     async def test_rotated_key_not_revoked(self, manager, mock_pool) -> None:
         """Rotated key SHALL NOT be revoked immediately (grace period).
 
-        After the CWE-362 fix (vuln-0001), rotate_key uses SELECT ... FOR UPDATE
+After the CWE-362 fix, rotate_key uses SELECT... FOR UPDATE
         inside the main transaction and sets ``rotated_to`` (validate_key rejects
         any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
         it is reserved for explicit operator-initiated revocation (revoke_key),

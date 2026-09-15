@@ -70,11 +70,13 @@ class GraphMetricsResponse(BaseModel):
     total_articles: int = Field(..., ge=0)
     total_relationships: int = Field(..., ge=0)
     total_mentions: int = Field(..., ge=0)
-    connected_components: int = Field(..., ge=0)
-    largest_component_size: int = Field(..., ge=0)
+    # Nullable when the caller excluded the item via ?include= — computation
+    # was skipped, so a 0 would be misleading.
+    connected_components: int | None = Field(None, ge=0)
+    largest_component_size: int | None = Field(None, ge=0)
     average_degree: RoundedFloat = Field(..., ge=0)
     modularity_score: RoundedFloatOpt = Field(None, ge=-1, le=1)
-    orphan_entities: int = Field(..., ge=0)
+    orphan_entities: int | None = Field(None, ge=0)
     high_degree_entities: list[dict[str, Any]] = Field(default_factory=list)
     entity_type_distribution: dict[str, int] = Field(default_factory=dict)
     relationship_type_distribution: dict[str, int] = Field(default_factory=dict)
@@ -195,11 +197,21 @@ async def _get_full_view(
         total_articles=result.total_articles,
         total_relationships=result.total_relationships,
         total_mentions=result.total_mentions,
-        connected_components=result.connected_components,
-        largest_component_size=result.largest_component_size,
+        # Guarded by should_include so excluded items report null instead of a
+        # misleading 0 (the dataclass default when computation was skipped).
+        connected_components=(
+            result.connected_components if should_include("components", include_set) else None
+        ),
+        largest_component_size=(
+            result.largest_component_size if should_include("components", include_set) else None
+        ),
         average_degree=result.average_degree,
-        modularity_score=result.modularity_score,
-        orphan_entities=result.orphan_entities,
+        modularity_score=(
+            result.modularity_score if should_include("modularity", include_set) else None
+        ),
+        orphan_entities=(
+            result.orphan_entities if should_include("orphans", include_set) else None
+        ),
         high_degree_entities=(
             result.high_degree_entities if should_include("high_degree", include_set) else []
         ),

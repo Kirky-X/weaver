@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for API dependency injection module (task 3.1.12)."""
+"""Tests for API dependency injection module."""
 
 from __future__ import annotations
 
@@ -346,39 +346,6 @@ class TestDependencyFunctions:
         assert result == mock_repo
 
 
-class TestTypeAliases:
-    """Tests for dependency type aliases."""
-
-    def test_type_aliases_exist(self):
-        """Test that all type aliases are defined."""
-        from api.dependencies import (
-            CachePoolDep,
-            GlobalSearchEngineDep,
-            GraphPoolDep,
-            HybridSearchEngineDep,
-            LLMClientDep,
-            LocalSearchEngineDep,
-            RelationalPoolDep,
-            SourceAuthorityRepoDep,
-            SourceConfigRepoDep,
-            SourceSchedulerDep,
-            VectorRepoDep,
-        )
-
-        # Type aliases should be Annotated types
-        assert RelationalPoolDep is not None
-        assert CachePoolDep is not None
-        assert GraphPoolDep is not None
-        assert LLMClientDep is not None
-        assert VectorRepoDep is not None
-        assert LocalSearchEngineDep is not None
-        assert GlobalSearchEngineDep is not None
-        assert HybridSearchEngineDep is not None
-        assert SourceSchedulerDep is not None
-        assert SourceConfigRepoDep is not None
-        assert SourceAuthorityRepoDep is not None
-
-
 @pytest.mark.xdist_group(name="endpoints_deps")
 class TestDependencyErrorHandling:
     """Tests for dependency error handling.
@@ -587,22 +554,22 @@ class TestMissingFailoverBranches:
         assert "Task registry" in exc_info.value.detail
 
     def test_get_embedding_service_raises_503_when_attr_is_none(self):
-        """get_embedding_service must raise 503 when container._embedding_service is None."""
+        """get_embedding_service must raise 503 when container.embedding_service() fails."""
         from api.dependencies import get_embedding_service
 
         mock_container = MagicMock()
-        mock_container._embedding_service = None
+        mock_container.embedding_service.side_effect = RuntimeError("not initialized")
         with pytest.raises(HTTPException) as exc_info:
             get_embedding_service(container=mock_container)
         assert exc_info.value.status_code == 503
         assert "Embedding service" in exc_info.value.detail
 
     def test_get_intent_classifier_raises_503_when_attr_is_none(self):
-        """get_intent_classifier must raise 503 when container._intent_classifier is None."""
+        """get_intent_classifier must raise 503 when container.intent_classifier() fails."""
         from api.dependencies import get_intent_classifier
 
         mock_container = MagicMock()
-        mock_container._intent_classifier = None
+        mock_container.intent_classifier.side_effect = RuntimeError("not initialized")
         with pytest.raises(HTTPException) as exc_info:
             get_intent_classifier(container=mock_container)
         assert exc_info.value.status_code == 503
@@ -655,23 +622,20 @@ class TestOptionalGettersReturnNone:
         assert result is None
 
     def test_get_embedding_service_optional_returns_none_when_attr_missing(self):
-        """get_embedding_service_optional returns None when _embedding_service attr missing."""
+        """get_embedding_service_optional returns None when the accessor raises."""
         from api.dependencies import get_embedding_service_optional
 
         mock_container = MagicMock()
-        # MagicMock auto-creates attributes; delete to simulate missing
-        if hasattr(mock_container, "_embedding_service"):
-            del mock_container._embedding_service
-        # Spec-based mock that doesn't auto-create attributes
-        mock_container = MagicMock(spec=[])
+        mock_container.embedding_service.side_effect = RuntimeError("not initialized")
         result = get_embedding_service_optional(container=mock_container)
         assert result is None
 
     def test_get_intent_classifier_optional_returns_none_when_attr_missing(self):
-        """get_intent_classifier_optional returns None when _intent_classifier attr missing."""
+        """get_intent_classifier_optional returns None when the accessor raises."""
         from api.dependencies import get_intent_classifier_optional
 
-        mock_container = MagicMock(spec=[])
+        mock_container = MagicMock()
+        mock_container.intent_classifier.side_effect = RuntimeError("not initialized")
         result = get_intent_classifier_optional(container=mock_container)
         assert result is None
 
@@ -860,7 +824,7 @@ class TestRemainingFailoverBranches:
 
         mock_container = MagicMock()
         mock_service = MagicMock()
-        mock_container._embedding_service = mock_service
+        mock_container.embedding_service.return_value = mock_service
         result = get_embedding_service(container=mock_container)
         assert result is mock_service
 
@@ -870,7 +834,7 @@ class TestRemainingFailoverBranches:
 
         mock_container = MagicMock()
         mock_classifier = MagicMock()
-        mock_container._intent_classifier = mock_classifier
+        mock_container.intent_classifier.return_value = mock_classifier
         result = get_intent_classifier(container=mock_container)
         assert result is mock_classifier
 

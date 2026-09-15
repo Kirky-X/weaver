@@ -391,7 +391,7 @@ class TestSubgraphExtraction:
     async def test_should_return_200_empty_graph_when_no_nodes_found(
         self, client, auth_headers, mock_graph_repo
     ):
-        """REM-007: Empty subgraph returns 200 OK with empty graph (not 404).
+        """Empty subgraph returns 200 OK with empty graph (not 404).
 
         Entity exists in graph but has no neighbors within max_hops.
         Consistent with GET /graph/visualization and exception path behavior.
@@ -415,7 +415,7 @@ class TestSubgraphExtraction:
     async def test_should_return_200_empty_graph_when_subgraph_query_fails(
         self, client, auth_headers, mock_graph_repo
     ):
-        """REM-007: Subgraph query failure returns 200 OK with empty graph (not 404).
+        """Subgraph query failure returns 200 OK with empty graph (not 404).
 
         Distinguishes "entity not found" (which would be 404) from "query error"
         (database connectivity, etc.). Returns empty graph with error metadata,

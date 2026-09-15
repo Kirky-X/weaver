@@ -11,10 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.observability import get_logger
-
-log = get_logger(__name__)
-
 # Values that indicate an unedited template entry
 _PLACEHOLDER_VALUES = frozenset({"", "changeme", "placeholder"})
 _PLACEHOLDER_PREFIXES = ("your_",)

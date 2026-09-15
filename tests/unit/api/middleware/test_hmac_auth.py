@@ -132,7 +132,7 @@ class TestHMACSignatureMiddleware:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "missing_signature_headers"
+        assert response.json()["detail"] == "signature_mismatch"
 
     def test_invalid_timestamp_format_returns_401(self) -> None:
         """Test that invalid timestamp format returns 401."""
@@ -144,7 +144,7 @@ class TestHMACSignatureMiddleware:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "missing_signature_headers"
+        assert response.json()["detail"] == "invalid_timestamp_format"
 
     def test_health_endpoint_skips_signature(self) -> None:
         """Test that /health endpoint skips signature verification."""
@@ -196,7 +196,7 @@ class TestHMACSignatureMiddleware:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "missing_signature_headers"
+        assert response.json()["detail"] == "signature_mismatch"
 
     def test_signature_within_tolerance_window(self) -> None:
         """Test that signature within ±30 second window passes."""
@@ -266,7 +266,7 @@ class TestHMACSignatureMiddleware:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "missing_signature_headers"
+        assert response.json()["detail"] == "signature_mismatch"
 
 
 class TestHMACDualFactorVerification:

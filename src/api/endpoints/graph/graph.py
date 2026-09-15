@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
-import urllib.parse
 from collections import deque
 from typing import Any
 
@@ -168,7 +168,7 @@ async def list_entities(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list entities: {exc!s}",
+            detail="Internal error while listing entities.",
         ) from exc
 
     entities = [
@@ -202,7 +202,11 @@ async def get_entity(
         Entity with relationships wrapped in APIResponse.
 
     """
-    canonical_name = urllib.parse.unquote(name)
+    # Starlette already percent-decodes path parameters; an extra
+    # unquote double-decodes (e.g. "A%252FB" → "A/B") and can produce a
+    # canonical_name that never matches the graph or smuggle encoded
+    # traversal sequences into downstream queries.
+    canonical_name = name
 
     # Get entity
     entity = await graph_repo.get_entity(canonical_name)
@@ -212,10 +216,13 @@ async def get_entity(
             detail=f"Entity '{canonical_name}' not found",
         )
 
-    # Get relationships in parallel
-    relationships = await graph_repo.get_entity_relations(canonical_name, limit)
-    related_entities = await graph_repo.get_related_entities(canonical_name, limit)
-    mentioned_articles = await graph_repo.get_entity_articles(canonical_name, limit)
+    # Fetch relationships concurrently: three independent queries on
+    # disjoint data; each call opens its own pool session.
+    relationships, related_entities, mentioned_articles = await asyncio.gather(
+        graph_repo.get_entity_relations(canonical_name, limit),
+        graph_repo.get_related_entities(canonical_name, limit),
+        graph_repo.get_entity_articles(canonical_name, limit),
+    )
 
     return success_response(
         EntityWithRelations(
@@ -299,7 +306,7 @@ async def get_entity_relations(
         HTTPException: 404 if entity does not exist in the graph.
 
     """
-    # Verify entity exists before listing relation types (P0-1: return 404
+    # Verify entity exists before listing relation types (return 404
     # for non-existent entities instead of empty 200 array).
     existing = await graph_repo.get_entity(entity)
     if existing is None:

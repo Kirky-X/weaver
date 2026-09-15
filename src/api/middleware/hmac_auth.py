@@ -114,7 +114,7 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
             )
             return JSONResponse(
                 status_code=401,
-                content={"detail": "missing_signature_headers"},
+                content={"detail": "invalid_timestamp_format"},
             )
 
         # Check timestamp freshness (±30 seconds)
@@ -154,7 +154,7 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
             )
             return JSONResponse(
                 status_code=401,
-                content={"detail": "missing_signature_headers"},
+                content={"detail": "signature_mismatch"},
             )
 
         # Signature is valid, proceed with request

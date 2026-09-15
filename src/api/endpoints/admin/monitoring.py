@@ -13,15 +13,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from api.dependencies import get_container
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import DatabaseType
 from core.db.postgres import PostgresPool
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 if TYPE_CHECKING:
     from container import Container
@@ -89,7 +93,13 @@ async def get_index_usage(
             message="Index statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     async with pool.session() as session:
         result = await session.execute(
@@ -147,7 +157,13 @@ async def get_table_stats(
             message="Table statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     async with pool.session() as session:
         result = await session.execute(
@@ -195,7 +211,13 @@ async def get_pool_stats(
 
     # Get pool statistics from SQLAlchemy
     if container.relational_pool_type == DatabaseType.POSTGRES.value:
-        assert isinstance(pool, PostgresPool)
+        # assert is stripped under python -O; use an explicit check so a
+        # container/pool mismatch surfaces as a controlled error, not AttributeError.
+        if not isinstance(pool, PostgresPool):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Expected PostgresPool, got {type(pool).__name__}",
+            )
         # Use PostgresPool.get_pool_stats() which correctly accesses
         # AsyncAdaptedQueuePool via _engine.pool (not sync_engine.pool.status()
         # which raises AttributeError on async engines).
@@ -258,7 +280,13 @@ async def get_slow_queries(
             message="Slow query statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     try:
         async with pool.session() as session:
@@ -289,8 +317,11 @@ async def get_slow_queries(
 
         return success_response({"slow_queries": queries, "limit": limit})
 
-    except Exception as exc:
+    except OperationalError as exc:
+        # Extension missing / not loadable is the expected failure mode; other
+        # exception types must surface (Rule 12) instead of a fake success.
+        log.warning("pg_stat_statements_unavailable", error=str(exc))
         return success_response(
-            {"slow_queries": [], "error": str(exc)},
+            {"slow_queries": []},
             message="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
         )

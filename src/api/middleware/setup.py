@@ -63,13 +63,13 @@ def _configure_cors(app: FastAPI, settings: Settings) -> None:
                 origin.strip() for origin in cors_origins_env.split(",") if origin.strip()
             ]
             if len(cors_origins) > 1:
-                log.warning(
-                    "cors_multiple_origins_production",
-                    message="Multiple CORS origins with credentials in production. "
-                    "Only first origin will be used for security.",
-                    origins_count=len(cors_origins),
+                # Fail fast on contradictory configuration: silently picking
+                # the first origin hides misconfiguration from operators.
+                raise ValueError(
+                    "CORS_ORIGINS contains multiple origins in production "
+                    f"({len(cors_origins)} configured). With credentials enabled, "
+                    "configure exactly one explicit origin."
                 )
-                cors_origins = cors_origins[:1]
             allow_credentials = True
         else:
             # No explicit origins in production - warn and disable CORS
@@ -139,6 +139,14 @@ def _configure_hmac(app: FastAPI, settings: Settings) -> None:
     from api.middleware.hmac_auth import HMACSignatureMiddleware
 
     hmac_secret = settings.api.hmac_secret or settings.api.get_api_key()
+    if not hmac_secret:
+        # A None secret would make HMAC verification meaningless; refuse to
+        # register a middleware that cannot authenticate anything.
+        log.error(
+            "hmac_secret_not_configured",
+            message="HMAC signing is enabled but neither WEAVER_API__HMAC_SECRET nor an API key fallback is available; HMAC middleware not registered.",
+        )
+        return
     if settings.api.hmac_secret is None:
         log.warning(
             "hmac_secret_not_configured",
@@ -169,7 +177,15 @@ def _configure_traffic_anomaly(
         burst_threshold=getattr(settings.traffic_anomaly, "burst_threshold", 10),
         ip_ban_duration_seconds=getattr(settings.traffic_anomaly, "ip_ban_duration_seconds", 900),
     )
-    redis_client = container.cache_client() if container else None
+    redis_client = None
+    if container is not None:
+        try:
+            redis_client = container.cache_client()
+        except RuntimeError:
+            # Same graceful degradation as the other optional middleware:
+            # skip traffic-anomaly detection instead of crashing startup.
+            log.warning("traffic_anomaly_cache_unavailable")
+            redis_client = None
     if redis_client:
         traffic_detector = TrafficAnomalyDetector(
             redis=redis_client,

@@ -96,18 +96,26 @@ class TestVerifyApiKeyEdgeCases:
 
         This ensures the auth function does not use plain `==` comparison which could
         leak timing information about the expected key through response time variation.
+        The env/admin key comparison lives in ``_verify_env_or_admin_key``, which
+        ``verify_api_key`` delegates to after a DB lookup miss.
         """
         # Read the source to confirm compare_digest is used
         import inspect
 
-        from api.middleware.auth import verify_api_key
+        from api.middleware.auth import _verify_env_or_admin_key, verify_api_key
 
-        source = inspect.getsource(verify_api_key)
+        source = inspect.getsource(_verify_env_or_admin_key)
         assert "compare_digest" in source, (
-            "verify_api_key must use secrets.compare_digest to prevent timing attacks"
+            "verify_api_key (via _verify_env_or_admin_key) must use "
+            "secrets.compare_digest to prevent timing attacks"
         )
         assert "==" not in source.split("compare_digest")[0][-50:], (
             "No plain == comparison should be used on the API key"
+        )
+        # verify_api_key itself must route the env/admin fallback through the
+        # helper so the constant-time comparison cannot be bypassed.
+        assert "_verify_env_or_admin_key" in inspect.getsource(verify_api_key), (
+            "verify_api_key must delegate env/admin key checks to _verify_env_or_admin_key"
         )
 
 

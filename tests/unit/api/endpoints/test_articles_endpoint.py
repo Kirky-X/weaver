@@ -103,7 +103,6 @@ class TestListArticlesPagination:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -126,7 +125,6 @@ class TestListArticlesPagination:
         pool = _make_mock_pool(articles, total=50)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=3,
             page_size=10,
             category=None,
@@ -150,7 +148,6 @@ class TestListArticlesPagination:
         pool = _make_mock_pool(articles, total=25)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=10,
             category=None,
@@ -175,7 +172,6 @@ class TestListArticlesPagination:
         pool = _make_mock_pool([], total=5)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=100,
             page_size=10,
             category=None,
@@ -203,7 +199,6 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -227,7 +222,6 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -250,7 +244,6 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -277,7 +270,6 @@ class TestListArticlesSorting:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -301,7 +293,6 @@ class TestListArticlesSorting:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
@@ -327,7 +318,6 @@ class TestListArticlesEmptyResults:
         pool = _make_mock_pool([], total=0)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,

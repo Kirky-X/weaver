@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T025: GET /sources pagination tests.
+"""GET /sources pagination tests.
 
 验证：
 - 分页参数越界返回 422

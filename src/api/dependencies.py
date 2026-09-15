@@ -21,7 +21,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, HTTPException
 
@@ -502,10 +502,10 @@ def get_embedding_service(
         EmbeddingServiceProtocol instance.
 
     """
-    service = getattr(container, "_embedding_service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Embedding service not initialized")
-    return service
+    try:
+        return container.embedding_service()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Embedding service not initialized") from exc
 
 
 def get_intent_classifier(
@@ -520,10 +520,10 @@ def get_intent_classifier(
         Intent classifier instance.
 
     """
-    service = getattr(container, "_intent_classifier", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Intent classifier not initialized")
-    return service
+    try:
+        return container.intent_classifier()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Intent classifier not initialized") from exc
 
 
 # ── Optional Getters (return None instead of raising) ─────────────────
@@ -588,28 +588,17 @@ def get_embedding_service_optional(
     container: Container = Depends(get_container),
 ) -> EmbeddingServiceProtocol | None:
     """Get embedding service or None if not initialized."""
-    return getattr(container, "_embedding_service", None)
+    try:
+        return container.embedding_service()
+    except RuntimeError:
+        return None
 
 
 def get_intent_classifier_optional(
     container: Container = Depends(get_container),
 ) -> Any:
     """Get intent classifier or None if not initialized."""
-    return getattr(container, "_intent_classifier", None)
-
-
-# ── Type Aliases for Cleaner Signatures ────────────────────────────────
-
-RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
-GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
-LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
-VectorRepoDep = Annotated["VectorRepository", Depends(get_vector_repo)]
-GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]
-LocalSearchEngineDep = Annotated["LocalSearchEngine", Depends(get_local_search_engine)]
-GlobalSearchEngineDep = Annotated["GlobalSearchEngine", Depends(get_global_search_engine)]
-HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_engine)]
-SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
-SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
-SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]
-LLMUsageRepoDep = Annotated["LLMUsageRepo", Depends(get_llm_usage_repo)]
+    try:
+        return container.intent_classifier()
+    except RuntimeError:
+        return None

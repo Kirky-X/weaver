@@ -124,7 +124,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """未捕获异常兜底处理器。"""
-        log.exception("Unhandled exception", exc_info=exc)
+        log.exception("Unhandled exception")
         body = _build_error_response(
             code=ResponseCode.ERR_INTERNAL,
             message="Internal server error",

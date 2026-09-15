@@ -1045,7 +1045,6 @@ class TestResponseModels:
             provider="openai",
             error_type="timeout",
             error_message="Request timed out",
-            status="timeout",
             attempt=2,
             fallback_tried=True,
             created_at="2024-01-15T10:30:00",

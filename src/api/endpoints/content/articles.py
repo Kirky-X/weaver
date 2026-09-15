@@ -22,6 +22,11 @@ from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.security import AuditLogService
 
+# Precompute the constant set of "completed" persist statuses once at import
+# time instead of rebuilding the frozenset on every _map_processing_status()
+# call (hot path: invoked per article in list responses).
+_COMPLETED_PERSIST_STATUSES = PersistStatus.completed_statuses()
+
 log = get_logger("articles_api")
 
 router = APIRouter(prefix="/articles", tags=["articles"])
@@ -105,7 +110,7 @@ def _map_processing_status(persist_status: PersistStatus | str | None) -> str:
         PersistStatus.SAGA_COMPENSATED,
     }:
         return "failed"
-    if persist_status in PersistStatus.completed_statuses():
+    if persist_status in _COMPLETED_PERSIST_STATUSES:
         return "completed"
     return "processing"
 
@@ -155,7 +160,6 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
 
 @router.get("", response_model=APIResponse[ArticleListResponse])
 async def list_articles(
-    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     category: str | None = Query(None, description="Filter by category"),

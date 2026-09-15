@@ -26,14 +26,18 @@ class TestLocalTokenBucket:
         """Requests within bucket capacity should be allowed."""
         bucket = LocalTokenBucket(max_tokens=5, refill_rate=5)
         for _ in range(5):
-            assert bucket.acquire() is True
+            allowed, _remaining = bucket.acquire()
+            assert allowed is True
 
     def test_rejects_when_exhausted(self) -> None:
         """Requests exceeding bucket capacity should be rejected."""
         bucket = LocalTokenBucket(max_tokens=3, refill_rate=1)
         for _ in range(3):
-            assert bucket.acquire() is True
-        assert bucket.acquire() is False
+            allowed, _remaining = bucket.acquire()
+            assert allowed is True
+        allowed, remaining = bucket.acquire()
+        assert allowed is False
+        assert remaining == 0
 
     def test_refills_over_time(self) -> None:
         """Tokens should refill based on elapsed time and refill rate."""
@@ -41,14 +45,16 @@ class TestLocalTokenBucket:
         # Exhaust all tokens
         for _ in range(5):
             bucket.acquire()
-        assert bucket.acquire() is False
+        allowed, _remaining = bucket.acquire()
+        assert allowed is False
 
         # Get the last_time from the internal bucket state
         _, last_time = bucket._buckets["_default"]
 
         # Simulate time passing: 0.5s * 10 tokens/s = 5 tokens refilled
         with patch("api.middleware.rate_limit.time.monotonic", return_value=last_time + 0.5):
-            assert bucket.acquire() is True
+            allowed, _remaining = bucket.acquire()
+            assert allowed is True
 
     def test_does_not_exceed_max_tokens(self) -> None:
         """Refill should not exceed max_tokens."""
@@ -59,16 +65,28 @@ class TestLocalTokenBucket:
         # Wait a long time — tokens should cap at max_tokens
         with patch("api.middleware.rate_limit.time.monotonic", return_value=last_time + 100):
             for _ in range(3):
-                assert bucket.acquire() is True
-            assert bucket.acquire() is False
+                allowed, _remaining = bucket.acquire()
+                assert allowed is True
+            allowed, _remaining = bucket.acquire()
+            assert allowed is False
 
     def test_per_key_isolation(self) -> None:
         """Different keys should have independent buckets."""
         bucket = LocalTokenBucket(max_tokens=2, refill_rate=1)
-        assert bucket.acquire("key_a") is True
-        assert bucket.acquire("key_a") is True
-        assert bucket.acquire("key_a") is False  # key_a exhausted
-        assert bucket.acquire("key_b") is True  # key_b still has tokens
+        assert bucket.acquire("key_a")[0] is True
+        assert bucket.acquire("key_a")[0] is True
+        assert bucket.acquire("key_a")[0] is False  # key_a exhausted
+        assert bucket.acquire("key_b")[0] is True  # key_b still has tokens
+
+    def test_remaining_reflects_actual_tokens(self) -> None:
+        """acquire must return the bucket's real remaining count."""
+        bucket = LocalTokenBucket(max_tokens=5, refill_rate=5)
+        allowed, remaining = bucket.acquire()
+        assert allowed is True
+        assert remaining == 4  # 5 - 1 consumed, refilled ~0
+        allowed, remaining = bucket.acquire()
+        assert allowed is True
+        assert remaining == 3
 
 
 class TestTokenBucketRateLimiterFailClose:
@@ -267,3 +285,94 @@ class TestRateLimitMiddlewareFallbackHeader:
         await middleware(scope, AsyncMock(), mock_send)
         response_start = sent_messages[0]
         assert response_start["status"] == 429
+
+
+class TestFallbackRecovery:
+    """fallback must recover via a half-open probe after cooldown."""
+
+    @pytest.mark.asyncio
+    async def test_recovery_probe_after_interval(self) -> None:
+        """After the recovery interval, Redis should be retried (probe)."""
+        redis_mock = MagicMock()
+        # First call fails (activates fallback), later calls succeed
+        script_mock = AsyncMock(side_effect=[Exception("Redis down"), [1, 900], [1, 900], [1, 900]])
+        redis_mock.register_script = MagicMock(return_value=script_mock)
+
+        limiter = TokenBucketRateLimiter(redis=redis_mock)
+        allowed, _ = await limiter.acquire("client1")
+        assert allowed is True
+        assert limiter._fallback_active is True
+        assert limiter._fallback_since is not None
+
+        # Simulate cooldown elapsed
+        limiter._fallback_since -= 61.0
+
+        # Next acquire probes Redis; script now succeeds -> fallback clears
+        allowed, remaining = await limiter.acquire("client1")
+        assert limiter._fallback_active is False
+        assert limiter._fallback_since is None
+        assert allowed is True
+
+    @pytest.mark.asyncio
+    async def test_no_probe_before_interval(self) -> None:
+        """Before the cooldown elapses, requests stay on the local bucket."""
+        redis_mock = MagicMock()
+        script_mock = AsyncMock(side_effect=Exception("Redis down"))
+        redis_mock.register_script = MagicMock(return_value=script_mock)
+
+        limiter = TokenBucketRateLimiter(redis=redis_mock)
+        await limiter.acquire("client1")
+        assert limiter._fallback_active is True
+        calls_after_failure = script_mock.call_count
+
+        # Not expired yet (monotonic now > fallback_since - 61 + 61 ...)
+        limiter._fallback_since = time.monotonic()  # just activated
+        await limiter.acquire("client1")
+        # Redis script must NOT have been retried
+        assert script_mock.call_count == calls_after_failure
+        assert limiter._fallback_active is True
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_reactivates_fallback(self) -> None:
+        """If the probe fails again, fallback re-activates with a new timestamp."""
+        redis_mock = MagicMock()
+        script_mock = AsyncMock(side_effect=Exception("Redis down"))
+        redis_mock.register_script = MagicMock(return_value=script_mock)
+
+        limiter = TokenBucketRateLimiter(redis=redis_mock)
+        await limiter.acquire("client1")
+        first_since = limiter._fallback_since
+        assert first_since is not None
+
+        # Expire the cooldown, but Redis is still down
+        limiter._fallback_since -= 61.0
+        await limiter.acquire("client1")
+
+        assert limiter._fallback_active is True
+        assert limiter._fallback_since is not None
+        assert limiter._fallback_since >= first_since
+
+    @pytest.mark.asyncio
+    async def test_no_probe_without_script(self) -> None:
+        """With redis=None there is nothing to probe; stay local forever."""
+        limiter = TokenBucketRateLimiter(redis=None)
+        assert limiter._fallback_active is True
+        limiter._fallback_since -= 999.0
+        allowed, remaining = await limiter.acquire("client1")
+        assert allowed is True
+        assert limiter._fallback_active is True  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_local_remaining_is_real_value(self) -> None:
+        """local fallback returns actual remaining, not max_tokens."""
+        limiter = TokenBucketRateLimiter(
+            redis=None,
+            global_max_tokens=10,
+            per_ip_max_tokens=10,
+            per_key_max_tokens=10,
+        )
+        allowed, remaining = await limiter.acquire("1.2.3.4")
+        assert allowed is True
+        # 10 - 1 = 9, not the old hardcoded return of global_max_tokens=10
+        assert remaining == 9
+        assert remaining != limiter._global_max_tokens or remaining == 9

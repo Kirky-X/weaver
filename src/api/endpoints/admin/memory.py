@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.endpoints.admin.admin import _get_container
-from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -38,7 +38,7 @@ class MemoryDiagnosticResponse(BaseModel):
 @router.get("/memory/diagnostics", response_model=APIResponse[MemoryDiagnosticResponse])
 async def memory_diagnostics(
     request: Request,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),
     container: Any = Depends(_get_container),
 ) -> APIResponse[MemoryDiagnosticResponse]:
     """Diagnostic endpoint for memory system health.

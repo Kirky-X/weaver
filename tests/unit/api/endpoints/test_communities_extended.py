@@ -23,7 +23,7 @@ class TestHealthOverviewEndpoint:
 
         with patch("api.endpoints.communities.CommunityHealthChecker") as mock_checker_class:
             mock_checker = AsyncMock()
-            mock_checker._repo.get_overall_metrics = AsyncMock(
+            mock_checker.get_overall_metrics = AsyncMock(
                 return_value={
                     "total_communities": 100,
                     "empty_community_count": 2,
@@ -31,7 +31,7 @@ class TestHealthOverviewEndpoint:
                     "stale_report_count": 0,
                 }
             )
-            mock_checker._repo.find_hierarchy_breaks = AsyncMock(return_value=[])
+            mock_checker.find_hierarchy_breaks = AsyncMock(return_value=[])
             mock_checker_class.return_value = mock_checker
 
             result = await get_health_overview(
@@ -56,7 +56,7 @@ class TestHealthOverviewEndpoint:
 
         with patch("api.endpoints.communities.CommunityHealthChecker") as mock_checker_class:
             mock_checker = AsyncMock()
-            mock_checker._repo.get_overall_metrics = AsyncMock(
+            mock_checker.get_overall_metrics = AsyncMock(
                 return_value={
                     "total_communities": 0,
                     "empty_community_count": 0,
@@ -64,7 +64,7 @@ class TestHealthOverviewEndpoint:
                     "stale_report_count": 0,
                 }
             )
-            mock_checker._repo.find_hierarchy_breaks = AsyncMock(return_value=[])
+            mock_checker.find_hierarchy_breaks = AsyncMock(return_value=[])
             mock_checker_class.return_value = mock_checker
 
             result = await get_health_overview(
@@ -150,8 +150,8 @@ class TestHealthOverviewEndpoint:
 
         with patch("api.endpoints.communities.CommunityHealthChecker") as mock_checker_class:
             mock_checker = AsyncMock()
-            mock_checker._repo.get_overall_metrics = AsyncMock(return_value=metrics)
-            mock_checker._repo.find_hierarchy_breaks = AsyncMock(return_value=[{"id": "break1"}])
+            mock_checker.get_overall_metrics = AsyncMock(return_value=metrics)
+            mock_checker.find_hierarchy_breaks = AsyncMock(return_value=[{"id": "break1"}])
             mock_checker_class.return_value = mock_checker
 
             result = await get_health_overview(
@@ -172,7 +172,7 @@ class TestHealthOverviewEndpoint:
 
         with patch("api.endpoints.communities.CommunityHealthChecker") as mock_checker_class:
             mock_checker = AsyncMock()
-            mock_checker._repo.get_overall_metrics = AsyncMock(
+            mock_checker.get_overall_metrics = AsyncMock(
                 side_effect=Exception("Database connection failed")
             )
             mock_checker_class.return_value = mock_checker

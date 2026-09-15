@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
@@ -31,7 +31,7 @@ class APIResponse(BaseModel, Generic[T]):
     data: T | None = Field(default=None, description="Response payload")
     warning: str | None = Field(default=None, description="Optional warning message")
     timestamp: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(UTC),
         description="Response timestamp",
     )
 
@@ -88,8 +88,15 @@ class PaginatedResponse(BaseModel, Generic[T]):
         Returns:
             PaginatedResponse instance.
 
+        Raises:
+            ValueError: If ``page`` or ``page_size`` is not a positive integer.
+
         """
-        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+        if page <= 0:
+            raise ValueError("page must be a positive integer")
+        if page_size <= 0:
+            raise ValueError("page_size must be a positive integer")
+        total_pages = (total + page_size - 1) // page_size
         return cls(
             items=items,
             total=total,

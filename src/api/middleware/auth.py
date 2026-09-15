@@ -54,58 +54,26 @@ async def _get_traffic_detector():
         return None
 
 
-async def verify_api_key(
-    key: str | None = Security(api_key_header),
-    request: Request = None,  # type: ignore[assignment]
-) -> str:
-    """Verify the API key from the request header.
+def _verify_env_or_admin_key(key: str) -> str:
+    """Env/admin key fallback shared by verify_api_key and scope verification.
 
-    Supports two modes:
-    1. Database-backed multi-key (api_keys table) with scopes and expiry
-    2. Legacy single-key fallback (env variable)
+    Only called after the DB-backed lookup has already missed (or no manager
+    exists), so this performs no database validation and no bcrypt hashing.
 
     Args:
         key: API key from the request header.
-        request: Optional FastAPI request for traffic detection.
 
     Returns:
-        The validated key_id string or "env-key" for env-var-based fallback.
+        ``ENV_ADMIN_ACTOR`` for the admin key, ``"env-key"`` for the regular
+        env-var key.
 
     Raises:
-        HTTPException: If the API key is missing or invalid.
+        HTTPException: If env keys are misconfigured.
+        BusinessError: If the key matches neither env key.
 
     """
     from container import get_settings
 
-    if key is None:
-        raise BusinessError(
-            status_code=401,
-            code=ResponseCode.ERR_AUTH_FAILED,
-            message="Missing API key. Provide X-API-Key header.",
-        )
-
-    # Try database-backed key validation first
-    key_manager = await _get_api_key_manager()
-    if key_manager:
-        key_info = await key_manager.validate_key(key)
-        if key_info:
-            # Traffic anomaly check
-            detector = await _get_traffic_detector()
-            if detector and request:
-                client_ip = get_client_ip(request)
-                decision = await detector.check_request(
-                    key_id=key_info["key_id"],
-                    ip=client_ip,
-                )
-                if decision.action == "block":
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"Rate limit exceeded: {decision.reason}",
-                    )
-
-            return key_info["key_id"]
-
-    # Fallback: env-var-based key
     settings = get_settings()
     expected_key = settings.api.get_api_key()
     admin_key = settings.api.admin_api_key
@@ -142,6 +110,59 @@ async def verify_api_key(
     return "env-key"
 
 
+async def verify_api_key(
+    key: str | None = Security(api_key_header),
+    request: Request = None,  # type: ignore[assignment]
+) -> str:
+    """Verify the API key from the request header.
+
+    Supports two modes:
+    1. Database-backed multi-key (api_keys table) with scopes and expiry
+    2. Legacy single-key fallback (env variable)
+
+    Args:
+        key: API key from the request header.
+        request: Optional FastAPI request for traffic detection.
+
+    Returns:
+        The validated key_id string or "env-key" for env-var-based fallback.
+
+    Raises:
+        HTTPException: If the API key is missing or invalid.
+
+    """
+    if key is None:
+        raise BusinessError(
+            status_code=401,
+            code=ResponseCode.ERR_AUTH_FAILED,
+            message="Missing API key. Provide X-API-Key header.",
+        )
+
+    # Try database-backed key validation first
+    key_manager = await _get_api_key_manager()
+    if key_manager:
+        key_info = await key_manager.validate_key(key)
+        if key_info:
+            # Traffic anomaly check
+            detector = await _get_traffic_detector()
+            if detector and request:
+                client_ip = get_client_ip(request)
+                decision = await detector.check_request(
+                    key_id=key_info["key_id"],
+                    ip=client_ip,
+                )
+                if decision.action == "block":
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"Rate limit exceeded: {decision.reason}",
+                    )
+
+            return key_info["key_id"]
+
+    # Fallback: env-var-based key (no DB validation has succeeded at this point)
+    return _verify_env_or_admin_key(key)
+
+
 async def verify_admin_api_key(
     key: str | None = Security(api_key_header),
 ) -> str:
@@ -160,7 +181,7 @@ async def verify_admin_api_key(
         Admin actor identifier. Returns ``"env-admin"`` for env-var-backed
         admin keys (super-admin that can manage any API key). The raw key
         value is NEVER returned so it cannot leak into logs or responses
-        (vuln-0009 fix).
+        .
 
     Raises:
         HTTPException: If the key is missing, invalid, or not an admin key.
@@ -185,7 +206,7 @@ async def verify_admin_api_key(
         if secrets.compare_digest(key, admin_key):
             log.debug("admin_api_key_verified", key_prefix=key[:8] + "...")
             # Return a stable super-admin identifier rather than the raw key
-            # so downstream ownership checks (vuln-0009) can recognize the
+            # so downstream ownership checks can recognize the
             # env-var-backed admin as a super-admin without exposing the key.
             return ENV_ADMIN_ACTOR
         # Not admin key, check if it's regular key
@@ -220,6 +241,7 @@ async def verify_admin_api_key(
 
 async def verify_api_key_optional(
     key: str | None = Security(api_key_header),
+    request: Request = None,  # type: ignore[assignment]
 ) -> str | None:
     """Verify API key optionally based on configuration.
 
@@ -231,7 +253,9 @@ async def verify_api_key_optional(
         key: API key from the request header (optional).
 
     Returns:
-        The validated API key if provided and valid, None if not required.
+        A safe actor identifier ("env-key") if a valid key was provided,
+        None if no key is required and none was given. The raw key value
+        is NEVER returned.
 
     Raises:
         HTTPException: If key is required but missing, or if key is invalid.
@@ -244,7 +268,7 @@ async def verify_api_key_optional(
     # Check if authentication is required for this endpoint
     if settings.api.require_auth_for_metrics:
         # Auth required: use standard verification
-        return await verify_api_key(key)
+        return await verify_api_key(key, request)
 
     # Auth not required: optional verification
     if key is None:
@@ -253,7 +277,20 @@ async def verify_api_key_optional(
     # If key provided, validate it (but don't require it)
     expected_key = settings.api.get_api_key()
     if expected_key and secrets.compare_digest(key, expected_key):
-        return key
+        # Traffic anomaly check (same policy as verify_api_key)
+        detector = await _get_traffic_detector()
+        if detector and request:
+            client_ip = get_client_ip(request)
+            decision = await detector.check_request(key_id="env-key", ip=client_ip)
+            if decision.action == "block":
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded: {decision.reason}",
+                )
+
+        # Return the stable env-key actor identifier, not the raw key,
+        # so the secret cannot leak into responses or logs.
+        return "env-key"
 
     # Invalid key provided - still reject even if optional
     raise BusinessError(
@@ -304,15 +341,15 @@ def verify_api_key_with_scopes(*required_scopes: str):
 
         # If DB pool is unavailable, fall back to env/admin key verification.
         if key_manager is None:
-            return await verify_api_key(key, request)  # Admin/env keys have no scopes.
+            return _verify_env_or_admin_key(key)  # Admin/env keys have no scopes.
 
         # Validate the key once via DB; key_info carries scopes for inspection.
         key_info = await key_manager.validate_key(key)
         if key_info is None:
-            # Key not in DB: fall through to env/admin key check (no bcrypt there).
-            return await verify_api_key(
-                key, request
-            )  # Admin/env keys implicitly pass scope checks.
+            # Key not in DB: check env/admin keys directly (no second bcrypt
+            # pass through verify_api_key, which would re-validate via the
+            # manager we already consulted).
+            return _verify_env_or_admin_key(key)
 
         # DB-backed key validated. Run traffic anomaly check (mirror verify_api_key).
         detector = await _get_traffic_detector()

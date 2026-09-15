@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T024 业务错误码落地测试。
+"""业务错误码落地测试。
 
 验证：
 - BusinessError 异常携带 status_code/code/message

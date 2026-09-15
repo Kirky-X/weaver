@@ -61,7 +61,7 @@ async def get_health_overview(
 
     try:
         # Quick metrics check
-        metrics = await checker._repo.get_overall_metrics()
+        metrics = await checker.get_overall_metrics()
 
         # Determine basic status from metrics
         total = metrics.get("total_communities", 0)
@@ -73,8 +73,8 @@ async def get_health_overview(
             status = GraphHealthStatus.CRITICAL.value
             score = 0.0
         else:
-            empty_ratio = empty / total if total > 0 else 0
-            report_ratio = with_reports / total if total > 0 else 0
+            empty_ratio = empty / total
+            report_ratio = with_reports / total
 
             # Quick score calculation
             score = 100.0
@@ -99,7 +99,7 @@ async def get_health_overview(
                 status = GraphHealthStatus.CRITICAL.value
 
         # Get hierarchy breaks count
-        hierarchy_breaks = await checker._repo.find_hierarchy_breaks()
+        hierarchy_breaks = await checker.find_hierarchy_breaks()
 
         return success_response(
             HealthOverviewResponse(
@@ -115,5 +115,5 @@ async def get_health_overview(
         )
 
     except Exception as exc:
-        log.error("get_health_overview_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Health check failed")
+        log.error("get_health_overview_failed", error=str(exc), exc_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Health check failed") from exc

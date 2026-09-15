@@ -161,7 +161,11 @@ class TestAuditLogMiddleware:
 
     @patch("api.middleware.audit.log")
     def test_api_key_id_extracted_from_bearer(self, mock_log: MagicMock) -> None:
-        """Test that API key ID is extracted from Bearer token."""
+        """Bearer token is recorded as an irreversible fingerprint.
+
+        Previously the raw token prefix (first 8 chars) was logged, which is
+        guessable/correlatable.
+        """
         response = self.client.get(
             "/api/v1/admin/articles",
             headers={"Authorization": "Bearer test-api-key-12345678"},
@@ -169,9 +173,34 @@ class TestAuditLogMiddleware:
 
         assert response.status_code == 200
 
-        # Verify key ID is extracted
         call_args = mock_log.info.call_args
-        assert call_args[1]["key_id"] == "test-api..."
+        key_id = call_args[1]["key_id"]
+        # Fingerprint form: "bearer:" + 8 hex chars of SHA-256
+        assert key_id.startswith("bearer:")
+        assert len(key_id) == len("bearer:") + 8
+        int(key_id.split(":")[1], 16)  # hex-decodable
+        # Raw token prefix must not appear
+        assert "test-api" not in key_id
+
+    @patch("api.middleware.audit.log")
+    def test_bearer_fingerprint_is_deterministic_per_token(self, mock_log: MagicMock) -> None:
+        """Same token yields the same fingerprint; different tokens differ."""
+        headers_a = {"Authorization": "Bearer token-aaaaaaaaaaaaaaaa"}
+        headers_b = {"Authorization": "Bearer token-bbbbbbbbbbbbbbbb"}
+
+        self.client.get("/api/v1/admin/articles", headers=headers_a)
+        fingerprint_a = mock_log.info.call_args[1]["key_id"]
+        mock_log.info.reset_mock()
+
+        self.client.get("/api/v1/admin/articles", headers=headers_a)
+        fingerprint_a2 = mock_log.info.call_args[1]["key_id"]
+        mock_log.info.reset_mock()
+
+        self.client.get("/api/v1/admin/articles", headers=headers_b)
+        fingerprint_b = mock_log.info.call_args[1]["key_id"]
+
+        assert fingerprint_a == fingerprint_a2
+        assert fingerprint_a != fingerprint_b
 
     @patch("api.middleware.audit.log")
     def test_anonymous_when_no_auth(self, mock_log: MagicMock) -> None:

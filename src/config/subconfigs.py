@@ -288,6 +288,9 @@ class SchedulerSettings(BaseModel):
     # Pipeline B — Enrichment
     enrichment_interval_minutes: int = 5
 
+    # Analytics
+    sentiment_shift_window_days: int = 14
+
     # Cleanup
     cleanup_old_synced_days: int = 7
     cleanup_old_synced_cron_hour: int = 3
@@ -336,7 +339,7 @@ class FetcherSettings(BaseModel):
     # User-Agent rotation pool (fix). Each request draws a random
     # UA from this list (plus the base ``user_agent``) to defeat naive
     # rate-limiter fingerprinting. Empty by default → single-UA behavior.
-    user_agent_pool: list[str] = []
+    user_agent_pool: list[str] = Field(default_factory=list)
 
     # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True

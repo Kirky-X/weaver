@@ -33,10 +33,9 @@ class LLMFailureResponse(BaseModel):
     provider: str
     error_type: str
     error_message: str | None
-    status: str
     attempt: int
     fallback_tried: bool
-    created_at: str
+    created_at: str | None
 
 
 class LLMFailureStatsResponse(BaseModel):
@@ -56,7 +55,7 @@ async def list_llm_failures(
     call_point: str | None = Query(
         None, description="Filter by call point (e.g., classifier, analyzer)"
     ),
-    status: str | None = Query(None, description="Filter by error type/status"),
+    status: str | None = Query(None, description="Filter by error_type"),
     since: datetime | None = Query(None, description="ISO timestamp, only records after this time"),
     limit: int = Query(50, ge=1, le=200, description="Max records to return"),
     _: str = Depends(verify_admin_api_key),
@@ -65,11 +64,11 @@ async def list_llm_failures(
     """Get LLM failure records with optional filtering.
 
     Query LLM failure records for monitoring and debugging purposes.
-    Supports filtering by call point, status, and time range.
+    Supports filtering by call point, error_type, and time range.
 
     Args:
         call_point: Filter by call point (e.g., 'classifier', 'analyzer', 'entity_extractor').
-        status: Filter by error type/status.
+        status: Filter by error_type.
         since: ISO timestamp string, only return records after this time.
         limit: Maximum number of records to return (default 50, max 200).
         _: Verified admin API key.
@@ -94,12 +93,11 @@ async def list_llm_failures(
                 provider=f.provider,
                 error_type=f.error_type,
                 error_message=f.error_detail,
-                status=f.error_type,
                 article_id=str(f.article_id) if f.article_id else None,
                 task_id=f.task_id,
                 attempt=f.attempt,
                 fallback_tried=f.fallback_tried,
-                created_at=f.created_at.isoformat() if f.created_at else "",
+                created_at=f.created_at.isoformat() if f.created_at else None,
             )
             for f in failures
         ]

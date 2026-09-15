@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for trend detection API endpoint (T016 / R-trend-004).
+"""Unit tests for trend detection API endpoint.
 
 Covers:
 - GET /trends/detection — trend detection over a window with optional entity_type
 - Router registration (route exists, GET method)
 - Parameter validation (window in {7d, 30d}, entity_type optional)
 - Response serialization (TrendDetectionResult → APIResponse[dict])
-- No-data contract (R-trend-003/004): HTTP 200 with status='insufficient_data',
+- No-data contract (/004): HTTP 200 with status='insufficient_data',
   trends=[], list=[] — data insufficiency is NOT an error
 - Error propagation (Rule 12: HTTP 500 on service failure, 400 on ValueError)
 - entity_type forwarding to service
@@ -16,9 +16,9 @@ Covers:
 Patch surface: ``api.endpoints.trends._get_trend_detection_service`` returns a
 mock TrendDetector. Tests do NOT hit the real service/DB.
 
-Spec compliance (R-trend-004):
+Spec compliance:
     status='insufficient_data' returns HTTP 200 (not 400/500). This is
-    distinct from the no-data contract in R-sentiment-002 — insufficient
+    distinct from the no-data contract in — insufficient
     EventNode count is a legitimate state reported via the status field,
     not an error condition.
 """
@@ -44,7 +44,7 @@ def _make_detection_result(
 
     ``list_field`` parameter name avoids shadowing the ``list`` builtin
     in the test helper signature (the dataclass field itself is ``list``
-    per spec R-trend-001).
+    per spec).
     """
     return TrendDetectionResult(
         window_days=window_days,
@@ -76,21 +76,21 @@ class TestTrendsDetectionRouterRegistration:
         assert "GET" in route.methods
 
     def test_sentiment_route_still_exists(self) -> None:
-        """GET /trends/sentiment route (T013) still registered after T016."""
+        """GET /trends/sentiment route still registered after."""
         routes = [route.path for route in router.routes]
         assert "/trends/sentiment" in routes
         assert "/trends/detection" in routes
 
 
 class TestGetTrendDetection:
-    """Tests for GET /trends/detection endpoint (R-trend-004)."""
+    """Tests for GET /trends/detection endpoint."""
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
         self.client = create_test_client(router)
 
     def test_detection_ok_status_returns_trends(self) -> None:
-        """GET with window=7d returns ok status with trends (R-trend-004)."""
+        """GET with window=7d returns ok status with trends."""
         mock_service = MagicMock()
         mock_service.detect_trends = AsyncMock(
             return_value=_make_detection_result(
@@ -132,7 +132,7 @@ class TestGetTrendDetection:
         assert body["data"]["list"][0]["day"] == "2026-07-17"
 
     def test_detection_insufficient_data_returns_200(self) -> None:
-        """status='insufficient_data' → HTTP 200 with empty trends (R-trend-003/004).
+        """status='insufficient_data' → HTTP 200 with empty trends (/004).
 
         Data insufficiency is NOT an error — the endpoint returns HTTP 200
         with status='insufficient_data', trends=[], list=[].

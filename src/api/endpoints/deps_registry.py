@@ -19,6 +19,11 @@ implementations.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from container.container import Container
+
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -33,7 +38,7 @@ class Endpoints:
     """
 
     @classmethod
-    def initialize(cls, container: object) -> None:
+    def initialize(cls, container: Container) -> None:
         """Initialize all endpoints dependencies from container.
 
         This method is called by Container.startup() to ensure the
@@ -70,5 +75,7 @@ class Endpoints:
         is set via :func:`container.set_container`.
         """
         import container
+        from container.access import reset_settings
 
         container.reset_container()
+        reset_settings()

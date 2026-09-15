@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from api.schemas.response import APIResponse, success_response
+from fastapi import HTTPException
 
 if TYPE_CHECKING:
     from modules.analytics import LLMUsageRepo
@@ -81,7 +82,7 @@ async def query_llm_usage(
                 "time_bucket": (
                     datetime.fromisoformat(r["time_bucket"])
                     if isinstance(r["time_bucket"], str)
-                    else r["time_bucket"]
+                    else ""
                 ),
                 "label": r.get("label", ""),
                 "call_point": r.get("call_point", ""),
@@ -110,6 +111,8 @@ async def query_llm_usage(
             start_time=from_,
             end_time=to,
             llm_type=llm_type,
+            model=model,
+            call_point=call_point,
         )
         return success_response(
             {
@@ -135,6 +138,8 @@ async def query_llm_usage(
             start_time=from_,
             end_time=to,
             provider=provider,
+            llm_type=llm_type,
+            call_point=call_point,
         )
         return success_response(
             {
@@ -160,6 +165,9 @@ async def query_llm_usage(
         records = await repo.get_by_call_point(
             start_time=from_,
             end_time=to,
+            provider=provider,
+            model=model,
+            llm_type=llm_type,
         )
         return success_response(
             {
@@ -177,7 +185,5 @@ async def query_llm_usage(
                 ],
             }
         )
-
-    from fastapi import HTTPException
 
     raise HTTPException(status_code=400, detail=f"Invalid group_by: {group_by}")

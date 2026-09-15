@@ -57,8 +57,8 @@ def _validate_source_url(v: str) -> str:
 
     Note: This is a fast synchronous format check only. Callers MUST also
     invoke ``_validate_source_url_ssrf`` in the request handler to perform
-    DNS resolution and redirect-chain validation via SSRFChecker (CWE-918
-    fix). Without the async SSRF check, hostnames resolving to internal
+    DNS resolution and redirect-chain validation via SSRFChecker (CWE-918).
+    Without the async SSRF check, hostnames resolving to internal
     IPs would still pass.
 
     Args:
@@ -424,7 +424,11 @@ async def create_source(
     saved = await repo.upsert(config)
 
     # Add to in-memory registry so scheduler can find it
-    scheduler._registry.add_source(saved)
+    scheduler.register_source(saved)
+    # Register the interval job immediately — start() only schedules sources
+    # that existed at boot, so a source created at runtime would never be
+    # crawled otherwise (no-op when the scheduler has not started yet).
+    scheduler.schedule_source(saved)
 
     return success_response(SourceResponse.from_config(saved))
 
@@ -435,6 +439,8 @@ async def update_source(
     request: SourceUpdateRequest,
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
+    fetcher: Any = Depends(get_smart_fetcher),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
@@ -443,6 +449,7 @@ async def update_source(
         request: Fields to update.
         _: Verified API key.
         repo: Source config repository instance.
+        scheduler: Source scheduler for rescheduling on interval/enabled changes.
 
     Returns:
         The updated source configuration.
@@ -463,6 +470,16 @@ async def update_source(
     if request.url is not None:
         await _validate_source_url_ssrf(request.url)
 
+        # Same reachability/content validation as create_source — applies
+        # only when the URL actually changes to avoid re-fetching on
+        # unrelated field updates.
+        if request.url != existing.url:
+            await _validate_feed_reachable(
+                url=request.url,
+                fetcher=fetcher,
+                source_type=request.source_type or existing.source_type,
+            )
+
     # Apply updates
     if request.name is not None:
         existing.name = request.name
@@ -482,6 +499,15 @@ async def update_source(
         existing.tier = request.tier
 
     saved = await repo.upsert(existing)
+
+    # Reschedule on interval/enabled changes so the running job reflects the
+    # new settings (schedule_source replaces the existing job via
+    # replace_existing=True; disabled sources are unscheduled).
+    if saved.enabled:
+        scheduler.schedule_source(saved)
+    else:
+        scheduler.unschedule_source(saved.id)
+
     return success_response(SourceResponse.from_config(saved))
 
 
@@ -490,6 +516,7 @@ async def delete_source(
     source_id: str,
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> None:
     """Delete a news source.
 
@@ -497,6 +524,7 @@ async def delete_source(
         source_id: The source ID to delete.
         _: Verified API key.
         repo: Source config repository instance.
+        scheduler: Source scheduler for removing the periodic job.
 
     Raises:
         HTTPException: If source not found.
@@ -509,3 +537,6 @@ async def delete_source(
             code=ResponseCode.ERR_SOURCE_NOT_FOUND,
             message=f"Source '{safe_echo(source_id)}' not found",
         )
+    # Remove the periodic job — otherwise it keeps firing (as a no-op
+    # lookup) and accumulates one leaked interval job per create/delete.
+    scheduler.unschedule_source(source_id)

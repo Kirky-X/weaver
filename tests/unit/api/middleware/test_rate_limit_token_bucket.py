@@ -310,7 +310,7 @@ class TestSlowapiRemoval:
 
         from api.middleware import rate_limit as module
 
-        source = Path(module.__file__).read_text()
+        source = Path(module.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -328,7 +328,7 @@ class TestSlowapiRemoval:
 
         from api.endpoints.admin import admin as module
 
-        tree = ast.parse(Path(module.__file__).read_text())
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for deco in node.decorator_list:
@@ -342,7 +342,7 @@ class TestSlowapiRemoval:
 
         from api.endpoints.content import search as module
 
-        tree = ast.parse(Path(module.__file__).read_text())
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for deco in node.decorator_list:
@@ -359,7 +359,7 @@ class TestSlowapiRemoval:
         spec = importlib.util.find_spec("main")
         assert spec is not None and spec.origin, "main 模块未找到"
         main_path = pathlib.Path(spec.origin)
-        tree = ast.parse(main_path.read_text())
+        tree = ast.parse(main_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:

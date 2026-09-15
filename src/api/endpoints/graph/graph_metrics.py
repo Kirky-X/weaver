@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -52,11 +53,12 @@ class GraphMetricsResponse(BaseModel):
     total_articles: int = Field(..., ge=0)
     total_relationships: int = Field(..., ge=0)
     total_mentions: int = Field(..., ge=0)
-    connected_components: int = Field(..., ge=0)
-    largest_component_size: int = Field(..., ge=0)
+    # None = not computed (excluded via the include filter), not zero.
+    connected_components: int | None = Field(None, ge=0)
+    largest_component_size: int | None = Field(None, ge=0)
     average_degree: float = Field(..., ge=0)
     modularity_score: float | None = Field(None, ge=-1, le=1)
-    orphan_entities: int = Field(..., ge=0)
+    orphan_entities: int | None = Field(None, ge=0)
     high_degree_entities: list[dict[str, Any]] = Field(default_factory=list)
     entity_type_distribution: dict[str, int] = Field(default_factory=dict)
     relationship_type_distribution: dict[str, int] = Field(default_factory=dict)
@@ -146,8 +148,6 @@ async def _get_full_view(
         try:
             cached = await cache.get(GRAPH_METRICS_FULL_CACHE_KEY)
             if cached:
-                import json
-
                 cached_data = json.loads(cached)
                 return success_response(GraphMetricsResponse(**cached_data))
         except Exception as exc:
@@ -158,16 +158,26 @@ async def _get_full_view(
     result = await metrics.calculate_all_metrics(include=include_set)
 
     # Build response
+    # Guarded fields report null instead of the dataclass default (0) when
+    # the include filter skipped their computation (mirrors monitoring/graph.py).
     response_data = GraphMetricsResponse(
         total_entities=result.total_entities,
         total_articles=result.total_articles,
         total_relationships=result.total_relationships,
         total_mentions=result.total_mentions,
-        connected_components=result.connected_components,
-        largest_component_size=result.largest_component_size,
+        connected_components=(
+            result.connected_components if should_include("components", include_set) else None
+        ),
+        largest_component_size=(
+            result.largest_component_size if should_include("components", include_set) else None
+        ),
         average_degree=result.average_degree,
-        modularity_score=result.modularity_score,
-        orphan_entities=result.orphan_entities,
+        modularity_score=(
+            result.modularity_score if should_include("modularity", include_set) else None
+        ),
+        orphan_entities=(
+            result.orphan_entities if should_include("orphans", include_set) else None
+        ),
         high_degree_entities=(
             result.high_degree_entities if should_include("high_degree", include_set) else []
         ),
@@ -185,8 +195,6 @@ async def _get_full_view(
     # Cache if no include filter and cache available
     if cache and include_set is None:
         try:
-            import json
-
             await cache.set(
                 GRAPH_METRICS_FULL_CACHE_KEY,
                 json.dumps(response_data.model_dump()),
