@@ -13,7 +13,6 @@ from modules.knowledge.search.temporal_decay import (
     TemporalAwareRetriever,
     apply_temporal_decay,
     calculate_age_in_days,
-    apply_temporal_decay,
 )
 
 
@@ -226,7 +225,7 @@ class TestTemporalAwareRetriever:
 
 
 class TestNaiveTimestamp:
-    """Regression: naive timestamps must not raise TypeError (#349)."""
+    """Regression: naive timestamps must not raise TypeError."""
 
     def test_naive_timestamp_does_not_raise(self) -> None:
         from datetime import datetime, timedelta

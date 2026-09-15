@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T009 LOW remediation behaviour tests: modules/memory batch (#msz)."""
+"""LOW remediation behaviour tests: modules/memory batch."""
 
 from __future__ import annotations
 

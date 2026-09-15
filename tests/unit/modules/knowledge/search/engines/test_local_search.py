@@ -454,7 +454,7 @@ class TestSearchResultExtended:
 
 class TestSearchBatchIsolation:
     """Regression: one failing query in search_batch must not discard
-    results of the others (vuln-CORR#333)."""
+    results of the others."""
 
     @pytest.mark.asyncio
     async def test_batch_item_failure_degrades_independently(self):

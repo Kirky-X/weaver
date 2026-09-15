@@ -72,7 +72,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         # Check if exists
         existing = await self._find_entity_dict(canonical_name, entity_type)
         if existing:
-            # Update tier if more authoritative. Defensive cast (corr#441):
+            # Update tier if more authoritative. Defensive cast:
             # a non-integer tier from the DB must not raise TypeError here.
             try:
                 existing_tier = int(existing.get("tier", 2))
@@ -417,7 +417,7 @@ class LadybugEntityRepo(BaseEntityRepo):
             entity_match = "e.canonical_name = $canonical_name"
         if relation_types:
             # Query for specific relation types in a single round-trip
-            # (perf#101: WHERE r.edge_type IN $edge_types instead of one
+            # (WHERE r.edge_type IN $edge_types instead of one
             # query per type). LadybugDB supports list params in IN.
             query = f"""
             MATCH (e:Entity)-[r:RELATED_TO]->(related)
@@ -592,7 +592,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         """
         # Find the entity first. When entity_type is None the lookup must be
         # type-agnostic — passing "" would match only entities stored with an
-        # empty-string type and almost always find nothing (corr#443).
+        # empty-string type and almost always find nothing.
         entity = (
             await self.find_entity(entity_name, entity_type)
             if entity_type is not None

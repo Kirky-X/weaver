@@ -76,7 +76,7 @@ async def flush_compare_buffer(
             # Parse time bucket from key (llm:compare:2024011510). A malformed
             # bucket (e.g. a manually-created key) must not poison the flush
             # loop forever: previously the ValueError skipped cache.delete(key),
-            # leaving the key to error on every cycle (#74).
+            # leaving the key to error on every cycle.
             bucket_str = key.split(":")[-1]
             try:
                 time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
@@ -187,5 +187,5 @@ def aggregate_compare_data(
 
     # Wrap in a plain dict so callers get the declared return type; a bare
     # defaultdict would silently materialize zeroed records on unknown-key
-    # access instead of raising KeyError (#160).
+    # access instead of raising KeyError.
     return dict(aggregated)

@@ -180,7 +180,7 @@ async def test_router_fallback_on_error():
 
 class TestFallbackModeConfig:
     """Regression: unknown-intent fallback must honour the configured
-    fallback_mode instead of always routing to global (vuln-CORR#337)."""
+    fallback_mode instead of always routing to global."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("mode,local_calls,global_calls", [("local", 1, 0), ("global", 0, 1)])
@@ -212,7 +212,7 @@ class TestFallbackModeConfig:
 
 class TestWhenUsesTemporalSignals:
     """Regression: _search_when must differentiate from _search_why by
-    consuming classification.temporal_signals (vuln-CORR#338)."""
+    consuming classification.temporal_signals."""
 
     @pytest.mark.asyncio
     async def test_when_search_anchors_query_with_temporal_expressions(self):

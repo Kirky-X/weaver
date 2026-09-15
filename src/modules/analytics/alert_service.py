@@ -81,7 +81,7 @@ class AlertService:
                 enabled=True,
             )
             # session_context commits on clean exit; an explicit commit here
-            # was redundant on every path that reached it (#157).
+            # was redundant on every path that reached it.
             session.add(rule)
             await session.flush()
 
@@ -343,8 +343,10 @@ class AlertService:
                 metric_value=metric_value,
                 detail=detail,
             )
-            # session_context commits on clean exit (#157).
+            # session_context commits on clean exit; flush here populates the
+            # DB-generated primary key before the response dict is built.
             session.add(event)
+            await session.flush()
 
             log.info(
                 "trigger_alert_created",

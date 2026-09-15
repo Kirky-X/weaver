@@ -232,7 +232,7 @@ class EntityAggregator:
 
         # The center entity's own type when the neighborhood supplies it;
         # neighbor types carry no information about the center, so we must
-        # not infer from them (corr#369) — default to "unknown".
+        # not infer from them — default to "unknown".
         entity_type = neighborhood.get("center_type") or "unknown"
 
         resolved_name = neighborhood.get("center") or entity_name or ""

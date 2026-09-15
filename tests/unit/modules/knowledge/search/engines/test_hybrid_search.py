@@ -844,7 +844,7 @@ class TestHybridSearchEngineStats:
 
 class TestHybridSearchZeroScorePreservation:
     """Regression: rerank_score 0.0 is a valid score and must not fall
-    through to rrf_score via falsy `or` (vuln-CORR#329)."""
+    through to rrf_score via falsy `or`."""
 
     @pytest.mark.asyncio
     async def test_temporal_decay_preserves_zero_rerank_score(self):

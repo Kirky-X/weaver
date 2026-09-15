@@ -4,9 +4,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import inspect
+from datetime import UTC, datetime
 
 import pytest
 
@@ -296,7 +295,7 @@ class TestRuleBasedQualityScorerCompleteness:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#253)."""
+    """Regression tests for LOW findings."""
 
     @staticmethod
     def _node():
@@ -347,7 +346,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#253)."""
+    """Regression tests for LOW findings."""
 
     def test_thresholds_are_named_constants(self):
         """#253: the magic body length / timeliness defaults are named constants."""

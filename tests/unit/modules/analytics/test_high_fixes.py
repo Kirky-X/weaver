@@ -2,10 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """High-severity fixes verification for analytics modules.
 
-Covers: CORR#203 (cooldown race), CORR#208 (TTL reset), CORR#210 (raw insert
-unique violation), CORR#213 (hget TOCTOU), CORR#215/216 (min/max blind
-write), CORR#219 (comma delimiter), CORR#220 (non-object JSON), CORR#223
-(bp==0), CORR#226 (0.0 falsy), MAINT#158/159 (feature-order coupling).
+Covers: cooldown race, TTL reset, raw insert unique violation, hget TOCTOU,
+min/max blind write, comma delimiter, non-object JSON, bp==0 guard,
+0.0 falsy, feature-order coupling.
 """
 
 from datetime import UTC, datetime
@@ -15,8 +14,7 @@ import pytest
 
 from core.event import LLMCompareEvent, LLMUsageEvent
 
-
-# ── CORR#223: shift_detector bp==0 guard ─────────────────────────────
+# ── shift_detector bp==0 guard ─────────────────────────────
 
 
 class TestShiftDetectorBpZero:
@@ -52,7 +50,7 @@ class TestShiftDetectorBpZero:
         assert shifts[0]["breakpoint"] == 3
 
 
-# ── CORR#226: storage get_shifts 0.0 falsy ───────────────────────────
+# ── storage get_shifts 0.0 falsy ───────────────────────────
 
 
 class TestGetShiftsZeroValues:
@@ -129,7 +127,7 @@ class TestGetShiftsZeroValues:
         assert shifts[0]["before_avg"] is None
 
 
-# ── CORR#220: sentiment LLM non-object JSON ──────────────────────────
+# ── sentiment LLM non-object JSON ──────────────────────────
 
 
 class TestSentimentNonObjectJson:
@@ -172,7 +170,7 @@ class TestSentimentNonObjectJson:
         assert result["sentiment"] == "positive"
 
 
-# ── CORR#203: alert cooldown race ────────────────────────────────────
+# ── alert cooldown race ────────────────────────────────────
 
 
 class TestAlertCooldownLock:
@@ -203,6 +201,7 @@ class TestAlertCooldownLock:
             _scalars_first(recent_event),  # B: recent event found
         ]
         session.execute = AsyncMock(side_effect=results)
+        session.flush = AsyncMock()
         session.commit = AsyncMock()
 
         pool = MagicMock()
@@ -235,7 +234,7 @@ def _scalars_first(value):
     return mock_result
 
 
-# ── CORR#208: EvalCompareBuffer TTL reset ────────────────────────────
+# ── EvalCompareBuffer TTL reset ────────────────────────────
 
 
 class TestEvalCompareBufferTtl:
@@ -287,7 +286,7 @@ class TestEvalCompareBufferTtl:
         cache.expire.assert_not_called()
 
 
-# ── CORR#215/216: LLMUsageBuffer min/max blind write ─────────────────
+# ── LLMUsageBuffer min/max blind write ─────────────────
 
 
 class TestUsageBufferMinMaxFailure:
@@ -335,7 +334,7 @@ class TestUsageBufferMinMaxFailure:
 
 
 class TestUsageBufferTtlSetOnFirstWrite:
-    """The is-new check must run before the pipeline writes (#217).
+    """The is-new check must run before the pipeline writes.
 
     A post-write hgetall is always non-empty, so expire was dead code and
     unflushed buckets never received a TTL.
@@ -396,7 +395,7 @@ class TestUsageBufferTtlSetOnFirstWrite:
         cache.expire.assert_not_called()
 
 
-# ── CORR#213: aggregator uses hgetall snapshot for min/max ───────────
+# ── aggregator uses hgetall snapshot for min/max ───────────
 
 
 class TestAggregatorSnapshotMinMax:
@@ -436,7 +435,7 @@ class TestAggregatorSnapshotMinMax:
         assert kwargs["latency_max"] == 200.0
 
 
-# ── CORR#219: \x1f delimiter parsing ─────────────────────────────────
+# ── \x1f delimiter parsing ─────────────────────────────────
 
 
 class TestAggDelimiter:
@@ -494,7 +493,7 @@ class TestAggDelimiter:
         assert "model, x" in out[0]["label"]
 
 
-# ── MAINT#158/159: feature order coupling ────────────────────────────
+# ── feature order coupling ────────────────────────────
 
 
 class TestFakeNewsFeatureOrder:

@@ -192,7 +192,7 @@ class TestHeuristicChecker:
 
 
 class TestKeywordOrdering:
-    """关键词匹配结果必须对同一输入稳定（OCR LOW #150）。
+    """关键词匹配结果必须对同一输入稳定。
 
     ``SUSPICIOUS_KEYWORDS`` 是 set，迭代顺序不确定，风险消息里报告的第一个
     关键词会随之漂移；排序后必须固定为字典序最小者。

@@ -177,7 +177,9 @@ class TestDailyRotationScheduler:
 
 
 class TestGracePeriod:
-    """Old key SHALL remain valid during 24h grace period after rotation."""
+    """Rotated old keys are invalidated immediately: ``rotated_to`` is set
+    (validate_key rejects rotated keys) while ``is_revoked`` stays False so
+    audit logs can distinguish rotations from explicit revocations."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -193,11 +195,11 @@ class TestGracePeriod:
     async def test_rotated_key_not_revoked(self, manager, mock_pool) -> None:
         """Rotated key SHALL NOT be revoked immediately (grace period).
 
-After the CWE-362 fix, rotate_key uses SELECT... FOR UPDATE
-        inside the main transaction and sets ``rotated_to`` (validate_key rejects
-        any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
-        it is reserved for explicit operator-initiated revocation (revoke_key),
-        so audit logs can distinguish scheduled rotations from explicit revocations.
+        After the CWE-362 fix, rotate_key uses SELECT... FOR UPDATE
+                inside the main transaction and sets ``rotated_to`` (validate_key rejects
+                any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
+                it is reserved for explicit operator-initiated revocation (revoke_key),
+                so audit logs can distinguish scheduled rotations from explicit revocations.
         """
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)

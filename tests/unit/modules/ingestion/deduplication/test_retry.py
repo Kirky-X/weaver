@@ -176,7 +176,7 @@ class TestRetryQueueGetDueItems:
         cache.zrangebyscore = AsyncMock()
         # zrem must return the number of members actually removed (int) —
         # get_due_items compares it against the fetched count to surface
-        # concurrent claims (CORR#237).
+        # concurrent claims.
         cache.zrem = AsyncMock(side_effect=lambda key, *members: len(members))
         return cache
 
@@ -344,7 +344,7 @@ class TestRetryQueueIntegration:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#175)."""
+    """Regression tests for LOW findings."""
 
     @pytest.fixture
     def mock_cache(self):
@@ -398,7 +398,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#175)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_host_mismatch_is_logged(self):

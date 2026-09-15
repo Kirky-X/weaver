@@ -1115,7 +1115,7 @@ async def process_single_url(
 
     # Launch background processing. Track in ``_background_tasks`` so the
     # event loop does not garbage-collect the task before completion
-    # (asyncio.create_task GC risk; previously suppressed via ``# noqa: RUF006``).
+    # (asyncio.create_task GC risk; RUF006 suppression no longer needed).
     background_task = asyncio.create_task(_process_single_url(request.url, task_id, cache))
     _background_tasks.add(background_task)
     background_task.add_done_callback(_background_tasks.discard)

@@ -40,7 +40,7 @@ class KeyOpStatus(str, Enum):
 
     Replaces the previous bool/dict return types so callers can distinguish
     not_found / forbidden / already_revoked / ok without raising HTTPException
-    inside the service layer (vuln-0009 fix).
+    inside the service layer.
     """
 
     OK = "ok"
@@ -333,7 +333,7 @@ class ApiKeyManager:
             }
 
     async def revoke_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
-        """Revoke an API key with ownership check (vuln-0009 fix: CWE-639).
+        """Revoke an API key with ownership check (CWE-639).
 
         Only the key's creator (``created_by``) or a super-admin
         (``env-admin`` / ``system``) can revoke a key. This closes the IDOR
@@ -364,7 +364,7 @@ class ApiKeyManager:
             if target.is_revoked:
                 return KeyOpResult(status=KeyOpStatus.ALREADY_REVOKED)
 
-            # Ownership check (vuln-0009): super-admins bypass; otherwise
+            # Ownership check: super-admins bypass; otherwise
             # actor must match the key's created_by.
             if actor not in _SUPER_ADMIN_ACTORS and target.created_by != actor:
                 log.warning(
@@ -445,7 +445,7 @@ class ApiKeyManager:
             return result.scalar_one_or_none()
 
     async def rotate_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
-        """Rotate an API key with ownership check (vuln-0009 fix: CWE-639).
+        """Rotate an API key with ownership check (CWE-639).
 
         Creates a new key with the same scopes and rate limit as the old key
         and atomically marks the old key as rotated+revoked in a single
@@ -461,7 +461,7 @@ class ApiKeyManager:
         first commits, then observes ``is_revoked=True`` / ``rotated_to != None``
         and bails out cleanly.
 
-        Ownership check (vuln-0009): only the key's creator or a super-admin
+        Ownership check: only the key's creator or a super-admin
         (``env-admin`` / ``system``) can rotate a key. The ownership check runs
         AFTER the FOR UPDATE lock is acquired, so a concurrent caller that
         passes ownership cannot race with one that fails it.
@@ -501,7 +501,7 @@ class ApiKeyManager:
                 log.warning("api_key_rotation_failed_not_found", key_id=key_id)
                 return KeyOpResult(status=KeyOpStatus.NOT_FOUND)
 
-            # Ownership check (vuln-0009): runs after FOR UPDATE so the
+            # Ownership check: runs after FOR UPDATE so the
             # ownership decision is consistent with the row state being
             # rotated. Super-admins bypass; otherwise actor must match
             # created_by.
@@ -597,7 +597,7 @@ class ApiKeyManager:
         for key in expiring_keys:
             try:
                 # Auto-rotation runs as the "system" super-admin so it can
-                # rotate any key regardless of created_by (vuln-0009).
+                # rotate any key regardless of created_by.
                 result = await self.rotate_key(key.key_id, actor="system")
                 if result.status is KeyOpStatus.OK:
                     rotated_count += 1

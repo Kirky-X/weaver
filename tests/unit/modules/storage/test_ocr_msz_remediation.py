@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Regression tests for ocr-scan-medium-low-remediation T001 (storage MEDIUM).
+"""Regression tests for storage MEDIUM findings.
 
-Each test pins one `fixed` verdict from ``logs/ocr_scan_msz_storage.json``:
-entry number is cited in the test name/docstring (corr#/perf#/sec#).
+Each test pins one `fixed` verdict from ``logs/ocr_scan_msz_storage.json``.
 """
 
 from __future__ import annotations
@@ -85,7 +84,7 @@ class _ScriptedSession:
         self.added.extend(objs)
 
 
-# ── corr#429: delete_orphan_entities returns actual deleted count ──────
+# ── delete_orphan_entities returns actual deleted count ──────
 
 
 class _OrphanHarness:
@@ -128,7 +127,7 @@ class _OrphanHarness:
 class TestDeleteOrphanEntities429:
     @pytest.mark.asyncio
     async def test_returns_actual_deleted_count_on_partial_failure(self):
-        """corr#429: mid-loop failure must not mask the real deleted count."""
+        """mid-loop failure must not mask the real deleted count."""
         pool = MagicMock()
         pool.execute_query = AsyncMock(return_value=[])
         harness = _OrphanHarness(pool, ["a", "b", "c"], fail_ids={"b"})
@@ -147,13 +146,13 @@ class TestDeleteOrphanEntities429:
         assert await harness.delete_orphan_entities() == 2
 
 
-# ── corr#433: DuckDB cleanup count via before/after ────────────────────
+# ── DuckDB cleanup count via before/after ────────────────────
 
 
 class TestCleanupRawOlderThan433:
     @pytest.mark.asyncio
     async def test_duckdb_rowcount_minus_one_uses_before_after_count(self):
-        """corr#433: rowcount=-1 must not leak into the return value/log."""
+        """rowcount=-1 must not leak into the return value/log."""
         from modules.storage.duckdb.llm_usage_repo import DuckDBLLMUsageRepo
 
         count_before = MagicMock()
@@ -184,7 +183,7 @@ class TestCleanupRawOlderThan433:
         assert await repo.cleanup_raw_older_than(days=2) == 4
 
 
-# ── corr#434 + perf#99: graph entity reader ────────────────────────────
+# ── graph entity reader ────────────────────────────
 
 
 def _make_entity_reader(rows, cooccurrence_rows=None):
@@ -205,7 +204,7 @@ def _make_entity_reader(rows, cooccurrence_rows=None):
 class TestGetEntityRelations434:
     @pytest.mark.asyncio
     async def test_missing_keys_fall_back_to_defaults(self):
-        """corr#434: schema drift must not raise KeyError for the whole call."""
+        """schema drift must not raise KeyError for the whole call."""
         reader, _ = _make_entity_reader([{"source_article_id": "a1"}])
 
         relations = await reader.get_entity_relations("E")
@@ -223,7 +222,7 @@ class TestGetEntityRelations434:
 class TestCooccurrenceSkipped99:
     @pytest.mark.asyncio
     async def test_no_extra_round_trip_when_all_weights_computed(self):
-        """perf#99: stored weights > 1.0 make the co-occurrence query dead."""
+        """stored weights > 1.0 make the co-occurrence query dead."""
         rows = [
             {
                 "relation_type": "R",
@@ -263,7 +262,7 @@ class TestCooccurrenceSkipped99:
         assert len(calls) == 2
 
 
-# ── corr#437 + corr#125: graph repo fallback ───────────────────────────
+# ── graph repo fallback ───────────────────────────
 
 
 def _make_graph_repo(primary_rows=None, primary_error=None, with_fallback=True):
@@ -286,7 +285,7 @@ def _make_graph_repo(primary_rows=None, primary_error=None, with_fallback=True):
 class TestPrimaryFallback437:
     @pytest.mark.asyncio
     async def test_primary_failure_falls_back_when_configured(self):
-        """corr#437: transient primary error must reach the fallback pool."""
+        """transient primary error must reach the fallback pool."""
         repo = _make_graph_repo(primary_error=RuntimeError("timeout"))
         fb_pool = MagicMock()
         fb_pool.execute_query = AsyncMock(return_value=[{"id": "fb"}])
@@ -300,7 +299,7 @@ class TestPrimaryFallback437:
 
     @pytest.mark.asyncio
     async def test_primary_failure_reraises_without_fallback(self):
-        """corr#437: no fallback configured → original error propagates."""
+        """no fallback configured → original error propagates."""
         repo = _make_graph_repo(primary_error=RuntimeError("timeout"), with_fallback=False)
 
         with pytest.raises(RuntimeError, match="timeout"):
@@ -310,7 +309,7 @@ class TestPrimaryFallback437:
 class TestFallbackPoolLock125:
     @pytest.mark.asyncio
     async def test_concurrent_init_runs_factory_once(self):
-        """corr#125: concurrent coroutines must not double-initialize."""
+        """concurrent coroutines must not double-initialize."""
         from modules.storage.graph_repo import GraphRepository
 
         created = []
@@ -329,13 +328,13 @@ class TestFallbackPoolLock125:
         assert len(created) == 1
 
 
-# ── corr#439: time_gap None preserved ──────────────────────────────────
+# ── time_gap None preserved ──────────────────────────────────
 
 
 class TestFollowedByTimeGap439:
     @pytest.mark.asyncio
     async def test_none_gap_leaves_property_untouched(self):
-        """corr#439: None (unknown) must not be cemented as 0.0."""
+        """None (unknown) must not be cemented as 0.0."""
         from modules.storage.ladybug.article_repo import LadybugArticleRepo
 
         pool = MagicMock()
@@ -350,7 +349,7 @@ class TestFollowedByTimeGap439:
 
     @pytest.mark.asyncio
     async def test_zero_gap_is_preserved_as_zero(self):
-        """corr#439: explicit 0.0 stays 0.0 (only None is special)."""
+        """explicit 0.0 stays 0.0 (only None is special)."""
         from modules.storage.ladybug.article_repo import LadybugArticleRepo
 
         pool = MagicMock()
@@ -363,13 +362,13 @@ class TestFollowedByTimeGap439:
         assert params["time_gap_hours"] == 0.0
 
 
-# ── corr#441: non-integer tier from DB ─────────────────────────────────
+# ── non-integer tier from DB ─────────────────────────────────
 
 
 class TestMergeEntityTierCast441:
     @pytest.mark.asyncio
     async def test_string_tier_does_not_raise(self):
-        """corr#441: string tier from DB must not raise TypeError."""
+        """string tier from DB must not raise TypeError."""
         from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
         pool = MagicMock()
@@ -400,13 +399,13 @@ class TestMergeEntityTierCast441:
         assert await repo.merge_entity("E", "人物", tier=1) == "e1"
 
 
-# ── perf#101: single round-trip relation-type query ────────────────────
+# ── single round-trip relation-type query ────────────────────
 
 
 class TestFindByRelationTypesSingleQuery101:
     @pytest.mark.asyncio
     async def test_relation_types_use_in_param_single_call(self):
-        """perf#101: N types → 1 query with IN $edge_types."""
+        """N types → 1 query with IN $edge_types."""
         from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
         pool = MagicMock()
@@ -421,13 +420,13 @@ class TestFindByRelationTypesSingleQuery101:
         assert "IN $edge_types" in query
 
 
-# ── corr#445: writer cache-key normalization ───────────────────────────
+# ── writer cache-key normalization ───────────────────────────
 
 
 class TestWriterCacheNormalization445:
     @pytest.mark.asyncio
     async def test_spaced_relation_endpoints_hit_entity_cache(self):
-        """corr#445: ' Alice ' entity must match 'Alice' relation endpoint."""
+        """' Alice ' entity must match 'Alice' relation endpoint."""
         from modules.storage.ladybug.writer import LadybugWriter
 
         pool = MagicMock()
@@ -458,13 +457,13 @@ class TestWriterCacheNormalization445:
         entity_repo.merge_relation.assert_awaited_once()
 
 
-# ── corr#449: atomic orphan delete ─────────────────────────────────────
+# ── atomic orphan delete ─────────────────────────────────────
 
 
 class TestDeleteOrphanEntitiesAtomic449:
     @pytest.mark.asyncio
     async def test_returns_actual_deleted_count_single_statement(self):
-        """corr#449: one atomic statement reports the real deleted count."""
+        """one atomic statement reports the real deleted count."""
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
         pool = MagicMock()
@@ -488,13 +487,13 @@ class TestDeleteOrphanEntitiesAtomic449:
         assert await repo.delete_orphan_entities() == 0
 
 
-# ── corr#450: role fallback guard ──────────────────────────────────────
+# ── role fallback guard ──────────────────────────────────────
 
 
 class TestMentionsBatchRoleGuard450:
     @pytest.mark.asyncio
     async def test_null_role_does_not_wipe_stored_role(self):
-        """corr#450: m.role NULL must keep r.role (CASE WHEN guard)."""
+        """m.role NULL must keep r.role (CASE WHEN guard)."""
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
         pool = MagicMock()
@@ -509,13 +508,13 @@ class TestMentionsBatchRoleGuard450:
         assert "CASE WHEN m.role IS NOT NULL THEN m.role ELSE r.role END" in query
 
 
-# ── corr#451: unexpected constraint errors surfaced ────────────────────
+# ── unexpected constraint errors surfaced ────────────────────
 
 
 class TestEnsureConstraintsWarning451:
     @pytest.mark.asyncio
     async def test_unexpected_error_does_not_raise(self):
-        """corr#451: unexpected failures stay non-fatal (no-raise kept)."""
+        """unexpected failures stay non-fatal (no-raise kept)."""
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
         pool = MagicMock()
@@ -526,7 +525,7 @@ class TestEnsureConstraintsWarning451:
 
     @pytest.mark.asyncio
     async def test_unexpected_error_logged_at_warning(self):
-        """corr#451: unexpected failures surface at WARNING, not debug."""
+        """unexpected failures surface at WARNING, not debug."""
         from modules.storage.neo4j import entity_repo as entity_repo_module
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
@@ -541,13 +540,13 @@ class TestEnsureConstraintsWarning451:
         assert mock_log.debug.call_count == 0
 
 
-# ── sec#69: parameterized edge-type filter ────────────────────────────
+# ── parameterized edge-type filter ────────────────────────────
 
 
 class TestFindByRelationTypesParam69:
     @pytest.mark.asyncio
     async def test_edge_types_passed_as_param_not_interpolated(self):
-        """sec#69: query shape must not depend on edge-type text."""
+        """query shape must not depend on edge-type text."""
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
         pool = MagicMock()
@@ -562,13 +561,13 @@ class TestFindByRelationTypesParam69:
         assert "KNOWS" not in query
 
 
-# ── corr#102: labeled MATCH in merge_relation ──────────────────────────
+# ── labeled MATCH in merge_relation ──────────────────────────
 
 
 class TestMergeRelationLabels102:
     @pytest.mark.asyncio
     async def test_match_uses_entity_label(self):
-        """corr#102: elementId MATCH must carry :Entity for index use."""
+        """elementId MATCH must carry:Entity for index use."""
         from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
         pool = MagicMock()
@@ -582,13 +581,13 @@ class TestMergeRelationLabels102:
         assert "MATCH (to:Entity)" in query
 
 
-# ── corr#282 + corr#105: article reader ────────────────────────────────
+# ── article reader ────────────────────────────────
 
 
 class TestGetByIdsSourceId282:
     @pytest.mark.asyncio
     async def test_source_id_preserved(self):
-        """corr#282: RawArticle keeps source_id (not dropped)."""
+        """RawArticle keeps source_id (not dropped)."""
         from modules.storage.postgres.article_reader import ArticleReader
 
         article_id = str(uuid.uuid4())
@@ -616,7 +615,7 @@ class TestGetByIdsSourceId282:
 class TestGetExistingUrlsChunked105:
     @pytest.mark.asyncio
     async def test_large_input_is_chunked(self):
-        """perf#105: 1200 urls → 3 bounded IN queries, unioned results."""
+        """1200 urls → 3 bounded IN queries, unioned results."""
         from modules.storage.postgres.article_reader import ArticleReader
 
         session = MagicMock()
@@ -628,7 +627,7 @@ class TestGetExistingUrlsChunked105:
         assert session.execute.await_count == 3
 
 
-# ── corr#455: terminal marking must not clobber processed rows ─────────
+# ── terminal marking must not clobber processed rows ─────────
 
 
 class TestMarkTerminalByUrl455:
@@ -640,7 +639,7 @@ class TestMarkTerminalByUrl455:
 
     @pytest.mark.asyncio
     async def test_no_match_skips_analysis_updates_and_returns_false(self):
-        """corr#455: already-processed article keeps real analysis data."""
+        """already-processed article keeps real analysis data."""
         no_row = _ScriptedResult(rowcount=0)
         writer, session = self._make_writer([no_row])
 
@@ -672,13 +671,13 @@ class TestMarkTerminalByUrl455:
         assert session.commits == 1
 
 
-# ── corr#463: atomic final_score update ────────────────────────────────
+# ── atomic final_score update ────────────────────────────────
 
 
 class TestUpdateAutoScoreAtomic463:
     @pytest.mark.asyncio
     async def test_single_update_with_coalesce_expression(self):
-        """corr#463: no SELECT — final_score computed in the UPDATE."""
+        """no SELECT — final_score computed in the UPDATE."""
         from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
 
         session = _ScriptedSession([_ScriptedResult(rowcount=1)])
@@ -693,12 +692,12 @@ class TestUpdateAutoScoreAtomic463:
         assert session.commits == 1
 
 
-# ── corr#275: concrete callable alias ──────────────────────────────────
+# ── concrete callable alias ──────────────────────────────────
 
 
 class TestExecuteWithFallbackAlias275:
     def test_alias_is_concrete_generic(self):
-        """corr#275: alias must pin arity/types, not Callable[..., Any]."""
+        """alias must pin arity/types, not Callable[..., Any]."""
         from typing import get_args
 
         from modules.storage.graph_readers.base import ExecuteWithFallbackFn
@@ -708,13 +707,13 @@ class TestExecuteWithFallbackAlias275:
         assert "list" in repr(ret) and "dict" in repr(ret)
 
 
-# ── corr#289: insert_raw shares the helper ─────────────────────────────
+# ── insert_raw shares the helper ─────────────────────────────
 
 
 class TestInsertRawUsesHelper289:
     @pytest.mark.asyncio
     async def test_short_body_falls_back_to_description(self):
-        """corr#289: insert_raw honors the shared body-fallback logic."""
+        """insert_raw honors the shared body-fallback logic."""
         from core.db import ArticleBody, ArticleCore
         from core.types.ingestion_models import RawArticle
         from modules.storage.postgres.raw_bulk_writer import RawBulkWriter
@@ -745,13 +744,13 @@ class TestInsertRawUsesHelper289:
         assert session.commits == 1
 
 
-# ── corr#290: atomic chunked upsert ────────────────────────────────────
+# ── atomic chunked upsert ────────────────────────────────────
 
 
 class TestUpsertEntityVectorsAtomic290:
     @pytest.mark.asyncio
     async def test_multi_chunk_single_session_single_commit(self):
-        """corr#290: 2505 vectors → 3 statements, 1 session, 1 commit."""
+        """2505 vectors → 3 statements, 1 session, 1 commit."""
         from unittest.mock import MagicMock
 
         from modules.storage.postgres.vector_repo import VectorRepo
@@ -795,7 +794,7 @@ class TestUpsertEntityVectorsAtomic290:
         assert commits == 1
 
 
-# ── perf#106 + sec#70: community vector search ─────────────────────────
+# ── community vector search ─────────────────────────
 
 
 class TestFindSimilarCommunities106and70:
@@ -813,7 +812,7 @@ class TestFindSimilarCommunities106and70:
 
     @pytest.mark.asyncio
     async def test_distance_computed_once_via_cte(self):
-        """perf#106: single distance expression reused by filter+order."""
+        """single distance expression reused by filter+order."""
         result = MagicMock()
         result.all = MagicMock(return_value=[])
         session = MagicMock()
@@ -828,7 +827,7 @@ class TestFindSimilarCommunities106and70:
 
     @pytest.mark.asyncio
     async def test_invalid_limit_rejected(self):
-        """sec#70: huge/zero limits must not reach the HNSW scan."""
+        """huge/zero limits must not reach the HNSW scan."""
         session = MagicMock()
         session.execute = AsyncMock()
         repo = self._make_repo(session)
@@ -850,13 +849,13 @@ class TestFindSimilarCommunities106and70:
         session.execute.assert_not_called()
 
 
-# ── corr#107: bounded stale-pending query ──────────────────────────────
+# ── bounded stale-pending query ──────────────────────────────
 
 
 class TestGetStalePendingLimit107:
     @pytest.mark.asyncio
     async def test_limit_applied(self):
-        """corr#107: stale backlog must not load unbounded."""
+        """stale backlog must not load unbounded."""
         from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 
         session = MagicMock()

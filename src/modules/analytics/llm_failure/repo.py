@@ -126,7 +126,7 @@ class LLMFailureRepo:
 
         stmt = stmt.group_by(LLMFailureRecord.call_point, LLMFailureRecord.error_type)
 
-        # Single session for both queries (#52): the aggregation and the
+        # Single session for both queries: the aggregation and the
         # last-failure lookup are one logical operation — two sessions double
         # the round-trips for no reason.
         async with self._pool.session() as session:

@@ -153,7 +153,7 @@ class TestFusionScoreAtK:
 
 
 class TestFusionScoreAtKUniqueItems:
-    """Regression: num_unique_items must cover every ranked list (#96)."""
+    """Regression: num_unique_items must cover every ranked list."""
 
     def test_unique_items_not_bounded_by_top_k_lists(self) -> None:
         """With 3 lists and top_k=2, items in the third list still count."""

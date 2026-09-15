@@ -290,7 +290,7 @@ class TestAddRule:
 class TestResolveRulePriorityAcrossCandidates:
     """Regression: rule priority must be respected ACROSS candidates —
     a high-priority rule match on a later candidate wins over a
-    low-priority rule match on an earlier one (vuln-CORR#313)."""
+    low-priority rule match on an earlier one."""
 
     def test_exact_beats_fuzzy_across_candidates(self) -> None:
         rules = EntityResolutionRules()
@@ -332,7 +332,7 @@ class TestResolveRulePriorityAcrossCandidates:
 
 
 class TestLocationVariantCrossSuffix:
-    """Regression: different suffix types must not merge (#314)."""
+    """Regression: different suffix types must not merge."""
 
     def test_cross_suffix_collision_rejected(self) -> None:
         """北京市 and 北京州 both strip to 北京 but must NOT merge."""

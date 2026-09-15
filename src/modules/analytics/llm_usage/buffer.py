@@ -120,7 +120,7 @@ class LLMUsageBuffer:
 
             # 仅在首次写入时设置 TTL,避免每次事件重置 TTL 导致永不过期。
             # 必须在写入前判断:写入后 hash 必然非空,写后检查恒为非空导致
-            # TTL 从不设置 (#217)。写前检查的并发双 expire 是无害的
+            # TTL 从不设置。写前检查的并发双 expire 是无害的
             # (写入相同的 TTL 值)。
             try:
                 is_new = not await self._cache.hgetall(bucket_key)

@@ -205,7 +205,7 @@ class _FakeRedis:
 
 
 class TestEnqueueBackpressureAtomicity:
-    """OTHER#120: LLEN+LPUSH must not interleave between producers."""
+    """LLEN+LPUSH must not interleave between producers."""
 
     @pytest.mark.asyncio
     async def test_concurrent_producers_respect_max_queue_size(self):
@@ -236,7 +236,7 @@ class TestEnqueueBackpressureAtomicity:
 
 
 class TestDequeueBatchAtomicity:
-    """OTHER#121: LRANGE+LTRIM must not double-dispatch to two consumers."""
+    """LRANGE+LTRIM must not double-dispatch to two consumers."""
 
     @pytest.mark.asyncio
     async def test_concurrent_consumers_no_duplicate_dispatch(self):
@@ -278,7 +278,7 @@ class TestDequeueBatchAtomicity:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#262)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_invalid_uuid_message_is_truncated(self, queue):

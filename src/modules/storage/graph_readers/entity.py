@@ -187,7 +187,7 @@ class GraphEntityReader(GraphReaderBase):
         # Compute weight dynamically as co-occurrence article count.
         # Find articles that mention both the source entity and each target.
         # Skip the extra round-trip when every row already carries a
-        # computed stored weight (perf#99: weights are then unused below).
+        # computed stored weight (weights are then unused below).
         if any(r.get("weight", 1.0) <= 1.0 for r in result):
             weights = await self._compute_cooccurrence_weights(
                 entity_name, [r["target_name"] for r in result]
@@ -234,7 +234,7 @@ class GraphEntityReader(GraphReaderBase):
         try:
             # Single query: count shared articles between source and all targets.
             # Built through the dialect-aware query builder and routed via
-            # _execute_fn like every other query here (other#124): a
+            # _execute_fn like every other query here: a
             # primary-pool outage now triggers the fallback pool instead of
             # surfacing as a silently-swapped empty dict.
             result = await self._execute_fn(

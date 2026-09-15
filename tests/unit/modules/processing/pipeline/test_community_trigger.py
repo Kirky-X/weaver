@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for community trigger entity-name collection (T008 #404)."""
+"""Regression tests for community trigger entity-name collection."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from modules.processing.pipeline.community_trigger import CommunityUpdateTrigger
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#404)."""
+    """Regression tests for LOW findings."""
 
     def test_none_entity_names_are_not_collected(self):
         """#404: the object branch must skip ``None`` names like the dict branch."""

@@ -183,7 +183,7 @@ class TestBatchCallUsesMget:
 
 
 class TestBatchCallInvalidCallPoint:
-    """batch_call 对非法 call_point 必须留可观测信号（OCR LOW #39）。
+    """batch_call 对非法 call_point 必须留可观测信号。
 
     此前字符串路径静默降级为 CLASSIFIER，与 ``call()``（会告警）不一致。
     """

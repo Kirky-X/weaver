@@ -334,7 +334,7 @@ class TestProtocolCompleteness:
         """build_upsert_entity_vector_query 必须出现在 Protocol 中。
 
         两个实现类都定义了该方法，但 Protocol 此前未声明，导致新实现者
-        无从知晓需要提供该能力（OCR LOW #86）。
+        无从知晓需要提供该能力。
         """
         assert hasattr(VectorQueryBuilder, "build_upsert_entity_vector_query")
 

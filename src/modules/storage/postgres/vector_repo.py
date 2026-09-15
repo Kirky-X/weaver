@@ -305,7 +305,7 @@ class VectorRepo:
 
         # Fetch article bodies for keyword overlap scoring using ORM.
         # Parse the string ids into UUID objects so the comparison binds
-        # typed parameters against the UUID primary key (corr#465) — a
+        # typed parameters against the UUID primary key — a
         # string cast would break index usage and depends on PostgreSQL's
         # exact text representation of UUIDs.
         article_uuids: list[uuid.UUID] = []
@@ -518,7 +518,7 @@ class VectorRepo:
                 key = f"temp:{name}" if use_temp_key else name
                 seen[key] = embedding
 
-            # One session/transaction for all chunks (corr#290): chunking
+            # One session/transaction for all chunks: chunking
             # still bounds each statement far below PG's 65535
             # bind-parameter cap, but a mid-batch failure now rolls back the
             # whole upsert instead of leaving chunks 1..N-1 committed while

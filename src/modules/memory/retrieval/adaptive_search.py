@@ -54,7 +54,7 @@ class _IntentGraphAdapter:
     def __init__(self) -> None:
         # Only the neighbor cache is actually read (via get_neighbors); the
         # repos/embedding/intent inputs are consumed upstream during
-        # _prefetch_neighbors and were dead weight here (#104).
+        # _prefetch_neighbors and were dead weight here.
         self._cached_neighbors: dict[str, list[dict[str, Any]]] = {}
 
     def get_neighbors(self, entity_id: str) -> list[dict[str, Any]]:
@@ -132,7 +132,7 @@ class AdaptiveSearchEngine:
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
         # Per-search state lives in local variables passed through the
-        # call chain (corr#366): concurrent search() calls no longer
+        # call chain: concurrent search() calls no longer
         # share a mid-flight mutable cache. `_event_cache` below is only
         # published atomically when a search completes (kept as a debug
         # seam / last-search snapshot).
@@ -184,7 +184,7 @@ class AdaptiveSearchEngine:
         """
         start_time = time.monotonic()
 
-        # Per-invocation metadata (corr#366): accumulated locally and
+        # Per-invocation metadata: accumulated locally and
         # published to `last_metadata` atomically at the end, so a
         # concurrent search can never observe a half-updated dict.
         metadata: dict[str, Any] = {
@@ -398,7 +398,7 @@ class AdaptiveSearchEngine:
             anchors: Starting anchor event IDs.
             query_embedding: Query embedding vector.
             intent: Query intent type.
-            event_cache: Per-search event cache (corr#366 — local to one
+            event_cache: Per-search event cache (— local to one
                 search() call, not shared instance state).
 
         Returns:
@@ -587,7 +587,7 @@ class AdaptiveSearchEngine:
 
         Args:
             event_id: Event ID.
-            event_cache: Per-search pre-fetched events (corr#366).
+            event_cache: Per-search pre-fetched events.
 
         Returns:
             Event data dictionary or None.

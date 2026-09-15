@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Pre-compiled tokenizer patterns (OCR LOW #25): ``_tokenize`` is invoked on
+# Pre-compiled tokenizer patterns: ``_tokenize`` is invoked on
 # every fuzz-anchor step, so keep the patterns out of the per-call path.
 _WORD_RE = re.compile(r"[a-zA-Z]+")
 _CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
@@ -194,8 +194,7 @@ class MCSampler:
             # Prioritize fuzz anchors (content change points); ties broken by
             # position so the selection is deterministic for a given anchor
             # set (the set itself is already randomly sampled above).
-            # frozenset for O(1) membership instead of O(n) list scan
-            # (OCR LOW #91).
+            # frozenset for O(1) membership instead of O(n) list scan.
             fuzz_anchors_set = frozenset(fuzz_anchors)
             anchors = sorted(
                 anchors,
@@ -229,8 +228,7 @@ class MCSampler:
         """
         text_len = len(text)
         # Short documents (text_len < 10) yield window == 0; slicing then
-        # produces empty strings and every step is flagged as a change point
-        # (OCR LOW #115).
+        # produces empty strings and every step is flagged as a change point.
         if window <= 0:
             return []
         anchors: list[int] = []

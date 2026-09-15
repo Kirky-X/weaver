@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """High-severity fixes verification for memory graph repos.
 
-Covers: CORR#361 (Ladybug MERGE edges), CORR#363 (hardcoded CAUSES),
-OTHER#101/CORR#364 (temporal append idempotency/orphan retry).
+Covers: Ladybug MERGE edges, hardcoded CAUSES relation types, temporal
+append idempotency/orphan retry.
 """
 
 from datetime import UTC, datetime
@@ -23,7 +23,7 @@ def _ladybug_pool():
     return pool
 
 
-# ── CORR#361: Ladybug edge creation is idempotent (MERGE) ────────────
+# ── Ladybug edge creation is idempotent (MERGE) ────────────
 
 
 class TestCausalEdgeMerge:
@@ -52,7 +52,7 @@ class TestCausalEdgeMerge:
         assert "MERGE" in query
 
 
-# ── CORR#363: get_causes/get_effects return real relation types ──────
+# ── get_causes/get_effects return real relation types ──────
 
 
 class TestCausalRelationTypeReturned:
@@ -110,7 +110,7 @@ class TestCausalRelationTypeReturned:
         assert "type(r) AS relation_type" in query
 
 
-# ── OTHER#101 / CORR#364: temporal append idempotency ────────────────
+# ── temporal append idempotency ────────────────
 
 
 def _event(event_id="evt-1"):
@@ -136,7 +136,7 @@ class TestTemporalAppendLadybug:
 
     @pytest.mark.asyncio
     async def test_orphan_node_retry_relinks(self):
-        """CORR#364: node exists but unlinked → retry still links the chain."""
+        """node exists but unlinked → retry still links the chain."""
         pool = _ladybug_pool()
         # check (unlinked) → find_prev → MERGE node → SET props → link
         pool.execute_query = AsyncMock(

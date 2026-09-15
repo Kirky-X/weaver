@@ -821,7 +821,7 @@ class TestRunPipelinesSequentiallyTotalTimeout:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#427)."""
+    """Regression tests for LOW findings."""
 
     def test_numeric_string_zero_still_triggers_fallback(self):
         """#427: a ``"0"`` context token must not suppress the Bing fallback."""

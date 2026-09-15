@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for URL-pattern precompilation (T008 #85)."""
+"""Regression tests for URL-pattern precompilation."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from modules.processing.nodes.classification import classifier as module
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#85)."""
+    """Regression tests for LOW findings."""
 
     def test_news_url_patterns_are_precompiled(self):
         """#85: the module-level patterns are compiled once."""

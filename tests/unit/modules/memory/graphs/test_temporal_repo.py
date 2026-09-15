@@ -502,7 +502,7 @@ async def test_append_to_chain_persists_embedding_ladybug():
     assert "EventNode" in set_query
     # SET 语句透传 embedding
     assert set_params["embedding"] == embedding
-    # 第 1 次调用（MERGE 节点）必须是幂等 MERGE 而非 CREATE（corr#361/#364）
+    # 第 1 次调用（MERGE 节点）必须是幂等 MERGE 而非 CREATE
     merge_query = pool.execute_query.call_args_list[2][0][0]
     assert "MERGE" in merge_query
     assert "CREATE" not in merge_query

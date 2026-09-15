@@ -499,7 +499,7 @@ class TestHealthCheckAdvanced:
 
 
 class TestUriCredentialRedaction:
-    """Health-check details must redact credentials embedded in URIs (#29)."""
+    """Health-check details must redact credentials embedded in URIs."""
 
     def test_redacts_uri_password(self) -> None:
         from core.health.pre_startup import _redact_uri_credentials

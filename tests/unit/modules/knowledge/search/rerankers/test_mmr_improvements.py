@@ -220,7 +220,7 @@ class TestMMRCustomSimilarity:
 
 
 class TestShouldUseEmbeddingSimilarity:
-    """Regression (#344): `self._similarity_fn is not self._jaccard_similarity`
+    """Regression: `self._similarity_fn is not self._jaccard_similarity`
     was always True (each attribute access creates a new bound method object),
     so embedding similarity mode was never activated."""
 

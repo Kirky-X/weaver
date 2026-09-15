@@ -714,7 +714,7 @@ class TestNarrativeFormatSummaryFirst:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#80)."""
+    """Regression tests for LOW findings."""
 
     def test_score_none_is_coerced_to_zero(self):
         """#80: a present-but-None score must not raise in the f-string format."""

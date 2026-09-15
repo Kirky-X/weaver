@@ -242,7 +242,7 @@ class PhishTankSync:
         # Domain match. Scheme-agnostic on purpose: the exact-URL check above
         # is scheme-sensitive, but the domain fallback treats
         # https://evil.com as matching a phish registered as http://evil.com.
-        # Documented behavior, not an oversight (OCR LOW #68).
+        # Documented behavior, not an oversight.
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
 

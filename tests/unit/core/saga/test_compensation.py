@@ -414,7 +414,7 @@ class TestBatchMergerCompensationDataFormat:
 
 
 class TestArticleIdSerialization:
-    """``article_id`` 必须是 JSON 可序列化的字符串（OCR LOW #139）。
+    """``article_id`` 必须是 JSON 可序列化的字符串。
 
     字段声明为 ``str``，但上游可能传入 ``uuid.UUID``；序列化前必须字符串化，
     否则 ``json.dumps`` 会抛 ``TypeError``。

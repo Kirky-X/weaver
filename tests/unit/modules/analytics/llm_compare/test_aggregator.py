@@ -173,7 +173,7 @@ class TestFlushCompareBuffer:
 
 
 class TestFlushCompareBufferBadBucket:
-    """Malformed bucket keys must be cleaned up, not poison the loop (#74)."""
+    """Malformed bucket keys must be cleaned up, not poison the loop."""
 
     @staticmethod
     def _async_key_iter(keys):
@@ -185,7 +185,7 @@ class TestFlushCompareBufferBadBucket:
 
     @pytest.mark.asyncio
     async def test_malformed_bucket_key_is_deleted_not_errored(self):
-        """A non-%Y%m%d%H bucket is deleted and counted as processed (#74)."""
+        """A non-%Y%m%d%H bucket is deleted and counted as processed."""
         cache = AsyncMock()
         cache.scan_iter = MagicMock(return_value=self._async_key_iter(["llm:compare:not_a_bucket"]))
         cache.hgetall = AsyncMock(return_value={"k": "1"})

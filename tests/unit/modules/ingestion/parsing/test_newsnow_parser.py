@@ -316,7 +316,7 @@ class TestNewsNowParserClose:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#60)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.parametrize(
         ("url", "expected"),

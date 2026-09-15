@@ -351,7 +351,7 @@ class TestTemporalSignal:
 class TestPromptPlaceholderSubstitution:
     """Regression: the {query} placeholder inside INTENT_CLASSIFICATION_PROMPT
     must be substituted; the constant contains literal JSON braces so
-    str.format() is not an option (vuln-CORR#335)."""
+    str.format() is not an option."""
 
     @pytest.mark.asyncio
     async def test_query_substituted_inside_user_query_tags(self):

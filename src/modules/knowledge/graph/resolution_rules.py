@@ -534,7 +534,7 @@ class EntityResolutionRules:
         name_stripped, _name_suffix = self._strip_one_suffix(name, suffixes)
         canonical_stripped, _canonical_suffix = self._strip_one_suffix(canonical, suffixes)
 
-        # Deliberately NO cross-suffix rejection here, unlike locations (#314):
+        # Deliberately NO cross-suffix rejection here, unlike locations:
         # a company and its group are legitimate aliases, so 阿里巴巴公司 and
         # 阿里巴巴集团 must merge — asserted by
         # tests/unit/modules/nlp/test_resolution_rules.py::test_organization_variant_match.

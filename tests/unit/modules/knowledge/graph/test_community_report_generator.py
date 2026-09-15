@@ -378,7 +378,7 @@ class TestReportGenerationResult:
 
 
 class TestGetCommunityDataBackendCompatibility:
-    """vuln-CORR284: LadybugDB must not see coalesce() in the query."""
+    """LadybugDB must not see coalesce() in the query."""
 
     def _make_generator(self, pool, llm):
         return CommunityReportGenerator(pool, llm)

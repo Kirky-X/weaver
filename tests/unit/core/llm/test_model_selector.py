@@ -96,12 +96,12 @@ class TestNormalizeInverse:
         """所有 cost/latency 均为 0 时，全部应得满分 1.0。
 
         0 是最优取值，「全部为 0」不应降级为中性 0.5 而稀释该维度的
-        信号（OCR LOW #144）。
+        信号。
         """
         assert _normalize_inverse({"a": 0.0, "b": 0.0}) == {"a": 1.0, "b": 1.0}
 
     def test_equal_nonzero_is_neutral_tie(self):
-        """非 0 的并列取值无区分信号，保持 0.5（OCR LOW #144）。"""
+        """非 0 的并列取值无区分信号，保持 0.5。"""
         assert _normalize_inverse({"a": 5.0, "b": 5.0}) == {"a": 0.5, "b": 0.5}
 
 

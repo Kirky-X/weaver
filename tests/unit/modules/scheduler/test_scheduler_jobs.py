@@ -271,7 +271,7 @@ class TestUpdateSourceAutoScores:
 
     @pytest.mark.asyncio
     async def test_update_source_auto_scores_with_sources(self, scheduler_jobs_service):
-        """Test updating scores for sources (single aggregate query — PERF#94)."""
+        """Test updating scores for sources (single aggregate query)."""
         # One query: select(source_host, avg(credibility_score)).group_by(host)
         aggregate_result = MagicMock()
         aggregate_result.all.return_value = [("example.com", 0.8)]

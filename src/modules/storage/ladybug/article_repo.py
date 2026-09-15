@@ -221,7 +221,7 @@ class LadybugArticleRepo:
         """Create a FOLLOWED_BY relationship between two articles.
 
         A ``None`` gap means "unknown" and leaves any existing value
-        untouched (corr#439: mirrors the Neo4j ``is not None`` guard —
+        untouched (mirrors the Neo4j ``is not None`` guard —
         ``or 0.0`` would cement an explicit unknown as a concrete 0.0).
         """
         query = """

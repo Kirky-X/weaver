@@ -305,7 +305,7 @@ class TestVectorizeNodeIntegration:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#115)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("returned", [[], [[0.1] * 8]])

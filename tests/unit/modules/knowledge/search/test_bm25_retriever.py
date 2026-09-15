@@ -328,7 +328,7 @@ class TestBM25RetrieverChinese:
 
 
 class TestAddDocumentsDuplicateIds:
-    """Regression: duplicate doc_ids must not orphan stale corpus slots (#347)."""
+    """Regression: duplicate doc_ids must not orphan stale corpus slots."""
 
     def test_duplicate_doc_id_skipped(self) -> None:
         retriever = BM25Retriever()

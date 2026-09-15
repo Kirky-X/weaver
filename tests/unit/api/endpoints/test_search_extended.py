@@ -445,7 +445,7 @@ class TestCausalSearchEndpoint:
         mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
-        """/ Task 5.3: 无 CAUSES 边时 answer 文本应反映"未找到因果链"。
+        """/ 无 CAUSES 边时 answer 文本应反映"未找到因果链"。
 
         场景：图 DB 中 0 条 CAUSES 边（Q1 finding），但 anchor 搜索返回了
         语义相关事件。旧行为：谎称"找到 N 个相关事件的因果链"。
@@ -498,7 +498,7 @@ class TestCausalSearchEndpoint:
         mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
-        """/ Task 5.5: 退化场景 confidence 上限 0.3。
+        """/ 退化场景 confidence 上限 0.3。
 
         场景：beam search 返回 3 个 score 全为 1.0 的结果（旧行为归一化为
         1.0 谎称完美匹配）。新行为：

@@ -270,7 +270,7 @@ class TestValidateSQLIdentifierIntegration:
 
 
 class TestValidateHopPattern:
-    """Tests for validate_hop_pattern (vuln-SEC#24 defense in depth)."""
+    """Tests for validate_hop_pattern (defense in depth)."""
 
     def test_valid_patterns_pass(self) -> None:
         from core.db.safe_query import validate_hop_pattern

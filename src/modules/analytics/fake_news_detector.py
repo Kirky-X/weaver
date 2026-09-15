@@ -41,7 +41,7 @@ log = get_logger(__name__)
 
 # Token pattern for readability scoring: ASCII alnum runs count as words and
 # each CJK character counts as one token. ``body.split()`` collapses spaceless
-# Chinese text into a single "word", forcing complex_ratio to ~1.0 (#204).
+# Chinese text into a single "word", forcing complex_ratio to ~1.0.
 _READABILITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
 
 
@@ -167,7 +167,7 @@ class FakeNewsDetectorConfig:
 
         Raises:
             ValueError: If ``confidence_suspicious >= confidence_trusted`` —
-                the ``from_score`` bands would collapse (#206).
+                the ``from_score`` bands would collapse.
         """
         if settings.confidence_suspicious >= settings.confidence_trusted:
             raise ValueError(
@@ -446,7 +446,7 @@ class FakeNewsDetector:
 
         # Calculate complex word ratio (words > 4 characters).
         # CJK-aware: body.split() treats spaceless Chinese text as one giant
-        # "word", forcing complex_ratio to ~1.0 (#204).
+        # "word", forcing complex_ratio to ~1.0.
         words = _tokenize_for_readability(body)
         if not words:
             return length_score
@@ -516,7 +516,7 @@ class FakeNewsDetector:
 
         Uses the distinct ``verified_by_sources`` count signal (number of
         cross-references found) instead of re-inverting ``cross_verification``
-        — previously byte-identical to ``_extract_propagation_path`` (#205).
+        — previously byte-identical to ``_extract_propagation_path``.
         Falls back to the cross-verification proxy only when no count is
         available (the credibility checker does not always populate it).
         Higher score = fewer cross-references (more suspicious).

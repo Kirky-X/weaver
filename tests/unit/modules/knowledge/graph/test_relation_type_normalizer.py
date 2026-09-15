@@ -555,7 +555,7 @@ class TestRelationTypeNormalizer:
 
 class TestConcurrentLoadOnce:
     """Regression: concurrent normalize() calls must load the cache exactly
-    once (asyncio.Lock double-check, vuln-CORR#310)."""
+    once (asyncio.Lock double-check)."""
 
     @pytest.mark.asyncio
     async def test_parallel_normalize_loads_once(self):

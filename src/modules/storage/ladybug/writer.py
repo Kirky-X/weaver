@@ -173,7 +173,7 @@ class LadybugWriter:
                     tier=tier,
                 )
                 entity_ids.append(entity_id)
-                # Cache key is whitespace-normalized (corr#445) so later
+                # Cache key is whitespace-normalized so later
                 # relation-endpoint lookups hit even with stray spaces/case
                 # drift; the stored canonical_name itself is unchanged.
                 entity_name_to_id[str(entity_name).strip()] = entity_id

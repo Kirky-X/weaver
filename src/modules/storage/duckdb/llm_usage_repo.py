@@ -627,7 +627,7 @@ class DuckDBLLMUsageRepo:
         cutoff = datetime.now(UTC) - timedelta(days=days)
         async with self._pool.session() as session:
             # DuckDB returns -1 for DELETE rowcount: measure via
-            # before/after COUNT (corr#433) instead of trusting rowcount.
+            # before/after COUNT instead of trusting rowcount.
             before = (
                 await session.execute(
                     select(func.count())

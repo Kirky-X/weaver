@@ -58,7 +58,7 @@ class CommunityVectorRepo:
         Raises:
             ValueError: If limit/threshold are out of bounds.
         """
-        # Same guards as every VectorQueryBuilder method (sec#70): a huge
+        # Same guards as every VectorQueryBuilder method: a huge
         # limit forces a full HNSW scan, a negative threshold silently
         # returns unranked results.
         # NOTE: no embedding-dimension check here — the active embedding
@@ -70,7 +70,7 @@ class CommunityVectorRepo:
 
         # Build query for community_vectors table
         # Uses HNSW index for fast approximate nearest neighbor search.
-        # The cosine distance is computed once in a CTE (perf#106) so the
+        # The cosine distance is computed once in a CTE so the
         # WHERE filter and ORDER BY reuse the alias instead of recomputing
         # the 1024-dim expression three times per candidate row.
         query_sql = """

@@ -4,10 +4,9 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import inspect
 
 import pytest
 
@@ -956,7 +955,7 @@ class TestEntityOutputValidation:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#245, #247, #109)."""
+    """Regression tests for LOW findings."""
 
     def test_exception_handlers_use_plain_exception(self):
         """#245: ``Exception`` is not listed alongside its own subclasses."""

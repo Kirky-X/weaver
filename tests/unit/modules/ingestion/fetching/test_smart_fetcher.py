@@ -460,7 +460,7 @@ class TestSmartFetcherClose:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#247)."""
+    """Regression tests for LOW findings."""
 
     @pytest.fixture
     def smart_fetcher(self):
@@ -498,7 +498,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#247)."""
+    """Regression tests for LOW findings."""
 
     def test_dead_circuit_open_branch_removed_from_fetch_try(self):
         """#247: the unreachable ``except CircuitOpenError: raise`` clause is gone."""

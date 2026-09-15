@@ -1336,7 +1336,7 @@ class TestMetadataTracking:
 
 class TestVectorSearchScoreAlignment:
     """Regression: cosine scores must stay aligned with their result rows
-    even when some rows carry unusable embeddings (vuln-CORR#318)."""
+    even when some rows carry unusable embeddings."""
 
     @pytest.mark.asyncio
     async def test_scores_aligned_after_dropping_invalid_embedding_rows(self, mock_pool) -> None:

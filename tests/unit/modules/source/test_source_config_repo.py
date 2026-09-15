@@ -127,7 +127,7 @@ class TestSourceConfigRepoGetByUrl:
 
 
 class TestSourceConfigRepoGetCredibility:
-    """Tests for get_credibility method (CORR#260 two-tier lookup).
+    """Tests for get_credibility method (two-tier lookup).
 
     Primary path queries ``source_authorities.host`` (unique, exact match)
     and returns a float authority. Fallback scans ``source_configs`` and
@@ -217,7 +217,7 @@ class TestSourceConfigRepoGetCredibility:
 
     @pytest.mark.asyncio
     async def test_get_credibility_fallback_rejects_host_in_path(self):
-        """Host embedded in the URL *path* must not match (CORR#260 core)."""
+        """Host embedded in the URL *path* must not match."""
         mock_pool = MagicMock()
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session

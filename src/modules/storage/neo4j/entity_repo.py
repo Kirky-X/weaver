@@ -96,7 +96,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
                 # Unexpected failure (connection drop, syntax error for the
                 # Neo4j version in use): surface at WARNING so a missing
                 # uniqueness constraint cannot silently cause duplicates
-                # (corr#451). The constraint error itself is preserved.
+                # . The constraint error itself is preserved.
                 log.warning(
                     "neo4j_constraint_failed",
                     constraint=constraint[:50],
@@ -529,7 +529,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         Returns:
             Actual number of entities deleted.
         """
-        # Single atomic statement (corr#449): the old count-then-delete in
+        # Single atomic statement: the old count-then-delete in
         # two round-trips had a TOCTOU gap and could return a stale count.
         # Collect + size() reports the ACTUAL number deleted (same pattern
         # as Neo4jArticleRepo.delete_orphan_articles).
@@ -685,7 +685,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             for rt in relation_types:
                 validate_edge_type(rt)
 
-            # Filter via a list parameter (sec#69): no edge-type text is
+            # Filter via a list parameter: no edge-type text is
             # interpolated into the Cypher, so the query shape cannot change
             # even if the validator regex is relaxed in the future.
             query = f"""

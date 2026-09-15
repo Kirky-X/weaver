@@ -736,7 +736,7 @@ class TestArticleRepoDetectMergeCycle:
 class TestArticleRepoResolveFinalMergeTarget:
     """Tests for ArticleRepo.resolve_final_merge_target method.
 
-    corr#104: the method now resolves the whole chain with a single
+    the method now resolves the whole chain with a single
     recursive CTE; rows carry (id, merged_into, path).
     """
 
@@ -817,7 +817,7 @@ class TestArticleRepoResolveFinalMergeTarget:
 
     @pytest.mark.asyncio
     async def test_resolve_final_merge_target_uses_single_cte_query(self, repo, mock_pool):
-        """corr#104: exactly one SQL round-trip resolves the whole chain."""
+        """exactly one SQL round-trip resolves the whole chain."""
         article_id = uuid.uuid4()
         row = MagicMock()
         row.id = article_id

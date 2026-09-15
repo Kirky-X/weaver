@@ -693,7 +693,7 @@ class TestDRIFTSearchEngineSearch:
 
 class TestFollowUpSourceEntities:
     """Regression: follow_up_data source_entities must come from
-    SearchResult.entities (vuln-CORR#322) — the old getattr on the
+    SearchResult.entities — the old getattr on the
     nonexistent `source_entities` attribute always returned []."""
 
     @pytest.mark.asyncio

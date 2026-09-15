@@ -327,11 +327,11 @@ class TestCascadeIntegration:
         assert result["terminal"] is True
 
 
-# ── Empty-prediction guards / layer independence (T008 #381, #382) ──
+# ── Empty-prediction guards / layer independence ──
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#381, #382)."""
+    """Regression tests for LOW findings."""
 
     def test_empty_fasttext_prediction_falls_through(self):
         """#381: empty labels/probs must not raise IndexError."""
@@ -397,7 +397,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#381)."""
+    """Regression tests for LOW findings."""
 
     def test_empty_fasttext_prediction_falls_through_to_llm(self):
         """#381: empty labels/probs must not raise IndexError."""

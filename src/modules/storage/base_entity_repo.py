@@ -222,7 +222,7 @@ class BaseEntityRepo(ABC):
         # Default implementation using list + delete.
         # Per-item failures are logged and skipped so one bad row cannot
         # abort the whole sweep; the return value is the ACTUAL number of
-        # rows deleted (corr#429), not the candidate count.
+        # rows deleted, not the candidate count.
         orphan_ids = await self._list_orphan_ids()
         deleted = 0
         for eid in orphan_ids:

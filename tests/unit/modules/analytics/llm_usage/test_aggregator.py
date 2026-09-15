@@ -620,10 +620,10 @@ class TestRedisKeyPrefix:
 
 
 class TestAggregateUsageDataFloatStrings:
-    """Float-string values must not be silently dropped (#214)."""
+    """Float-string values must not be silently dropped."""
 
     def test_float_string_count_accepted(self):
-        """Decimal strings are truncated to int instead of skipped (#214)."""
+        """Decimal strings are truncated to int instead of skipped."""
         data = {
             "chat::openai::gpt-4::classifier::count": "150.5",
         }
@@ -643,7 +643,7 @@ class TestAggregateUsageDataFloatStrings:
         assert result[key]["count"] == 0
 
     def test_nan_and_inf_values_skipped(self):
-        """NaN/inf strings cannot become ints and are skipped (#214)."""
+        """NaN/inf strings cannot become ints and are skipped."""
         data = {
             "chat::openai::gpt-4::classifier::count": "nan",
             "chat::openai::gpt-4::analyzer::count": "inf",
@@ -655,7 +655,7 @@ class TestAggregateUsageDataFloatStrings:
 
 
 class TestFlushUsageBufferFailureLogging:
-    """Failure logs must carry the aggregated snapshot for recovery (#75)."""
+    """Failure logs must carry the aggregated snapshot for recovery."""
 
     @staticmethod
     def _async_key_iter(keys):
@@ -668,7 +668,7 @@ class TestFlushUsageBufferFailureLogging:
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
     async def test_key_failure_log_includes_aggregated_snapshot(self):
-        """upsert failure logs groups + full aggregated dict (#75)."""
+        """upsert failure logs groups + full aggregated dict."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
         cache = MagicMock()

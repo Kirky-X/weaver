@@ -712,7 +712,7 @@ class TestLocalContextBuilderSecurity:
 class TestRelMatchClauseCypherShape:
     """Regression: _build_rel_match_clause already returns a fully dashed
     pattern, so the caller must not wrap it in extra dashes — the generated
-    Cypher must not contain `--[` (vuln-CORR#320)."""
+    Cypher must not contain `--[`."""
 
     @pytest.mark.asyncio
     async def test_related_entities_cypher_has_no_double_dash(self) -> None:

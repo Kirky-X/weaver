@@ -219,7 +219,7 @@ class TestDetectScript:
 
 class TestWhitespaceOnlyCandidate:
     """Regression: whitespace-only candidates normalize to "" and must not
-    crash the scorer with IndexError (vuln-CORR#305)."""
+    crash the scorer with IndexError."""
 
     def test_whitespace_only_name_does_not_crash(self) -> None:
         normalizer = NameNormalizer()

@@ -1339,7 +1339,7 @@ class TestPrintReport:
         captured = capsys.readouterr()
         assert "Environment Validation Report" in captured.out
         # 空结果集不再打印「All 0 services healthy」（会被误读为全部通过），
-        # 改为明确的「未请求/未校验任何服务」提示（OCR LOW #121）。
+        # 改为明确的「未请求/未校验任何服务」提示。
         assert "No services requested/validated" in captured.out
         assert "All 0 services healthy" not in captured.out
 

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for consistency job hardening (T008 #419, #421)."""
+"""Regression tests for consistency job hardening."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from modules.scheduler import consistency_jobs as module
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#419, #421)."""
+    """Regression tests for LOW findings."""
 
     def test_json_repair_is_no_longer_used(self):
         """#419: own serialized payloads are parsed with plain ``json.loads``."""

@@ -186,7 +186,7 @@ class TestMultiHopExpansion:
 
 
 class TestExpansionDedupAndEmptyIds:
-    """Regression: expansion must not waste beam slots (#340/#72).
+    """Regression: expansion must not waste beam slots.
 
     - Neighbors with empty ids can never be visited/collected, but were
       previously queued into next_candidates and consumed beam_width slots.

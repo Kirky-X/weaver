@@ -208,7 +208,7 @@ class SentimentShiftDetector:
         Shift points within cooldown_hours of each other are merged.
         When both algorithms detect the same shift, detection_method
         is set to 'pelt+cusum'. Same-method duplicates keep the
-        higher-confidence record (#224).
+        higher-confidence record.
         """
         # Combine all shifts
         all_shifts = list(pelt_shifts) + list(cusum_shifts)
@@ -248,7 +248,7 @@ class SentimentShiftDetector:
                         existing["shift_type"] = "pelt+cusum"
                         existing["confidence"] = max(existing["confidence"], shift["confidence"])
                     else:
-                        # Same-method duplicate within cooldown (#224): the
+                        # Same-method duplicate within cooldown: the
                         # second detection was previously discarded without
                         # any merge — keep the higher-confidence record.
                         if shift["confidence"] > existing["confidence"]:

@@ -23,7 +23,6 @@ import pytest
 
 from api.middleware.performance import PerformanceMonitoringMiddleware, _metric_path
 
-
 # ── +: performance middleware ───────────────────────────────
 
 
@@ -126,7 +125,7 @@ class TestHTTPLoggingBodyBuffering:
     @pytest.mark.asyncio
     async def test_body_capture_bounded_when_logging_enabled(self):
         """With logging on, only the preview window is buffered."""
-        from api.middleware.asgi import HTTPLoggingMiddleware, _MAX_BODY_CAPTURE
+        from api.middleware.asgi import _MAX_BODY_CAPTURE, HTTPLoggingMiddleware
 
         big = b"y" * 10_000
         mw = HTTPLoggingMiddleware(app=_BodySendingApp([big]), log_response_body=True)
@@ -451,7 +450,7 @@ class TestSseProcessingTaskCancellation:
 
 
 class TestCorsProductionOriginPolicy:
-    """Production CORS misconfiguration must fail fast (#20)."""
+    """Production CORS misconfiguration must fail fast."""
 
     @staticmethod
     def _settings(environment: str) -> MagicMock:

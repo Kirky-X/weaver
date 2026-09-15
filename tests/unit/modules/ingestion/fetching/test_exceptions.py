@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for fetcher exception chaining (T008 #177)."""
+"""Regression tests for fetcher exception chaining."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from modules.ingestion.fetching.exceptions import FetchError
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#177)."""
+    """Regression tests for LOW findings."""
 
     def test_cause_is_linked_into_exception_chain(self):
         """#177: passing ``cause`` must populate ``__cause__`` like ``raise ... from``."""

@@ -123,7 +123,7 @@ class PendingSyncRepo:
                 await session.commit()
             else:
                 # A silently-missing record hides outbox loss; make the
-                # no-op observable so callers can reconcile (#286).
+                # no-op observable so callers can reconcile.
                 log.warning("pending_sync_mark_failed_missing", record_id=record_id)
 
     async def cleanup_old_synced(self, days: int = 7) -> int:
@@ -156,7 +156,7 @@ class PendingSyncRepo:
 
         Args:
             hours: Number of hours after which a pending record is considered stale.
-            limit: Maximum rows to load (corr#107: a large stale backlog must
+            limit: Maximum rows to load (a large stale backlog must
                 not be loaded into memory unbounded, mirroring get_pending).
 
         Returns:

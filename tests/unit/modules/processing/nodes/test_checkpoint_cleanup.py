@@ -215,7 +215,7 @@ class TestCheckpointCleanupNodeIntegration:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#106)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_missing_url_skips_cleanup(self, mock_redis):

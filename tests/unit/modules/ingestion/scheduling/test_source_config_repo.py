@@ -127,7 +127,7 @@ class TestSourceConfigRepoGetByUrl:
 
 
 class TestSourceConfigRepoGetCredibility:
-    """Tests for get_credibility method (CORR#260 two-tier lookup).
+    """Tests for get_credibility method (two-tier lookup).
 
     Primary path queries ``source_authorities.host`` (unique, exact match)
     and returns a float authority. Fallback scans ``source_configs`` and

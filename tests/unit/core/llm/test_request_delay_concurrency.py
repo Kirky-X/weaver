@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 KirkyX. All Rights Reserved.
-"""Concurrency tests for RequestDelay.BoundedLockDict (CORR#244 family).
+"""Concurrency tests for RequestDelay.BoundedLockDict (family).
 
 Mirrors the fix in modules/ingestion/fetching/rate_limiter.py: busy locks
 must never be evicted, otherwise two coroutines can pass the critical

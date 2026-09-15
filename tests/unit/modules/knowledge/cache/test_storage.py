@@ -613,7 +613,7 @@ class TestKnowledgeCacheRemoveRealDuckDB:
 
 class TestFindSimilarClusterParameterized:
     """Regression: query embedding must be a bound parameter, not an
-    f-string interpolated Python list literal (#264)."""
+    f-string interpolated Python list literal."""
 
     @pytest.mark.asyncio
     async def test_embedding_passed_as_bound_param(self, tmp_path):

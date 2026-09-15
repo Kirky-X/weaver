@@ -27,7 +27,7 @@ if __name__ != "__main__":
 
 log = get_logger(__name__)
 
-# Max opening-brace candidates retried by _extract_json_from_text (#53).
+# Max opening-brace candidates retried by _extract_json_from_text.
 _MAX_JSON_CANDIDATES = 128
 
 
@@ -169,7 +169,7 @@ class SentimentAnalyzer:
 
         # Type guard: a non-numeric score (None from a missing key or a
         # string from a misbehaving model) would raise TypeError on the
-        # threshold comparison below (#222). Degrade to 0.0 so the request
+        # threshold comparison below. Degrade to 0.0 so the request
         # falls through to the LLM fallback instead of dropping the result.
         if not isinstance(confidence, (int, float)):
             log.warning(
@@ -265,7 +265,7 @@ class SentimentAnalyzer:
 
         The LLM may return ``sentiment_score`` as a string (e.g. ``"0.8"``)
         or ``null``/``None`` — coerce before clamping instead of raising
-        ``TypeError`` in ``min``/``max`` (#221).
+        ``TypeError`` in ``min``/``max``.
 
         Args:
             score: Raw score (numeric, numeric string, or None).
@@ -312,14 +312,14 @@ class SentimentAnalyzer:
         """
         # Collect opening-brace candidates, keeping only the most recent ones:
         # each failed candidate scans to end-of-text, so unbounded retries on
-        # brace-heavy prose are O(N^2) (#53). LLM payloads are short; the cap
+        # brace-heavy prose are O(N^2). LLM payloads are short; the cap
         # only bounds pathological inputs.
         starts = [i for i, ch in enumerate(text) if ch == "{"][-_MAX_JSON_CANDIDATES:]
         # Find all positions of opening braces
         for i in reversed(starts):
             # Try to parse from this position to end, tracking string state so
             # braces inside JSON string values (e.g. "note": "use {x}") do not
-            # corrupt the depth count (#53).
+            # corrupt the depth count.
             depth = 0
             in_string = False
             escaped = False

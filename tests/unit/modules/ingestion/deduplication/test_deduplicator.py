@@ -291,7 +291,7 @@ class TestNormalizeUrl:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#56)."""
+    """Regression tests for LOW findings."""
 
     @staticmethod
     def _deduplicator(existing_urls_return):
@@ -331,7 +331,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#56)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_db_existing_membership_is_set_based(self):

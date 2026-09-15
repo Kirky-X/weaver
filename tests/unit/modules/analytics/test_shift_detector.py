@@ -257,7 +257,7 @@ class TestSentimentShiftDetectorCustomConfig:
 
 
 class TestMergeSameMethodDuplicates:
-    """Same-method duplicates within cooldown keep the best record (#224)."""
+    """Same-method duplicates within cooldown keep the best record."""
 
     def _shift(self, method, breakpoint, confidence):
         return {
@@ -272,7 +272,7 @@ class TestMergeSameMethodDuplicates:
         }
 
     def test_same_method_keeps_higher_confidence(self):
-        """Second same-method detection must merge, not vanish (#224)."""
+        """Second same-method detection must merge, not vanish."""
         detector = SentimentShiftDetector()
         merged = detector._merge_results(
             [self._shift("cusum", 5, 0.6)],
@@ -295,7 +295,7 @@ class TestMergeSameMethodDuplicates:
         assert merged[0]["breakpoint"] == 5
 
     def test_distant_same_method_shifts_both_kept(self):
-        """Outside cooldown both records survive (#224)."""
+        """Outside cooldown both records survive."""
         detector = SentimentShiftDetector()
         merged = detector._merge_results(
             [self._shift("cusum", 2, 0.6)],

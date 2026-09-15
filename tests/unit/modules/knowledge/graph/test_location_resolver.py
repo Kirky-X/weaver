@@ -7,7 +7,7 @@ from modules.knowledge.graph.location_resolver import LocationResolver
 
 
 class TestLocationResolverInit:
-    """Construction must stay cheap (#90)."""
+    """Construction must stay cheap."""
 
     def test_does_not_load_unused_geonames_dataset(self) -> None:
         """#90: the geonames country dataset was never read — don't load it."""
@@ -22,7 +22,7 @@ class TestLocationResolverInit:
 
 
 class TestNormalizeMemoization:
-    """``normalize`` is pure, so repeated lookups must be served from cache (#69)."""
+    """``normalize`` is pure, so repeated lookups must be served from cache."""
 
     def test_repeated_normalize_returns_cached_result(self) -> None:
         resolver = LocationResolver()

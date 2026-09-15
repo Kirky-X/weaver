@@ -354,7 +354,7 @@ class TestAutoRepairTargetedInput:
 
 
 class TestRepairMissingReports:
-    """Test repair_missing_reports success semantics (#273/#274)."""
+    """Test repair_missing_reports success semantics."""
 
     @pytest.fixture
     def service_with_generator(self):

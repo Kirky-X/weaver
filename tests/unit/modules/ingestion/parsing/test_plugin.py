@@ -366,7 +366,7 @@ class ExternalParser:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#178)."""
+    """Regression tests for LOW findings."""
 
     def test_plugin_decorators_global_removed(self):
         """#178: the never-read ``_plugin_decorators`` global is gone."""

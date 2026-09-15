@@ -146,7 +146,7 @@ class TestURLhausClient:
     async def test_check_error_message_fixed_not_exception_text(
         self, client: URLhausClient, mock_fetcher: MagicMock
     ) -> None:
-        """Exception text must stay in logs, never reach the response (#45)."""
+        """Exception text must stay in logs, never reach the response."""
         mock_fetcher.post.side_effect = ConnectionError(
             "secret https://user:pass@internal.host:5432/db leaked"
         )

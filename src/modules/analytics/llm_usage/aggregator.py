@@ -141,7 +141,7 @@ async def flush_usage_buffer(
                 error=str(e),
                 # Full snapshot for manual recovery: if the key TTL expires
                 # before the next successful flush, this log is the only
-                # remaining copy of the data (#75).
+                # remaining copy of the data.
                 groups=len(aggregated),
                 aggregated=aggregated,
             )
@@ -277,7 +277,7 @@ def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str
         # Aggregate metric using helper. Values are parsed via float first:
         # buffer min/max fields are written via hset as arbitrary strings and
         # may carry decimals ("150.5"), which int() would reject and silently
-        # drop (#214). int(float(...)) preserves integer semantics.
+        # drop. int(float(...)) preserves integer semantics.
         try:
             int_value = int(float(value))
         except (ValueError, TypeError, OverflowError):

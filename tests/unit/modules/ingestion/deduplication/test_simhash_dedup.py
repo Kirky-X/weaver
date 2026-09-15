@@ -240,7 +240,7 @@ class TestSimHashStats:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#57, #238)."""
+    """Regression tests for LOW findings."""
 
     def test_hamming_distance_uses_bit_count(self):
         """#57: distance equals int.bit_count of the XOR for edge values."""
@@ -276,7 +276,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#238)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_duplicate_log_reports_url_not_full_value(self):

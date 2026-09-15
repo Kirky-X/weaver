@@ -212,7 +212,7 @@ class FallbackCachePool:
                 A misspelled operation is a programming error, not an
                 infrastructure failure, so it must surface immediately
                 instead of silently degrading to a fallback that lacks the
-                attribute too (OCR LOW #79).
+                attribute too.
         """
         if self._primary_healthy:
             method = getattr(self._primary, operation, _MISSING)

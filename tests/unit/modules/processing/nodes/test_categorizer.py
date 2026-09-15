@@ -398,7 +398,7 @@ class TestCategorizerNodeIntegration:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#241, #83, #84)."""
+    """Regression tests for LOW findings."""
 
     def test_prompt_version_lookup_failure_degrades(self):
         """#241: a raising get_version must not crash the node."""

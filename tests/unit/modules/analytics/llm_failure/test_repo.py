@@ -106,7 +106,7 @@ class TestAnalyticsLLMFailureRepoRecord:
 
 
 class TestAnalyticsLLMFailureRepoInvalidArticleIdLogging:
-    """Invalid article_id must be logged, not silently swallowed (#211)."""
+    """Invalid article_id must be logged, not silently swallowed."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -141,7 +141,7 @@ class TestAnalyticsLLMFailureRepoInvalidArticleIdLogging:
 
     @pytest.mark.asyncio
     async def test_invalid_uuid_logs_warning(self, repo, mock_pool):
-        """Malformed UUID drops the field but emits a warning (#211)."""
+        """Malformed UUID drops the field but emits a warning."""
         from unittest.mock import patch
 
         self._session(mock_pool)
@@ -154,7 +154,7 @@ class TestAnalyticsLLMFailureRepoInvalidArticleIdLogging:
 
     @pytest.mark.asyncio
     async def test_valid_uuid_does_not_warn(self, repo, mock_pool):
-        """Well-formed UUID takes the quiet path (#211)."""
+        """Well-formed UUID takes the quiet path."""
         from unittest.mock import patch
         from uuid import uuid4
 
@@ -166,7 +166,7 @@ class TestAnalyticsLLMFailureRepoInvalidArticleIdLogging:
 
 
 class TestAnalyticsLLMFailureRepoGetStatsSingleSession:
-    """get_stats must use one session for both queries (#52)."""
+    """get_stats must use one session for both queries."""
 
     @pytest.mark.asyncio
     async def test_single_session_for_aggregation_and_last_failure(self):

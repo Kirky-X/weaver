@@ -74,7 +74,7 @@ class GraphRepository:
         self._fallback_query_builder = fallback_query_builder
         self._fallback_pool: GraphPool | None = None  # Lazy-initialized
         # Serializes lazy fallback-pool creation across concurrent coroutines
-        # (corr#125: check-then-act on _fallback_pool is not atomic).
+        # (check-then-act on _fallback_pool is not atomic).
         self._fallback_lock = asyncio.Lock()
 
         # Compose readers, injecting shared dependencies. The execute_fn
@@ -122,7 +122,7 @@ class GraphRepository:
         try:
             result = await self._pool.execute_query(query, params or {})
         except Exception as exc:
-            # HA fallback (corr#437): a transient primary failure falls back
+            # HA fallback: a transient primary failure falls back
             # to the secondary instead of surfacing directly. Without a
             # configured fallback pool the original error is re-raised.
             log.warning("graph_repo_primary_failed", error=str(exc))

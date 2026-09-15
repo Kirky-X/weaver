@@ -20,6 +20,6 @@ class CommunitySearchResultMapper:
                 converted["score"] = float(converted["score"])
             except (ValueError, TypeError) as exc:
                 # 复用组件：非数值 score 应给出可定位的错误，而不是裸
-                # ValueError（OCR LOW #54）。
+                # ValueError。
                 raise ValueError(f"Invalid score value: {converted['score']!r}") from exc
         return CommunitySearchResultView.model_validate(converted)

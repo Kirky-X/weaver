@@ -1145,7 +1145,7 @@ class TestGraphQualityMetricsOrphanEdgeCases:
 class TestModularityImpliesComponents:
     """Regression: include={"modularity"} must compute component data,
     otherwise _calculate_modularity reads the default connected_components=0
-    and wrongly reports modularity 0.0 (vuln-CORR#302)."""
+    and wrongly reports modularity 0.0."""
 
     @pytest.mark.asyncio
     async def test_modularity_include_triggers_component_calculation(self):

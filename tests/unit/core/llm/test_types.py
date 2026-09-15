@@ -105,7 +105,7 @@ class TestProviderConfig:
 
 
 class TestProviderApiKeySecretStr:
-    """api_key must be a SecretStr so repr/logs never leak the key (#31)."""
+    """api_key must be a SecretStr so repr/logs never leak the key."""
 
     def test_api_key_is_secret_str(self) -> None:
         config = ProviderConfig(api_key="test-key")

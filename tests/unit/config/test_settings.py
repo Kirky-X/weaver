@@ -345,7 +345,7 @@ class TestHmacSecretIndependence:
 
 
 class TestSettingsSecurityRedis:
-    """Settings.validate_security must cover Redis credentials (#21)."""
+    """Settings.validate_security must cover Redis credentials."""
 
     @staticmethod
     def _make_settings(password: str, environment: str) -> "Settings":

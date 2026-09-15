@@ -128,7 +128,7 @@ class TestHostRateLimiterAcquire:
 
 
 class TestBoundedLockDictWaiterAwareEviction:
-    """CORR#244: eviction must not drop a lock that is held or awaited.
+    """Eviction must not drop a lock that is held or awaited.
 
     ``locked()`` alone misses the release→waiter-resumption window; the
     in-flight counter covers holders and queued waiters alike.

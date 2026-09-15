@@ -575,11 +575,11 @@ class TestExaggerationDetection:
 
 
 class TestReadabilityCjkAware:
-    """Chinese text must not collapse into a single whitespace word (#204)."""
+    """Chinese text must not collapse into a single whitespace word."""
 
     @pytest.mark.asyncio
     async def test_chinese_body_not_maximally_complex(self, detector: FakeNewsDetector) -> None:
-        """Spaceless Chinese body must not force complex_ratio to ~1.0 (#204)."""
+        """Spaceless Chinese body must not force complex_ratio to ~1.0."""
         state = {
             "cleaned": {
                 "body": "中国人民银行今日发布2026年第一季度货币政策执行报告。",
@@ -592,7 +592,7 @@ class TestReadabilityCjkAware:
 
     @pytest.mark.asyncio
     async def test_english_complex_words_still_count(self, detector: FakeNewsDetector) -> None:
-        """ASCII long words still raise the complex ratio (#204)."""
+        """ASCII long words still raise the complex ratio."""
         state = {
             "cleaned": {
                 "body": (
@@ -605,7 +605,7 @@ class TestReadabilityCjkAware:
         assert features["readability"] > 0.3
 
     def test_tokenizer_falls_back_for_other_scripts(self, detector: FakeNewsDetector) -> None:
-        """Non-ASCII/non-CJK text keeps the legacy whitespace split (#204)."""
+        """Non-ASCII/non-CJK text keeps the legacy whitespace split."""
         from modules.analytics.fake_news_detector import _tokenize_for_readability
 
         assert _tokenize_for_readability("مرحبا بالعالم") == ["مرحبا", "بالعالم"]
@@ -613,11 +613,11 @@ class TestReadabilityCjkAware:
 
 
 class TestCrossReferenceCountSignal:
-    """cross_reference_count must use its own signal (#205)."""
+    """cross_reference_count must use its own signal."""
 
     @pytest.mark.asyncio
     async def test_verified_count_drives_feature(self, detector: FakeNewsDetector) -> None:
-        """verified_by_sources=3 saturates to well-corroborated (#205)."""
+        """verified_by_sources=3 saturates to well-corroborated."""
         state = {
             "credibility": {
                 "cross_verification": 0.10,  # would be 0.9 if re-inverted
@@ -631,21 +631,21 @@ class TestCrossReferenceCountSignal:
 
     @pytest.mark.asyncio
     async def test_single_source_partially_suspicious(self, detector: FakeNewsDetector) -> None:
-        """verified_by_sources=1 maps to 1 - 1/3 (#205)."""
+        """verified_by_sources=1 maps to 1 - 1/3."""
         state = {"credibility": {"verified_by_sources": 1}}
         features = await detector.extract_features(state)
         assert features["cross_reference_count"] == pytest.approx(2 / 3)
 
     @pytest.mark.asyncio
     async def test_missing_count_falls_back_to_proxy(self, detector: FakeNewsDetector) -> None:
-        """No count available: legacy cross-verification proxy kept (#205)."""
+        """No count available: legacy cross-verification proxy kept."""
         state = {"credibility": {"cross_verification": 0.75}}
         features = await detector.extract_features(state)
         assert features["cross_reference_count"] == 0.25
 
     @pytest.mark.asyncio
     async def test_non_numeric_count_falls_back(self, detector: FakeNewsDetector) -> None:
-        """Garbage count values degrade to the proxy, not an exception (#205)."""
+        """Garbage count values degrade to the proxy, not an exception."""
         state = {
             "credibility": {
                 "cross_verification": 0.6,
@@ -657,10 +657,10 @@ class TestCrossReferenceCountSignal:
 
 
 class TestFromSettingsValidation:
-    """Inverted thresholds must fail fast instead of breaking bands (#206)."""
+    """Inverted thresholds must fail fast instead of breaking bands."""
 
     def test_inverted_thresholds_raise(self) -> None:
-        """confidence_suspicious >= confidence_trusted raises ValueError (#206)."""
+        """confidence_suspicious >= confidence_trusted raises ValueError."""
         from types import SimpleNamespace
 
         from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
@@ -675,7 +675,7 @@ class TestFromSettingsValidation:
             FakeNewsDetectorConfig.from_settings(bad)
 
     def test_equal_thresholds_raise(self) -> None:
-        """Equal thresholds also collapse the bands (#206)."""
+        """Equal thresholds also collapse the bands."""
         from types import SimpleNamespace
 
         from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
@@ -690,7 +690,7 @@ class TestFromSettingsValidation:
             FakeNewsDetectorConfig.from_settings(bad)
 
     def test_valid_thresholds_pass(self) -> None:
-        """Sane settings build a config unchanged (#206)."""
+        """Sane settings build a config unchanged."""
         from types import SimpleNamespace
 
         from modules.analytics.fake_news_detector import FakeNewsDetectorConfig

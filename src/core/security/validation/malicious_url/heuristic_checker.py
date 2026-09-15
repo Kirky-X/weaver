@@ -211,7 +211,7 @@ class HeuristicChecker:
             return URLRisk.MEDIUM, "Double URL encoding detected"
 
         # Suspicious encoded characters. 大小写由 re.IGNORECASE 处理，字符类
-        # 里的 [dD] 等冗余写法已去掉，避免误导（OCR LOW #188）。
+        # 里的 [dD] 等冗余写法已去掉，避免误导。
         suspicious_patterns = [
             (r"%00", "Null byte injection"),
             (r"%0d", "Carriage return injection"),

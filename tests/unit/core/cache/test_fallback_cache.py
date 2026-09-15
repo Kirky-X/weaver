@@ -534,7 +534,7 @@ class _BareClient:
 class TestExecuteOperationNameGuard:
     """A misspelled operation name must not be masked as infra failure.
 
-    OCR LOW #79: ``getattr(self._primary, operation)`` used to raise
+    ``getattr(self._primary, operation)`` used to raise
     AttributeError inside the broad ``except Exception``, degrading the pool
     to a fallback that lacks the attribute too. The typo must surface.
     """
@@ -558,7 +558,7 @@ class TestExecuteOperationNameGuard:
 class TestRegisterScriptDegradedWarning:
     """register_script must warn when it can only hand back a placeholder.
 
-    OCR LOW #64: in degraded mode the returned ``_CashewsScript`` only fails
+    In degraded mode the returned ``_CashewsScript`` only fails
     on first invocation, so registration must log a warning up front.
     """
 

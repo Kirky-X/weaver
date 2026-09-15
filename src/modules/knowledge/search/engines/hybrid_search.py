@@ -120,7 +120,7 @@ class HybridSearchEngine:
 
     @property
     def bm25_retriever(self) -> BM25Retriever | None:
-        """Public accessor for the BM25 retriever (OCR LOW #60).
+        """Public accessor for the BM25 retriever.
 
         The container reads this to build the BM25 index service; exposing a
         property keeps that wiring safe against internal renames of the

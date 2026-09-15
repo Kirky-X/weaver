@@ -116,7 +116,7 @@ class RequestDelay:
     Thread-safety:
         仅对单事件循环（单线程 asyncio）安全。``_last_request_time`` 使用
         ``cachetools.LRUCache``，其读写并非原子；若未来从多 OS 线程访问，
-        需要用 ``threading.Lock`` 保护该缓存（OCR LOW #49）。
+        需要用 ``threading.Lock`` 保护该缓存。
 
     Args:
         enabled: 是否启用延迟

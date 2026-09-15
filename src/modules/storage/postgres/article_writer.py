@@ -254,7 +254,7 @@ class ArticleWriter:
                 next_ver = (max_ver_result.scalar_one_or_none() or 0) + 1
 
                 # Concurrent upserts of the same URL can compute the same
-                # next_ver (corr#454). The snapshot is auxiliary audit data:
+                # next_ver. The snapshot is auxiliary audit data:
                 # isolate it in a SAVEPOINT so a unique-constraint loser
                 # rolls back only the snapshot instead of aborting the whole
                 # ArticleCore/ArticleBody upsert transaction.
@@ -503,7 +503,7 @@ class ArticleWriter:
             if not matched:
                 # Nothing transitioned from PENDING: an already-processed
                 # article keeps its real analysis data instead of being
-                # overwritten with neutral fallbacks (corr#455).
+                # overwritten with neutral fallbacks.
                 await session.rollback()
                 return False
 

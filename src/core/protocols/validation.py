@@ -127,7 +127,7 @@ class ExplicitInterfaceMixin:
 
     ``implements`` accepts either a single Protocol class or a list of them;
     the list form is preferred when more than one contract is intended, so
-    that the relationship stays explicit (OCR LOW #133).
+    that the relationship stays explicit.
     """
 
     def __init_subclass__(cls, implements: type | list[type] | None = None, **kwargs: Any) -> None:

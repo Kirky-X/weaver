@@ -393,7 +393,7 @@ class TestRedisErrorHandling:
 
 
 class TestIpBanTtlAccuracy:
-    """``retry_after`` 必须反映真实剩余封禁时长（OCR LOW #185）。
+    """``retry_after`` 必须反映真实剩余封禁时长。
 
     此前实现把 TTL 抬升到最少 60s（仅剩 5s 也会被告知等 60s），且 key 已
     消失/无 TTL 时也返回 60。现在返回真实 TTL，缺失时返回 0。

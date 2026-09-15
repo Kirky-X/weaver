@@ -769,7 +769,7 @@ class TestWheelExtractionPersistence:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#378)."""
+    """Regression tests for LOW findings."""
 
     def test_failed_extraction_does_not_leak_temp_dirs(self, tmp_path):
         """#378: a failed wheel extraction must drop its dir from _temp_dirs."""

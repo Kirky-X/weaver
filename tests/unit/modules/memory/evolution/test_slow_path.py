@@ -167,7 +167,7 @@ class TestSlowPathProcessEvent:
             llm_client=mock_llm,
         )
 
-        # process_event re-raises so the batch driver can requeue (PERF#78)
+        # process_event re-raises so the batch driver can requeue
         with pytest.raises(Exception, match="DB error"):
             await worker.process_event("event-1")
 
@@ -431,7 +431,7 @@ class TestSlowPathDiscoverEntityLinks:
 
 
 class TestSlowPathSecurityAndReliability:
-    """New-behavior tests: SEC#63 whitelist + PERF#78 requeue."""
+    """New-behavior tests: causal-edge whitelist + requeue."""
 
     @pytest.mark.asyncio
     async def test_infer_rejects_unknown_event_ids(self):
@@ -495,7 +495,7 @@ class TestSlowPathSecurityAndReliability:
 
     @pytest.mark.asyncio
     async def test_infer_rejects_non_dict_response(self):
-        """CORR#358: a JSON list response must not raise AttributeError."""
+        """A JSON list response must not raise AttributeError."""
         import json as _json
 
         worker = StructuralConsolidationWorker(
@@ -540,7 +540,7 @@ class TestSlowPathSecurityAndReliability:
 
     @pytest.mark.asyncio
     async def test_process_batch_backend_error_returns_empty(self):
-        """CORR#356: a Redis failure must not look like an empty queue."""
+        """A Redis failure must not look like an empty queue."""
         queue = MagicMock()
         queue.dequeue = AsyncMock(side_effect=RuntimeError("redis down"))
         queue.ack = AsyncMock()

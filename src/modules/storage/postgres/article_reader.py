@@ -166,7 +166,7 @@ class ArticleReader:
             return set()
 
         normalized_urls = [normalize_url(u) for u in urls]
-        # Chunk large inputs (perf#105): same 500-item expanding-bindparam
+        # Chunk large inputs: same 500-item expanding-bindparam
         # strategy as fetch_titles_by_pg_ids — avoids PG parameter limits
         # and plan-cache bloat from a single giant IN clause.
         CHUNK_SIZE = 500
@@ -764,7 +764,7 @@ class ArticleReader:
 
         Follows the merged_into chain to the end, detecting cycles. Uses a
         single recursive CTE (same pattern as ``detect_merge_cycle``)
-        instead of one SELECT per hop (corr#104: N+1 queries).
+        instead of one SELECT per hop (N+1 queries).
 
         Args:
             article_id: The article to resolve.

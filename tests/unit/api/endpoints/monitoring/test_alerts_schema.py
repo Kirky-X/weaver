@@ -93,7 +93,7 @@ class TestCooldownMinutesLowerBound:
 
 
 class TestMetricOperatorEnum:
-    """``metric`` and ``operator`` MUST be constrained to known values (T005 #37).
+    """``metric`` and ``operator`` MUST be constrained to known values.
 
     A typo like ``zscore>`` or an unknown metric would previously create a rule
     that can never fire (``evaluate_condition`` silently returns False). The

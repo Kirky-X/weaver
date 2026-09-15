@@ -265,7 +265,7 @@ class TestNarrativeSynthesizerNarrativeMode:
         )
 
         assert "First piece of context" in result.output
-        # LLM fallback serves raw context: labeled CONTEXT, not NARRATIVE (#374)
+        # LLM fallback serves raw context: labeled CONTEXT, not NARRATIVE
         assert result.mode == OutputMode.CONTEXT
 
     @pytest.mark.asyncio

@@ -2,10 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for SSRFChecker."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import ipaddress
 import socket
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -364,7 +363,7 @@ class TestSSRFRedirectTracking:
 class TestBlockedNetworkGrouping:
     """封锁网段按地址族预分组后，IPv4/IPv6 私有地址仍必须被拦截。
 
-    OCR LOW #46：把 13 个网络拆成 IPv4/IPv6 两组，检查时只扫描同族列表，
+    把 13 个网络拆成 IPv4/IPv6 两组，检查时只扫描同族列表，
     行为必须与全量线性扫描等价。
     """
 

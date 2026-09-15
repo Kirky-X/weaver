@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Regression tests for LLM usage schema success_rate bounds (OCR T005 #61).
+"""Regression tests for LLM usage schema success_rate bounds.
 
 ``success_rate`` is documented as a 0.0–1.0 ratio. The schema MUST reject
 out-of-range values (e.g. 1.5 from a mis-computed ``success/failure`` ratio)

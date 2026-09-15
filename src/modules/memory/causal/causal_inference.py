@@ -135,7 +135,7 @@ class CausalInferenceService:
         }
 
         # Keep the log schema homogeneous: entities is always an int, the
-        # all-vs-subset distinction lives in scope (#226).
+        # all-vs-subset distinction lives in scope.
         log.info(
             "causal_inference_start",
             entities=len(entity_names) if entity_names else 0,
@@ -327,7 +327,7 @@ class CausalInferenceService:
 
         if failed_batches:
             # Swallowed batches mean silent under-coverage of the relation
-            # set; surface the ratio so degraded runs are detectable (#98).
+            # set; surface the ratio so degraded runs are detectable.
             log.error(
                 "batch_inference_partial_failure",
                 failed_batches=failed_batches,

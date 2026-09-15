@@ -383,7 +383,7 @@ class TestAnalyticsStorageGetShiftsScope:
 
 
 class TestAnalyticsStorageGetShiftsArticleFields:
-    """get_shifts must expose article-level identity (#167)."""
+    """get_shifts must expose article-level identity."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -400,7 +400,7 @@ class TestAnalyticsStorageGetShiftsArticleFields:
 
     @pytest.mark.asyncio
     async def test_article_scope_includes_article_id_and_entity_name(self, storage, mock_pool):
-        """scope='article' rows carry article_id + entity_name (#167)."""
+        """scope='article' rows carry article_id + entity_name."""
         article_id = uuid.uuid4()
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_row = MagicMock()
@@ -429,7 +429,7 @@ class TestAnalyticsStorageGetShiftsArticleFields:
 
     @pytest.mark.asyncio
     async def test_community_scope_null_article_fields(self, storage, mock_pool):
-        """Community-level rows report None article identity (#167)."""
+        """Community-level rows report None article identity."""
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_row = MagicMock()
         mock_row.community_id = "c1"
@@ -456,7 +456,7 @@ class TestAnalyticsStorageGetShiftsArticleFields:
 
 
 class TestAnalyticsStorageBriefingZeroScore:
-    """Briefing item score=0.0 is legitimate data, not missing (#228/#229)."""
+    """Briefing item score=0.0 is legitimate data, not missing."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -495,7 +495,7 @@ class TestAnalyticsStorageBriefingZeroScore:
 
     @pytest.mark.asyncio
     async def test_get_briefings_with_items_preserves_zero_score(self, storage, mock_pool):
-        """score=0.0 must survive as 0.0, not None (#228)."""
+        """score=0.0 must survive as 0.0, not None."""
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [self._briefing_row(0.0)]
@@ -507,7 +507,7 @@ class TestAnalyticsStorageBriefingZeroScore:
 
     @pytest.mark.asyncio
     async def test_get_briefing_preserves_zero_score(self, storage, mock_pool):
-        """_briefing_row_to_dict maps 0.0 to 0.0, None stays None (#229)."""
+        """_briefing_row_to_dict maps 0.0 to 0.0, None stays None."""
         from datetime import date as date_type
 
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
@@ -526,7 +526,7 @@ class TestAnalyticsStorageBriefingZeroScore:
 
 
 class TestAnalyticsStorageSaveBriefingConflictRetry:
-    """Concurrent same-key writers retry once on UNIQUE conflict (#78)."""
+    """Concurrent same-key writers retry once on UNIQUE conflict."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -539,7 +539,7 @@ class TestAnalyticsStorageSaveBriefingConflictRetry:
 
     @pytest.mark.asyncio
     async def test_integrity_error_retries_once_and_succeeds(self, storage, mock_pool):
-        """First attempt hits IntegrityError, retry persists (#78)."""
+        """First attempt hits IntegrityError, retry persists."""
         from datetime import date as date_type
 
         from sqlalchemy.exc import IntegrityError
@@ -564,7 +564,7 @@ class TestAnalyticsStorageSaveBriefingConflictRetry:
 
     @pytest.mark.asyncio
     async def test_persistent_conflict_propagates(self, storage, mock_pool):
-        """Two consecutive conflicts surface to the caller (#78)."""
+        """Two consecutive conflicts surface to the caller."""
         from datetime import date as date_type
 
         from sqlalchemy.exc import IntegrityError

@@ -192,7 +192,7 @@ class CausalGraphRepo(BaseGraphRepo):
             "created_at": now,
             # LadybugDB MERGE lacks ON CREATE/ON MATCH split, so updated_at is
             # also written on first insert — parity with the Neo4j ON MATCH
-            # path for confidence/evidence change auditing (#233).
+            # path for confidence/evidence change auditing.
             "updated_at": now,
         }
 

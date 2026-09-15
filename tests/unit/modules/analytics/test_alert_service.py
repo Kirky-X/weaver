@@ -684,7 +684,7 @@ class TestEvaluateUnknownOperator:
 
 
 class TestUpdateRuleFieldWhitelist:
-    """update_rule must restrict setattr to an explicit field allowlist (#49)."""
+    """update_rule must restrict setattr to an explicit field allowlist."""
 
     @pytest.fixture
     def mock_update_session(self, mock_pool):

@@ -189,7 +189,7 @@ class TestEntityAggregatorCount:
 
     @pytest.mark.asyncio
     async def test_count_entity_type_from_center_type(self, mock_entity_repo, mock_llm):
-        """corr#369: 中心实体类型只能来自 center_type，不从邻居众数推断。"""
+        """中心实体类型只能来自 center_type，不从邻居众数推断。"""
         mock_entity_repo.get_entity_neighborhood = AsyncMock(
             return_value={
                 "center": "腾讯",

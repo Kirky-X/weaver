@@ -59,7 +59,7 @@ class TestMCSamplerTokenizeSimilarity:
 
 
 class TestFindFuzzAnchorsEdgeCases:
-    """``_find_fuzz_anchors`` 边界与 tokenizer 复用（OCR LOW #25/#91/#115）。"""
+    """``_find_fuzz_anchors`` 边界与 tokenizer 复用。"""
 
     @pytest.fixture
     def sampler(self):
@@ -80,7 +80,7 @@ class TestFindFuzzAnchorsEdgeCases:
         assert sampler._find_fuzz_anchors("x" * 500, window=-5) == []
 
     def test_tokenize_uses_module_level_patterns(self) -> None:
-        """tokenizer 复用模块级预编译正则（OCR LOW #25），行为不变。"""
+        """tokenizer 复用模块级预编译正则，行为不变。"""
         from core.evidence import mc_sampler
 
         assert hasattr(mc_sampler, "_WORD_RE")

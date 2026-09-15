@@ -1125,7 +1125,7 @@ class TestContextSectionPriority:
 
 
 class TestGetRelatedEntitiesParams:
-    """Regression (#319): the Ladybug builder emits `r.edge_type IN $relation_types`
+    """Regression: the Ladybug builder emits `r.edge_type IN $relation_types`
     when relation_types are set, but the caller never passed the parameter,
     so the query failed and results were silently empty."""
 

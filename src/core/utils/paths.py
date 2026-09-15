@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 # Standard project directories.
 # NOTE: CONFIG_DIR / CACHE_DIR are part of the public path API (import them
 # from here rather than re-deriving paths); they are intentionally kept even
-# though no in-repo module imports them yet (OCR LOW #13).
+# though no in-repo module imports them yet.
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_DIR = PROJECT_ROOT / "config"
 CACHE_DIR = DATA_DIR / ".cache"

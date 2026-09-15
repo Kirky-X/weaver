@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-# ── Task 2.1: Mock detection in search.py ──────────────────────────────
+# ── Mock detection in search.py ──────────────────────────────
 
 
 class TestSearchEndpointNoMocks:
@@ -53,7 +53,7 @@ class TestSearchEndpointNoMocks:
         )
 
 
-# ── Task 2.2: EmbeddingService dependency injection ────────────────────
+# ── EmbeddingService dependency injection ────────────────────
 
 
 class TestEmbeddingServiceDependencyInjection:
@@ -77,7 +77,7 @@ class TestEmbeddingServiceDependencyInjection:
         )
 
 
-# ── Task 2.3: IntentClassifier dependency injection ────────────────────
+# ── IntentClassifier dependency injection ────────────────────
 
 
 class TestIntentClassifierDependencyInjection:

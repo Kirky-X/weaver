@@ -15,11 +15,11 @@ Implements:
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
-import re
 from typing import Any
 
 from core.observability import get_logger
@@ -205,7 +205,7 @@ class TrafficAnomalyDetector:
         Returns the real remaining TTL: it is no longer inflated to a 60s
         floor (a ban with 5s left must not tell the client to wait 60s).
         ``ttl <= 0`` (key gone / has no TTL) returns 0 so the caller may
-        retry immediately (OCR LOW #185).
+        retry immediately.
         """
         try:
             ttl = await self._redis.ttl(f"traffic:blocked:ip:{self._safe_component(ip)}")

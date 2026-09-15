@@ -385,7 +385,7 @@ class Neo4jArticleRepo:
         """
         if not valid_article_ids:
             # collect(a) + size() — `count(a)` per-row always yields 1,
-            # not the total number of deleted nodes (corr#446).
+            # not the total number of deleted nodes.
             query = """
             MATCH (a:Article)
             WITH collect(a) AS articles

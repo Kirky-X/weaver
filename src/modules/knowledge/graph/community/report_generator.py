@@ -446,7 +446,7 @@ class CommunityReportGenerator:
         """
         # Format entities for prompt. Entity text originates from crawled
         # content and is untrusted — wrap it in explicit delimiters so the
-        # model treats it as data only (SEC#63 prompt-injection hardening,
+        # model treats it as data only (prompt-injection hardening,
         # mirrors memory/evolution/slow_path).
         entities_text = "\n".join(
             f"- {e['name']} ({e['type']}): {e['description']}"

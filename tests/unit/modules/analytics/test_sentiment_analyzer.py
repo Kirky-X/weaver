@@ -151,13 +151,13 @@ class TestScoreNormalization:
         assert analyzer._normalize_score(0.4) == 0.4
 
     def test_normalize_score_string_input(self, analyzer: SentimentAnalyzer) -> None:
-        """LLM string scores are coerced instead of raising TypeError (#221)."""
+        """LLM string scores are coerced instead of raising TypeError."""
         assert analyzer._normalize_score("0.8") == 0.8
         assert analyzer._normalize_score("1.5") == 1.0
         assert analyzer._normalize_score("-2") == 0.0
 
     def test_normalize_score_none_and_garbage(self, analyzer: SentimentAnalyzer) -> None:
-        """None / non-numeric scores degrade to 0.5 with a warning (#221)."""
+        """None / non-numeric scores degrade to 0.5 with a warning."""
         assert analyzer._normalize_score(None) == 0.5
         assert analyzer._normalize_score("high") == 0.5
 
@@ -240,10 +240,10 @@ class TestEdgeCases:
 
 
 class TestExtractJsonFromText:
-    """Quote-aware brace matching for LLM JSON extraction (#53)."""
+    """Quote-aware brace matching for LLM JSON extraction."""
 
     def test_braces_inside_strings_ignored(self, analyzer: SentimentAnalyzer) -> None:
-        """A '}' inside a string value must not end the object (#53)."""
+        """A '}' inside a string value must not end the object."""
         text = (
             'thinking...\n{"sentiment": "positive", "note": "use {x} here", "sentiment_score": 0.9}'
         )
@@ -255,25 +255,25 @@ class TestExtractJsonFromText:
         assert result["sentiment_score"] == 0.9
 
     def test_recovers_after_trailing_unbalanced_brace(self, analyzer: SentimentAnalyzer) -> None:
-        """A later unbalanced '{' falls back to the real object (#53)."""
+        """A later unbalanced '{' falls back to the real object."""
         text = '{"sentiment": "positive", "sentiment_score": 0.7} trailing {oops'
         result = analyzer._extract_json_from_text(text)
 
         assert result == {"sentiment": "positive", "sentiment_score": 0.7}
 
     def test_object_amid_prose(self, analyzer: SentimentAnalyzer) -> None:
-        """Flat JSON embedded in reasoning text is extracted (#53)."""
+        """Flat JSON embedded in reasoning text is extracted."""
         text = 'I think {this is just thinking... {"sentiment": "negative", "sentiment_score": 0.2} done'
         result = analyzer._extract_json_from_text(text)
 
         assert result == {"sentiment": "negative", "sentiment_score": 0.2}
 
     def test_no_json_returns_none(self, analyzer: SentimentAnalyzer) -> None:
-        """Prose without JSON yields None (#53)."""
+        """Prose without JSON yields None."""
         assert analyzer._extract_json_from_text("no braces here") is None
         assert analyzer._extract_json_from_text("{{{ unbalanced") is None
 
     def test_candidate_cap_bounds_pathological_input(self, analyzer: SentimentAnalyzer) -> None:
-        """Brace-heavy prose terminates quickly via the candidate cap (#53)."""
+        """Brace-heavy prose terminates quickly via the candidate cap."""
         text = "{ " * 5000 + "no json at all"
         assert analyzer._extract_json_from_text(text) is None

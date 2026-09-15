@@ -285,7 +285,7 @@ class TestSSLVerifier:
 
 
 class TestTrustedIssuerMatching:
-    """CA matching uses token boundaries, not bare substrings (#44)."""
+    """CA matching uses token boundaries, not bare substrings."""
 
     @pytest.fixture
     def verifier(self) -> SSLVerifier:
@@ -309,7 +309,7 @@ class TestTrustedIssuerMatching:
 
 
 class TestTrustedCASImmutability:
-    """类级共享的信任集合必须是不可变的（OCR LOW #151）。
+    """类级共享的信任集合必须是不可变的。
 
     ``set`` 可被任意代码 ``SSLVerifier.TRUSTED_CAS.add("BadCA")`` 污染，
     影响所有实例；改为 ``frozenset`` 后此类操作直接失败。

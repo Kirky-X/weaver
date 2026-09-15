@@ -234,7 +234,7 @@ class TestSourceRegistryClose:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#179)."""
+    """Regression tests for LOW findings."""
 
     @pytest.fixture
     def registry(self):
@@ -375,7 +375,7 @@ class TestSourceRegistryLoadPlugins:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#256, #179)."""
+    """Regression tests for LOW findings."""
 
     def test_external_plugin_discovery_runs_once(self):
         """#256: no redundant discovery pass before scan_and_load_external_plugins."""

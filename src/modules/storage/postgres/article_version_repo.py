@@ -53,7 +53,7 @@ class ArticleVersionRepo:
         Auto-increments the version number based on the latest
         existing version for the article. On concurrent creation the
         ``uq_article_version`` unique constraint rejects the loser, which
-        is retried with a fresh MAX(version) read (corr#453) instead of
+        is retried with a fresh MAX(version) read instead of
         surfacing an IntegrityError.
 
         Args:

@@ -28,7 +28,6 @@ from modules.memory.evolution.result import ConsolidationResult
 
 if TYPE_CHECKING:
     from core.llm.types import CallPoint, Label
-
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
@@ -176,7 +175,7 @@ class StructuralConsolidationWorker:
                 exc_info=True,
             )
             # Re-raise so the batch driver can requeue the event instead of
-            # silently dropping it (at-least-once delivery, PERF#78).
+            # silently dropping it (at-least-once delivery).
             raise
 
     async def _infer_causal_relations(
@@ -197,7 +196,7 @@ class StructuralConsolidationWorker:
             # Build prompt for causal inference. Event data is untrusted
             # (LLM-authored evidence, crawled content) — wrap it in explicit
             # delimiters and instruct the model to treat it as data only
-            # (SEC#63 prompt-injection hardening).
+            # (prompt-injection hardening).
             events_str = json.dumps(neighborhood, indent=2, ensure_ascii=False)
             prompt = f"""分析以下事件列表，推断中心事件 {center_id} 与邻居事件之间的因果关系。
 
@@ -234,7 +233,7 @@ EVENT_DATA>>>
                 result = response
 
             # json.loads may succeed on a non-object value (array/string) —
-            # only a dict carries causal_edges (CORR#358).
+            # only a dict carries causal_edges.
             if not isinstance(result, dict):
                 log.warning(
                     "causal_inference_response_not_object",
@@ -265,7 +264,7 @@ EVENT_DATA>>>
 
         Server-side validation of LLM output: source/target must reference
         real neighborhood events, otherwise injected content could add
-        arbitrary causal edges to the graph (SEC#63).
+        arbitrary causal edges to the graph.
 
         Args:
             edges: Raw causal_edges list from the LLM response.
@@ -324,8 +323,8 @@ EVENT_DATA>>>
         Dequeued events are parked in the queue's ``processing`` list and
         only acked after their result is collected; a failed event is
         requeued so transient LLM/Redis errors no longer drop events
-        (at-least-once, PERF#78). A queue backend failure is reported as an
-        error instead of being mistaken for an empty queue (CORR#356).
+        (at-least-once). A queue backend failure is reported as an
+        error instead of being mistaken for an empty queue.
 
         Args:
             batch_size: Maximum number of events to process.

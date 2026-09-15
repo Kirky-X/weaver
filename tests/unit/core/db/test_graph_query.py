@@ -1107,7 +1107,7 @@ class TestLadybugQueryBuilderSecurity:
 class TestSubgraphHopPatternValidation:
     """Regression: builder layer must validate hop_pattern before Cypher
     interpolation, even though the API layer whitelists values
-    (defense in depth, vuln-SEC#24)."""
+    (defense in depth)."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("db_type", ["neo4j", "ladybug"])

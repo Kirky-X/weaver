@@ -23,7 +23,7 @@ class QueueBackendError(RuntimeError):
     """Raised when the queue backend (Redis) fails during dequeue.
 
     Distinct from an empty queue so consumers can tell "nothing to do"
-    apart from "backend unavailable" (corr#356).
+    apart from "backend unavailable".
     """
 
 

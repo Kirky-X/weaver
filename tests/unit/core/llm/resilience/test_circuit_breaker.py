@@ -228,7 +228,7 @@ class TestCircuitBreakerRepr:
 class TestClosedStateSuccessGuard:
     """已 CLOSED 状态下的成功不应重复调用 ``breaker.close()``。
 
-    OCR LOW #141：close() 在已关闭时是 no-op，但热路径上每次成功都调用它
+    close() 在已关闭时是 no-op，但热路径上每次成功都调用它
     会做一次多余的状态写入；仅在状态不是 closed 时才调用。
     """
 

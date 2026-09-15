@@ -307,7 +307,7 @@ class TestOutboxRepoMarkDispatched:
 
 
 def _mark_failed_pool(row=None):
-    """Build a pool mocking the new two-execute mark_failed flow (corr#456).
+    """Build a pool mocking the new two-execute mark_failed flow.
 
     First execute is the atomic UPDATE; the second is the status read-back.
     """

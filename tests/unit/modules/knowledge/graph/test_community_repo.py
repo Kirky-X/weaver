@@ -603,7 +603,7 @@ class TestNeo4jCommunityRepoGetLevelDistribution:
 
 
 class TestNeo4jCommunityRepoDeleteCommunity:
-    """vuln-CORR277: delete_community must inspect the deleted counter."""
+    """delete_community must inspect the deleted counter."""
 
     @pytest.fixture
     def repo(self):
@@ -629,7 +629,7 @@ class TestNeo4jCommunityRepoDeleteCommunity:
 
 
 class TestNeo4jCommunityRepoSearchByText:
-    """vuln-CORR278: summaries live on CommunityReport, not Community."""
+    """summaries live on CommunityReport, not Community."""
 
     @pytest.fixture
     def repo(self):

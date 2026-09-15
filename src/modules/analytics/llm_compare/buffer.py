@@ -73,12 +73,12 @@ class EvalCompareBuffer:
     async def accumulate(self, event: LLMCompareEvent) -> None:
         """Accumulate LLMCompareEvent to Redis HASH.
 
-        Uses a pipeline for batch execution of the counter increments (one
-        round-trip instead of five), matching ``LLMUsageBuffer.accumulate``
-        (#51). Sets TTL only on the first write to the hour-bucket key: an
-        unconditional ``expire`` on every event would push the TTL forward
-        indefinitely under sustained load. All exceptions are caught and
-        logged — does not block main path.
+                Uses a pipeline for batch execution of the counter increments (one
+                round-trip instead of five), matching ``LLMUsageBuffer.accumulate``
+        . Sets TTL only on the first write to the hour-bucket key: an
+                unconditional ``expire`` on every event would push the TTL forward
+                indefinitely under sustained load. All exceptions are caught and
+                logged — does not block main path.
         """
         try:
             bucket_key = self._make_bucket_key(event.timestamp)
@@ -90,7 +90,7 @@ class EvalCompareBuffer:
 
             # Latencies are rounded instead of truncated: int() biases the
             # cumulative sums (and hence hourly averages) downward by up to
-            # 1 ms per event (#209).
+            # 1 ms per event.
             async with self._cache.pipeline() as pipe:
                 pipe.hincrby(
                     bucket_key,

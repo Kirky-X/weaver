@@ -135,7 +135,7 @@ async def test_ensure_constraints(repo, mock_pool):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_add_causal_edge_ladybug_sets_created_at():
-    """Regression (#360): the Ladybug write path used time.time() without
+    """Regression: the Ladybug write path used time.time() without
     importing time, raising NameError before the query was sent."""
     pool = MagicMock()
     pool.database_type = "ladybug"

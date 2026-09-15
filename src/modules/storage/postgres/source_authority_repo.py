@@ -40,18 +40,18 @@ class SourceAuthorityRepo:
     ) -> SourceAuthority:
         """Get existing authority or create a new entry with defaults.
 
-        Handles the concurrent-creation race: when two calls both observe
-        no row and insert, the unique constraint on ``host`` rejects the
-        second commit; that call re-queries and returns the existing row
-        (corr#462) instead of crashing.
+               Handles the concurrent-creation race: when two calls both observe
+               no row and insert, the unique constraint on ``host`` rejects the
+               second commit; that call re-queries and returns the existing row
+        instead of crashing.
 
-        Args:
-            host: Source hostname.
-            auto_score: Optional auto-computed score.
-            description: Optional description (defaults to host if not provided).
+               Args:
+                   host: Source hostname.
+                   auto_score: Optional auto-computed score.
+                   description: Optional description (defaults to host if not provided).
 
-        Returns:
-            SourceAuthority record.
+               Returns:
+                   SourceAuthority record.
         """
         last_exc: IntegrityError | None = None
         for _attempt in range(self.MAX_GET_OR_CREATE_ATTEMPTS):
@@ -160,15 +160,15 @@ class SourceAuthorityRepo:
     async def update_auto_score(self, host: str, auto_score: float) -> None:
         """Update auto-computed authority score.
 
-        Also clears needs_review flag since auto-computed scores
-        represent system's assessment, not requiring human review.
-        Recalculates final_score as weighted average of auto and manual scores.
+                Also clears needs_review flag since auto-computed scores
+                represent system's assessment, not requiring human review.
+                Recalculates final_score as weighted average of auto and manual scores.
 
-        final_score is computed atomically in the UPDATE expression
-        (corr#463): the old SELECT-then-UPDATE could base final_score on a
-        stale manual_score committed by a reviewer between the two
-        statements. ``COALESCE(manual_score, auto_score)`` preserves the
-        previous fallback (no manual score → final = auto).
+                final_score is computed atomically in the UPDATE expression
+        : the old SELECT-then-UPDATE could base final_score on a
+                stale manual_score committed by a reviewer between the two
+                statements. ``COALESCE(manual_score, auto_score)`` preserves the
+                previous fallback (no manual score → final = auto).
         """
         async with self._pool.session() as session:
             await session.execute(

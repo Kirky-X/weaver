@@ -46,7 +46,7 @@ class PortFinder:
             There is an inherent TOCTOU race between the availability check
             and the caller's actual bind: another process can grab the port
             in between. Callers that need a guaranteed exclusive port should
-            retry on ``Address already in use`` at bind time (OCR LOW #55).
+            retry on ``Address already in use`` at bind time.
 
         Args:
             host: The host address to search.

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for the processing package facade (T008 #239)."""
+"""Regression tests for the processing package facade."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import modules.processing as processing_pkg
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#239)."""
+    """Regression tests for LOW findings."""
 
     def test_pipeline_imported_from_package(self):
         """#239: re-export goes through the package, not the ``graph`` module."""

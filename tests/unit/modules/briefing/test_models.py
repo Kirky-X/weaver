@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for briefing data models (T008 #169)."""
+"""Regression tests for briefing data models."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from modules.briefing.models import Briefing, BriefingItem
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#169)."""
+    """Regression tests for LOW findings."""
 
     def test_briefing_items_are_typed(self):
         """#169: ``Briefing.items`` is annotated instead of a bare ``list``."""

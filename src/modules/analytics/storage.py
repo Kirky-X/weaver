@@ -163,7 +163,7 @@ class AnalyticsStorage:
                     "window_end": r.window_end.isoformat() if r.window_end else None,
                     "before_avg": float(r.before_avg) if r.before_avg is not None else None,
                     "after_avg": float(r.after_avg) if r.after_avg is not None else None,
-                    # Article-level identity (#167): without these, scope="article"
+                    # Article-level identity: without these, scope="article"
                     # callers cannot tell which article/entity a shift belongs to.
                     "article_id": str(r.article_id) if r.article_id is not None else None,
                     "entity_name": r.entity_name,
@@ -221,7 +221,7 @@ class AnalyticsStorage:
                             "article_id": str(item.article_id),
                             "category": item.category,
                             # score=0.0 is legitimate (zero relevance), not
-                            # missing data — use `is not None` (#228).
+                            # missing data — use `is not None`.
                             "score": float(item.score) if item.score is not None else None,
                             "score_breakdown": item.score_breakdown,
                             "reason": item.reason,
@@ -390,7 +390,7 @@ class AnalyticsStorage:
         # The SELECT-then-DELETE-INSERT sequence is not atomic: two concurrent
         # writers for the same (date, category) can both pass the SELECT and
         # the loser hits the UNIQUE(briefing_date, category) constraint on
-        # INSERT (#78). Retry once in a fresh session — the second attempt
+        # INSERT. Retry once in a fresh session — the second attempt
         # observes the winner's row and deletes it before re-inserting.
         # (Portable across PG/DuckDB; no SELECT ... FOR UPDATE on DuckDB.)
         from sqlalchemy.exc import IntegrityError
@@ -561,7 +561,7 @@ class AnalyticsStorage:
                     "rank": item.rank,
                     "article_id": str(item.article_id),
                     "category": item.category,
-                    # Same 0.0-vs-None distinction as get_briefings_with_items (#229).
+                    # Same 0.0-vs-None distinction as get_briefings_with_items.
                     "score": float(item.score) if item.score is not None else None,
                     "reason": item.reason,
                 }

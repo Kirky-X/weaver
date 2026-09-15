@@ -140,7 +140,7 @@ class TestEvalCompareBufferAccumulate:
         cache.expire = AsyncMock()
         # Default: bucket key not yet present (first write)
         cache.hgetall = AsyncMock(return_value={})
-        # Pipeline mock (#51): increments are batched in one round-trip.
+        # Pipeline mock: increments are batched in one round-trip.
         mock_pipe = MagicMock()
         mock_pipe.execute = AsyncMock()
         mock_cm = AsyncMock()
@@ -256,7 +256,7 @@ class TestEvalCompareBufferAccumulate:
         mock_cache: MagicMock,
         sample_event: LLMCompareEvent,
     ):
-        """Test that an existing bucket key's TTL is never re-set (vuln-208)."""
+        """Test that an existing bucket key's TTL is never re-set."""
         mock_cache.hgetall = AsyncMock(return_value={"existing::field": "1"})
 
         await buffer.accumulate(sample_event)
@@ -460,7 +460,7 @@ class TestEvalCompareBufferAccumulate:
         mock_cache: MagicMock,
         sample_event: LLMCompareEvent,
     ):
-        """Test that the 5 increments execute in one pipeline round-trip (#51)."""
+        """Test that the 5 increments execute in one pipeline round-trip."""
         await buffer.accumulate(sample_event)
 
         mock_cache.pipeline.assert_called_once_with()

@@ -283,7 +283,7 @@ async def get_article(
     Articles are system-level public content (aggregated news, not user-private
     data), so all authenticated users can read all articles by design. However,
     every article access is recorded in the audit log for security monitoring
-    and breach detection (vuln-0003 mitigation: CWE-639).
+    and breach detection (CWE-639).
 
     True multi-tenant isolation (tenant_id on Article + query filtering) is an
     architecture-level change tracked separately — see fix_report.md §6.
@@ -324,9 +324,9 @@ async def get_article(
         # access is bound to the session lifecycle.
         article_dict = _article_to_dict(article)
 
-    # Audit log: record article access for security monitoring (vuln-0003
-    # mitigation). Written OUTSIDE the session block to avoid nested sessions
-    # / double connection exhaustion under high concurrency (H-1).
+    # Audit log: record article access for security monitoring. Written
+    # OUTSIDE the session block to avoid nested sessions / double
+    # connection exhaustion under high concurrency.
     # Fire-and-forget via create_task so the audit write does not block the
     # response. AuditLogService.log_event swallows errors internally
     # so audit failure never breaks the request.

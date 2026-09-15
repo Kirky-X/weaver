@@ -1034,7 +1034,7 @@ class TestForceRebuild:
 
 
 class TestCommunityModuleImports:
-    """Lazy imports that had no circular-import reason were hoisted (#16, #196)."""
+    """Lazy imports that had no circular-import reason were hoisted."""
 
     def test_database_type_imported_at_module_level(self):
         """#16: ``DatabaseType`` must not be imported inside ``__init__``."""

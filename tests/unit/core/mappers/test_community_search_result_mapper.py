@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for CommunitySearchResultMapper (OCR LOW #54).
+"""Tests for CommunitySearchResultMapper.
 
 ``float(converted["score"])`` used to raise an unhelpful bare
 ``ValueError``/``TypeError`` for non-numeric scores. The mapper is a

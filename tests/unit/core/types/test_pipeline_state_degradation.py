@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for core.types.pipeline_state degradation summary.
 
-OCR LOW #197: ``get_degradation_summary`` used to silently map unknown
+``get_degradation_summary`` used to silently map unknown
 fields to ``"Unknown reason"``, hiding a desync between
 ``degraded_fields`` and ``degradation_reasons``. It must now log a warning
 so the inconsistency stays observable while keeping the return contract.

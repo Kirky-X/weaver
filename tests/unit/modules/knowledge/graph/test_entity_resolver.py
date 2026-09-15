@@ -1035,8 +1035,8 @@ class TestEntityBatchDecisionModels:
         import json
 
         from modules.knowledge.graph.entity_resolver import (
-            EntityBatchDedupOutput,
             EntityBatchDecision,
+            EntityBatchDedupOutput,
         )
 
         raw = json.dumps(
@@ -1495,7 +1495,6 @@ class TestBatchRetrievalConcurrency:
         self, resolver, mock_entity_repo, mock_vector_repo
     ):
         import asyncio
-
         from unittest.mock import patch
 
         inflight = 0
@@ -1548,13 +1547,14 @@ class TestBatchRetrievalConcurrency:
 
 class TestEntityRepoRequired:
     """Regression: entity_repo=None must fail fast in __init__ instead of
-    raising AttributeError at first resolution (vuln-CORR#298)."""
+    raising AttributeError at first resolution."""
 
     def test_none_entity_repo_raises_immediately(self):
         from unittest.mock import MagicMock
 
-        from modules.knowledge.graph.entity_resolver import EntityResolver
         import pytest
+
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         with pytest.raises(ValueError, match="entity_repo is required"):
             EntityResolver(
@@ -1564,7 +1564,7 @@ class TestEntityRepoRequired:
 
 
 class TestConstraintErrorWrapped:
-    """Regression: constraint errors wrapped by drivers must be detected (#299)."""
+    """Regression: constraint errors wrapped by drivers must be detected."""
 
     def test_wrapped_cause_chain_detected(self):
         from modules.knowledge.graph.entity_resolver import _is_constraint_error

@@ -189,7 +189,7 @@ class EvalRunner:
                     await self._event_bus.publish(event)
                 except Exception:
                     # Publishing failure must not be reported as a shadow-call
-                    # failure, nor silently lost (OCR LOW #45).
+                    # failure, nor silently lost.
                     log.warning(
                         "eval_shadow_publish_failed",
                         call_point=call_point,
@@ -227,8 +227,7 @@ class EvalRunner:
                     await self._event_bus.publish(event)
                 except Exception:
                     # Fire-and-forget callers never await this coroutine, so an
-                    # escaping exception here would vanish without a trace
-                    # (OCR LOW #45).
+                    # escaping exception here would vanish without a trace.
                     log.warning(
                         "eval_shadow_publish_failed",
                         call_point=call_point,

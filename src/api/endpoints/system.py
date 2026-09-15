@@ -8,9 +8,8 @@ here to reduce ``create_app()`` responsibility.
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 import tomllib
+from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,7 +35,6 @@ log = get_logger(__name__)
 system_router = APIRouter(tags=["system"])
 
 
-@system_router.get("/status", response_model=APIResponse[dict])
 @lru_cache(maxsize=1)
 def _read_app_version() -> str:
     """Read the app version from pyproject.toml once (result is process-stable)."""
@@ -49,6 +47,7 @@ def _read_app_version() -> str:
         return "unknown"
 
 
+@system_router.get("/status", response_model=APIResponse[dict])
 async def system_status(
     _: str = Depends(verify_api_key),
     relational_type: str = Depends(get_relational_type_dep),
@@ -141,7 +140,7 @@ async def metrics_endpoint(
 
 
 @system_router.get(
-    "/health/dependencies",
+    "/system/health/dependencies",
     response_model=APIResponse[dict],
 )
 async def health_dependencies(

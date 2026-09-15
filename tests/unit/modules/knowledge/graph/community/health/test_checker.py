@@ -532,7 +532,7 @@ class TestHealthIssue:
 
 class TestModularityPenaltyOrdering:
     """Regression: modularity penalty must be applied even when the issue
-    list contains other issue types before the modularity issue (#185) —
+    list contains other issue types before the modularity issue —
     the old loop-level ``break`` fired after the first issue of any type."""
 
     def _make_checker(self):

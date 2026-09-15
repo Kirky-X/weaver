@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for maintenance job error isolation (T008 #268)."""
+"""Regression tests for maintenance job error isolation."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from modules.scheduler.maintenance_jobs import MaintenanceJobs
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#268)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_llm_failure_cleanup_error_returns_zero(self):

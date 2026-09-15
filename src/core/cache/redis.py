@@ -631,8 +631,8 @@ class CashewsClient:
         expired keys are skipped by SCAN).
 
         Limitation: unlike the real Redis client's streaming SCAN, this
-        in-memory fallback materialises the full key set before yielding
-        (OCR LOW #21). Acceptable for the test/in-memory backend only.
+        in-memory fallback materialises the full key set before yielding.
+        Acceptable for the test/in-memory backend only.
         """
         all_keys = set(self._store.keys())
         all_keys.update(self._hashes.keys())

@@ -336,7 +336,7 @@ class TestAnalyzeTrendErrorPropagation:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#291, #292, #109)."""
+    """Regression tests for LOW findings."""
 
     def test_select_imported_at_module_level(self):
         """#292: ``select`` comes from the module-level import block."""

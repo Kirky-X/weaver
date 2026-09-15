@@ -360,7 +360,7 @@ class TestGetArticleDetail:
         pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
         pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        # Mock request for audit logging (vuln-0003 mitigation).
+        # Mock request for audit logging.
         mock_request = MagicMock()
         mock_request.client.host = "127.0.0.1"
         mock_request.headers = {"user-agent": "test-agent"}
@@ -426,7 +426,7 @@ class TestGetArticleDetail:
 
 
 class TestArticleAuditLog:
-    """Verify article access is recorded in the audit log (vuln-0003 mitigation)."""
+    """Verify article access is recorded in the audit log."""
 
     @pytest.mark.asyncio
     async def test_successful_article_access_writes_audit_log(self):
@@ -523,7 +523,7 @@ class TestArticleAuditLog:
     async def test_audit_log_failure_does_not_block_response(self):
         """Audit log failure SHALL NOT block the article response (fire-and-forget).
 
-        This verifies the LOW-001 fix: audit log is dispatched via
+        This verifies the fix: audit log is dispatched via
         asyncio.create_task (fire-and-forget), so even if log_event raises,
         the article response is already returned to the caller.
         """
@@ -595,7 +595,6 @@ class TestArticlesEndpointHTTPLevel:
 
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
-
         from api.middleware.api_response import register_exception_handlers
 
         app = FastAPI()

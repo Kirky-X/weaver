@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Regression tests for PaginatedResponse.create validation (OCR T005 #63).
+"""Regression tests for PaginatedResponse.create validation.
 
 ``page`` and ``page_size`` must be positive integers. A non-positive value
 must fail fast with ``ValueError`` rather than silently yielding

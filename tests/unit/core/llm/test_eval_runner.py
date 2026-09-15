@@ -278,7 +278,7 @@ class TestEvalRunnerIsolation:
 
 
 class TestShadowPublishFailureIsContained:
-    """事件发布失败不得逃逸，也不得伪装成影子调用失败（OCR LOW #45）。
+    """事件发布失败不得逃逸，也不得伪装成影子调用失败。
 
     ``_run_shadow`` 是 fire-and-forget task，逃逸的异常没人 await，会无声丢失。
     """
@@ -335,7 +335,7 @@ class TestShadowPublishFailureIsContained:
 
 
 class TestShadowPublishFailureIsContained:
-    """事件发布失败不得逃逸，也不得伪装成影子调用失败（OCR LOW #45）。
+    """事件发布失败不得逃逸，也不得伪装成影子调用失败。
 
     ``_run_shadow`` 是 fire-and-forget task，逃逸的异常没人 await，会无声丢失。
     """

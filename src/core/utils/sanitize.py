@@ -13,7 +13,7 @@ import re
 
 # Patterns for sensitive data detection.
 # 预编译并在此处传入 IGNORECASE，避免日志热路径上的每次 re.sub 都走一遍
-# 编译缓存查找（OCR LOW #48）。
+# 编译缓存查找。
 SENSITIVE_PATTERNS = [
     # PostgreSQL DSN: postgresql://user:pass@host/db
     (re.compile(r"(postgresql(?:\+[a-z]+)?://[^:]+:)([^@]+)(@.+)", re.IGNORECASE), r"\1***\3"),

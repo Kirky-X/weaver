@@ -711,7 +711,7 @@ class TestDiscoveryProcessorErrorHandling:
             article_repo=mock_article_repo,
         )
 
-        # CORR#240: the batch-hard-failure must propagate (after logging) so
+        # The batch-hard-failure must propagate (after logging) so
         # the scheduler's consecutive-failure counter sees it and auto-disable
         # can trigger — swallowing here silently dropped the whole batch.
         with pytest.raises(Exception, match="DB error"):
@@ -784,7 +784,7 @@ class TestDiscoveryProcessorErrorHandling:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#176)."""
+    """Regression tests for LOW findings."""
 
     def test_traceback_imported_at_module_level(self):
         """#176: `traceback` must not be imported inside on_items_discovered."""

@@ -396,7 +396,7 @@ class TestIntegrationWithExistingCode:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#261, #119)."""
+    """Regression tests for LOW findings."""
 
     def test_populate_by_name_removed_and_no_aliases_exist(self):
         """#261: the no-op populate_by_name flag is gone and nothing regressed."""

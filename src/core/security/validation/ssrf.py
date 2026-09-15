@@ -138,7 +138,7 @@ class SSRFChecker:
     )
 
     # 按地址族预先分组，检查时只扫描同族网络，避免每次 IP 校验都线性
-    # 遍历全部 13 个网络（OCR LOW #46）。
+    # 遍历全部 13 个网络。
     _blocked_ipv4_networks: list[ipaddress.IPv4Network] = field(
         default_factory=list, init=False, repr=False
     )
@@ -362,7 +362,7 @@ class SSRFChecker:
         Raises:
             SSRFError: If IP is in blocked range.
         """
-        # 只扫描与目标 IP 同族的网络列表（OCR LOW #46）。
+        # 只扫描与目标 IP 同族的网络列表。
         networks = self._blocked_ipv4_networks if ip.version == 4 else self._blocked_ipv6_networks
         for network in networks:
             if ip in network:

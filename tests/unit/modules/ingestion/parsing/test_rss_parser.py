@@ -452,7 +452,7 @@ class TestRSSParserClose:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#180)."""
+    """Regression tests for LOW findings."""
 
     @pytest.fixture
     def parser(self):
@@ -507,7 +507,7 @@ class TestT008LowFixes:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#180)."""
+    """Regression tests for LOW findings."""
 
     @pytest.mark.asyncio
     async def test_missing_etag_header_does_not_clear_stored_etag(self):

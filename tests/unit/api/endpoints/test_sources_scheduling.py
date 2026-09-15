@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Sources API 调度接入测试（CORR#259）。
+"""Sources API 调度接入测试。
 
 验证运行时 create/update/delete 源时调度器的 interval job 生命周期：
 - create_source 注册 interval job（否则运行时新建的源永不爬取）

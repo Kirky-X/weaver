@@ -37,7 +37,6 @@ from modules.processing.pipeline.content_hash_cache import ContentHashCacheServi
 from modules.processing.pipeline.persistence import PipelinePersistence
 from modules.processing.pipeline.state import PipelineState
 
-
 # ── 1. monte_carlo 配置接线 ──────────────────────────────────────
 
 
@@ -346,8 +345,8 @@ class TestGlobalSectionMapping:
         assert "classifier" in settings.call_points
 
 
-class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#256)."""
+class TestLowFixes:
+    """Regression tests for LOW findings."""
 
     def test_stage_config_forbids_unknown_keys(self):
         """#256: a TOML typo such as ``enableed`` must fail validation."""

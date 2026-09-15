@@ -129,7 +129,7 @@ class RawBulkWriter:
             raise ValueError("Article URL is required")
 
         # Body fallback + normalization + content hash live in the shared
-        # helper (corr#289) — no inline copy that can drift from
+        # helper — no inline copy that can drift from
         # bulk_insert_raw's path.
         core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
         normalized_url = core_kwargs["source_url"]
@@ -408,7 +408,7 @@ class RawBulkWriter:
                 article_count=len(articles),
             )
             # Fallback: per-article insert_raw. Fill the SAME input-ordered
-            # results list as the happy path (corr#461) so the return value
+            # results list as the happy path so the return value
             # keeps input-order semantics; per-article failures are skipped
             # with an error log. Entries already resolved before the failure
             # (pre-existing URL / content-hash hits — reads, unaffected by

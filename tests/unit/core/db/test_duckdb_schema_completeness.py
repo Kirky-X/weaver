@@ -96,7 +96,7 @@ def _has_table(tables: dict[str, set[str]], name: str) -> bool:
     return name in tables
 
 
-# ── Task 1.1 — DuckDB Schema completeness ────────────────────
+# ── DuckDB Schema completeness ────────────────────
 
 
 class TestArticlesCoreTable:
@@ -737,7 +737,7 @@ class TestArticlesView:
         )
 
 
-# ── Task 1.2 — source_authorities field completeness ─────────
+# ── source_authorities field completeness ─────────
 
 
 class TestSourceAuthoritiesCompleteness:
@@ -762,7 +762,7 @@ class TestSourceAuthoritiesCompleteness:
         )
 
 
-# ── Task 1.3 — unknown_relation_types column name consistency ─
+# ── unknown_relation_types column name consistency ─
 
 
 class TestUnknownRelationTypesColumnNames:

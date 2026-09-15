@@ -550,7 +550,7 @@ class TestMapReduceResult:
 
 class TestGlobalSearchNoLlmGuard:
     """Regression: search() with llm=None must degrade to a context-only
-    result instead of crashing on self._llm.call (vuln-CORR#326)."""
+    result instead of crashing on self._llm.call."""
 
     @pytest.mark.asyncio
     async def test_search_without_llm_degrades_to_context_only(self):

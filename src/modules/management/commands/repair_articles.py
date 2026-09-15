@@ -252,7 +252,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                 break
 
             # Force mode with zero progress this batch: the same unrepaired
-            # articles would be re-fetched and re-failed forever (corr#351).
+            # articles would be re-fetched and re-failed forever.
             # Track progress and terminate explicitly instead.
             if batch_repaired == 0:
                 print(

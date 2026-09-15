@@ -139,7 +139,7 @@ class TestModuleImports:
         assert hasattr(mm, "_resolve_subcommand")
 
     def test_src_dir_on_sys_path_when_run_as_module(self):
-        """Regression (#350): `python -m src.modules.management` must put the
+        """Regression: `python -m src.modules.management` must put the
         src dir on sys.path so `from modules...` imports resolve."""
 
         import subprocess

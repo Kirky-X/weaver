@@ -83,7 +83,7 @@ class OutboxRepo:
     async def mark_failed(self, row_id: int, error: str) -> str:
         """Record a dispatch failure.
 
-        Atomically increments retry_count in SQL (corr#456): a Python-side
+        Atomically increments retry_count in SQL: a Python-side
         read-then-write race between overlapping dispatchers could lose
         increments and keep rows out of 'dead' forever. The row parks as
         'dead' once retries are exhausted (ERROR-level visibility).

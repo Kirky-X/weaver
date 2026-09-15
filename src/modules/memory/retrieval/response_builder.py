@@ -85,7 +85,7 @@ class SearchResponseBuilder:
         )
 
         # 1. Execute adaptive search (anchors/intent forwarded so callers
-        # get intent-aware, anchor-rooted retrieval — corr#365)
+        # get intent-aware, anchor-rooted retrieval)
         search_results = await self._search_engine.search(
             query=query, anchors=anchors, intent=intent
         )

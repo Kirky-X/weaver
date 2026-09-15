@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 
 
-"""Regression tests for memory publisher dispatch (T008 #259)."""
+"""Regression tests for memory publisher dispatch."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from modules.processing.pipeline.memory_publisher import MemoryEventPublisher
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#259)."""
+    """Regression tests for LOW findings."""
 
     def test_zip_is_strict(self):
         """#259: events/results pairing uses ``strict=True``."""

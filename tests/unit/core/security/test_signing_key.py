@@ -113,7 +113,7 @@ class TestSignJsonTamperDetection:
 
 
 class TestAlgorithmWhitelist:
-    """Signing algorithms are restricted to an explicit whitelist (#40)."""
+    """Signing algorithms are restricted to an explicit whitelist."""
 
     def test_weak_algorithms_rejected(self) -> None:
         for weak in ("md5", "sha1", "new", "__builtins__"):

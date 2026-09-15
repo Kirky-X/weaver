@@ -143,7 +143,7 @@ class TemporalGraphRepo(BaseGraphRepo):
 
         LadybugDB uses INT64 timestamps instead of datetime functions.
 
-        Idempotency (other#101 / corr#364): node creation uses MERGE so a
+        Idempotency: node creation uses MERGE so a
         concurrent append of the same id cannot duplicate the node, and the
         link step re-runs when a previous attempt created the node but failed
         to link it (orphan retry). The edge itself is MERGEd (endpoint match)

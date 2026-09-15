@@ -771,7 +771,7 @@ class TestHttpxFetcherPost:
 
 
 class TestT008LowFixes:
-    """Regression tests for T008 LOW findings (#83, #14)."""
+    """Regression tests for LOW findings."""
 
     def test_retry_exhaustion_guard_is_documented_unreachable(self):
         """#83: the misleading ``raise RuntimeError("Fetch retry exhausted")`` is gone."""
