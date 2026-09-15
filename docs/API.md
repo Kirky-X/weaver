@@ -26,6 +26,13 @@
 - [趋势分析端点](#-趋势分析端点)
 - [分析端点](#-分析端点)
 - [告警管理端点](#-告警管理端点)
+- [记忆监控端点](#-记忆监控端点)
+- [因果图谱监控端点](#-因果图谱监控端点)
+- [图谱质量监控端点](#-图谱质量监控端点)
+- [社区健康监控端点](#-社区健康监控端点)
+- [数据库监控端点](#-数据库监控端点)
+- [记忆管理端点](#-记忆管理端点)
+- [API Key 管理端点](#-api-key-管理端点)
 - [错误响应格式](#-错误响应格式)
 - [通用规范](#-通用规范)
 - [总结](#-总结)
@@ -3012,7 +3019,7 @@ X-API-Key: your-api-key
 ```http
 POST /api/v1/saga/550e8400-e29b-41d4-a716-446655440000/compensate HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 #### 响应
@@ -3047,7 +3054,7 @@ X-Admin-API-Key: your-admin-api-key
 ```http
 POST /api/v1/saga/550e8400-e29b-41d4-a716-446655440000/retry HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 #### 响应
@@ -3446,7 +3453,7 @@ X-API-Key: your-api-key
 ```http
 POST /api/v1/monitoring/alerts/rules HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 Content-Type: application/json
 
 {
@@ -3510,7 +3517,7 @@ Content-Type: application/json
 ```http
 GET /api/v1/monitoring/alerts/rules?entity_name=OpenAI&enabled_only=true HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 **查询参数：**
@@ -3561,7 +3568,7 @@ X-Admin-API-Key: your-admin-api-key
 ```http
 GET /api/v1/monitoring/alerts/rules/1 HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 **路径参数：**
@@ -3589,7 +3596,7 @@ X-Admin-API-Key: your-admin-api-key
 ```http
 PATCH /api/v1/monitoring/alerts/rules/1 HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 Content-Type: application/json
 
 {
@@ -3629,7 +3636,7 @@ Content-Type: application/json
 ```http
 DELETE /api/v1/monitoring/alerts/rules/1 HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 #### 状态码
@@ -3651,7 +3658,7 @@ X-Admin-API-Key: your-admin-api-key
 ```http
 POST /api/v1/monitoring/alerts/trigger HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 Content-Type: application/json
 
 {
@@ -3709,7 +3716,7 @@ Content-Type: application/json
 ```http
 POST /api/v1/monitoring/alerts/events/10/acknowledge HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 #### 状态码
@@ -3731,7 +3738,7 @@ X-Admin-API-Key: your-admin-api-key
 ```http
 GET /api/v1/monitoring/alerts/events?rule_id=1&acknowledged=false&limit=50 HTTP/1.1
 Host: api.weaver.example.com
-X-Admin-API-Key: your-admin-api-key
+X-API-Key: your-admin-api-key
 ```
 
 **查询参数：**
@@ -3771,6 +3778,870 @@ X-Admin-API-Key: your-admin-api-key
 |------------------|---------------|
 | 200 OK           | 成功返回事件列表      |
 | 401 Unauthorized | Admin API Key 无效或缺失 |
+
+---
+
+## 🧠 记忆监控端点
+
+记忆监控端点用于诊断 MAGMA 多图记忆系统的健康状态，所有操作需要 Admin API Key。
+
+### GET /api/v1/monitoring/memory/diagnostics
+
+获取记忆系统诊断信息，包括服务初始化状态、时序事件计数与调度任务注册状态，用于故障排查。
+
+#### 请求
+
+```http
+GET /api/v1/monitoring/memory/diagnostics HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "memory_service_initialized": true,
+    "temporal_event_count": 1520,
+    "causal_link_count": 430,
+    "pending_consolidation": 12,
+    "slow_path_enabled": true,
+    "scheduler_job_registered": true
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段                          | 类型      | 说明                                |
+|-----------------------------|---------|-----------------------------------|
+| `memory_service_initialized` | boolean | 记忆服务是否已初始化                     |
+| `temporal_event_count`      | integer | 时序图中的事件数量                      |
+| `causal_link_count`         | integer | 因果链接数量                          |
+| `pending_consolidation`     | integer | 待慢路径巩固处理的事件数量                 |
+| `slow_path_enabled`         | boolean | 慢路径处理是否启用                     |
+| `scheduler_job_registered`  | boolean | `memory_consolidation` 调度任务是否已注册 |
+
+#### 状态码
+
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回诊断信息    |
+| 401 Unauthorized | Admin API Key 无效或缺失 |
+
+> 💡 **提示**：admin 端点 `GET /api/v1/admin/memory/diagnostics` 返回相同数据（见[记忆管理端点](#-记忆管理端点)）。
+
+---
+
+## 🧬 因果图谱监控端点
+
+因果图谱监控端点用于查看因果边的总量统计，所有操作需要 Admin API Key。
+
+### GET /api/v1/monitoring/causal/stats
+
+获取因果图谱统计信息（CAUSES / ENABLES / PREVENTS 三类边的总数）。
+
+#### 请求
+
+```http
+GET /api/v1/monitoring/causal/stats HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "causal_edges": 430,
+    "edge_types": ["CAUSES", "ENABLES", "PREVENTS"]
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段            | 类型        | 说明                    |
+|---------------|-----------|-----------------------|
+| `causal_edges` | integer   | 因果边总数                |
+| `edge_types`  | string[]  | 统计覆盖的因果关系类型列表        |
+
+#### 状态码
+
+| 状态码                       | 说明                  |
+|---------------------------|---------------------|
+| 200 OK                    | 成功返回统计信息            |
+| 401 Unauthorized          | Admin API Key 无效或缺失 |
+| 503 Service Unavailable   | 因果图谱仓库不可用           |
+| 500 Internal Server Error | 因果边计数失败             |
+
+---
+
+## 📉 图谱质量监控端点
+
+图谱质量监控端点提供实体/关系规模、连通性、孤立节点等质量指标的统一查询入口，所有操作需要 Admin API Key。
+
+### GET /api/v1/monitoring/graph/metrics
+
+基于视图（view）路由的图谱质量指标查询。三种视图：
+
+- `health`（默认）：快速健康摘要，含健康评分与改进建议，适合仪表盘轮询
+- `full`：完整指标。计算开销较大，无 `include` 过滤时结果缓存 5 分钟
+- `community`：已迁移至 `GET /api/v1/monitoring/communities/health`，请求返回 400
+
+`full` 视图可通过 `include` 参数控制昂贵计算项（逗号分隔）：
+
+| include 值        | 说明                |
+|------------------|-------------------|
+| `components`     | 连通分量分析            |
+| `orphans`        | 孤立实体检测            |
+| `high_degree`    | 高连接度实体识别          |
+| `modularity`     | 模块度评分             |
+| `distributions`  | 实体/关系类型分布         |
+
+省略 `include` 等同于 `include=all`（返回全部指标）。
+
+#### 请求
+
+```http
+GET /api/v1/monitoring/graph/metrics?view=health HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数        | 类型     | 默认值      | 说明                                                                 |
+|-----------|--------|----------|--------------------------------------------------------------------|
+| `view`    | string | health   | 指标视图：`health` / `full`（`community` 已迁移，传入返回 400）                    |
+| `include` | string | -        | `full` 视图的计算项过滤，逗号分隔；仅对昂贵子项生效，省略时返回全部                              |
+
+#### 响应
+
+**health 视图成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "health_score": 82.5,
+    "status": "healthy",
+    "entity_count": 3500,
+    "relationship_count": 9800,
+    "orphan_ratio": 0.04,
+    "connectedness": 0.91,
+    "average_degree": 5.6,
+    "recommendations": [
+      "清理孤立实体以提升连通性",
+      "为长期无报告的社区生成报告"
+    ]
+  }
+}
+```
+
+**响应字段说明（health 视图）：**
+
+| 字段                 | 类型       | 说明                                    |
+|--------------------|----------|---------------------------------------|
+| `health_score`     | float    | 综合健康评分（0-100，保留 2 位小数）                |
+| `status`           | string   | 健康状态：`healthy` / `moderate` / `degraded` / `critical` |
+| `entity_count`     | integer  | 实体总数                                  |
+| `relationship_count` | integer | 关系总数                                  |
+| `orphan_ratio`     | float    | 孤立实体占比（0-1）                           |
+| `connectedness`    | float    | 最大连通分量覆盖率（0-1）                        |
+| `average_degree`   | float    | 实体平均度数                                |
+| `recommendations`  | string[] | 健康改进建议列表                              |
+
+**full 视图成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "total_entities": 3500,
+    "total_articles": 1200,
+    "total_relationships": 9800,
+    "total_mentions": 15400,
+    "connected_components": 18,
+    "largest_component_size": 3200,
+    "average_degree": 5.6,
+    "modularity_score": 0.42,
+    "orphan_entities": 140,
+    "high_degree_entities": [
+      {"name": "OpenAI", "type": "组织机构", "in_degree": 320, "out_degree": 45, "total_degree": 365}
+    ],
+    "entity_type_distribution": {"人物": 950, "组织机构": 1200, "产品": 600, "事件": 450, "地点": 300},
+    "relationship_type_distribution": {"工作于": 2100, "发布": 1800, "竞争": 450},
+    "computed_at": "2026-09-16T08:30:00.123456+00:00"
+  }
+}
+```
+
+**响应字段说明（full 视图）：**
+
+| 字段                              | 类型             | 说明                                     |
+|---------------------------------|----------------|----------------------------------------|
+| `total_entities`                | integer        | 实体总数                                   |
+| `total_articles`                | integer        | 文章总数                                   |
+| `total_relationships`           | integer        | 关系总数                                   |
+| `total_mentions`                | integer        | MENTIONS 关系总数                          |
+| `connected_components`          | integer \| null | 连通分量数量；通过 `include` 排除时为 `null`         |
+| `largest_component_size`        | integer \| null | 最大连通分量规模；通过 `include` 排除时为 `null`       |
+| `average_degree`                | float          | 平均度数（保留 2 位小数）                         |
+| `modularity_score`              | float \| null  | 模块度评分（-1 到 1）；通过 `include` 排除时为 `null`  |
+| `orphan_entities`               | integer \| null | 孤立实体数量；通过 `include` 排除时为 `null`         |
+| `high_degree_entities`          | object[]       | 高连接度实体列表（`name`/`type`/`in_degree`/`out_degree`/`total_degree`） |
+| `entity_type_distribution`      | object         | 实体类型分布（类型 → 数量）                        |
+| `relationship_type_distribution` | object        | 关系类型分布（中文类型名 → 数量）                     |
+| `computed_at`                   | string         | 指标计算时间（ISO 8601）                       |
+
+#### 状态码
+
+| 状态码              | 说明                                   |
+|------------------|--------------------------------------|
+| 200 OK           | 成功返回指标                               |
+| 401 Unauthorized | Admin API Key 无效或缺失                  |
+| 400 Bad Request  | 无效的 `view` 值，或请求已迁移的 `community` 视图   |
+
+---
+
+## 🏥 社区健康监控端点
+
+社区健康监控端点用于快速评估知识图谱社区结构的质量，所有操作需要 Admin API Key。
+
+### GET /api/v1/monitoring/communities/health
+
+获取社区健康概览：基于总社区数、空社区占比、报告覆盖率与过时报告数量计算快速评分，并统计层级结构破坏数。不执行完整诊断。
+
+#### 请求
+
+```http
+GET /api/v1/monitoring/communities/health HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "healthy",
+    "score": 95.0,
+    "total_communities": 25,
+    "communities_with_reports": 23,
+    "stale_reports": 2,
+    "empty_communities": 1,
+    "hierarchy_issues": 0,
+    "last_check_at": null
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段                        | 类型             | 说明                                          |
+|---------------------------|----------------|---------------------------------------------|
+| `status`                  | string         | 健康状态：`healthy` / `moderate` / `degraded` / `critical` |
+| `score`                   | float          | 健康评分（0-100，保留 2 位小数）                        |
+| `total_communities`       | integer        | 社区总数                                        |
+| `communities_with_reports` | integer       | 已有报告的社区数量                                   |
+| `stale_reports`           | integer        | 过时报告数量                                      |
+| `empty_communities`       | integer        | 空社区数量                                       |
+| `hierarchy_issues`        | integer        | 层级结构破坏数量                                    |
+| `last_check_at`           | string \| null | 上次检查时间（当前版本不持久化，固定为 `null`）                 |
+
+#### 状态码
+
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 成功返回健康概览      |
+| 401 Unauthorized          | Admin API Key 无效或缺失 |
+| 500 Internal Server Error | 健康检查失败        |
+
+---
+
+## 🛢️ 数据库监控端点
+
+数据库监控端点提供 PostgreSQL 性能分析数据（索引使用、表规模、连接池、慢查询），所有操作需要 Admin API Key。
+
+> 💡 **提示**：索引、表、慢查询统计仅 PostgreSQL 可用；降级到 DuckDB 时返回空数据并附带 `message` 说明。连接池统计两种数据库均可用。
+
+### GET /api/v1/admin/monitoring/database/indexes
+
+获取索引使用统计，按扫描次数升序排列（排在最前的即为最少使用的索引，可作为删除候选）。
+
+#### 请求
+
+```http
+GET /api/v1/admin/monitoring/database/indexes?limit=50 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数      | 类型      | 默认值 | 范围     | 说明        |
+|---------|---------|-----|--------|-----------|
+| `limit` | integer | 50  | 1-200  | 最大返回索引数   |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "table": "public.article_vectors",
+      "index": "idx_article_vectors_embedding",
+      "scans": 0,
+      "tuples_read": 0,
+      "tuples_fetched": 0,
+      "size": "128 MB"
+    }
+  ]
+}
+```
+
+**响应字段说明：**
+
+| 字段               | 类型      | 说明                |
+|------------------|---------|-------------------|
+| `table`          | string  | 表名（含 schema 前缀）   |
+| `index`          | string  | 索引名               |
+| `scans`          | integer | 索引扫描次数            |
+| `tuples_read`    | integer | 索引条目读取数           |
+| `tuples_fetched` | integer | 经索引获取的行数          |
+| `size`           | string  | 索引大小（人类可读格式）      |
+
+#### 状态码
+
+| 状态码              | 说明                          |
+|------------------|-----------------------------|
+| 200 OK           | 成功返回索引统计（非 PostgreSQL 返回空列表） |
+| 401 Unauthorized | Admin API Key 无效或缺失         |
+
+---
+
+### GET /api/v1/admin/monitoring/database/tables
+
+获取表行数与大小统计，按总大小降序排列。
+
+#### 请求
+
+```http
+GET /api/v1/admin/monitoring/database/tables?limit=50 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数      | 类型      | 默认值 | 范围     | 说明        |
+|---------|---------|-----|--------|-----------|
+| `limit` | integer | 50  | 1-200  | 最大返回表数    |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "table": "public.articles_core",
+      "rows": 15230,
+      "size": "856 MB",
+      "index_size": "320 MB"
+    }
+  ]
+}
+```
+
+**响应字段说明：**
+
+| 字段            | 类型      | 说明              |
+|---------------|---------|-----------------|
+| `table`       | string  | 表名（含 schema 前缀） |
+| `rows`        | integer | 估算行数            |
+| `size`        | string  | 表总大小（含索引，人类可读格式）|
+| `index_size`  | string  | 索引总大小（人类可读格式）   |
+
+#### 状态码
+
+| 状态码              | 说明                          |
+|------------------|-----------------------------|
+| 200 OK           | 成功返回表统计（非 PostgreSQL 返回空列表） |
+| 401 Unauthorized | Admin API Key 无效或缺失         |
+
+---
+
+### GET /api/v1/admin/monitoring/database/pool
+
+获取数据库连接池状态。DuckDB 使用单连接，返回固定的单连接占位数据并附带 `message` 说明。
+
+#### 请求
+
+```http
+GET /api/v1/admin/monitoring/database/pool HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "pool_size": 10,
+    "checked_in": 7,
+    "checked_out": 3,
+    "overflow": 0
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段            | 类型      | 说明        |
+|---------------|---------|-----------|
+| `pool_size`   | integer | 当前连接池大小   |
+| `checked_in`  | integer | 空闲连接数     |
+| `checked_out` | integer | 活跃连接数     |
+| `overflow`    | integer | 溢出连接数     |
+
+> 💡 **提示**：异步驱动无法读取池状态时返回全 0 数据并附带 `warning` 字段说明原因。
+
+#### 状态码
+
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回连接池状态     |
+| 401 Unauthorized | Admin API Key 无效或缺失 |
+
+---
+
+### GET /api/v1/admin/monitoring/database/slow-queries
+
+获取最近慢查询统计（按平均执行时间降序），数据来自 PostgreSQL 的 `pg_stat_statements` 扩展。查询文本超过 200 字符时截断。
+
+#### 请求
+
+```http
+GET /api/v1/admin/monitoring/database/slow-queries?limit=20 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数      | 类型      | 默认值 | 范围     | 说明         |
+|---------|---------|-----|--------|------------|
+| `limit` | integer | 20  | 1-100  | 最大返回查询数    |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "slow_queries": [
+      {
+        "query": "SELECT * FROM articles_core WHERE source_url = $1",
+        "calls": 1520,
+        "avg_duration_ms": 245.32,
+        "total_duration_ms": 372886.4,
+        "rows_retrieved": 45600
+      }
+    ],
+    "limit": 20
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段                          | 类型       | 说明                    |
+|-----------------------------|----------|-----------------------|
+| `slow_queries`              | object[] | 慢查询列表（按平均耗时降序）        |
+| `slow_queries[].query`      | string   | 查询文本（最长 200 字符）       |
+| `slow_queries[].calls`      | integer  | 调用次数                  |
+| `slow_queries[].avg_duration_ms` | float | 平均执行时间（毫秒，保留 2 位小数）  |
+| `slow_queries[].total_duration_ms` | float | 总执行时间（毫秒，保留 2 位小数）   |
+| `slow_queries[].rows_retrieved` | integer | 检索行数                  |
+| `limit`                     | integer  | 本次请求的返回上限             |
+
+> 💡 **提示**：`pg_stat_statements` 扩展未启用时返回空的 `slow_queries` 列表，`message` 中附带启用命令 `CREATE EXTENSION pg_stat_statements;`。
+
+#### 状态码
+
+| 状态码              | 说明                              |
+|------------------|---------------------------------|
+| 200 OK           | 成功返回慢查询统计（扩展缺失或非 PostgreSQL 返回空列表） |
+| 401 Unauthorized | Admin API Key 无效或缺失             |
+
+---
+
+## 🧠 记忆管理端点
+
+记忆管理端点提供记忆系统诊断与手动巩固触发，所有操作需要 Admin API Key。
+
+### GET /api/v1/admin/memory/diagnostics
+
+获取记忆系统诊断信息，返回数据与 `GET /api/v1/monitoring/memory/diagnostics` 一致（见[记忆监控端点](#-记忆监控端点)）。
+
+#### 请求
+
+```http
+GET /api/v1/admin/memory/diagnostics HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "memory_service_initialized": true,
+    "temporal_event_count": 1520,
+    "causal_link_count": 430,
+    "pending_consolidation": 12,
+    "slow_path_enabled": true,
+    "scheduler_job_registered": true
+  }
+}
+```
+
+#### 状态码
+
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回诊断信息      |
+| 401 Unauthorized | Admin API Key 无效或缺失 |
+
+---
+
+### POST /api/v1/admin/memory/trigger-consolidation
+
+手动触发记忆巩固（慢路径），强制处理待巩固事件以进行因果推断。适用于调度任务尚未运行的场景。
+
+#### 请求
+
+```http
+POST /api/v1/admin/memory/trigger-consolidation?batch_size=10 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数           | 类型      | 默认值 | 范围     | 说明           |
+|--------------|---------|-----|--------|--------------|
+| `batch_size` | integer | 10  | 1-100  | 本次处理的事件数量    |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "processed": 10,
+    "event_ids": ["evt-8f3a1c2d", "evt-9b4e5f6a"]
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段           | 类型        | 说明              |
+|--------------|-----------|-----------------|
+| `processed`  | integer   | 实际处理的事件数量       |
+| `event_ids`  | string[]  | 已处理事件的 ID 列表    |
+
+#### 状态码
+
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 巩固触发成功        |
+| 401 Unauthorized          | Admin API Key 无效或缺失 |
+| 503 Service Unavailable   | 记忆服务未初始化      |
+
+---
+
+## 🔑 API Key 管理端点
+
+API Key 管理端点用于创建、查询、吊销与轮换 API 密钥，所有操作需要 Admin API Key。
+
+> 💡 **提示**：`key_value` 仅在创建和轮换响应中出现一次，服务端只保存哈希，请妥善保管。吊销与轮换操作有所有权校验：仅密钥创建者或超级管理员（`env-admin`）可执行，且无论成功失败都会写入审计日志。
+
+### POST /api/v1/admin/api-keys
+
+创建新的 API Key。
+
+#### 请求
+
+```http
+POST /api/v1/admin/api-keys HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+Content-Type: application/json
+
+{
+  "scopes": ["search:read", "articles:read"],
+  "rate_limit_per_min": 200,
+  "expires_in_days": 180,
+  "created_by": "ops-team"
+}
+```
+
+**请求字段：**
+
+| 字段                   | 类型       | 必填 | 默认值            | 范围        | 说明                          |
+|----------------------|----------|----|----------------|-----------|-----------------------------|
+| `scopes`             | string[] | 否  | `["search:read"]` | -       | Key 权限范围列表                  |
+| `rate_limit_per_min` | integer  | 否  | 100            | 10-10000  | 每分钟请求速率上限                   |
+| `expires_in_days`    | integer  | 否  | 90             | 1-365     | 有效期（天）                      |
+| `created_by`         | string   | 否  | -              | 最长 100 字符 | 创建者标识；禁止 `<>"'&;()` 字符（防存储型 XSS） |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "key_id": "ak-3f9c2b8a",
+    "key_value": "wv_live_9f8e7d6c5b4a3f2e1d0c",
+    "scopes": ["search:read", "articles:read"],
+    "rate_limit_per_min": 200,
+    "expires_at": "2027-03-15T00:00:00+00:00"
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段                   | 类型       | 说明                     |
+|----------------------|----------|------------------------|
+| `key_id`             | string   | 密钥唯一标识                 |
+| `key_value`          | string   | 密钥明文（仅此一次返回）           |
+| `scopes`             | string[] | 权限范围列表                 |
+| `rate_limit_per_min` | integer  | 每分钟请求速率上限              |
+| `expires_at`         | string   | 过期时间（ISO 8601）         |
+
+#### 状态码
+
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 密钥创建成功        |
+| 401 Unauthorized          | Admin API Key 无效或缺失 |
+| 422 Unprocessable Entity  | 请求参数验证失败（如 `created_by` 含禁止字符） |
+
+---
+
+### GET /api/v1/admin/api-keys
+
+列出所有 API Key（不返回 `key_value`）。
+
+#### 请求
+
+```http
+GET /api/v1/admin/api-keys?include_revoked=false HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**查询参数：**
+
+| 参数                | 类型      | 默认值  | 说明         |
+|-------------------|---------|------|------------|
+| `include_revoked` | boolean | false | 是否包含已吊销的密钥 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "key_id": "ak-3f9c2b8a",
+      "scopes": ["search:read", "articles:read"],
+      "rate_limit_per_min": 200,
+      "expires_at": "2027-03-15T00:00:00+00:00",
+      "is_revoked": false,
+      "last_used_at": "2026-09-15T22:10:33+00:00",
+      "created_by": "ops-team",
+      "created_at": "2026-06-16T09:00:00+00:00"
+    }
+  ]
+}
+```
+
+**响应字段说明：**
+
+| 字段                   | 类型             | 说明            |
+|----------------------|----------------|---------------|
+| `key_id`             | string         | 密钥唯一标识        |
+| `scopes`             | string[]       | 权限范围列表        |
+| `rate_limit_per_min` | integer        | 每分钟请求速率上限     |
+| `expires_at`         | string \| null | 过期时间          |
+| `is_revoked`         | boolean        | 是否已吊销         |
+| `last_used_at`       | string \| null | 最近使用时间        |
+| `created_by`         | string \| null | 创建者标识         |
+| `created_at`         | string \| null | 创建时间          |
+
+#### 状态码
+
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回密钥列表      |
+| 401 Unauthorized | Admin API Key 无效或缺失 |
+
+---
+
+### DELETE /api/v1/admin/api-keys/{key_id}
+
+吊销指定 API Key。仅密钥创建者或超级管理员可执行，所有尝试均写入审计日志。
+
+#### 请求
+
+```http
+DELETE /api/v1/admin/api-keys/ak-3f9c2b8a HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**路径参数：**
+
+| 参数        | 类型     | 必填 | 说明       |
+|-----------|--------|----|----------|
+| `key_id`  | string | 是  | 密钥唯一标识   |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "key_id": "ak-3f9c2b8a",
+    "revoked": true
+  }
+}
+```
+
+#### 状态码
+
+| 状态码              | 说明                        |
+|------------------|---------------------------|
+| 200 OK           | 密钥吊销成功                    |
+| 401 Unauthorized | Admin API Key 无效或缺失       |
+| 403 Forbidden    | 非密钥创建者且非超级管理员             |
+| 404 Not Found    | 密钥不存在                     |
+| 409 Conflict     | 密钥已处于吊销状态                 |
+
+---
+
+### POST /api/v1/admin/api-keys/{key_id}/rotate
+
+手动轮换指定 API Key，生成替代密钥。旧密钥在 24 小时宽限期内仍然有效；新密钥继承相同的权限范围与速率限制。仅密钥创建者或超级管理员可执行，所有尝试均写入审计日志。
+
+#### 请求
+
+```http
+POST /api/v1/admin/api-keys/ak-3f9c2b8a/rotate HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-admin-api-key
+```
+
+**路径参数：**
+
+| 参数        | 类型     | 必填 | 说明       |
+|-----------|--------|----|----------|
+| `key_id`  | string | 是  | 待轮换的密钥标识 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "old_key_id": "ak-3f9c2b8a",
+    "new_key_id": "ak-7d1e4f02",
+    "new_key_value": "wv_live_a1b2c3d4e5f6g7h8i9j0",
+    "scopes": ["search:read", "articles:read"],
+    "rate_limit_per_min": 200,
+    "expires_at": "2027-03-15T00:00:00+00:00"
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段                   | 类型       | 说明                    |
+|----------------------|----------|-----------------------|
+| `old_key_id`         | string   | 旧密钥标识（宽限期内仍有效）        |
+| `new_key_id`         | string   | 新密钥标识                 |
+| `new_key_value`      | string   | 新密钥明文（仅此一次返回）         |
+| `scopes`             | string[] | 继承的权限范围列表             |
+| `rate_limit_per_min` | integer  | 继承的每分钟请求速率上限          |
+| `expires_at`         | string   | 新密钥过期时间（ISO 8601）     |
+
+#### 状态码
+
+| 状态码              | 说明                        |
+|------------------|---------------------------|
+| 200 OK           | 密钥轮换成功                    |
+| 401 Unauthorized | Admin API Key 无效或缺失       |
+| 403 Forbidden    | 非密钥创建者且非超级管理员             |
+| 404 Not Found    | 密钥不存在                     |
+| 409 Conflict     | 密钥已处于轮换状态                 |
 
 ---
 
