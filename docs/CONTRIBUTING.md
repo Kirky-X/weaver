@@ -13,6 +13,7 @@
 - [代码规范](#-代码规范)
 - [提交规范](#-提交规范)
 - [审查流程](#-审查流程)
+- [测试](#测试)
 - [发布流程](#-发布流程)
 
 </details>
@@ -41,6 +42,18 @@
 - 公开或私下骚扰
 - 未经明确许可，发布他人的私人信息
 - 其他在专业环境中被认为不适当的行为
+
+### 适用范围
+
+本行为准则适用于所有项目空间，包括代码仓库、Issue、Pull Request、Discussion，以及代表项目的官方公开渠道与线下活动。
+
+### 执行
+
+- **举报渠道**：如遭遇或目睹不可接受的行为，请通过 GitHub 联系维护者 [@Kirky-X](https://github.com/Kirky-X)
+- **核查程序**：维护者将在收到举报后及时核查，与涉事双方沟通了解情况，并保守举报人隐私
+- **处理后果**：经确认违反本准则者，将视情节轻重受到警告、临时或永久禁止参与项目等处理；维护者保留对处理决定的解释权
+
+> 本行为准则改编自 [Contributor Covenant](https://www.contributor-covenant.org) v2.1，遵循 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可发布。
 
 ---
 
@@ -132,10 +145,8 @@
 2. **安装依赖**
    ```bash
    # 使用 uv (强烈推荐)
-   uv sync --group dev
-
-   # 或使用 pip (不推荐)
-   pip install -e ".[dev]"
+   # --all-groups 同时安装 [dependency-groups] 中的 dev 和 test 组 (pytest 位于 test 组)
+   uv sync --all-groups
    ```
 
 3. **安装浏览器**
@@ -146,7 +157,7 @@
 4. **安装 NLP 模型**
    ```bash
    uv pip install "spacy-pkuseg>=0.0.27,<0.1.0"
-   uv run python -m spacy download zh_core_web_sm
+   uv run python -m spacy download zh_core_web_lg
    ```
 
 5. **配置环境**
@@ -384,9 +395,11 @@ except Exception as e:  # ✓ 可以，但仅在顶层使用
 | `refactor` | 代码重构           |
 | `perf`     | 性能优化           |
 | `test`     | 测试相关           |
+| `build`    | 构建系统或依赖变更   |
 | `chore`    | 构建/工具链/依赖更新    |
 | `ci`       | CI/CD 相关       |
 | `revert`   | 回滚提交           |
+| `wip`      | 进行中，勿合并到 main  |
 
 #### Scope
 
@@ -463,8 +476,7 @@ graph LR
 2. **自动化检查**
     - CI 会运行测试套件
     - 代码覆盖率检查 (要求 ≥80%)
-    - Pre-commit hooks 检查 (isort, ruff, ruff-format)
-    - 提交信息格式验证 (commitizen)
+    - CI 直接运行 `ruff format --check` / `ruff check` / `mypy`；isort 仅在本地 pre-commit hook 中运行
 
 3. **代码审查**
     - 至少需要 1 个审查者批准
@@ -477,33 +489,7 @@ graph LR
 
 ### PR 模板
 
-```markdown
-## 描述
-简要描述这个 PR 的目的和更改内容。
-
-Fixes # (issue)
-
-## 更改类型
-- [ ] Bug 修复
-- [ ] 新功能
-- [ ] 破坏性变更
-- [ ] 文档更新
-- [ ] 性能优化
-- [ ] 代码重构
-
-## 检查清单
-- [ ] 代码遵循项目代码风格
-- [ ] 测试通过
-- [ ] 添加/更新了测试
-- [ ] 文档已更新
-- [ ] 所有 CI 检查通过
-
-## 测试说明
-描述如何测试这些更改。
-
-## 截图（如适用）
-添加截图帮助理解更改。
-```
+仓库已提供 PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`），创建 PR 时会自动加载，按模板逐项填写即可。
 
 ---
 
@@ -529,7 +515,7 @@ uv run pytest tests/unit/ -v
 # 运行特定标记的测试
 uv run pytest -m unit -v          # 仅单元测试
 uv run pytest -m integration -v   # 仅集成测试
-uv run pytest -m performance -v   # 性能测试
+uv run pytest tests/performance/ -v -o addopts=""   # 性能测试 (默认 addopts 忽略 tests/performance)
 
 # 运行测试并生成覆盖率报告
 uv run pytest --cov=src --cov-report=html --cov-report=term-missing
@@ -537,14 +523,14 @@ uv run pytest --cov=src --cov-report=html --cov-report=term-missing
 # 并行运行测试 (使用 pytest-xdist)
 uv run pytest -n auto
 
-# 运行 E2E 测试 (需要 Docker)
-uv run pytest tests/e2e/ -v
+# 运行 E2E 测试 (需要 Docker; 默认 addopts 忽略 tests/e2e, 需先启动 tests/e2e/docker-compose.yml 中的服务)
+uv run pytest tests/e2e/ -v -o addopts=""
 ```
 
 ### 覆盖率要求
 
 - **最低覆盖率**: 80% (`--cov-fail-under=80`)
-- **覆盖率报告**: HTML 和 XML 格式
+- **覆盖率报告**: 默认输出终端 missing 报告；HTML/XML 需显式传 `--cov-report=html` / `--cov-report=xml`
 - **排除目录**: alembic, scripts, tests, 部分基础设施模块
 
 ---
@@ -595,6 +581,7 @@ graph LR
 5. **创建 GitHub Release**
     - 填写发布说明
     - 附上二进制文件（如需要）
+    - 注：推送 `v*` tag 后 `release.yml` 会自动构建并创建 Release，手动步骤通常可省略
 
 ---
 

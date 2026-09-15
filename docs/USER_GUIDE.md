@@ -52,7 +52,7 @@ uv run python -m src.main
 - 端口被占用时自动寻找可用端口（双向搜索）
 - 实际端口信息输出到日志
 - 当 `WEAVER_WRITE_PORT_ENV=true` 时,端口信息会写入 `.env.weaver` 文件
-- Docker 健康检查自动适配动态端口
+- Docker 健康检查读取 `WEAVER_API__PORT` 配置端口，容器内建议关闭 `port_auto_detect`
 
 **配置端口检测**：
 
@@ -208,21 +208,20 @@ rate_limit = "100/minute"
 crawl_interval_minutes = 30        # RSS 抓取间隔
 neo4j_retry_interval_minutes = 10  # Neo4j 写入重试间隔
 retry_flush_interval_seconds = 30  # 爬虫重试队列刷新间隔
+bm25_rebuild_interval_seconds = 300 # BM25 索引重建间隔(秒)
 ```
 
 **搜索增强**:
 
 ```toml
 [search]
-hybrid_enabled = true              # 启用混合搜索 (向量 + 关键词)
 rerank_enabled = true              # 启用重排序
 rerank_model = "tiny"             # Flashrank 模型 (tiny/small/medium/multilingual)
 mmr_enabled = false               # 启用 MMR 多样性
 mmr_lambda = 0.7                  # MMR 平衡参数 (0-1)
-bm25_rebuild_interval = 300       # BM25 索引重建间隔(秒)
-temporal_decay_enabled = true     # ✅ 启用时间衰减（默认开启）
-temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模式 90 天，因果模式 365 天
 ```
+
+> ⚠️ **注意**：混合检索开关与时间衰减（默认关闭，代码内置半衰期 30 天）等混合检索参数当前由代码内置配置，`[search]` 段暂无对应 TOML 键（未知键会被静默忽略）。BM25 索引重建间隔见上方 `[scheduler]` 段的 `bm25_rebuild_interval_seconds`。
 
 ---
 
@@ -809,7 +808,9 @@ curl -X GET "http://localhost:8000/health"
 ### Prometheus 指标
 
 ```bash
-curl -X GET "http://localhost:8000/metrics"
+# 默认需要 API Key 认证（require_auth_for_metrics 默认开启）
+curl -X GET "http://localhost:8000/metrics" \
+  -H "X-API-Key: your-api-key"
 ```
 
 ### 配置 Prometheus
@@ -832,15 +833,13 @@ rate(http_requests_total[5m])
 # P95 请求延迟
 histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
 
-# 文章处理成功率
-sum(rate(articles_processed_total{status="success"}[1h]))
-/
-sum(rate(articles_processed_total[1h]))
+# 文章处理速率
+sum(rate(weaver_articles_processed_total[1h]))
 
 # 数据库连接池使用率
-db_connection_pool_checked_out{database="postgres"}
+db_pool_checked_out{pool="postgres"}
 /
-db_connection_pool_size{database="postgres"}
+db_pool_size{pool="postgres"}
 ```
 
 ---
@@ -889,10 +888,10 @@ curl "http://localhost:8000/api/v1/pipeline/queue/stats" \
 ```bash
 # 检查向量表
 # 在 PostgreSQL 中运行：
-SELECT COUNT(*) FROM article_embeddings;
+SELECT COUNT(*) FROM article_vectors;
 
-# 降低阈值重试
-curl "http://localhost:8000/api/v1/search?q=test&mode=local" \
+# 降低阈值重试（threshold 仅在文章检索意图生效，需搭配 auto 模式）
+curl "http://localhost:8000/api/v1/search?q=test&mode=auto&threshold=0.3" \
   -H "X-API-Key: your-api-key"
 
 # 尝试 auto 模式（基于意图路由）
@@ -911,7 +910,9 @@ curl "http://localhost:8000/api/v1/search?q=test" \
 
 ```bash
 # 测试 Neo4j 连接
-curl "http://localhost:8000/health"
+# 根 /health 出于安全考虑只返回整体状态，依赖明细需调用管理员鉴权端点
+curl "http://localhost:8000/api/v1/system/health/dependencies" \
+  -H "X-API-Key: your-api-key"
 # 查看响应中的 neo4j 状态
 ```
 

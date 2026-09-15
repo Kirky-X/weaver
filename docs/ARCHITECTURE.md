@@ -52,7 +52,7 @@ Weaver 支持多种数据库后端,根据配置自动选择并使用 Protocol �
 **缓存 (Cache)**:
 
 - **Redis**: 生产环境,分布式缓存
-- **CashewsRedisFallback**: 开发环境,内存缓存自动降级
+- **FallbackCachePool**: Redis 主 + Cashews 备,运行时自动降级
 
 ### 架构层次
 
@@ -70,8 +70,7 @@ graph TD
     E -.- E1["pool: RelationalPool = Depends(get_relational_pool)"]
 ```
 
-**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(
-目前代码中未显式调用,依赖全局 Container 实例)。
+**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。`Endpoints.initialize` 由 `main.lifespan` 与 `Container.startup()` 显式调用,内部经 `set_container` 注册全局容器。
 
 ### 初始化顺序和依赖关系
 
@@ -81,7 +80,7 @@ graph TD
 | ------------------- | ----------------------- | ----------------------- |
 | database            | -                       | init_strategy()         |
 | migrations          | database                | initialize_database()   |
-| redis               | -                       | init_redis()            |
+| redis               | -                       | init_cache_client()     |
 | llm                 | database, redis         | init_llm()              |
 | search_engines      | database, llm           | init_search_engines()   |
 | bm25_index          | search_engines          | \_init_bm25_index()     |
@@ -117,9 +116,9 @@ relational_pool = container.relational_pool()
 - 管理连接池的启动和关闭
 - 提供服务实例的访问方法
 
-#### Endpoints 类 (deps_registry.py)
+#### Endpoints 注册入口 (deps_registry.py)
 
-集中式依赖注册中心,供所有端点模块使用:
+依赖注册入口,供容器启动链调用。所有依赖 getter 定义在 `api/dependencies.py`:
 
 ```python
 from typing import Annotated
@@ -139,10 +138,11 @@ async def list_items(
 
 **特点**:
 
-- 所有 getter 为静态方法,直接返回服务实例
+- `Endpoints` 类 (deps_registry.py) 仅提供 `initialize`/`reset` 两个 classmethod,负责注册/清理全局容器
+- 所有 getter 为 `api/dependencies.py` 的模块级 FastAPI 依赖函数,通过全局容器解析服务实例
 - 服务未初始化时抛出 `HTTPException(503)`
-- 提供 Optional 版本的方法 (如 `get_relational_pool_optional()`)
-- 数据库类型查询方法: `get_relational_type()`, `get_graph_type()`, `get_cache_type()`
+- 提供 Optional 版本的依赖函数 (如 `get_relational_pool_optional()`)
+- 数据库类型查询依赖函数: `get_relational_type()`, `get_graph_type()`, `get_cache_type()`
 
 ### 可用依赖列表
 
@@ -169,13 +169,13 @@ async def list_items(
 | `get_pipeline_service()`      | `PipelineServiceImpl`  | Pipeline 服务                          |
 | `get_task_registry()`         | `InMemoryTaskRegistry` | 任务注册表                             |
 
-**数据库类型查询** (Endpoints 类方法):
+**数据库类型查询** (api/dependencies.py 模块级依赖函数):
 
 | 方法                    | 返回值 | 说明                                                  |
 | ----------------------- | ------ | ----------------------------------------------------- |
 | `get_relational_type()` | `str`  | "postgres" 或 "duckdb" (未初始化返回 "unknown")       |
 | `get_graph_type()`      | `str`  | "neo4j" 或 "ladybug" (未初始化返回 "unknown")         |
-| `get_cache_type()`      | `str`  | 类名: "RedisClient", "CashewsRedisFallback" 或 "none" |
+| `get_cache_type()`      | `str`  | 'redis'/'cashews' (FallbackCachePool.cache_type), 未初始化返回 "none" |
 
 ### 服务生命周期
 
@@ -351,7 +351,7 @@ SmartRouter 负责智能选择最优 LLM Provider:
    - 基于历史性能动态调整优先级
    - 支持成本优化路由
 
-**配置示例** (config/llm.toml):
+**配置示例** (config/llm.example.toml):
 
 ```toml
 # Provider 配置 (两层嵌套结构)
@@ -414,7 +414,7 @@ EvalRunner 提供影子评估能力:
 **配置**:
 
 ```toml
-# 影子评估配置 (config/llm.toml)
+# 影子评估配置 (config/llm.example.toml)
 [eval]
 enabled = false                    # 启用影子评估
 sample_rate = 0.1                  # 10% 的请求触发影子调用
@@ -452,7 +452,7 @@ llm_token_total{provider="openai",model="gpt-4o",call_point="search_local"} 2023
 
 ```mermaid
 graph TD
-    A["LLMClient.call()"] --> B["SmartRouter.select_provider()"]
+    A["LLMClient.call()"] --> B["SmartRouter.route()"]
     B --> C["ProviderPool.execute()"]
     C --> D{"调用结果"}
     D -->|"成功"| E["发布 LLMUsageEvent"]
@@ -709,7 +709,7 @@ causal_confidence_threshold = 0.7  # 因果关系置信度阈值
 max_traversal_depth = 5            # 最大遍历深度
 beam_width = 10                    # Beam Search 宽度
 token_budget = 4000                # Token 预算
-consolidation_interval_minutes = 60  # 后台整合间隔 (分钟)
+consolidation_interval_minutes = 30  # 后台整合间隔 (分钟)
 ```
 
 **核心组件**:
@@ -858,6 +858,8 @@ class PersistStatus(str, enum.Enum):
     FAILED = "failed"            # 失败状态
 ```
 
+> 以上为核心成员摘录,另含 LADYBUG_DONE、NEO4J_FAILED 及 SAGA_* 中间态 (完整定义见 src/core/protocols/types.py)。
+
 ### 状态转换图
 
 ```mermaid
@@ -1003,10 +1005,10 @@ if breaker.is_slow:    # 连续 >= 5 次慢请求
 
 ```promql
 # 熔断器状态 (通过 ProviderCircuitBreaker.state 查询)
-# CircuitState: CLOSED=0, OPEN=1, HALF_OPEN=2
+# CircuitState 为 str 枚举: CLOSED="closed", OPEN="open", HALF_OPEN="half_open"
 
-# 慢请求计数
-provider_slow_requests{provider="openai"} 3
+# 熔断失败计数
+circuit_breaker_failures_total{provider="openai"} 3
 ```
 
 ### 与 SmartRouter 集成
@@ -1113,7 +1115,7 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID                | 触发器   | 间隔    | 说明              |
 | ---------------------- | -------- | ------- | ----------------- |
-| `memory_consolidation` | Interval | 60 分钟 | Memory 慢路径整合 |
+| `memory_consolidation` | Interval | 30 分钟 | Memory 慢路径整合 |
 
 ### 任务执行保证
 
@@ -1299,9 +1301,9 @@ if has_degraded_data(state):
 ### 使用场景
 
 ```python
-# 在后续处理中检查降级状态
-if "entities" in state.degraded_fields:
-    logger.warning(f"Using fallback entity extraction: {state.degradation_reasons['entities']}")
+# 在后续处理中检查降级状态 (PipelineState 为 TypedDict,使用 get 访问)
+if "entities" in state.get("degraded_fields", []):
+    logger.warning(f"Using fallback entity extraction: {state.get('degradation_reasons', {}).get('entities')}")
     # 使用规则提取作为 fallback
 ```
 
@@ -1398,7 +1400,7 @@ async def dedup(self, items: list) -> list:
 | ------------------------------------------- | --------- | -------------------------------- |
 | `weaver_dedup_redis_fallback_total`         | Counter   | Redis 不可用时回退到数据库的次数 |
 | `weaver_dedup_total{stage="url"}`           | Counter   | URL 去重总数                     |
-| `weaver_dedup_processing_time{stage="url"}` | Histogram | 去重处理时间                     |
+| `weaver_dedup_processing_time_seconds{stage="url"}` | Histogram | 去重处理时间                     |
 
 ---
 
@@ -1458,8 +1460,7 @@ Weaver 通过以下核心架构设计确保系统的可靠性、一致性和高�
 | 9 | **降级数据处理** | TypedDict + 模块级函数跟踪降级字段 |
 | 10 | **Redis Fallback** | 两级去重，自动切换，批量操作优化 |
 | 11 | **Embedding 缓存** | MGET 批量获取，O(N) → O(1) |
-| 12 | **Vault 密钥管理** | HashiCorp Vault 集成，动态获取敏感配置 |
-| 13 | **PgBouncer 连接池** | 代理模式，优化生产环境连接管理 |
+| 12 | **PgBouncer 连接池** | 代理模式，优化生产环境连接管理 |
 
 ## 🔗 相关文档
 
@@ -1468,29 +1469,6 @@ Weaver 通过以下核心架构设计确保系统的可靠性、一致性和高�
 - [部署指南](DEPLOYMENT.md) — 部署与环境配置
 - [贡献指南](CONTRIBUTING.md) — 参与项目贡献
 - [项目 README](../README.md) — 返回首页
-
-### Vault 密钥管理
-
-Weaver 支持通过 HashiCorp Vault 管理敏感配置（密码、API 密钥等）。
-
-**配置方式**:
-
-```toml
-[vault]
-enabled = true
-url = "http://vault.internal:8200"
-mount_path = "secret/weaver"
-# token 通过 WEAVER_VAULT__TOKEN 环境变量注入
-```
-
-**部署步骤**:
-
-1. 启动 Vault 服务器（开发模式: `vault server -dev`，生产模式: 参照 Vault 官方文档）
-2. 存储密钥: `vault kv put secret/weaver/postgres password=xxx`
-3. 配置 Weaver: 设置 `WEAVER_VAULT__ENABLED=true` 和 `WEAVER_VAULT__TOKEN`
-4. Weaver 启动时从 Vault 获取密钥，覆盖环境变量中的值
-
-**默认密钥路径**: `postgres/password`, `neo4j/password`, `redis/password`, `api/api_key`, `api/admin_api_key`
 
 ### PgBouncer 连接池
 

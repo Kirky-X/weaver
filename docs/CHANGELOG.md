@@ -11,10 +11,16 @@
 <summary>📑 目录（点击展开）</summary>
 
 - [Unreleased](#-unreleased)
+- [v0.2.0](#-v020---2026-07-21)
 
 </details>
 
 ---
+
+## 🚀 [v0.2.0] - 2026-07-21
+
+- 首个公开 Release：采集 → LLM 流水线 → 知识图谱 → 搜索全链路
+- 技术栈：FastAPI + LiteLLM + Neo4j/LadybugDB（图）+ PostgreSQL/DuckDB（关系）
 
 ## 🚧 [Unreleased]
 
@@ -35,6 +41,8 @@
     - `local`: Direct vector search for entity neighborhoods
     - `global`: Community-level search with Map-Reduce pattern
     - `auto`: Intent-based automatic routing (existing behavior)
+- **Extended Search Endpoints**: Added `drift`, `causal`, and `temporal` search endpoints
+- **Bing Web Search**: Optional Bing web search backfill via `WEAVER_BING__ENABLED` (disabled by default)
 
 #### 🏘️ 社区检测
 
@@ -62,7 +70,8 @@
 
 #### 架构
 
-- **Scripts Consolidation**: Merged `scripts` directory from 12 to 4 core scripts for better maintainability
+- **Scripts Consolidation**: Consolidated scripts directory to 6 core scripts (7 files incl. helpers), exposed as 4
+  `weaver-*` CLI entry points
 - **Legacy Code Removal**: Removed backward compatibility code for cleaner codebase
 - **Main Config Loading**: Replaced `toml` library with `tomllib` (Python 3.11+ standard library)
 
@@ -91,10 +100,10 @@
 
 #### 类型安全
 
-- Fixed dataclass type annotations in `src/core/llm/types.py`: `list[str] = None` → `list[str] | None = None` for
-  `RoutingConfig.fallbacks`, `ProviderConfig.models`, `GlobalConfig.defaults`, `GlobalConfig.call_points`
-- Fixed `sanitize_dict` return type annotation in `src/core/utils/sanitize.py`: `dict[str, str]` → `dict[str, Any]`
-- Fixed variable name conflict in `src/modules/migration/mapping_registry.py` causing type inference errors
+- Fixed `None` defaults in `src/core/llm/types.py`: `RoutingConfig.fallbacks`, `ProviderConfig.models`,
+  `GlobalConfig.defaults`, and `GlobalConfig.call_points` now default to empty collections (`fallbacks: list[str] = []`,
+  `models: dict[str, ModelConfig] = {}`, `defaults`/`call_points: dict[str, RoutingConfig] = {}`); these are pydantic
+  `BaseModel` fields
 
 #### 🔒 安全
 
@@ -103,7 +112,6 @@
     - Blocks arbitrary class instantiation
 - **Vector Similarity Queries**: Added input validation for vector similarity query parameters
 - **SSRF Protection**: Enhanced SSRF protection with inline URL validation
-- **Migration Adapters**: Fixed SQL injection vulnerabilities and added detailed logging
 - **API Response Errors**: Made validation errors JSON-serializable in API responses
 
 #### 🐞 Bug 修复
@@ -119,11 +127,11 @@
 #### Code Quality
 
 - Added debug logging to silent exception handlers in `src/modules/processing/pipeline/graph.py`
-- Enhanced error handling with detailed logging across migration adapters and core modules
+- Enhanced error handling with detailed logging across core modules
 
 ### ✅ 验证
 
-- All 856 tests pass
+- All affected-module tests pass (full suite now 9,300+ tests)
 - mypy type checking passes for modified files
 - ruff lint checks pass
 - No new hardcoded secrets detected

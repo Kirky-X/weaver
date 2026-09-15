@@ -101,7 +101,7 @@ docker compose -f docker/docker-compose.yml --profile full up -d --build
 
 ```bash
 # 应用基础配置
-export ENVIRONMENT=production  # production | development
+export WEAVER_ENVIRONMENT=production  # production | development
 
 # API 配置
 export WEAVER_API__API_KEY=<your-secure-api-key>  # 最少 32 字符
@@ -158,8 +158,8 @@ db = 0
 
 ```bash
 # LLM Provider API Keys（通过环境变量覆盖 llm.toml 中的配置，env > TOML）
-export WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
-export WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+export WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=your_openai_api_key
+export WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY=your_anthropic_api_key
 # Ollama 不需要真实 API Key
 # export WEAVER_LLM__PROVIDERS__OLLAMA__API_KEY=ollama
 ```
@@ -420,7 +420,7 @@ LIMIT 10;
 - **中型数据集 (100K - 1M)**: 低峰期执行，建议维护窗口 1 小时
 - **大型数据集 (> 1M)**: 专门维护窗口，提前通知用户
 
-> 注意：迁移使用 `CONCURRENTLY` 选项，不会阻塞读写操作，但会增加系统负载。
+> 注意：`upgrade` 路径中的 `CREATE INDEX` 为普通构建方式，执行期间会持有锁并阻塞写入（读取不受影响），大表迁移请安排维护窗口执行；仅 `downgrade` 回滚 HNSW 索引时使用 `DROP INDEX CONCURRENTLY`，不阻塞并发读写。
 
 ---
 
@@ -551,8 +551,10 @@ Weaver 暴露 Prometheus 标准格式的指标端点。
 #### 请求示例
 
 ```bash
-curl http://localhost:8000/metrics
+curl -H "X-API-Key: your-api-key" http://localhost:8000/metrics
 ```
+
+> `/metrics` 默认要求认证（`WEAVER_API__REQUIRE_AUTH_FOR_METRICS` 默认为 `true`）。内网监控等场景可通过设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证。
 
 #### 响应格式
 
@@ -594,9 +596,9 @@ circuit_breaker_state{provider="ollama"} 0
 
 # HELP db_pool_size 数据库连接池大小
 # TYPE db_pool_size gauge
-db_pool_size{pool="postgres"} 20
-db_pool_size{pool="neo4j"} 10
 ```
+
+> 注：`db_pool_size` 指标已定义但当前版本未采集数据，实际响应中无该指标的时间序列。
 
 #### Content-Type
 
@@ -618,6 +620,8 @@ scrape_configs:
     scrape_timeout: 10s
 ```
 
+> 注意：默认 `/metrics` 需要认证，Prometheus 抓取需在抓取配置中携带 API Key 请求头 `X-API-Key`（Prometheus 2.47+ 可通过 `http_headers` 配置），或设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证，否则抓取将返回 401。
+
 ---
 
 ## 📊 监控系统集成
@@ -633,9 +637,6 @@ docker run -d \
   -p 9090:9090 \
   -v /path/to/prometheus.yml:/etc/prometheus/prometheus.yml \
   prom/prometheus
-
-# Kubernetes
-kubectl apply -f monitoring/prometheus/
 ```
 
 #### 2. 配置告警规则
@@ -647,7 +648,7 @@ kubectl apply -f monitoring/prometheus/
 - API 性能告警 (2 条)
 - 数据库连接池告警 (2 条)
 - 健康检查告警 (3 条)
-- 数据一致性告警 (5 条)
+- 数据一致性告警 (6 条)
 
 **启用告警规则:**
 
@@ -714,6 +715,7 @@ docker run -d \
 - `system-health-overview.json` - 系统健康概览
 - `circuit-breaker-status.json` - Circuit Breaker 状态
 - `database-consistency.json` - 数据库一致性状态
+- `performance.json` - 性能监控
 
 **导入方式:**
 
@@ -825,11 +827,11 @@ redis-cli -h localhost -p 6379 ping
 # 查看当前迁移状态
 uv run alembic current
 
-# 检查数据库连接
-uv run alembic show current
+# 检查数据库连接（需读取 alembic_version 表，连接失败会报错）
+uv run alembic current
 
-# 查看详细错误日志
-uv run alembic upgrade head --sql
+# 查看详细错误日志（--sql 离线模式需显式指定版本范围）
+uv run alembic upgrade base:head --sql
 ```
 
 **常见错误:**
@@ -881,8 +883,8 @@ ANALYZE article_vectors;
 **诊断步骤:**
 
 ```bash
-# 测试 /metrics 端点
-curl http://localhost:8000/metrics
+# 测试 /metrics 端点（默认需认证，见上文 /metrics 端点说明）
+curl -H "X-API-Key: your-api-key" http://localhost:8000/metrics
 
 # 检查 Prometheus 配置
 curl http://prometheus:9090/api/v1/targets
@@ -924,7 +926,7 @@ docker logs otel-collector
 
 ```bash
 # Docker 方式
-docker logs weaver-app
+docker logs weaver_app
 
 # Kubernetes 方式
 kubectl logs -f deployment/weaver
@@ -937,7 +939,7 @@ journalctl -u weaver -f
 
 ```bash
 # 实时监控资源使用
-docker stats weaver-app
+docker stats weaver_app
 
 # 监控数据库连接数
 psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='weaver';"
@@ -958,7 +960,7 @@ redis-cli info memory
 - [ ] PostgreSQL 密码已设置 (通过 `WEAVER_POSTGRES__PASSWORD` 设置)
 - [ ] 数据库连接使用 SSL/TLS
 - [ ] Neo4j 认证已启用
-- [ ] Redis 设置密码 (可选)
+- [ ] Redis 设置密码（生产环境必需，为空将启动失败）
 - [ ] 防火墙规则已配置
 - [ ] 定期备份数据库
 - [ ] 监控和告警已配置
