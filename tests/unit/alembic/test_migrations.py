@@ -29,7 +29,7 @@ def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     import re
 
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',

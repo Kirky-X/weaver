@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Add payload_hash column to alert_events for 24h dedup (T018 / R-alert-002).
+"""Add payload_hash column to alert_events for 24h dedup.
 
 Revision ID: 33_add_alert_events_payload_hash
 Revises: 32_extend_daily_briefings_for_category
@@ -21,7 +21,7 @@ Changes:
   in this order enables an index-only scan for the dedup check.
 
 Background:
-- T018 TrendAlertEvaluator triggers alerts based on trend_spike / trend_drop
+- TrendAlertEvaluator triggers alerts based on trend_spike / trend_drop
   / sentiment_shift rules. Without dedup, the hourly scheduler would
   re-insert identical alerts every hour as long as the trend persists,
   flooding the alert_events table.

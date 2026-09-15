@@ -35,11 +35,11 @@ Note on metric/operator/threshold:
 - metric/operator/threshold are NOT NULL columns inherited from the original
   schema (migration 08), so trend rules use placeholder values
   (threshold=0) to satisfy the NOT NULL constraint.
-- The TrendAlertEvaluator (T018, not yet implemented) will read trigger_type
-  + trend_* fields, ignoring the legacy threshold. Until T018 is implemented,
+- The TrendAlertEvaluator (, not yet implemented) will read trigger_type
+  + trend_* fields, ignoring the legacy threshold. Until is implemented,
   these seed rules have no consumer — they are inert data that satisfies
   all CHECK constraints but triggers no alerts.
-- T018 must handle direction: trend_spike → pct_change > +threshold;
+- must handle direction: trend_spike → pct_change > +threshold;
   trend_drop → pct_change < -threshold; sentiment_shift → |change| > threshold.
 """
 

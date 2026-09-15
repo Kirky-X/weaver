@@ -73,6 +73,12 @@ def upgrade() -> None:
     # Migration: HNSW index params from env vars (deployment controlled)
     m = int(os.getenv("HNSW_M", "16"))
     ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "200"))
+    # Fail fast on out-of-range values (same bounds as 01_initial) instead of
+    # an opaque CREATE INDEX error mid-migration.
+    if not 2 <= m <= 100:
+        raise ValueError(f"HNSW_M must be in [2, 100], got {m}")
+    if not 8 <= ef_construction <= 1000:
+        raise ValueError(f"HNSW_EF_CONSTRUCTION must be in [8, 1000], got {ef_construction}")
     # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     op.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_community_vectors_hnsw

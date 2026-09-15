@@ -74,10 +74,13 @@ def upgrade() -> None:
     # Step 3: Convert to TEXT
     op.execute("ALTER TABLE articles ALTER COLUMN persist_status TYPE text;")
 
-    # Step 4: Map stored->pg_done, complete->neo4j_done
+    # Step 4: Map stored->pg_done, complete->neo4j_done, enriching->processing
     op.execute("UPDATE articles SET persist_status = 'pg_done' WHERE persist_status = 'stored';")
     op.execute(
         "UPDATE articles SET persist_status = 'neo4j_done' WHERE persist_status = 'complete';"
+    )
+    op.execute(
+        "UPDATE articles SET persist_status = 'processing' WHERE persist_status = 'enriching';"
     )
 
     # Step 5: Create new enum type (only 6 values)
@@ -136,6 +139,9 @@ def downgrade() -> None:
     op.execute("UPDATE articles SET persist_status = 'stored' WHERE persist_status = 'pg_done';")
     op.execute(
         "UPDATE articles SET persist_status = 'complete' WHERE persist_status = 'neo4j_done';"
+    )
+    op.execute(
+        "UPDATE articles SET persist_status = 'failed' WHERE persist_status = 'neo4j_failed';"
     )
 
     # Create old enum

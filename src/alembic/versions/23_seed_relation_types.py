@@ -16,6 +16,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "23_seed_relation_types"
 down_revision: str | None = "22_add_llm_usage_new_fields"
@@ -223,6 +224,13 @@ def downgrade() -> None:
 
     seeded_name_ens = [rt["name_en"] for rt in _RELATION_TYPE_SEEDS]
 
+    # Use explicit ARRAY type binding for PostgreSQL compatibility
+    name_ens_param = sa.bindparam(
+        "name_ens",
+        value=seeded_name_ens,
+        type_=postgresql.ARRAY(postgresql.VARCHAR()),
+    )
+
     # Delete aliases for seeded relation types
     bind.execute(
         sa.text("""
@@ -230,12 +238,12 @@ def downgrade() -> None:
             WHERE relation_type_id IN (
                 SELECT id FROM relation_types WHERE name_en = ANY(:name_ens)
             )
-            """),
-        {"name_ens": seeded_name_ens},
+            """).bindparams(name_ens_param)
     )
 
     # Delete seeded relation types
     bind.execute(
-        sa.text("DELETE FROM relation_types WHERE name_en = ANY(:name_ens)"),
-        {"name_ens": seeded_name_ens},
+        sa.text("DELETE FROM relation_types WHERE name_en = ANY(:name_ens)").bindparams(
+            name_ens_param
+        )
     )

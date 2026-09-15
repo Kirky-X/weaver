@@ -71,11 +71,11 @@ def downgrade() -> None:
     )
     op.add_column(
         "prompt_templates",
-        sa.Column("prompt_type", sa.String(20), nullable=False),
+        sa.Column("prompt_type", sa.String(20), nullable=False, server_default="text"),
     )
     op.add_column(
         "prompt_templates",
-        sa.Column("version", sa.String(20), nullable=False),
+        sa.Column("version", sa.String(20), nullable=False, server_default="1"),
     )
 
     # Rename template → content

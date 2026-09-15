@@ -12,7 +12,7 @@ Verifies:
 - DuckDB schema includes category column + upgrade path for pre-existing files
 
 Background:
-- T004 BriefingGenerator produces 4 briefings per day (finance/tech/ai/general).
+- BriefingGenerator produces 4 briefings per day (finance/tech/ai/general).
 - Existing daily_briefings.briefing_date is UNIQUE, blocking multiple categories
   per day.
 - Migration 32 drops the single-column unique, adds category column (nullable
@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     """Read revision and down_revision from a migration file without importing."""
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',
@@ -161,7 +161,7 @@ def test_migration_32_down_drops_category_column() -> None:
 
 
 def test_daily_briefing_orm_has_category_field() -> None:
-    """DailyBriefing ORM must expose category column (T004)."""
+    """DailyBriefing ORM must expose category column."""
     from core.db.models.misc import DailyBriefing
 
     assert hasattr(DailyBriefing, "category"), "DailyBriefing missing category"
@@ -181,7 +181,7 @@ def test_daily_briefing_orm_category_is_nullable_string() -> None:
 def test_daily_briefing_orm_briefing_date_not_unique() -> None:
     """briefing_date column must NOT be unique (replaced by composite unique).
 
-    Otherwise only one briefing per day is allowed, blocking T004's 4
+    Otherwise only one briefing per day is allowed, blocking 's 4
     briefings-per-day model (finance/tech/ai/general).
 
     SQLAlchemy defaults `unique` to None (meaning "not set"); both None and

@@ -311,6 +311,13 @@ def upgrade() -> None:
     op.drop_table("articles")
 
     # ── Step 8: Create backward-compatible view ───────────────
+    # invariant: the original `articles.body` was NOT NULL, but this
+    # view LEFT JOINs article_bodies, so `body` may be NULL for articles_core
+    # rows lacking a body row. Writers MUST insert into articles_core and
+    # article_bodies in the same transaction (the pipeline does). A DB-level
+    # trigger was deliberately NOT added here (write-amplification on the hot
+    # path), and COALESCE(b.body, '') would make this view non-auto-updatable,
+    # breaking INSERT/UPDATE passthrough — so readers must tolerate NULL body.
     op.execute("""
         CREATE VIEW articles AS
         SELECT
@@ -461,6 +468,20 @@ def downgrade() -> None:
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
+        # Restore the CHECK constraints dropped by the split (schema parity
+        # with 01_initial); source rows already satisfy them.
+        sa.CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
+        sa.CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 1", name="chk_quality_score_range"
+        ),
+        sa.CheckConstraint(
+            "sentiment_score >= 0 AND sentiment_score <= 1", name="chk_sentiment_score_range"
+        ),
+        sa.CheckConstraint(
+            "credibility_score >= 0 AND credibility_score <= 1",
+            name="chk_credibility_score_range",
+        ),
+        sa.CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_no_self_merge"),
     )
 
     # Migrate data back

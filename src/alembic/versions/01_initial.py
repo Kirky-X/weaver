@@ -25,6 +25,15 @@ from sqlalchemy.dialects import postgresql
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:
+    # Degraded schema: embedding columns become bytea, HNSW indexes will fail.
+    # Loud warning so the deployment misconfiguration is not silent.
+    import logging
+
+    logging.getLogger("alembic.01_initial").warning(
+        "pgvector_not_installed_degraded_schema: pgvector unavailable; "
+        "embedding columns fall back to bytea. Vector search will NOT work. "
+        "Install the pgvector extension."
+    )
     Vector = sa.LargeBinary  # type: ignore[assignment,misc]  # fallback when pgvector not installed
 
 revision: str = "01_initial"
@@ -251,6 +260,14 @@ def upgrade() -> None:
     # HNSW parameters from env vars with safe integer defaults - deployment controlled
     m = int(os.getenv("HNSW_M", "16"))
     ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "64"))
+    # pgvector HNSW requires 2 <= m <= 100; an ef_construction below 8
+    # builds a candidate list too small to produce a well-connected graph.
+    # Fail fast naming the offending variable instead of a mid-migration
+    # CREATE INDEX error or a silently degraded index.
+    if not 2 <= m <= 100:
+        raise ValueError(f"HNSW_M must be in [2, 100], got {m}")
+    if not 8 <= ef_construction <= 1000:
+        raise ValueError(f"HNSW_EF_CONSTRUCTION must be in [8, 1000], got {ef_construction}")
 
     # Migration: HNSW index params from env vars (deployment controlled)
     # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query

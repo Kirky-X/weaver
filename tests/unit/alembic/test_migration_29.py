@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     """Read revision and down_revision from a migration file without importing."""
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',
@@ -78,7 +78,7 @@ def _capture_offline_sql(from_rev: str, to_rev: str) -> str:
 
 def _read_migration_source() -> str:
     """Read migration 29 source file for static verification."""
-    return (ALEMBIC_VERSIONS / "29_seed_default_alert_rules.py").read_text()
+    return (ALEMBIC_VERSIONS / "29_seed_default_alert_rules.py").read_text(encoding="utf-8")
 
 
 def test_migration_29_up_inserts_three_seed_rules() -> None:
@@ -180,7 +180,7 @@ def test_migration_29_down_deletes_events_before_rules() -> None:
 def test_migration_29_down_targets_only_seed_rules() -> None:
     """Downgrade must only delete seed rules using precise signature.
 
-    Security review MEDIUM (T005 review): downgrade WHERE clause must include
+    Security review MEDIUM (review): downgrade WHERE clause must include
     trend_window_days=7 AND trend_threshold IN (0.5, 0.3) to avoid deleting
     user-created rules that happen to use the same trigger_type but different
     parameters (e.g. trend_spike with trend_window_days=14).

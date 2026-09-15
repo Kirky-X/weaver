@@ -58,7 +58,35 @@ def upgrade() -> None:
         "daily_briefings",
         "status IN ('draft', 'published', 'archived')",
     )
-    # Change briefing_date from TIMESTAMPTZ to DATE
+    # Change briefing_date from TIMESTAMPTZ to DATE.
+    # collapsing TIMESTAMPTZ→DATE can fold multiple timestamps that
+    # share a calendar date into the same DATE value, violating the single
+    # column UNIQUE on briefing_date (still in force until migration 32).
+    # Deduplicate first, keeping the newest row per folded date (its
+    # briefing_items cascade along; earlier partial rows are dropped).
+    folded = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT count(*) FROM ("
+                "SELECT briefing_date::date AS d FROM daily_briefings "
+                "GROUP BY briefing_date::date HAVING count(*) > 1) dup"
+            ),
+        )
+        .scalar()
+    )
+    if folded:
+        print(
+            f"WARNING 13_add_missing_columns.upgrade: {folded} date(s) have multiple "
+            "daily_briefings rows that would collide when briefing_date is folded "
+            "to DATE; keeping the newest row per date and deleting the rest."
+        )
+        op.execute("""
+            DELETE FROM daily_briefings a
+            USING daily_briefings b
+            WHERE a.briefing_date::date = b.briefing_date::date
+              AND a.generated_at < b.generated_at
+        """)
     op.alter_column(
         "daily_briefings",
         "briefing_date",
@@ -81,11 +109,21 @@ def upgrade() -> None:
     op.add_column("sentiment_shifts", sa.Column("community_title", sa.String(200), nullable=True))
     op.add_column(
         "sentiment_shifts",
-        sa.Column("window_start", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "window_start",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
     )
     op.add_column(
         "sentiment_shifts",
-        sa.Column("window_end", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "window_end",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
     )
 
     # ── source_authorities (design doc §4.1) ──
@@ -119,11 +157,14 @@ def downgrade() -> None:
     op.drop_column("daily_briefing_items", "score")
 
     # ── daily_briefings ──
+    # DATE→TIMESTAMPTZ via bare cast is timezone-dependent (uses the
+    # server's TimeZone GUC); pin the conversion to UTC for determinism.
     op.alter_column(
         "daily_briefings",
         "briefing_date",
         type_=sa.DateTime(timezone=True),
         existing_type=sa.Date(),
+        postgresql_using="briefing_date::timestamp AT TIME ZONE 'UTC'",
     )
     op.drop_constraint("chk_briefing_status", "daily_briefings", type_="check")
     op.drop_column("daily_briefings", "status")

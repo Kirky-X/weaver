@@ -82,11 +82,22 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Revert to old persist_status enum and UUID[] type."""
+    import logging
+
+    logger = logging.getLogger("alembic.02_refactor_persist_status")
     # Step 1: Convert to TEXT
     op.execute("ALTER TABLE articles ALTER COLUMN persist_status TYPE text;")
     # Step 2: Map new values back
     op.execute("UPDATE articles SET persist_status = 'pg_done' WHERE persist_status = 'stored';")
-    op.execute("UPDATE articles SET persist_status = 'pg_done' WHERE persist_status = 'enriching';")
+    # `enriching` had no counterpart in the old enum. An article that
+    # was mid-enrichment has *not* completed Postgres-only ingestion (pg_done)
+    # nor Neo4j enrichment (neo4j_done) — mapping it to either done-state would
+    # silently claim work finished that did not. The old enum's only honest
+    # state for "enrichment not completed" is `neo4j_failed`: operators see the
+    # article as needing re-enrichment after the rollback.
+    op.execute(
+        "UPDATE articles SET persist_status = 'neo4j_failed' WHERE persist_status = 'enriching';"
+    )
     op.execute(
         "UPDATE articles SET persist_status = 'neo4j_done' WHERE persist_status = 'complete';"
     )
@@ -107,8 +118,49 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS persist_status CASCADE;")
     # Step 6: Rename old enum back
     op.execute("ALTER TYPE persist_status_old RENAME TO persist_status;")
-    # Step 7: Revert merged_source_ids
+    # Step 7: Revert merged_source_ids.
+    # upgrade repurposed this column to store source URLs, which cannot
+    # cast to uuid[]. NULL out non-UUID entries first (data is unrepresentable
+    # in the old schema) instead of letting the cast abort the rollback.
+    from sqlalchemy import text
+
+    conn = op.get_bind()
+    non_uuid_rows = conn.execute(
+        text(
+            "SELECT count(*) FROM articles WHERE merged_source_ids IS NOT NULL AND EXISTS ("
+            "SELECT 1 FROM unnest(merged_source_ids) AS v WHERE v !~* "
+            "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+        )
+    ).scalar()
+    if non_uuid_rows:
+        logger.warning(
+            "downgrade_dropping_non_uuid_source_ids",
+            extra={"affected_rows": non_uuid_rows},
+        )
+        print(
+            f"WARNING 02_refactor_persist_status.downgrade: nulling merged_source_ids "
+            f"on {non_uuid_rows} row(s) containing non-UUID (URL) values; "
+            f"these cannot be represented in uuid[]."
+        )
+        op.execute(
+            "UPDATE articles SET merged_source_ids = NULL WHERE EXISTS ("
+            "SELECT 1 FROM unnest(merged_source_ids) AS v WHERE v !~* "
+            "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+        )
     op.execute("""
                ALTER TABLE articles ALTER COLUMN merged_source_ids TYPE uuid[]
         USING merged_source_ids::uuid[];
                """)
+
+    # Step 8: Recreate the indexes dropped in upgrade (schema parity with
+    # 01_initial; IF NOT EXISTS keeps re-runs idempotent).
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_articles_persist_status ON articles (persist_status)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_articles_status_created "
+        "ON articles (persist_status, created_at ASC)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_articles_task_status ON articles (task_id, persist_status)"
+    )

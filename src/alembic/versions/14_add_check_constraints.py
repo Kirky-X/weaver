@@ -35,11 +35,17 @@ def upgrade() -> None:
 
     # ── articles_core: doc_metadata GIN index ──
     # CONCURRENTLY cannot run inside a transaction block; use autocommit_block.
+    # A failed CONCURRENTLY leaves an INVALID index behind; drop it and
+    # re-raise so the operator sees the real cause (Rule 12).
     with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_doc_metadata_gin "
-            "ON articles_core USING gin (doc_metadata)"
-        )
+        try:
+            op.execute(
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_doc_metadata_gin "
+                "ON articles_core USING gin (doc_metadata)"
+            )
+        except Exception:
+            op.execute("DROP INDEX IF EXISTS idx_articles_doc_metadata_gin")
+            raise
 
     # ── sentiment_shifts: shift_type CHECK ──
     op.execute(
@@ -58,10 +64,14 @@ def upgrade() -> None:
     # gin_trgm_ops. CREATE EXTENSION can run inside a transaction.
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_vectors_title_gin "
-            "ON community_vectors USING gin (title gin_trgm_ops)"
-        )
+        try:
+            op.execute(
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_vectors_title_gin "
+                "ON community_vectors USING gin (title gin_trgm_ops)"
+            )
+        except Exception:
+            op.execute("DROP INDEX IF EXISTS idx_community_vectors_title_gin")
+            raise
 
     # ── sources: interval_minutes CHECK (5-1440) ──
     op.execute(

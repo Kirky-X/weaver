@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Create event_outbox table for transactional outbox (T018).
+"""Create event_outbox table for transactional outbox.
 
 Revision ID: 35_add_event_outbox
 Revises: 34_add_articles_core_title_index

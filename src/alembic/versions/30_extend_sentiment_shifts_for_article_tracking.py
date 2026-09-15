@@ -14,7 +14,7 @@ Changes:
 Background:
 - Existing sentiment_shifts table tracks community-level sentiment shifts
   detected by SentimentShiftDetector (PELT + CUSUM algorithm, scheduled task).
-- T003 SentimentTrackerNode adds article-level sentiment tracking: when a
+- SentimentTrackerNode adds article-level sentiment tracking: when a
   new article is processed, compare its sentiment_score with the previous
   article mentioning the same entity, and record the shift.
 - New fields are nullable to preserve backward compatibility with existing

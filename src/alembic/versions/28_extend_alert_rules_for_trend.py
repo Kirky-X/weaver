@@ -16,7 +16,7 @@ Changes:
 Background:
 - Existing rules use metric/operator/threshold fields (trigger_type defaults
   to 'threshold', preserving backward compatibility).
-- New trend rules (added by migration 29 seed + TrendAlertEvaluator T018)
+- New trend rules (added by migration 29 seed + TrendAlertEvaluator)
   use trigger_type='trend_spike'|'trend_drop'|'sentiment_shift' with
   trend_window_days + trend_threshold.
 - trigger_type uses VARCHAR + CHECK (not PostgreSQL ENUM) for DuckDB
@@ -101,7 +101,32 @@ def downgrade() -> None:
     3. DROP CHECK constraints (trigger_type values + trend fields required).
     4. DROP 3 columns.
     """
-    # 1+2. Delete events first, then rules — print row counts (Rule 12)
+    # 1+2. Delete events first, then rules — print row counts (Rule 12).
+    # Pre-count and log on the Python side: RAISE NOTICE only reaches the
+    # PostgreSQL server log, which most Alembic setups never surface to the
+    # operator running the CLI. Offline mode (--sql) cannot execute SELECTs,
+    # so the pre-count only runs online; RAISE NOTICE still covers offline.
+    if not op.get_context().opts.get("as_sql", False):
+        bind = op.get_bind()
+        trend_rules = (
+            bind.execute(
+                sa.text("SELECT COUNT(*) FROM alert_rules WHERE trigger_type != 'threshold'")
+            ).scalar()
+            or 0
+        )
+        trend_events = (
+            bind.execute(
+                sa.text(
+                    "SELECT COUNT(*) FROM alert_events WHERE rule_id IN "
+                    "(SELECT id FROM alert_rules WHERE trigger_type != 'threshold')"
+                )
+            ).scalar()
+            or 0
+        )
+        print(
+            f"Migration 28 downgrade: about to delete {trend_events} alert event(s) "
+            f"and {trend_rules} trend rule(s)."
+        )
     op.execute(
         "DO $$ DECLARE "
         "deleted_events INTEGER; "

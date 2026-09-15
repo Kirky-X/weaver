@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Extend daily_briefings for per-category briefings (T004).
+"""Extend daily_briefings for per-category briefings.
 
 Revision ID: 32_extend_daily_briefings_for_category
 Revises: 31_add_sentiment_shifts_article_index
@@ -14,8 +14,8 @@ Changes:
 Background:
 - Existing daily_briefings.briefing_date is UNIQUE, blocking multiple
   briefings per day.
-- T004 BriefingGenerator produces 4 briefings per day (finance/tech/ai/
-  general per spec R-briefing-003).
+- BriefingGenerator produces 4 briefings per day (finance/tech/ai/
+  general per spec).
 - Migration 32 drops the single-column unique, adds category column
   (nullable for backward compat with existing rows), and creates a
   composite UNIQUE(briefing_date, category).
@@ -100,6 +100,15 @@ def downgrade() -> None:
                 f"exist (e.g. finance/tech/ai/general). Delete duplicate rows "
                 f"before downgrading — automatic deletion would silently lose data."
             )
+    else:
+        # Offline mode cannot execute the duplicate check (SQL is only
+        # emitted); warn the operator that the emitted CREATE UNIQUE will
+        # fail at execution time if duplicates exist.
+        print(
+            "WARNING migration 32 downgrade (offline mode): duplicate check on "
+            "briefing_date was SKIPPED. Pre-check for duplicates manually — "
+            "the emitted CREATE UNIQUE will fail if multiple rows per date exist."
+        )
 
     # Step 1: Drop composite unique.
     op.drop_constraint("uq_briefings_date_category", "daily_briefings", type_="unique")

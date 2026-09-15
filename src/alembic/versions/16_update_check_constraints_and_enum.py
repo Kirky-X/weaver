@@ -42,6 +42,8 @@ def upgrade() -> None:
     )
 
     # ── emotion_type ENUM: add 兴奋 ──
+    # Requires PostgreSQL 12+: ADD VALUE inside a transaction block is only
+    # allowed there (the new value just cannot be used in the same txn).
     op.execute("ALTER TYPE emotion_type ADD VALUE IF NOT EXISTS '兴奋'")
 
 

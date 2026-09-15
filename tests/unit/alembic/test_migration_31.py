@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     """Read revision and down_revision from a migration file without importing."""
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',
@@ -138,7 +138,7 @@ def test_sentiment_shift_orm_has_article_index() -> None:
 def test_sentiment_shift_orm_index_is_partial() -> None:
     """The new ORM index must be a partial index (WHERE article_id IS NOT NULL).
 
-    Partial index keeps it small — only article-level rows (T003) are
+    Partial index keeps it small — only article-level rows are
     indexed, community-level rows (SentimentShiftDetector) are excluded.
     """
     from core.db.models.misc import SentimentShift
