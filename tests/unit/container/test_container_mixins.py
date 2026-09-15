@@ -125,7 +125,7 @@ def _make_settings(**overrides):
     # Pipeline process
     settings.pipeline_process = MagicMock()
     settings.pipeline_process.worker_batch_size = 10
-    settings.pipeline_process.drain_timeout = 120
+    settings.pipeline_process.causal_llm_timeout = 120
 
     # spaCy
     settings.spacy = MagicMock()
