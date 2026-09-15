@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""End-to-end integration tests for briefings narrative_mode (T022 / R-briefing-008).
+"""End-to-end integration tests for briefings narrative_mode.
 
-Verifies the T022 factory integration: _get_briefing_service() correctly
+Verifies the factory integration: _get_briefing_service() correctly
 constructs DailyBriefingService with NarrativeBriefingGenerator injected
 when container.graph_pool() is available, and returns narrative_generator=None
 when graph_pool is unavailable (degraded mode).
@@ -27,8 +27,8 @@ Tests do NOT call generate_briefing() — that would require:
 
 The 3 narrative_mode scenarios (success / degrade / template) are fully
 covered by unit tests:
-- T021 tests/unit/modules/briefing/test_service_narrative_mode.py (14 tests)
-- T022 tests/unit/api/endpoints/test_briefings.py (21 tests, HTTP layer)
+- tests/unit/modules/briefing/test_service_narrative_mode.py (14 tests)
+- tests/unit/api/endpoints/test_briefings.py (21 tests, HTTP layer)
 
 This file verifies the container integration seam: factory wiring is correct.
 """
@@ -72,7 +72,7 @@ def _build_container(
 class TestGetBriefingServiceContainerIntegration:
     """Verify _get_briefing_service() factory integrates with container correctly.
 
-    These tests verify the T022 wiring: factory constructs the correct
+    These tests verify the wiring: factory constructs the correct
     DailyBriefingService shape (with/without narrative_generator) based
     on container.graph_pool() availability.
     """
@@ -92,7 +92,7 @@ class TestGetBriefingServiceContainerIntegration:
     ):
         """When graph_pool is available, factory injects NarrativeBriefingGenerator.
 
-        Verifies T022 container integration: _get_briefing_service() constructs
+        Verifies container integration: _get_briefing_service() constructs
         NarrativeBriefingGenerator from graph_pool + llm + budget + prompt_loader
         + storage, and passes it as narrative_generator to DailyBriefingService.
         """
@@ -142,7 +142,7 @@ class TestGetBriefingServiceContainerIntegration:
     async def test_get_briefing_service_raises_503_when_relational_pool_none(self):
         """When relational_pool is None, factory raises HTTPException 503.
 
-        Verifies R-briefing-008 fail-loud: relational pool is required for
+        Verifies fail-loud: relational pool is required for
         both template and narrative mode (storage layer dependency). Without
         it, the service cannot be constructed — fail with 503 (not 500).
         """

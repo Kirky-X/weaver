@@ -335,7 +335,7 @@ async def optional_cache_client():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline Integration Test: Pre-flight Checks (Tasks 1.1-1.7)
+# Pipeline Integration Test: Pre-flight Checks
 # These fixtures verify the environment before running pipeline node tests.
 # Each check returns a result; dependent tests are skipped if checks fail.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -559,7 +559,7 @@ async def spacy_extractor(spacy_available):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline Integration Test: Test Data Fixtures (Tasks 2.1-2.4)
+# Pipeline Integration Test: Test Data Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
 

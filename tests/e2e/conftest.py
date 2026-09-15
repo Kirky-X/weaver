@@ -55,7 +55,7 @@ def _load_env_file(env_file: Path) -> dict[str, str]:
     """
     env: dict[str, str] = {}
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
@@ -135,7 +135,7 @@ class DockerComposeManager:
         # Write temporary .env file for docker-compose
         self._env_file = self.compose_file.parent / ".env.e2e"
         env_content = "\n".join(f"{k}={v}" for k, v in self.env_vars.items())
-        self._env_file.write_text(env_content)
+        self._env_file.write_text(env_content, encoding="utf-8")
 
         # Stop any existing containers
         subprocess.run(

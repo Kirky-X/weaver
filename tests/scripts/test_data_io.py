@@ -276,7 +276,8 @@ async def pg_with_data(pg_engine, clean_pg):
         )
 
         # alert_rules (1 row, threshold type)
-        # metric must be in ('reference_count','sentiment_change','volume_spike')
+        # metric must be in ('reference_count','sentiment_change','volume_spike',
+        # 'saga_failure','compensation_failure','saga_timeout')
         # operator must be in ('z_score>','pct_change>','absolute>')
         await conn.execute(
             text(
@@ -417,7 +418,7 @@ def neo4j_with_data(clean_neo4j):
 # ── Tests: PG → DuckDB export ─────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_export_postgres_to_duckdb_creates_file(pg_with_data, tmp_path):
-    """T009: export_postgres_to_duckdb creates DuckDB file."""
+    """export_postgres_to_duckdb creates DuckDB file."""
     from scripts.data_io import export_postgres_to_duckdb
 
     duckdb_path = tmp_path / "export.duckdb"
@@ -432,7 +433,7 @@ async def test_export_postgres_to_duckdb_creates_file(pg_with_data, tmp_path):
 
 @pytest.mark.asyncio
 async def test_export_postgres_to_duckdb_row_counts_match(pg_with_data, tmp_path):
-    """T009: All 27 tables in exported DuckDB have row counts matching PG."""
+    """All 27 tables in exported DuckDB have row counts matching PG."""
     from scripts.data_io import export_postgres_to_duckdb, validate_migration
 
     duckdb_path = tmp_path / "export.duckdb"
@@ -460,7 +461,7 @@ async def test_export_postgres_to_duckdb_row_counts_match(pg_with_data, tmp_path
 
 @pytest.mark.asyncio
 async def test_export_postgres_to_duckdb_atomic_on_failure(pg_with_data, tmp_path):
-    """T043/R-verify-006: If export fails mid-way, original DuckDB file is preserved."""
+    """/If export fails mid-way, original DuckDB file is preserved."""
     from scripts.data_io import export_postgres_to_duckdb
 
     # Pre-create a valid DuckDB file as "original"
@@ -492,7 +493,7 @@ async def test_export_postgres_to_duckdb_atomic_on_failure(pg_with_data, tmp_pat
 # ── Tests: DuckDB → PG import ─────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_import_duckdb_to_postgres_row_counts_match(pg_with_data, tmp_path, pg_engine):
-    """T008: DuckDB→PG import preserves row counts across 27 tables.
+    """DuckDB→PG import preserves row counts across 27 tables.
 
     Strategy: export PG→DuckDB first (creates canonical DuckDB), then
     truncate PG, then import DuckDB→PG, then verify row counts.
@@ -552,7 +553,7 @@ async def test_import_duckdb_to_postgres_row_counts_match(pg_with_data, tmp_path
 # ── Tests: Neo4j → LadybugDB export ───────────────────────────────────
 @pytest.mark.asyncio
 async def test_export_neo4j_to_ladybug_node_counts_match(neo4j_with_data, tmp_path):
-    """T010: export_neo4j_to_ladybug preserves node counts for all 8 labels."""
+    """export_neo4j_to_ladybug preserves node counts for all 8 labels."""
     from scripts.data_io import export_neo4j_to_ladybug
 
     ladybug_path = tmp_path / "export.ladybug"
@@ -583,7 +584,7 @@ async def test_export_neo4j_to_ladybug_node_counts_match(neo4j_with_data, tmp_pa
 
 @pytest.mark.asyncio
 async def test_export_neo4j_to_ladybug_rel_counts_match(neo4j_with_data, tmp_path):
-    """T010: export_neo4j_to_ladybug preserves relationship counts."""
+    """export_neo4j_to_ladybug preserves relationship counts."""
     from scripts.data_io import export_neo4j_to_ladybug
 
     ladybug_path = tmp_path / "export.ladybug"
@@ -607,7 +608,7 @@ async def test_export_neo4j_to_ladybug_rel_counts_match(neo4j_with_data, tmp_pat
 # ── Tests: validate_migration output format ───────────────────────────
 @pytest.mark.asyncio
 async def test_validate_migration_returns_list_of_dicts(pg_with_data, tmp_path):
-    """T011: validate_migration returns list of dicts with required keys."""
+    """validate_migration returns list of dicts with required keys."""
     from scripts.data_io import export_postgres_to_duckdb, validate_migration
 
     duckdb_path = tmp_path / "export.duckdb"

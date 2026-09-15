@@ -105,7 +105,7 @@ class APIResponseRecorder:
         filename = f"{safe_name}_{ts}.json"
         filepath = endpoint_dir / filename
 
-        filepath.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str))
+        filepath.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
         return filepath
 
@@ -152,7 +152,7 @@ class APIResponseRecorder:
         else:
             filepath = Path(filepath)
 
-        filepath.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+        filepath.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         return summary
 
     def _sanitize_headers(self, headers: dict[str, str]) -> dict[str, str]:

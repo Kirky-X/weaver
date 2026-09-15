@@ -8,7 +8,7 @@ Centralizes:
   test_briefings_narrative_e2e.py, test_hybrid_mode_pg_ladybug.py,
   test_hybrid_mode_duckdb_neo4j.py.
 - _seed_test_article: insert a minimal ArticleCore row + slim Article graph
-  node ({id, pg_id} per design.md §D2). Used by hybrid mode tests.
+  node ({id, pg_id} per design.md §). Used by hybrid mode tests.
 - require_localhost_dsn: safety guard preventing integration tests from
   running against non-localhost DB DSN (avoids accidental prod pollution).
 """
@@ -85,7 +85,7 @@ async def seed_test_article(container, pg_id: str, title: str) -> None:
     """Insert a minimal article into the relational DB and create a slim
     Article graph node.
 
-    The graph node stores only {id, pg_id} per design.md §D2 — title lives
+    The graph node stores only {id, pg_id} per design.md §— title lives
     in the relational DB (PG or DuckDB) and is batch-fetched by
     GraphArticleReader on read.
 

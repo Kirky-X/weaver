@@ -39,7 +39,7 @@ E2E_ENV_FILE = Path(__file__).parent.parent / "test_env.env"
 def _load_api_key() -> str:
     """Load API key from test_env.env file."""
     if E2E_ENV_FILE.exists():
-        for line in E2E_ENV_FILE.read_text().splitlines():
+        for line in E2E_ENV_FILE.read_text(encoding="utf-8").splitlines():
             if line.startswith("WEAVER_API__API_KEY="):
                 return line.split("=", 1)[1].strip()
     return os.environ.get("WEAVER_API__API_KEY", "test-api-key")
@@ -48,7 +48,7 @@ def _load_api_key() -> str:
 def _load_admin_api_key() -> str:
     """Load admin API key from test_env.env file."""
     if E2E_ENV_FILE.exists():
-        for line in E2E_ENV_FILE.read_text().splitlines():
+        for line in E2E_ENV_FILE.read_text(encoding="utf-8").splitlines():
             if line.startswith("WEAVER_API__ADMIN_API_KEY="):
                 return line.split("=", 1)[1].strip()
     return _load_api_key()

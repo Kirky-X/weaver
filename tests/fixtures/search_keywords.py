@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Real-data constants for search API tests.
 
-All values are extracted from the running DuckDB instance (data/weaver.duckdb)
-during the specmark explore phase (2026-07-19). Sample sizes:
+All values are extracted from the running DuckDB instance
+(data/weaver.duckdb) on 2026-07-19. Sample sizes:
 
 - ``REAL_ARTICLE_TITLES`` — 50 titles from ``articles_core`` ordered by created_at DESC
 - ``REAL_ENTITY_NAMES`` — 55+ entity names from the ``entities`` graph nodes

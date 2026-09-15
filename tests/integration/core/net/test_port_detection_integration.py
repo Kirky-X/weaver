@@ -94,7 +94,7 @@ class TestPortDetectionIntegration:
                 # Check that env file was created
                 env_file = tmp_path / ".env.weaver"
                 if env_file.exists():
-                    content = env_file.read_text()
+                    content = env_file.read_text(encoding="utf-8")
                     assert f"WEAVER_ACTUAL_PORT={settings.api.port}" in content
             finally:
                 # Restore original values

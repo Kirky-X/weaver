@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T020: 4 套 DB 组合矩阵一致性测试 (X-01~05)。
+"""4 套 DB 组合矩阵一致性测试 (X-01~05)。
 
 参数化 4 套 DB 组合 (pg_ladybug / duckdb_neo4j / pg_neo4j / duckdb_ladybug),
 验证搜索 API 在不同 DB 后端下的结果结构一致性。

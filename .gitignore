@@ -40,7 +40,7 @@ config/llm.toml
 # Project specific ignores
 .claude/
 docs/report/
-docs/36kr_pipeline_test.md
+docs/research
 docs/superpowers/
 REQUIREMENT_COMPLIANCE_REPORT.md
 doc/
@@ -143,3 +143,9 @@ api_test_results/
 test_api_e2e.py
 docs/research/papers/
 MagicMock/
+
+# Temporary and tool-generated directories
+.tmp_ocr/
+.tmp_high_verify/
+.workbuddy/
+.tmp_*.py

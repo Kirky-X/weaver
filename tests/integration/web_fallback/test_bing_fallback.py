@@ -1,6 +1,6 @@
 # SPDX-License-Identifier-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T011 集成测试：Bing 网络回填 fallback 路径 (W-01~W-20).
+"""集成测试：Bing 网络回填 fallback 路径 (W-01~W-20).
 
 分两层：
   (a) 协议层手写 fake 用例 19 个（W-01~10, W-12~20）— 直接调用
@@ -379,7 +379,7 @@ class TestSchedulePipelineBackground:
     async def test_w12_throttled_when_at_max_concurrent(self) -> None:
         """W-12: background_tasks 达到 max_concurrent → 返回 THROTTLED.
 
-        MEDIUM-1 (T051-B): 并发上限保护。预填充 max_concurrent 个阻塞
+并发上限保护。预填充 max_concurrent 个阻塞
         任务占满集合，第 max_concurrent+1 次调用应被节流。
         """
         release_event = asyncio.Event()

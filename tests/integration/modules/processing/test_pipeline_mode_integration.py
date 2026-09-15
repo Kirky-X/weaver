@@ -154,7 +154,7 @@ class TestPipelineModePerformanceExpectations:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline Node Integration Tests (Tasks 3.1-3.9)
+# Pipeline Node Integration Tests
 # Each test uses real LLM + real DB to verify node behavior.
 # Pre-flight fixtures ensure services are available; tests are skipped otherwise.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ def _make_entity_state(raw: RawArticle | None = None) -> PipelineState:
 
 @pytest.mark.integration
 class TestClassifierNodeIntegration:
-    """Task 3.1: Classifier node integration test — rule → ML cascade → LLM fallback."""
+    """Classifier node integration test — rule → ML cascade → LLM fallback."""
 
     async def test_rule_classify_news_title(self, llm_client, token_budget, prompt_loader) -> None:
         """Test that classifier correctly identifies news via rule matching."""
@@ -321,7 +321,7 @@ class TestClassifierNodeIntegration:
 
 @pytest.mark.integration
 class TestCleanerNodeIntegration:
-    """Task 3.2: Cleaner node integration test — trafilatura → quality check → LLM fallback."""
+    """Cleaner node integration test — trafilatura → quality check → LLM fallback."""
 
     async def test_trafilatura_extraction_with_html(
         self, llm_client, token_budget, prompt_loader
@@ -375,7 +375,7 @@ class TestCleanerNodeIntegration:
 
 @pytest.mark.integration
 class TestCategorizerNodeIntegration:
-    """Task 3.3: Categorizer node integration test — rule → LLM fallback → category validation."""
+    """Categorizer node integration test — rule → LLM fallback → category validation."""
 
     async def test_rule_categorize_economy(self, llm_client, prompt_loader) -> None:
         """Test that categorizer matches economy category via rule keywords."""
@@ -418,7 +418,7 @@ class TestCategorizerNodeIntegration:
 
 @pytest.mark.integration
 class TestVectorizeNodeIntegration:
-    """Task 3.4: Vectorize node integration test — embed_default + dimension verification."""
+    """Vectorize node integration test — embed_default + dimension verification."""
 
     async def test_vectorize_generates_embedding(self, llm_client, embedding_dimension) -> None:
         """Test that vectorize generates content embedding with correct dimension."""
@@ -447,7 +447,7 @@ class TestVectorizeNodeIntegration:
 
 @pytest.mark.integration
 class TestReVectorizeNodeIntegration:
-    """Task 3.5: ReVectorize node — dual embedding + model_id + dimension consistency."""
+    """ReVectorize node — dual embedding + model_id + dimension consistency."""
 
     async def test_re_vectorize_generates_dual_embeddings(
         self, llm_client, embedding_dimension
@@ -482,7 +482,7 @@ class TestReVectorizeNodeIntegration:
 
 @pytest.mark.integration
 class TestAnalyzeNodeIntegration:
-    """Task 3.6: Analyze node — LLM summary + score + sentiment + OutputValidator."""
+    """Analyze node — LLM summary + score + sentiment + OutputValidator."""
 
     async def test_analyze_generates_summary_and_sentiment(
         self, llm_client, token_budget, prompt_loader
@@ -517,7 +517,7 @@ class TestAnalyzeNodeIntegration:
 
 @pytest.mark.integration
 class TestQualityScorerNodeIntegration:
-    """Task 3.7: QualityScorer node — pure rule-based 5-dimension scoring."""
+    """QualityScorer node — pure rule-based 5-dimension scoring."""
 
     async def test_quality_scorer_computes_score(self) -> None:
         """Test that quality scorer computes a score from 5 dimensions."""
@@ -565,7 +565,7 @@ class TestQualityScorerNodeIntegration:
 
 @pytest.mark.integration
 class TestCredibilityNodeIntegration:
-    """Task 3.8: Credibility node — 3-signal scoring + source_auth_repo + category weights."""
+    """Credibility node — 3-signal scoring + source_auth_repo + category weights."""
 
     async def test_credibility_computes_score(self, event_bus) -> None:
         """Test that credibility checker computes score from 3 signals."""
@@ -622,7 +622,7 @@ class TestCredibilityNodeIntegration:
 
 @pytest.mark.integration
 class TestEntityExtractorNodeIntegration:
-    """Task 3.9: EntityExtractor node — spaCy + LLM + embed 3-phase + relation extraction."""
+    """EntityExtractor node — spaCy + LLM + embed 3-phase + relation extraction."""
 
     async def test_entity_extraction_with_spacy_and_llm(
         self, llm_client, token_budget, prompt_loader, spacy_extractor
