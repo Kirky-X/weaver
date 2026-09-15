@@ -176,7 +176,7 @@ exclude = [
 # 启用规则
 select = [
     # ── 错误级别 ─────────────────────────────────────────
-    "E", # pycodestyle errors（保留 E501 由 black 处理）
+    "E", # pycodestyle errors（保留 E501 由 ruff format 处理）
     "F", # Pyflakes（错误级别）
     "W", # pycodestyle warnings
     # ── 代码风格 ─────────────────────────────────────────
@@ -196,7 +196,7 @@ select = [
 ]
 # 忽略的规则
 ignore = [
-    # E501 — 由 black 处理行长度，在此忽略
+    # E501 — 由 ruff format 处理行长度，在此忽略
     "E501",
     # B023 — 函数内绑定后期静默赋值（误报较多）
     "B023",

@@ -111,14 +111,14 @@ Per-call-point primary/fallback routing for 25 call points, with circuit breakin
 
 ### 🎲 Monte Carlo Sampling
 
-Multi-anchor smart sampling of long documents with confidence weighting, saving 60%+ tokens
+Multi-anchor smart sampling of long documents with confidence weighting, saving 30%+ input tokens
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
 ### 💾 Knowledge Cluster Cache
 
-Persistent semantic-search cache (DuckDB + Parquet) with FIFO + heat scoring, 40-70% hit rate
+Persistent semantic-search cache (DuckDB + Parquet) with FIFO + heat scoring and TTL eviction
 
 </td>
 </tr>
@@ -272,8 +272,8 @@ WEAVER_REDIS__PASSWORD=
 WEAVER_API__API_KEY=your_secure_api_key_at_least_32_characters_long
 
 # LLM API Keys (referenced by llm.toml)
-WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
-WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=your_openai_api_key
+WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY=your_anthropic_api_key
 ```
 
 3. **Configure LLM providers** (`config/llm.toml`):
@@ -346,7 +346,6 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 | `crawl4ai_stealth_enabled`                  | bool   | `true`                  | Crawl4AI stealth mode      |
 | `crawl4ai_timeout`                          | float  | `30.0`                  | Crawl4AI timeout (seconds) |
 | `default_per_host_concurrency`              | int    | 2                       | Default per-host concurrency |
-| `global_max_concurrency`                    | int    | 32                      | Global max concurrency     |
 | `httpx_timeout`                             | float  | 15.0                    | HTTPX timeout (seconds)    |
 | **Scheduler**                               |        |                         |                            |
 | `pipeline_retry_interval_minutes`           | int    | 15                      | Pipeline retry interval (minutes) |
@@ -411,7 +410,6 @@ Multi-layer URL security checks protect the crawler from malicious URLs:
 | `urlhaus_api_key`               | string | `""`    | URLhaus API key (empty skips API check)            |
 | `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API timeout (seconds)                      |
 | `phishtank_enabled`             | bool   | `true`  | Enable PhishTank phishing database checks          |
-| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank sync interval (hours)                    |
 | `heuristic_enabled`             | bool   | `true`  | Enable heuristic URL analysis                      |
 | `ssl_verify_enabled`            | bool   | `true`  | Enable SSL certificate verification                |
 | `cache_safe_ttl_seconds`        | int    | `21600` | Safe result cache TTL (6 hours)                    |
@@ -522,11 +520,11 @@ For the full endpoint list and detailed parameters, see [📡 API Documentation]
 The `scripts/` directory provides an argparse subcommand toolkit (full usage in [scripts/README.md](scripts/README.md)):
 
 ```bash
-# Pipeline test: fast mode (5-10s, 0-2 LLM calls)
-uv run python scripts/pipeline.py test --mode fast --url https://example.com/article
+# Pipeline test: fast processing mode (Phase 1 only, ~1-2 min)
+uv run python scripts/pipeline.py test --processing-mode fast --max-items 5
 
-# Pipeline test: deep mode (15-30s, 5-8 LLM calls)
-uv run python scripts/pipeline.py test --mode deep --url https://example.com/article
+# Pipeline test: deep processing mode (all phases, ~5-10 min)
+uv run python scripts/pipeline.py test --processing-mode deep --max-items 5
 
 # Database statistics
 uv run python scripts/db.py stats
@@ -585,10 +583,10 @@ All jobs are registered in `src/container/lifecycle.py`; jobs marked (conditiona
 | retry_neo4j_writes | 10 min | Retry failed Neo4j writes |
 | retry_pipeline_processing | 15 min | Retry failed Pipeline processing |
 | sync_neo4j_with_postgres | 1 hour | Full Neo4j ↔ PostgreSQL sync |
-| community_auto_check | 30 min | Community detection auto-check (threshold-triggered rebuild) |
+| community_auto_check | 30 min (conditional) | Community detection auto-check (threshold-triggered rebuild) |
 | memory_consolidation | 30 min (conditional) | Memory slow-path consolidation |
 | shift_detection | 60 min | Sentiment/narrative shift detection |
-| community_health_check | 6 hours | Community health check & auto-repair |
+| community_health_check | 6 hours (conditional) | Community health check & auto-repair |
 | sync_phishtank_data | 6 hours | PhishTank sync (URL exact + domain fuzzy dual index) |
 | llm_usage_raw_cleanup | 6 hours | Clean raw LLM usage records (2-day retention) |
 | causal_inference | 2 hours (conditional) | Batch causal inference |
@@ -599,8 +597,8 @@ All jobs are registered in `src/container/lifecycle.py`; jobs marked (conditiona
 | update_source_auto_scores | Daily 3:00 | Update source authority scores |
 | cleanup_old_synced | Daily 3:30 | Clean old sync records (7-day retention) |
 | daily_briefing_generation | Daily 8:00 | Generate daily briefing (Asia/Shanghai) |
-| archive_old_neo4j_nodes | Sat 2:00 | Archive old Neo4j nodes (90 days) |
-| cleanup_orphan_entity_vectors | Sat 3:00 | Clean orphan entity vectors |
+| archive_old_neo4j_nodes | Sat 2:00 (conditional) | Archive old Neo4j nodes (90 days) |
+| cleanup_orphan_entity_vectors | Sat 3:00 (conditional) | Clean orphan entity vectors |
 | llm_failure_cleanup | 24 hours | Clean LLM failure records (3-day retention) |
 | startup_sync_pending_to_neo4j | On startup | Immediate sync on boot |
 
@@ -622,13 +620,12 @@ graph TB
     subgraph Collector ["🔄 Collection Layer"]
         C[SourceScheduler]
         D[Deduplicator]
-        E[Interleaver]
         F[SmartFetcher<br/>HTTPX / Crawl4AI]
     end
 
     subgraph Pipeline ["⚙️ Processing Pipeline"]
         G[Phase 1: Per-Article<br/>Classifier → Cleaner → Categorizer → Vectorize]
-        H[Phase 2: Batch Merge<br/>BatchMerger]
+        H[Phase 2: Batch Merge<br/>BatchMergerNode]
         I[Phase 3: Post-Processing<br/>ReVectorize → Analyze → Credibility → EntityExtractor]
     end
 
@@ -733,14 +730,14 @@ Weaver uses a layered testing strategy:
 ### ▶️ Running Tests
 
 ```bash
-# All tests (excluding E2E; addopts already include the --cov-fail-under=80 gate)
+# Default test set (addopts exclude integration/e2e/performance, mostly unit tests; includes the --cov-fail-under=80 gate)
 uv run pytest
 
 # Unit tests
 uv run pytest tests/unit/ -v
 
-# Integration tests
-uv run pytest tests/integration/ -v
+# Integration tests (-m integration overrides the addopts exclusion filter)
+uv run pytest tests/integration/ -v -m integration
 
 # By marker
 uv run pytest -m unit -v
@@ -783,9 +780,9 @@ tests/
 │   └── fast/ deep/          # Fast/slow-tiered integration
 ├── e2e/                     # E2E tests
 │   ├── docker-compose.yml   # Isolated service environment
-│   ├── base/client.py       # API client
 │   ├── endpoints/           # Endpoint flows
-│   └── flows/               # Full business flows
+│   ├── flows/               # Full business flows
+│   └── pipeline/            # Pipeline flows
 └── performance/             # Performance tests
     ├── test_hnsw_performance.py
     ├── test_community_detection_performance.py
@@ -803,8 +800,8 @@ docker compose -f tests/e2e/docker-compose.yml up -d
 # Wait for services to be ready
 docker compose -f tests/e2e/docker-compose.yml ps
 
-# Run E2E tests
-uv run pytest tests/e2e/ -v
+# Run E2E tests (-o addopts="" overrides the addopts --ignore)
+uv run pytest tests/e2e/ -v -o addopts=""
 
 # Cleanup
 docker compose -f tests/e2e/docker-compose.yml down -v
@@ -868,8 +865,8 @@ Weaver's performance-critical paths are optimized:
 |------|-------------|-------|
 | Pipeline Processing | Phase 1 per-article concurrent, Phase 3 post-processing concurrent | LLM call latency dependent |
 | Vector Search | HNSW index, pgvector backend | 1024-dim vectors, millisecond queries |
-| Knowledge Cluster Cache | Semantic search persistent cache (DuckDB + Parquet) | 40-70% hit rate, FIFO + heat scoring |
-| Monte Carlo Sampling | Smart long-document sampling | Saves 60%+ tokens |
+| Knowledge Cluster Cache | Semantic search persistent cache (DuckDB + Parquet) | FIFO + heat scoring, TTL protection |
+| Monte Carlo Sampling | Smart long-document sampling | Saves 30%+ input tokens |
 | Connection Pool | SQLAlchemy AsyncPG + Neo4j connection pool | Default pool_size=20 |
 
 ### ⚡ Performance Design Notes
@@ -891,7 +888,7 @@ Weaver's security design covers multi-layer protection: URL security multi-layer
 ### ⛓️ Supply Chain & Gate
 
 - `bandit -r src/`: Security vulnerability scanning, no HIGH/CRITICAL issues
-- Semgrep SAST scanning: Code-level security checks
+- CodeQL SAST scanning: Code-level security checks
 - pre-commit hooks: Automatic security review before commits
 
 ### 🚨 Reporting Security Vulnerabilities
@@ -973,7 +970,7 @@ Want to contribute code?<br>
 5. **Test** your changes:
    ```bash
    uv run pytest tests/unit/ -v
-   uv run pytest tests/integration/ -v
+   uv run pytest tests/integration/ -v -m integration
    ```
 6. **Check** coverage:
    ```bash

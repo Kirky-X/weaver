@@ -111,14 +111,14 @@ pgvector + HNSW 索引支撑语义相似度搜索，1024 维向量毫秒级查�
 
 ### 🎲 蒙特卡洛采样
 
-长文档多锚点智能采样 + 置信度加权，节省 60%+ token
+长文档多锚点智能采样 + 置信度加权，节省 30%+ 输入 token
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
 ### 💾 知识簇缓存
 
-语义搜索结果持久化缓存（DuckDB + Parquet），FIFO + 热度评分，命中率 40-70%
+语义搜索结果持久化缓存（DuckDB + Parquet），FIFO + 热度评分 + TTL 淘汰
 
 </td>
 </tr>
@@ -272,8 +272,8 @@ WEAVER_REDIS__PASSWORD=
 WEAVER_API__API_KEY=your_secure_api_key_at_least_32_characters_long
 
 # LLM API Keys (供 llm.toml 引用)
-WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
-WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=your_openai_api_key
+WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY=your_anthropic_api_key
 ```
 
 3. **配置 LLM 提供商**(`config/llm.toml`):
@@ -346,7 +346,6 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 | `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式     |
 | `crawl4ai_timeout`                         | float  | `30.0`                  | Crawl4AI 超时时间（秒）  |
 | `default_per_host_concurrency`             | int    | 2                       | 每主机默认并发数          |
-| `global_max_concurrency`                   | int    | 32                      | 全局最大并发数           |
 | `httpx_timeout`                            | float  | 15.0                    | HTTPX 超时时间（秒）     |
 | **Scheduler**                              |        |                         |                   |
 | `pipeline_retry_interval_minutes`          | int    | 15                      | Pipeline 重试间隔（分钟） |
@@ -411,7 +410,6 @@ disable_data_metrics_nodes = true
 | `urlhaus_api_key`               | string | `""`    | URLhaus API 密钥（为空则跳过 API 检查） |
 | `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API 超时（秒）            |
 | `phishtank_enabled`             | bool   | `true`  | 启用 PhishTank 钓鱼数据库检查         |
-| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank 数据同步间隔（小时）         |
 | `heuristic_enabled`             | bool   | `true`  | 启用启发式 URL 分析                 |
 | `ssl_verify_enabled`            | bool   | `true`  | 启用 SSL 证书验证                  |
 | `cache_safe_ttl_seconds`        | int    | `21600` | 安全结果缓存 TTL（6 小时）             |
@@ -522,11 +520,11 @@ curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
 `scripts/` 目录提供 argparse 子命令式工具集（完整用法见 [scripts/README.md](scripts/README.md)）：
 
 ```bash
-# 管道测试：fast 模式（5-10s, 0-2 次 LLM 调用）
-uv run python scripts/pipeline.py test --mode fast --url https://example.com/article
+# 管道测试：fast 处理模式（仅 Phase 1，约 1-2 分钟）
+uv run python scripts/pipeline.py test --processing-mode fast --max-items 5
 
-# 管道测试：deep 模式（15-30s, 5-8 次 LLM 调用）
-uv run python scripts/pipeline.py test --mode deep --url https://example.com/article
+# 管道测试：deep 处理模式（全部阶段，约 5-10 分钟）
+uv run python scripts/pipeline.py test --processing-mode deep --max-items 5
 
 # 数据库统计
 uv run python scripts/db.py stats
@@ -585,10 +583,10 @@ uv run python scripts/pipeline.py seed-sources
 | retry_neo4j_writes            | 10分钟     | 重试失败的 Neo4j 写入                |
 | retry_pipeline_processing     | 15分钟     | 重试失败的 Pipeline 处理             |
 | sync_neo4j_with_postgres      | 1小时      | 全量 Neo4j ↔ PostgreSQL 同步      |
-| community_auto_check          | 30分钟     | 社区检测自动检查（基于实体变化阈值触发重建）        |
+| community_auto_check          | 30分钟 (条件) | 社区检测自动检查（基于实体变化阈值触发重建）        |
 | memory_consolidation          | 30分钟 (条件) | Memory 慢路径整合                  |
 | shift_detection               | 60分钟     | 情感/叙事偏移检测                     |
-| community_health_check        | 6小时      | 社区健康检查和自动修复                   |
+| community_health_check        | 6小时 (条件) | 社区健康检查和自动修复                   |
 | sync_phishtank_data           | 6小时      | PhishTank 钓鱼库同步（URL 精确 + 域名模糊双索引） |
 | llm_usage_raw_cleanup         | 6小时      | 清理 LLM 使用原始记录 (保留 2 天)        |
 | causal_inference              | 2小时 (条件) | 批量因果推理                        |
@@ -599,8 +597,8 @@ uv run python scripts/pipeline.py seed-sources
 | update_source_auto_scores     | 每天 3:00  | 更新源权威度                        |
 | cleanup_old_synced            | 每天 3:30  | 清理旧同步记录 (保留 7 天)              |
 | daily_briefing_generation     | 每天 8:00  | 生成每日简报 (Asia/Shanghai)        |
-| archive_old_neo4j_nodes       | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天)           |
-| cleanup_orphan_entity_vectors | 每周六 3:00 | 清理孤立实体向量                      |
+| archive_old_neo4j_nodes       | 每周六 2:00 (条件) | 归档旧 Neo4j 节点 (90 天)           |
+| cleanup_orphan_entity_vectors | 每周六 3:00 (条件) | 清理孤立实体向量                      |
 | llm_failure_cleanup           | 24小时     | 清理 LLM 失败记录 (保留 3 天)          |
 | startup_sync_pending_to_neo4j | 启动时      | 启动时立即执行一次同步                   |
 
@@ -622,13 +620,12 @@ graph TB
     subgraph Collector ["🔄 采集层"]
         C[SourceScheduler]
         D[Deduplicator]
-        E[Interleaver]
         F[SmartFetcher<br/>HTTPX / Crawl4AI]
     end
 
     subgraph Pipeline ["⚙️ 处理流水线"]
         G[Phase 1: 单文章并发<br/>Classifier → Cleaner → Categorizer → Vectorize]
-        H[Phase 2: 批量合并<br/>BatchMerger]
+        H[Phase 2: 批量合并<br/>BatchMergerNode]
         I[Phase 3: 后处理<br/>ReVectorize → Analyze → Credibility → EntityExtractor]
     end
 
@@ -741,14 +738,14 @@ Weaver 使用分层测试策略：
 ### ▶️ 运行测试
 
 ```bash
-# 运行所有测试（不包括 E2E；addopts 已含覆盖率门禁 --cov-fail-under=80）
+# 运行默认测试集（addopts 排除 integration/e2e/performance，主要运行单元测试；含覆盖率门禁 --cov-fail-under=80）
 uv run pytest
 
 # 运行单元测试
 uv run pytest tests/unit/ -v
 
-# 运行集成测试
-uv run pytest tests/integration/ -v
+# 运行集成测试（-m integration 覆盖 addopts 的排除过滤）
+uv run pytest tests/integration/ -v -m integration
 
 # 运行带标记的测试
 uv run pytest -m unit -v
@@ -791,9 +788,9 @@ tests/
 │   └── fast/ deep/          # 快慢分级集成
 ├── e2e/                    # E2E 测试
 │   ├── docker-compose.yml  # 隔离服务环境
-│   ├── base/client.py      # API 客户端
 │   ├── endpoints/          # 端点流程
-│   └── flows/              # 完整业务流程
+│   ├── flows/              # 完整业务流程
+│   └── pipeline/           # Pipeline 流程
 └── performance/            # 性能测试
     ├── test_hnsw_performance.py
     ├── test_community_detection_performance.py
@@ -811,8 +808,8 @@ docker compose -f tests/e2e/docker-compose.yml up -d
 # 等待服务就绪
 docker compose -f tests/e2e/docker-compose.yml ps
 
-# 运行 E2E 测试
-uv run pytest tests/e2e/ -v
+# 运行 E2E 测试（-o addopts="" 覆盖 addopts 的 --ignore）
+uv run pytest tests/e2e/ -v -o addopts=""
 
 # 清理
 docker compose -f tests/e2e/docker-compose.yml down -v
@@ -876,8 +873,8 @@ Weaver 的性能关键路径经过优化：
 |------|------|------|
 | Pipeline 处理 | Phase 1 单文章并发，Phase 3 后处理并发 | 受 LLM 调用延迟影响 |
 | 向量检索 | HNSW 索引，pgvector 后端 | 1024 维向量，毫秒级查询 |
-| 知识簇缓存 | 语义搜索持久化缓存（DuckDB + Parquet） | 命中率 40-70%，FIFO + 热度评分 |
-| 蒙特卡洛采样 | 长文档智能采样 | 节省 60%+ token |
+| 知识簇缓存 | 语义搜索持久化缓存（DuckDB + Parquet） | FIFO + 热度评分，TTL 保护 |
+| 蒙特卡洛采样 | 长文档智能采样 | 节省 30%+ 输入 token |
 | 连接池 | SQLAlchemy AsyncPG + Neo4j 连接池 | 默认 pool_size=20 |
 
 ### ⚡ 性能设计要点
@@ -899,7 +896,7 @@ Weaver 的安全设计覆盖多层防护：URL 安全多层检查（SSRF 防护�
 ### ⛓️ 供应链与门禁
 
 - `bandit -r src/`：安全漏洞扫描，无 HIGH/CRITICAL 问题
-- Semgrep SAST 扫描：代码级安全检查
+- CodeQL SAST 扫描：代码级安全检查
 - pre-commit 钩子：提交前自动安全审查
 
 ### 🚨 报告安全漏洞
@@ -981,7 +978,7 @@ Weaver 的安全设计覆盖多层防护：URL 安全多层检查（SSRF 防护�
 5. **测试** 修改：
    ```bash
    uv run pytest tests/unit/ -v
-   uv run pytest tests/integration/ -v
+   uv run pytest tests/integration/ -v -m integration
    ```
 6. **检查** 覆盖率：
    ```bash
