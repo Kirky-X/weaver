@@ -449,7 +449,7 @@ class TestNeo4jWriterEdgeCases:
 
     @pytest.mark.asyncio
     async def test_write_entities_batch_failure(self, writer_with_mocks):
-        """T016-H1: batch merge failure propagates (all-or-nothing)."""
+        """batch merge failure propagates (all-or-nothing)."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_entities_batch = AsyncMock(side_effect=Exception("Batch error"))
 
@@ -463,23 +463,18 @@ class TestNeo4jWriterEdgeCases:
             await writer._write_entities("article-neo4j-id", state["entities"], state)
 
     @pytest.mark.asyncio
-    async def test_write_entities_with_alias(self, writer_with_mocks):
-        """Test _write_entities creates alias when name != canonical_name."""
+    async def test_write_entities_exact_resolution_no_alias(self, writer_with_mocks):
+        """Canonical resolution is exact-key based (find_entities_by_keys).
+
+        The repo matches on (canonical_name, type) exactly, so a resolved
+        canonical name always equals the input name and no alias is recorded
+        on this path — the old per-entity find_entity mock could fabricate a
+        mismatched canonical_name that cannot occur with a real repo.
+        """
         writer, mock_entity_repo, _ = writer_with_mocks
-        # find_entity returns different canonical_name -> alias created
-        mock_entity_repo.find_entity = AsyncMock(
-            side_effect=[
-                EntityView(
-                    id="id1", canonical_name="Canonical E1", type="PERSON"
-                ),  # resolve canonical
-                EntityView(
-                    id="id1", canonical_name="Canonical E1", type="PERSON"
-                ),  # find after batch
-            ]
-        )
         # find_entities_by_keys returns the entity so entity_ids is populated
         mock_entity_repo.find_entities_by_keys = AsyncMock(
-            return_value=[EntityView(id="id1", canonical_name="Canonical E1", type="PERSON")]
+            return_value=[EntityView(id="id1", canonical_name="E1 Alias", type="PERSON")]
         )
 
         state = {
@@ -489,7 +484,7 @@ class TestNeo4jWriterEdgeCases:
 
         result = await writer._write_entities("article-neo4j-id", state["entities"], state)
         assert len(result) == 1
-        mock_entity_repo.add_aliases_batch.assert_called_once()
+        mock_entity_repo.add_aliases_batch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_entities_skips_invalid(self, writer_with_mocks):
@@ -563,7 +558,7 @@ class TestNeo4jWriterEdgeCases:
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_merge_failure(self, writer_with_mocks):
-        """T016-H1: relation batch failure propagates."""
+        """relation batch failure propagates."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_relations_batch = AsyncMock(side_effect=Exception("Merge error"))
 
@@ -638,7 +633,7 @@ class TestNeo4jWriterFollowedBy:
         """After slim-down, _create_followed_relations always uses time_gap=0.0.
 
         The graph Article node no longer carries ``publish_time`` (design.md
-        §D2), so the time gap cannot be computed in the graph layer. Callers
+        §), so the time gap cannot be computed in the graph layer. Callers
         needing accurate time gaps must compute them from PostgreSQL at
         query time. The relation is still created with ``time_gap_hours=0.0``.
 
@@ -687,7 +682,7 @@ class TestNeo4jWriterFollowedBy:
 
 
 class TestRelationBatchWrite:
-    """T010: relations flush through merge_relations_batch; types normalize once."""
+    """relations flush through merge_relations_batch; types normalize once."""
 
     @staticmethod
     def _make_repo():
@@ -788,7 +783,7 @@ class TestRelationBatchWrite:
 
 
 class TestWriteCircuitBreaker:
-    """T016: consecutive write failures open the circuit; writes fail fast."""
+    """consecutive write failures open the circuit; writes fail fast."""
 
     def _make_failing_writer(self):
         with (

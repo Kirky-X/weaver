@@ -290,7 +290,10 @@ class Neo4jCommunityRepo:
             }
 
         result = await self._pool.execute_query(query, params)
-        return bool(result)
+        # `RETURN c.id AS id` only yields a row when both MATCHes resolved;
+        # keying off the returned id (instead of bare truthiness) keeps the
+        # documented "True if relationship created" contract explicit.
+        return bool(result and result[0].get("id"))
 
     async def add_entities_batch(
         self,
@@ -352,12 +355,31 @@ class Neo4jCommunityRepo:
         Returns:
             True if relationship created.
         """
-        query = """
-        MATCH (child:Community {id: $child_id})
-        MATCH (parent:Community {id: $parent_id})
-        MERGE (child)-[:PARENT_COMMUNITY]->(parent)
-        RETURN child.id AS id
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: MERGE doesn't work for relationships — check
+            # existence first, then CREATE (idempotent via the check).
+            check = """
+            MATCH (child:Community {id: $child_id})-[r:PARENT_COMMUNITY]->(parent:Community {id: $parent_id})
+            RETURN child.id AS id
+            """
+            existing = await self._pool.execute_query(
+                check, {"child_id": child_id, "parent_id": parent_id}
+            )
+            if existing:
+                return True
+            query = """
+            MATCH (child:Community {id: $child_id})
+            MATCH (parent:Community {id: $parent_id})
+            CREATE (child)-[:PARENT_COMMUNITY]->(parent)
+            RETURN child.id AS id
+            """
+        else:
+            query = """
+            MATCH (child:Community {id: $child_id})
+            MATCH (parent:Community {id: $parent_id})
+            MERGE (child)-[:PARENT_COMMUNITY]->(parent)
+            RETURN child.id AS id
+            """
         result = await self._pool.execute_query(
             query, {"child_id": child_id, "parent_id": parent_id}
         )
@@ -397,7 +419,9 @@ class Neo4jCommunityRepo:
             RETURN count(c) AS deleted
             """
             result = await self._pool.execute_query(query, {"id": community_id})
-            return bool(result)
+            # RETURN count(...) always yields exactly one row, so
+            # bool(result) alone is always True — check the counter.
+            return bool(result and result[0].get("deleted", 0) > 0)
 
     async def update_children(
         self,
@@ -835,7 +859,8 @@ class Neo4jCommunityRepo:
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
             # LadybugDB: No vector.similarity.cosine. Use array_cosine_similarity.
-            # Use coalesce for properties that may not exist.
+            # Nulls are normalized in Python via CommunityReport.from_neo4j
+            # (LadybugDB coalesce support is not guaranteed — same as get_report).
             if level is not None:
                 cypher = """
                 MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
@@ -847,9 +872,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
-                       coalesce(r.key_entities, []) AS key_entities,
-                       coalesce(r.key_relationships, []) AS key_relationships,
-                       coalesce(r.rank, 1.0) AS rank,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k
@@ -865,9 +890,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
-                       coalesce(r.key_entities, []) AS key_entities,
-                       coalesce(r.key_relationships, []) AS key_relationships,
-                       coalesce(r.rank, 1.0) AS rank,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k
@@ -1062,18 +1087,24 @@ class Neo4jCommunityRepo:
             List of community dicts with id, title, score.
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
+            # Community nodes carry no summary property; summaries live on
+            # CommunityReport nodes (REPORTS_ON).
             query = """
             MATCH (c:Community)
-            WHERE c.title CONTAINS $query OR c.summary CONTAINS $query
-            RETURN c.id AS id, c.title AS title, c.summary AS summary,
+            OPTIONAL MATCH (c)<-[:REPORTS_ON]-(r:CommunityReport)
+            WITH c, collect(r.summary)[0] AS summary
+            WHERE c.title CONTAINS $query OR summary CONTAINS $query
+            RETURN c.id AS id, c.title AS title, summary AS summary,
                    0.5 AS score
             LIMIT $limit
             """
         else:
             query = """
             MATCH (c:Community)
-            WHERE c.title CONTAINS $query OR c.summary CONTAINS $query
-            RETURN c.id AS id, c.title AS title, c.summary AS summary,
+            OPTIONAL MATCH (c)<-[:REPORTS_ON]-(r:CommunityReport)
+            WITH c, collect(r.summary)[0] AS summary
+            WHERE c.title CONTAINS $query OR summary CONTAINS $query
+            RETURN c.id AS id, c.title AS title, summary AS summary,
                    0.5 AS score
             LIMIT $limit
             """

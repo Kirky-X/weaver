@@ -8,6 +8,7 @@ from modules.knowledge.graph.community.enums import ModularityMetric
 from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,
+    CommunityReport,
     HierarchicalCluster,
 )
 from modules.knowledge.graph.community.modularity import (
@@ -33,6 +34,7 @@ __all__ = [
     "CommunityDetectionResult",
     "CommunityDetector",
     "CommunityRepairService",
+    "CommunityReport",
     "CommunityReportGenerator",
     "CommunityReportOutput",
     "CommunityStats",

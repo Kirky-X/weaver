@@ -110,6 +110,30 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             parquet_file=self.parquet_file,
         )
 
+    def _execute(
+        self,
+        sql: str,
+        params: list[Any] | None = None,
+    ) -> Any:
+        """Execute SQL on the shared DuckDB connection under ``_sync_lock``.
+
+        DuckDB connections are not thread-safe and the Parquet sync daemon
+        thread shares ``self.db`` with the event-loop thread, so every
+        statement must hold ``_sync_lock`` (RLock — re-entrant through
+        ``_mark_dirty``/``_sync_to_parquet``).
+
+        Args:
+            sql: SQL statement.
+            params: Optional positional parameters.
+
+        Returns:
+            The DuckDB connection result (call ``fetchone()`` on it).
+        """
+        with self._sync_lock:
+            if params is None:
+                return self.db.execute(sql)
+            return self.db.execute(sql, params)
+
     def _create_table(self) -> None:
         """Create the knowledge clusters table with explicit schema."""
         self.db.execute(f"""
@@ -183,10 +207,22 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         self._sync_thread.start()
 
     def _shutdown(self) -> None:
-        """Shutdown sync thread and do final sync."""
+        """Shutdown sync thread and do final sync.
+
+        Uses a bounded lock acquire: if the background sync thread is
+        mid-``_sync_to_parquet`` (slow COPY/os.replace), skipping the final
+        sync is preferable to blocking atexit indefinitely.
+        """
         self._stop_event.set()
-        if self._dirty_count > 0:
-            self._sync_to_parquet()
+        if self._dirty_count <= 0:
+            return
+        if self._sync_lock.acquire(timeout=5.0):
+            try:
+                self._sync_to_parquet()
+            finally:
+                self._sync_lock.release()
+        else:
+            log.warning("knowledge_cache_shutdown_sync_skipped", reason="sync_in_progress")
 
     def close(self) -> None:
         """Close DuckDB connection and stop sync thread.
@@ -229,18 +265,28 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         try:
             # Compute query embedding via LLM Client
             query_embeddings = await self._llm_client.embed_default([query])
+            if not query_embeddings:
+                # Degenerate provider response: fail loudly in the log instead
+                # of letting an IndexError surface as an opaque cache miss.
+                log.warning("cache_query_embedding_empty", query=query[:50])
+                return None
             query_embedding = query_embeddings[0]
 
-            # Search using DuckDB cosine similarity
-            result = self.db.execute(f"""
+            # Search using DuckDB cosine similarity. The embedding vector is
+            # passed as a bound parameter (not interpolated) so None/inf/nan
+            # payloads cannot corrupt the SQL literal.
+            result = self._execute(
+                f"""
                 SELECT id, name, description, content, embedding, query, hotness,
                        create_time, last_modified, version,
-                       list_cosine_similarity(embedding, {query_embedding}::FLOAT[384]) AS similarity
+                       list_cosine_similarity(embedding, CAST(? AS FLOAT[384])) AS similarity
                 FROM {self.table_name}
                 WHERE embedding IS NOT NULL
                 ORDER BY similarity DESC
                 LIMIT 1
-            """).fetchone()
+                """,
+                [query_embedding],
+            ).fetchone()
 
             if result and result[10] >= threshold:
                 similarity = result[10]
@@ -292,7 +338,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 cluster.embedding = embeddings[0]
 
             # Check if exists
-            existing = self.db.execute(
+            existing = self._execute(
                 f"SELECT id FROM {self.table_name} WHERE id = ?",
                 [cluster.id],
             ).fetchone()
@@ -302,7 +348,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
 
             if existing:
                 # Update
-                self.db.execute(
+                self._execute(
                     f"""
                     UPDATE {self.table_name}
                     SET name = ?, description = ?, content = ?, embedding = ?,
@@ -325,7 +371,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 # Insert
                 if cluster.create_time is None:
                     cluster.create_time = now
-                self.db.execute(
+                self._execute(
                     f"""
                     INSERT INTO {self.table_name}
                     (id, name, description, content, embedding, query, hotness,
@@ -363,7 +409,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             KnowledgeCluster if found, None otherwise.
         """
         try:
-            result = self.db.execute(
+            result = self._execute(
                 f"""
                 SELECT id, name, description, content, embedding, query, hotness,
                        create_time, last_modified, version
@@ -395,6 +441,10 @@ class KnowledgeCache(KnowledgeCacheProtocol):
     async def remove(self, cluster_id: str) -> bool:
         """Remove cluster by ID.
 
+        DELETE statements produce no result set in DuckDB, so existence is
+        checked with a COUNT query before deleting (same pattern as
+        ``decay_hotness``).
+
         Args:
             cluster_id: Cluster ID.
 
@@ -402,22 +452,31 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             True if removed, False if not found.
         """
         try:
-            result = self.db.execute(
+            count_result = self._execute(
+                f"SELECT COUNT(*) FROM {self.table_name} WHERE id = ?",
+                [cluster_id],
+            ).fetchone()
+            exists = bool(count_result and count_result[0] > 0)
+            if not exists:
+                return False
+
+            self._execute(
                 f"DELETE FROM {self.table_name} WHERE id = ?",
                 [cluster_id],
             )
-            removed = result.fetchone()[0] > 0 if result else False
-            if removed:
-                self._mark_dirty()
-                log.debug("cluster_removed", cluster_id=cluster_id)
-            return removed
+            self._mark_dirty()
+            log.debug("cluster_removed", cluster_id=cluster_id)
+            return True
 
         except Exception as e:
-            log.error("remove_cluster_failed", error=str(e))
+            log.error("remove_cluster_failed", error=str(e), cluster_id=cluster_id)
             return False
 
     async def cleanup_stale(self, hotness_threshold: float = 0.3) -> int:
         """Remove clusters below hotness threshold.
+
+        Counts matching rows first because DuckDB DELETE yields no
+        fetchable result (same pattern as ``decay_hotness``).
 
         Args:
             hotness_threshold: Minimum hotness to keep.
@@ -426,12 +485,17 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             Number of clusters removed.
         """
         try:
-            result = self.db.execute(
-                f"DELETE FROM {self.table_name} WHERE hotness < ?",
+            count_result = self._execute(
+                f"SELECT COUNT(*) FROM {self.table_name} WHERE hotness < ?",
                 [hotness_threshold],
-            )
-            removed = result.fetchone()[0] if result else 0
+            ).fetchone()
+            removed = count_result[0] if count_result else 0
+
             if removed > 0:
+                self._execute(
+                    f"DELETE FROM {self.table_name} WHERE hotness < ?",
+                    [hotness_threshold],
+                )
                 self._mark_dirty()
                 log.info("cleanup_stale_clusters", removed=removed)
             return removed
@@ -454,13 +518,13 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         """
         try:
             # Count records that will be affected
-            count_result = self.db.execute(
+            count_result = self._execute(
                 f"SELECT COUNT(*) FROM {self.table_name} WHERE hotness > 0"
             ).fetchone()
             affected = count_result[0] if count_result else 0
 
             if affected > 0:
-                self.db.execute(
+                self._execute(
                     f"UPDATE {self.table_name} SET hotness = hotness * ?",
                     [decay_factor],
                 )
@@ -481,7 +545,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             delta: Hotness increment.
         """
         try:
-            self.db.execute(
+            self._execute(
                 f"""
                 UPDATE {self.table_name}
                 SET hotness = LEAST(1.0, hotness + ?), last_modified = ?
@@ -507,7 +571,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         """
         try:
             # Get current queries
-            result = self.db.execute(
+            result = self._execute(
                 f"SELECT query FROM {self.table_name} WHERE id = ?",
                 [cluster_id],
             ).fetchone()
@@ -518,7 +582,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 # FIFO: keep only last N queries
                 queries = queries[-self._max_queries :]
 
-                self.db.execute(
+                self._execute(
                     f"UPDATE {self.table_name} SET query = ? WHERE id = ?",
                     ["\n".join(queries), cluster_id],
                 )
@@ -538,7 +602,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             Dict with count, avg_hotness, etc.
         """
         try:
-            result = self.db.execute(f"""
+            result = self._execute(f"""
                 SELECT
                     COUNT(*) as count,
                     AVG(hotness) as avg_hotness,

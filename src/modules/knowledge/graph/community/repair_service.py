@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.models import (
     HealthIssue,
@@ -19,6 +20,7 @@ from modules.knowledge.graph.community.health.models import (
     RepairResult,
     RepairSummary,
 )
+from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
@@ -51,6 +53,9 @@ class CommunityRepairService:
         """
         self._pool = pool
         self._report_generator = report_generator
+        # Detect database type for LadybugDB dialect handling (same pattern
+        # as CommunityHealthRepo).
+        self._database_type = getattr(pool, "database_type", DatabaseType.NEO4J.value)
 
     async def repair_empty_communities(self, dry_run: bool = False) -> RepairResult:
         """Delete communities with no associated entities.
@@ -125,11 +130,13 @@ class CommunityRepairService:
         Returns:
             RepairResult with update count.
         """
-        # Count mismatches
-        count_query = """
+        # Count mismatches (LadybugDB has no pruned property / datetime())
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e")
+        pruned_clause = f"WHERE ({pruned_cond})" if pruned_cond else ""
+        count_query = f"""
         MATCH (c:Community)
         OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
+        {pruned_clause}
         WITH c, count(e) AS actual_count
         WHERE c.entity_count <> actual_count
         RETURN count(c) AS count
@@ -155,15 +162,19 @@ class CommunityRepairService:
                     error="dry_run",
                 )
 
-            # Actually update
-            update_query = """
+            # Actually update (datetime() touch is Neo4j-only)
+            touch_clause = (
+                ", c.updated_at = datetime()"
+                if not LadybugDialect.is_ladybug(self._database_type)
+                else ""
+            )
+            update_query = f"""
             MATCH (c:Community)
             OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
-            WHERE (e.pruned IS NULL OR e.pruned = false)
+            {pruned_clause}
             WITH c, count(e) AS actual_count
             WHERE c.entity_count <> actual_count
-            SET c.entity_count = actual_count,
-                c.updated_at = datetime()
+            SET c.entity_count = actual_count{touch_clause}
             RETURN count(c) AS updated
             """
 
@@ -194,13 +205,25 @@ class CommunityRepairService:
         Returns:
             RepairResult with update count.
         """
-        # Count breaks
-        count_query = """
-        MATCH (c:Community)
-        WHERE c.parent_id IS NOT NULL
-          AND NOT EXISTS((:Community {id: c.parent_id}))
-        RETURN count(c) AS count
-        """
+        # LadybugDB doesn't support NOT EXISTS subqueries — use the same
+        # OPTIONAL MATCH + WHERE r IS NULL pattern as CommunityHealthRepo.
+        is_ladybug = LadybugDialect.is_ladybug(self._database_type)
+        if is_ladybug:
+            count_query = """
+            MATCH (c:Community)
+            WHERE c.parent_id IS NOT NULL
+            OPTIONAL MATCH (p:Community {id: c.parent_id})
+            WITH c, p
+            WHERE p IS NULL
+            RETURN count(c) AS count
+            """
+        else:
+            count_query = """
+            MATCH (c:Community)
+            WHERE c.parent_id IS NOT NULL
+              AND NOT EXISTS((:Community {id: c.parent_id}))
+            RETURN count(c) AS count
+            """
 
         try:
             results = await self._pool.execute_query(count_query)
@@ -222,15 +245,26 @@ class CommunityRepairService:
                     error="dry_run",
                 )
 
-            # Actually clear
-            clear_query = """
-            MATCH (c:Community)
-            WHERE c.parent_id IS NOT NULL
-              AND NOT EXISTS((:Community {id: c.parent_id}))
-            SET c.parent_id = null,
-                c.updated_at = datetime()
-            RETURN count(c) AS cleared
-            """
+            # Actually clear (datetime() touch is Neo4j-only)
+            touch_clause = ", c.updated_at = datetime()" if not is_ladybug else ""
+            if is_ladybug:
+                clear_query = f"""
+                MATCH (c:Community)
+                WHERE c.parent_id IS NOT NULL
+                OPTIONAL MATCH (p:Community {{id: c.parent_id}})
+                WITH c, p
+                WHERE p IS NULL
+                SET c.parent_id = null{touch_clause}
+                RETURN count(c) AS cleared
+                """
+            else:
+                clear_query = f"""
+                MATCH (c:Community)
+                WHERE c.parent_id IS NOT NULL
+                  AND NOT EXISTS((:Community {{id: c.parent_id}}))
+                SET c.parent_id = null{touch_clause}
+                RETURN count(c) AS cleared
+                """
 
             await self._pool.execute_query(clear_query)
             log.info("cleared_broken_parent_ids", count=count)
@@ -272,8 +306,23 @@ class CommunityRepairService:
                 error="report_generator not configured",
             )
 
-        # Find stale reports
-        if community_ids:
+        # Find stale reports (LadybugDB: no duration() — stale flag only)
+        if LadybugDialect.is_ladybug(self._database_type):
+            if community_ids:
+                query = """
+                MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+                WHERE c.id IN $community_ids AND r.stale = true
+                RETURN c.id AS community_id
+                """
+                params: dict[str, Any] = {"community_ids": community_ids}
+            else:
+                query = """
+                MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+                WHERE r.stale = true
+                RETURN c.id AS community_id
+                """
+                params = {}
+        elif community_ids:
             query = """
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE c.id IN $community_ids
@@ -397,9 +446,16 @@ class CommunityRepairService:
             if result.success:
                 total_repaired += result.affected_count
 
-        # Repair stale reports
+        # Repair stale reports (targeted: only the communities named in the issues)
         if IssueType.STALE_REPORT in issue_types:
-            result = await self.repair_stale_reports(dry_run=dry_run)
+            stale_community_ids = [
+                i.community_id
+                for i in repairable_issues
+                if i.issue_type == IssueType.STALE_REPORT and i.community_id
+            ]
+            result = await self.repair_stale_reports(
+                community_ids=stale_community_ids, dry_run=dry_run
+            )
             results.append(result)
             if result.success:
                 total_repaired += result.affected_count
@@ -464,20 +520,37 @@ class CommunityRepairService:
             )
 
         success_count = 0
+        failed_ids: list[str] = []
+
         for cid in community_ids:
             try:
                 result = await self._report_generator.regenerate_report(cid)
-                if result:
+                # ReportGenerationResult is always truthy — check .success
+                # (same as repair_stale_reports) so failures are not
+                # silently counted as successes.
+                if result.success:
                     success_count += 1
+                else:
+                    failed_ids.append(cid)
             except Exception as exc:
                 log.warning(
                     "missing_report_generation_failed",
                     community_id=cid,
                     error=str(exc),
                 )
+                failed_ids.append(cid)
 
+        log.info(
+            "generated_missing_reports",
+            success=success_count,
+            failed=len(failed_ids),
+        )
+
+        # Partial failures must surface: success only when nothing failed
+        # (consistent with repair_stale_reports).
         return RepairResult(
             repair_type="generate_missing_reports",
             affected_count=success_count,
-            success=success_count > 0,
+            success=len(failed_ids) == 0,
+            error=f"failed_ids: {failed_ids}" if failed_ids else None,
         )

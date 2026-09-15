@@ -9,7 +9,7 @@ empty communities, missing reports, stale reports, hierarchy integrity, and modu
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.models import (
@@ -22,6 +22,7 @@ from modules.knowledge.graph.community.health.repo import CommunityHealthRepo
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
+    from modules.knowledge.graph.community.updater_modularity import ModularityCalculator
 
 log = get_logger(__name__)
 
@@ -63,18 +64,27 @@ class CommunityHealthChecker:
     def __init__(
         self,
         pool: GraphPool,
-        modularity_calculator: object | None = None,
+        modularity_calculator: ModularityCalculator | None = None,
     ) -> None:
         """Initialize the health checker.
 
         Args:
             pool: Graph database connection pool.
-            modularity_calculator: Optional object with _calculate_modularity() method.
-                If None, modularity check will be skipped.
+            modularity_calculator: Optional ``ModularityCalculator``; its
+                ``_calculate_modularity()`` is used by ``check_modularity_score``.
+                If None, the modularity check is skipped.
         """
         self._pool = pool
         self._repo = CommunityHealthRepo(pool)
         self._modularity_calculator = modularity_calculator
+
+    async def get_overall_metrics(self) -> dict[str, Any]:
+        """Return quick overall community metrics (public wrapper for _repo)."""
+        return await self._repo.get_overall_metrics()
+
+    async def find_hierarchy_breaks(self) -> list[dict[str, Any]]:
+        """Return detected hierarchy breaks (public wrapper for _repo)."""
+        return await self._repo.find_hierarchy_breaks()
 
     async def diagnose_all(self) -> CommunityHealthReport:
         """Perform comprehensive community health diagnostics.
@@ -359,10 +369,12 @@ class CommunityHealthChecker:
             issue_counts[issue.issue_type] = issue_counts.get(issue.issue_type, 0) + 1
 
         # Entity count mismatch penalty
+        # Ratio checks are inclusive (>= threshold) for consistency with the
+        # empty-community ratios above: hitting the threshold exactly warns.
         mismatch_count = issue_counts.get(IssueType.ENTITY_COUNT_MISMATCH, 0)
         if (
             total_communities > 0
-            and mismatch_count / total_communities > self.ENTITY_MISMATCH_WARNING_RATIO
+            and mismatch_count / total_communities >= self.ENTITY_MISMATCH_WARNING_RATIO
         ):
             score -= self.PENALTY_ENTITY_MISMATCH
 
@@ -370,7 +382,7 @@ class CommunityHealthChecker:
         missing_count = issue_counts.get(IssueType.MISSING_REPORT, 0)
         if (
             total_communities > 0
-            and missing_count / total_communities > self.REPORT_MISSING_WARNING_RATIO
+            and missing_count / total_communities >= self.REPORT_MISSING_WARNING_RATIO
         ):
             score -= self.PENALTY_REPORT_MISSING
 
@@ -392,7 +404,9 @@ class CommunityHealthChecker:
                         score -= self.PENALTY_CRITICAL_MODULARITY
                     else:
                         score -= self.PENALTY_LOW_MODULARITY
-                break
+                    # Apply the penalty once, for the first modularity issue
+                    # found — not after the first issue of any type.
+                    break
 
         return max(0.0, min(100.0, score))
 

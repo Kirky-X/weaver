@@ -61,12 +61,18 @@ class IntentClassifier:
             IntentClassification with detected intent, confidence, and extracted signals.
         """
         try:
+            # Substitute the placeholder into the prompt. The constant also
+            # contains literal JSON braces, so str.format() is not usable
+            # here — replace() targets only the {query} marker. The query is
+            # injected exclusively inside <user_query> tags; no duplicate
+            # suffix outside the tags (prompt-injection isolation).
+            user_content = INTENT_CLASSIFICATION_PROMPT.replace("{query}", query)
             response = await self._llm.call(
                 label=self._llm.default_chat_label,
                 call_point=CallPoint.SEARCH_LOCAL,
                 payload={
                     "system_prompt": "You are a query intent classifier. Return valid JSON only.",
-                    "user_content": f"{INTENT_CLASSIFICATION_PROMPT}\n\nQuery: {query}",
+                    "user_content": user_content,
                 },
             )
 
@@ -98,9 +104,22 @@ class IntentClassifier:
             )
 
     def _extract_temporal_signals(self, signals: list) -> list[TemporalSignal]:
-        """Extract temporal signals from LLM response."""
+        """Extract temporal signals from LLM response.
+
+        Malformed signals are skipped with a warning instead of failing the
+        whole classification — one bad field from the LLM should not wipe
+        out otherwise-valid intent output.
+        """
         temporal_signals = []
         for signal in signals:
             if isinstance(signal, dict):
-                temporal_signals.append(TemporalSignal(**signal))
+                try:
+                    temporal_signals.append(TemporalSignal(**signal))
+                except (TypeError, ValueError) as exc:
+                    log.warning(
+                        "temporal_signal_invalid_skipped",
+                        error=str(exc),
+                        exc_type=type(exc).__name__,
+                        signal=signal,
+                    )
         return temporal_signals

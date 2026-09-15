@@ -18,6 +18,12 @@ from modules.knowledge.search.retrievers.bm25_retriever import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _index_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SigningKey.from_env is fail-fast; provide a test key."""
+    monkeypatch.setenv("INDEX_SIGNING_KEY", "unit-test-signing-key-" + "0" * 32)
+
+
 def _has_zh_spacy() -> bool:
     """Check if zh_core_web_lg spacy model is available (lightweight check)."""
     try:
@@ -319,3 +325,83 @@ class TestBM25RetrieverChinese:
 
         # Should find AI-related documents
         assert len(results) >= 1
+
+
+class TestAddDocumentsDuplicateIds:
+    """Regression: duplicate doc_ids must not orphan stale corpus slots (#347)."""
+
+    def test_duplicate_doc_id_skipped(self) -> None:
+        retriever = BM25Retriever()
+
+        retriever.index([BM25Document(doc_id="1", title="First", content="First document")])
+
+        retriever.add_documents(
+            [
+                BM25Document(doc_id="1", title="First updated", content="Updated"),
+                BM25Document(doc_id="2", title="Second", content="Second document"),
+            ]
+        )
+
+        # Only the new doc is appended; the duplicate neither grows the
+        # corpus nor re-points the map away from the original slot.
+        assert retriever.get_document_count() == 2
+        assert retriever._doc_id_to_idx["1"] == 0
+        assert retriever._doc_id_to_idx["2"] == 1
+        assert len(retriever._corpus) == 2
+
+    def test_all_duplicates_no_reindex(self) -> None:
+        retriever = BM25Retriever()
+        retriever.index([BM25Document(doc_id="1", title="First", content="First document")])
+        retriever._needs_reindex = False
+
+        retriever.add_documents([BM25Document(doc_id="1", title="First again", content="Dup")])
+
+        assert retriever.get_document_count() == 1
+        assert retriever._needs_reindex is False
+
+
+class TestBM25RetrieverModuleImports:
+    """#76: numpy must be imported once at module level."""
+
+    def test_numpy_imported_at_module_level(self) -> None:
+        import modules.knowledge.search.retrievers.bm25_retriever as bm25_module
+
+        assert hasattr(bm25_module, "np")
+
+
+class TestStemmerInitialization:
+    """#222: the redundant ``Stemmer is not None`` guard was removed."""
+
+    def test_english_stemmer_initialized_when_available(self) -> None:
+        import modules.knowledge.search.retrievers.bm25_retriever as bm25_module
+
+        if not bm25_module.STEMMER_AVAILABLE:
+            pytest.skip("PyStemmer is not installed")
+
+        retriever = BM25Retriever(language="en")
+
+        assert retriever._stemmer is not None
+
+    def test_chinese_retriever_gets_no_stemmer(self) -> None:
+        retriever = BM25Retriever(language="zh")
+
+        assert retriever._stemmer is None
+
+
+class TestStemmerInitialization:
+    """#222: the redundant ``Stemmer is not None`` guard was removed."""
+
+    def test_english_stemmer_initialized_when_available(self) -> None:
+        import modules.knowledge.search.retrievers.bm25_retriever as bm25_module
+
+        if not bm25_module.STEMMER_AVAILABLE:
+            pytest.skip("PyStemmer is not installed")
+
+        retriever = BM25Retriever(language="en")
+
+        assert retriever._stemmer is not None
+
+    def test_chinese_retriever_gets_no_stemmer(self) -> None:
+        retriever = BM25Retriever(language="zh")
+
+        assert retriever._stemmer is None

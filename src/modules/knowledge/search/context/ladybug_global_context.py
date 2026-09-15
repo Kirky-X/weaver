@@ -23,6 +23,10 @@ log = get_logger(__name__)
 # Upper bound on CommunityReport candidates pulled for in-process cosine
 # scoring (each row carries a ~1024-dim float embedding). Keeps memory and
 # event-loop latency bounded on large graphs.
+# NOTE: this is a PRE-rank cap, not a post-rank cap — the Cypher below applies
+# ``ORDER BY c.rank DESC LIMIT $candidate_cap`` *before* any embedding
+# similarity is computed, so a low-ranked but semantically close report that
+# falls outside the top-N is never scored.
 _EMBEDDING_CANDIDATE_CAP = 500
 
 
@@ -118,31 +122,26 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
 
             # Batched numpy cosine (single matmul) — pure-Python loops cost
             # 100ms+ per 1k communities and block the event loop.
-            emb_matrix = np.array(
-                [
-                    r.get("embedding")
-                    for r in results
-                    if isinstance(r.get("embedding"), list) and r.get("embedding")
-                ],
-                dtype=np.float32,
-            )
-            if emb_matrix.size == 0:
+            # Build (row, embedding) pairs in ONE pass so the score index is
+            # guaranteed to line up with the result row it belongs to.
+            candidates = [
+                (r, r["embedding"])
+                for r in results
+                if isinstance(r.get("embedding"), list) and r.get("embedding")
+            ]
+            if not candidates:
                 return []
+            emb_matrix = np.array([emb for _, emb in candidates], dtype=np.float32)
             query_vec = np.array(query_embedding, dtype=np.float32)
             norms = np.linalg.norm(emb_matrix, axis=1) * np.linalg.norm(query_vec)
             norms[norms == 0.0] = 1e-9
-            scores = (emb_matrix @ query_vec) / norms
+            sims = (emb_matrix @ query_vec) / norms
 
-            scored: list[tuple[float, dict[str, Any]]] = []
-            idx = 0
-            for r in results:
-                emb = r.get("embedding")
-                if not isinstance(emb, list) or not emb:
-                    continue
-                sim = float(scores[idx])
-                idx += 1
-                if sim > self._similarity_threshold:
-                    scored.append((sim, r))
+            scored: list[tuple[float, dict[str, Any]]] = [
+                (float(sim), r)
+                for sim, (r, _) in zip(sims, candidates)
+                if float(sim) > self._similarity_threshold
+            ]
 
             scored.sort(key=lambda pair: pair[0], reverse=True)
 

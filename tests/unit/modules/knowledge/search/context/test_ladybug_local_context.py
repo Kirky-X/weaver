@@ -1122,3 +1122,33 @@ class TestContextSectionPriority:
 
         assert "Source Articles" in sections_dict
         assert sections_dict["Source Articles"].priority == 70
+
+
+class TestGetRelatedEntitiesParams:
+    """Regression (#319): the Ladybug builder emits `r.edge_type IN $relation_types`
+    when relation_types are set, but the caller never passed the parameter,
+    so the query failed and results were silently empty."""
+
+    @pytest.mark.asyncio
+    async def test_should_pass_relation_types_param(self, mock_pool):
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
+
+        await builder._get_related_entities(["EntityA"], relation_types=["RELATED_TO"])
+
+        cypher, params = mock_pool.execute_query.call_args[0]
+        assert "r.edge_type IN $relation_types" in cypher
+        assert params["relation_types"] == ["RELATED_TO"]
+        assert params["names"] == ["EntityA"]
+        assert params["limit"] == builder._max_entities
+
+    @pytest.mark.asyncio
+    async def test_should_omit_relation_types_param_when_none(self, mock_pool):
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
+
+        await builder._get_related_entities(["EntityA"])
+
+        cypher, params = mock_pool.execute_query.call_args[0]
+        assert "$relation_types" not in cypher
+        assert "relation_types" not in params

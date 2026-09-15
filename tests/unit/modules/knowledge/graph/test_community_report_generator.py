@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.constants import DatabaseType
 from modules.knowledge.graph.community.models import Community, CommunityReport
 from modules.knowledge.graph.community.report_generator import (
     CommunityReportGenerator,
@@ -374,3 +375,44 @@ class TestReportGenerationResult:
         assert result.success is False
         assert result.error == "Generation failed"
         assert result.report_id is None
+
+
+class TestGetCommunityDataBackendCompatibility:
+    """vuln-CORR284: LadybugDB must not see coalesce() in the query."""
+
+    def _make_generator(self, pool, llm):
+        return CommunityReportGenerator(pool, llm)
+
+    def _mock_llm(self):
+        llm = MagicMock()
+        llm._prompts = MagicMock()
+        llm._prompts.get = MagicMock(return_value="p")
+        llm.call_at = AsyncMock()
+        return llm
+
+    @pytest.mark.asyncio
+    async def test_ladybug_query_has_no_coalesce(self):
+        pool = MagicMock()
+        pool.database_type = DatabaseType.LADYBUG.value
+        pool.execute_query = AsyncMock(
+            return_value=[{"id": "c1", "level": 0, "entity_count": 3, "article_count": None}]
+        )
+        generator = self._make_generator(pool, self._mock_llm())
+        data = await generator._get_community_data("c1")
+        query = pool.execute_query.call_args[0][0]
+        assert "coalesce" not in query
+        # Null article_count normalized in Python
+        assert data["article_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_neo4j_query_keeps_coalesce(self):
+        pool = MagicMock()
+        pool.database_type = DatabaseType.NEO4J.value
+        pool.execute_query = AsyncMock(
+            return_value=[{"id": "c1", "level": 0, "entity_count": 3, "article_count": 5}]
+        )
+        generator = self._make_generator(pool, self._mock_llm())
+        data = await generator._get_community_data("c1")
+        query = pool.execute_query.call_args[0][0]
+        assert "coalesce(c.article_count, 0)" in query
+        assert data["article_count"] == 5

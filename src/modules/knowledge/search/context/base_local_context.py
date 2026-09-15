@@ -144,6 +144,10 @@ class BaseLocalContextBuilder(ContextBuilder):
                 metadata={"article_count": len(articles)},
             )
 
+        # NOTE: counts reflect what was *retrieved*, not what survived the
+        # token budget — ``add_content`` may drop a section while these
+        # counters stay unchanged. Consumers (e.g. LocalSearchEngine's
+        # confidence estimate) rely on the retrieved-count semantics.
         context.metadata["total_entities"] = len(entities) + len(related_entities)
         context.metadata["total_relationships"] = len(relationships)
         if relation_types:
@@ -184,8 +188,7 @@ class BaseLocalContextBuilder(ContextBuilder):
           matches title + body. The two backends are NOT semantically
           equivalent in the no-entities fallback path — this is accepted as
           a trade-off because the LadybugDB path exists primarily to exercise
-          its Cypher dialect's Article node query. See H1 in
-          ``specmark/changes/db-consistency-verify/design.md`` for details.
+          its Cypher dialect's Article node query.
         """
         context.add_content(
             name="Search Note",
@@ -242,7 +245,9 @@ class BaseLocalContextBuilder(ContextBuilder):
                         count=len(articles),
                         query=query,
                     )
-                return articles
+                # Normalize: search_by_text may return None — the declared
+                # contract of this helper is always a list.
+                return articles or []
         except Exception as exc:
             log.warning(
                 "relational_text_search_failed",

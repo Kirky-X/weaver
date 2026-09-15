@@ -150,7 +150,7 @@ class CommunityHealthRepo:
             query = """
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE r.stale = true
-               OR r.updated_at < datetime() - duration('P' + $days + 'D')
+               OR r.updated_at < datetime() - duration({days: $days})
             RETURN c.id AS community_id,
                    r.id AS report_id,
                    r.stale AS stale,

@@ -91,6 +91,10 @@ class BeamSearchReranker:
 
             # Expand: get neighbors for each frontier node
             next_candidates: list[dict[str, Any]] = []
+            # Track ids queued this expansion round so the same neighbor
+            # discovered by multiple frontier nodes doesn't consume
+            # multiple beam_width slots.
+            queued_this_round: set[str] = set()
             for node in frontier:
                 node_id = node.get("id", "")
                 if not node_id:
@@ -99,7 +103,12 @@ class BeamSearchReranker:
                 try:
                     neighbors = graph.get_neighbors(node_id)
                 except Exception as exc:
-                    log.warning("beam_expand_failed", node_id=node_id, error=str(exc))
+                    log.warning(
+                        "beam_expand_failed",
+                        query=query[:50],
+                        node_id=node_id,
+                        error=str(exc),
+                    )
                     continue
 
                 if not neighbors:
@@ -107,8 +116,11 @@ class BeamSearchReranker:
 
                 for n in neighbors:
                     n_id = n.get("id", "")
-                    if n_id in visited:
+                    # Empty ids can never be visited/collected — don't let
+                    # them occupy beam slots.
+                    if not n_id or n_id in visited or n_id in queued_this_round:
                         continue
+                    queued_this_round.add(n_id)
 
                     neighbor_score = n.get("fusion_score", n.get("score", 0.0))
                     cumulative = (

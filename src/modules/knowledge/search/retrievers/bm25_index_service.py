@@ -77,6 +77,13 @@ class BM25IndexService:
             return 0
 
         self._is_building = True
+        try:
+            return await self._do_full_build(limit)
+        finally:
+            self._is_building = False
+
+    async def _do_full_build(self, limit: int | None = None) -> int:
+        """Run the full build body. Caller owns the ``_is_building`` flag."""
         start_time = datetime.now(UTC)
 
         try:
@@ -87,6 +94,10 @@ class BM25IndexService:
 
             if not documents:
                 log.warning("bm25_build_no_articles")
+                # Advance the watermark anyway so scheduled incremental runs
+                # stop re-attempting a full build on an empty corpus.
+                self._last_build_time = datetime.now(UTC)
+                await self._write_watermark(self._last_build_time)
                 return 0
 
             # Build index off the event loop (sync tokenization over all docs)
@@ -110,9 +121,6 @@ class BM25IndexService:
             log.error("bm25_build_full_failed", error=str(exc))
             return 0
 
-        finally:
-            self._is_building = False
-
     async def incremental_update(self, since: datetime | None = None) -> int:
         """Incrementally update index with new articles.
 
@@ -127,15 +135,18 @@ class BM25IndexService:
             log.warning("bm25_incremental_build_in_progress")
             return 0
 
-        cutoff = since or self._last_build_time or await self._read_watermark()
-        if cutoff is None:
-            # No previous build, do full build instead
-            log.info("bm25_incremental_no_previous_build")
-            return await self.build_full_index()
-
+        # Take the flag BEFORE any await: the watermark read below is a
+        # suspension point, so two concurrent calls could otherwise both
+        # pass the check and run concurrent index mutations.
         self._is_building = True
 
         try:
+            cutoff = since or self._last_build_time or await self._read_watermark()
+            if cutoff is None:
+                # No previous build, do full build instead (flag already held)
+                log.info("bm25_incremental_no_previous_build")
+                return await self._do_full_build()
+
             log.info("bm25_incremental_start", since=cutoff.isoformat())
 
             # Fetch only new/updated articles

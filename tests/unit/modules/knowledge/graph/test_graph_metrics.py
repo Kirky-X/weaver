@@ -3,7 +3,7 @@
 """Unit tests for Graph Quality Metrics module."""
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1140,3 +1140,92 @@ class TestGraphQualityMetricsOrphanEdgeCases:
         result = await metrics.find_orphan_entities()
 
         assert result[0]["created_at"] == dt_str
+
+
+class TestModularityImpliesComponents:
+    """Regression: include={"modularity"} must compute component data,
+    otherwise _calculate_modularity reads the default connected_components=0
+    and wrongly reports modularity 0.0 (vuln-CORR#302)."""
+
+    @pytest.mark.asyncio
+    async def test_modularity_include_triggers_component_calculation(self):
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        metrics_obj = GraphQualityMetrics(mock_pool)
+
+        with (
+            patch.object(
+                metrics_obj, "_calculate_component_metrics", new_callable=AsyncMock
+            ) as comp_mock,
+            patch.object(metrics_obj, "_calculate_modularity", new_callable=AsyncMock) as mod_mock,
+        ):
+            await metrics_obj.calculate_all_metrics(include={"modularity"})
+
+        comp_mock.assert_awaited_once()
+        mod_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_components_only_does_not_run_twice(self):
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        metrics_obj = GraphQualityMetrics(mock_pool)
+
+        with (
+            patch.object(
+                metrics_obj, "_calculate_component_metrics", new_callable=AsyncMock
+            ) as comp_mock,
+            patch.object(metrics_obj, "_calculate_modularity", new_callable=AsyncMock) as mod_mock,
+        ):
+            await metrics_obj.calculate_all_metrics(include={"components"})
+
+        comp_mock.assert_awaited_once()
+        mod_mock.assert_not_awaited()
+
+
+class TestHighDegreeEntityRows:
+    """#91: the degree loop only filters/reshapes rows (no dead accumulation)."""
+
+    @pytest.fixture
+    def metrics(self):
+        mock_pool = MagicMock()
+        mock_pool.execute_query = AsyncMock()
+        return GraphQualityMetrics(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_rows_below_threshold_are_filtered_out(self, metrics):
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"name": "Hub1", "type": "人物", "total_degree": 15},
+                {"name": "Leaf", "type": "组织", "total_degree": 2},
+            ]
+        )
+        graph_metrics = GraphMetrics()
+        graph_metrics.total_entities = 2
+
+        await metrics._calculate_degree_metrics(graph_metrics, min_degree=10)
+
+        assert len(graph_metrics.high_degree_entities) == 1
+        assert graph_metrics.high_degree_entities[0]["name"] == "Hub1"
+        assert graph_metrics.high_degree_entities[0]["total_degree"] == 15
+
+
+class TestGenerateSimplePartitionsIsSync:
+    """#17: the partition helper performs no await, so it must not be async."""
+
+    def test_helper_is_not_a_coroutine_function(self):
+        import inspect
+
+        assert not inspect.iscoroutinefunction(GraphQualityMetrics._generate_simple_partitions)
+
+    def test_partitions_cover_every_node(self):
+        mock_pool = MagicMock()
+        metrics = GraphQualityMetrics(mock_pool)
+
+        partitions = metrics._generate_simple_partitions(
+            [("A", "B", 1.0), ("C", "D", 1.0)],
+        )
+
+        assert set(partitions) == {"A", "B", "C", "D"}
+        assert partitions["A"] == partitions["B"]
+        assert partitions["C"] == partitions["D"]
+        assert partitions["A"] != partitions["C"]

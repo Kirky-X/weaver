@@ -20,6 +20,7 @@ wrappers so existing callers and tests keep working unchanged.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -191,8 +192,9 @@ class IncrementalCommunityUpdater:
         # Step 3: Get current assignments
         old_assignments = await self._get_current_assignments(nodes)
 
-        # Step 4: Run local clustering (synchronous)
-        new_assignments = self._run_local_clustering(nodes, edges)
+        # Step 4: Run local clustering (CPU-bound, offloaded to a thread so
+        # the event loop is not blocked for the whole partitioning run)
+        new_assignments = await asyncio.to_thread(self._run_local_clustering, nodes, edges)
 
         # Step 5: Write diff
         diff_result = await self._write_diff(old_assignments, new_assignments)

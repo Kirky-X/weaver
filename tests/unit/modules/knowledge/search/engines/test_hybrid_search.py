@@ -840,3 +840,62 @@ class TestHybridSearchEngineStats:
         assert stats["bm25_available"] is False
         assert stats["bm25_doc_count"] == 0
         assert stats["reranker_available"] is False
+
+
+class TestHybridSearchZeroScorePreservation:
+    """Regression: rerank_score 0.0 is a valid score and must not fall
+    through to rrf_score via falsy `or` (vuln-CORR#329)."""
+
+    @pytest.mark.asyncio
+    async def test_temporal_decay_preserves_zero_rerank_score(self):
+        config = HybridSearchConfig(
+            temporal_decay_enabled=True,
+            temporal_decay_half_life_days=30.0,
+        )
+        engine = HybridSearchEngine(config=config)
+
+        results = [
+            {"doc_id": "doc1", "rerank_score": 0.0, "rrf_score": 0.9},
+        ]
+
+        with (
+            patch(
+                "modules.knowledge.search.temporal_decay.apply_temporal_decay",
+                side_effect=lambda score, age_in_days, half_life_days: score,
+            ),
+            patch(
+                "modules.knowledge.search.temporal_decay.calculate_age_in_days",
+                return_value=0.0,
+            ),
+        ):
+            decayed = await engine._apply_temporal_decay(results)
+
+        # 0.0 rerank score must stay sourced from rerank_score (0.0),
+        # not fall through to rrf_score (0.9).
+        assert decayed[0]["rerank_score"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_temporal_decay_sort_uses_zero_rerank_score(self):
+        config = HybridSearchConfig(
+            temporal_decay_enabled=False,
+        )
+        engine = HybridSearchEngine(config=config)
+
+        results = [
+            {"doc_id": "low", "rerank_score": 0.0, "rrf_score": 0.9},
+            {"doc_id": "high", "rerank_score": 0.5, "rrf_score": 0.1},
+        ]
+
+        decayed = await engine._apply_temporal_decay(results)
+
+        assert decayed[0]["doc_id"] == "high"
+        assert decayed[1]["doc_id"] == "low"
+
+    def test_to_hybrid_results_zero_rerank_score(self):
+        engine = HybridSearchEngine()
+
+        results = [{"doc_id": "doc1", "rerank_score": 0.0, "rrf_score": 0.9}]
+
+        hybrid = engine._to_hybrid_results(results)
+
+        assert hybrid[0].score == 0.0

@@ -190,16 +190,9 @@ class RelationTypeNormalizer:
             if cleaned == original_cleaned:
                 break
 
-        # Step 3: 标准名直接匹配
-        if raw_type in self._standard_cache:
-            cached = self._standard_cache[raw_type]
-            return NormalizedRelation(
-                raw_type=raw_type,
-                name=cached.name,
-                name_en=cached.name_en,
-                is_symmetric=cached.is_symmetric,
-                description=cached.description,
-            )
+        # NOTE: no separate "standard name" step here. Every key of
+        # ``_standard_cache`` (rt.name) is also written into ``_alias_cache``
+        # by ``_ensure_loaded``, so Step 1 already returns for those inputs.
 
         # 大写英文名匹配
         upper_raw = raw_type.upper()
@@ -245,28 +238,36 @@ class RelationTypeNormalizer:
                 article_id = None
 
         async with self._pool.session() as session:
-            # 查找已存在的未解决记录
+            # 查找已存在的未解决记录。raw_type 无唯一约束（Migration 已移除），
+            # 可能存在多条未解决行，用 limit(1)+first() 避免 MultipleResultsFound。
             result = await session.execute(
-                select(UnknownRelationType).where(
+                select(UnknownRelationType)
+                .where(
                     UnknownRelationType.raw_type == raw_type,
                     UnknownRelationType.resolved.is_(False),
                 )
+                .order_by(UnknownRelationType.last_seen_at)
+                .limit(1)
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             now = datetime.now(UTC)
 
             if existing:
-                # 更新现有记录
+                # 原子递增：hit_count 在 SQL 端 +1，避免并发读改写丢失计数。
+                # context/article_id 仅在非 None 时覆盖，防止默认调用清空已有数据。
+                values: dict[str, object] = {
+                    "hit_count": UnknownRelationType.hit_count + 1,
+                    "last_seen_at": now,
+                }
+                if context is not None:
+                    values["context"] = context
+                if article_id is not None:
+                    values["article_id"] = article_id
                 await session.execute(
                     update(UnknownRelationType)
                     .where(UnknownRelationType.id == existing.id)
-                    .values(
-                        hit_count=existing.hit_count + 1,
-                        last_seen_at=now,
-                        context=context,
-                        article_id=article_id,
-                    )
+                    .values(**values)
                 )
                 log.debug(
                     "record_unknown_updated",
@@ -296,25 +297,18 @@ class RelationTypeNormalizer:
         """
         await self._ensure_loaded()
 
-        # 从缓存中获取并按 sort_order 排序
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(RelationType)
-                .where(RelationType.is_active.is_(True))
-                .order_by(RelationType.sort_order)
+        # _ensure_loaded 已按 sort_order 顺序填充缓存（dict 保序），
+        # 直接返回缓存副本，避免重复 DB 查询。
+        return [
+            NormalizedRelation(
+                raw_type=nr.raw_type,
+                name=nr.name,
+                name_en=nr.name_en,
+                is_symmetric=nr.is_symmetric,
+                description=nr.description,
             )
-            relation_types = result.scalars().all()
-
-            return [
-                NormalizedRelation(
-                    raw_type=rt.name,
-                    name=rt.name,
-                    name_en=rt.name_en,
-                    is_symmetric=rt.is_symmetric,
-                    description=rt.description,
-                )
-                for rt in relation_types
-            ]
+            for nr in self._standard_cache.values()
+        ]
 
     @staticmethod
     def get_cypher_pattern(name_en: str, is_symmetric: bool) -> str:

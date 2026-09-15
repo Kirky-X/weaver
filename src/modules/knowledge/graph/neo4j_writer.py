@@ -125,7 +125,7 @@ class Neo4jWriter:
 
         neo4j_ids: list[str] = []
 
-        # After the Article node slim-down (design.md §D2), the graph node
+        # After the Article node slim-down (design.md §), the graph node
         # stores only {pg_id, created_at}. Title / category / publish_time /
         # score are no longer persisted on the node; callers that need them
         # batch-fetch from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids.
@@ -212,7 +212,7 @@ class Neo4jWriter:
 
         for ids, article_id, error in write_results:
             result["neo4j_ids"].append(ids)
-            # REM-005: Only add to article_ids when there is no error.
+            # Only add to article_ids when there is no error.
             # Previously failed articles were added to both article_ids and
             # errors, causing double counting (batch_completed + batch_failed
             # both incremented for the same article). Aligns with
@@ -253,19 +253,48 @@ class Neo4jWriter:
         # Map original names (and aliases) to canonical names for relation resolution
         original_to_canonical: dict[str, str] = {}
 
+        # Collect valid entities up front so canonical-name resolution runs as
+        # one batched round trip instead of one find_entity call per entity (N+1).
+        valid_entities: list[tuple[str, str, dict[str, Any]]] = []
+        for entity in entities:
+            name = entity.get("name")
+            entity_type = entity.get("type")
+            if not name or not entity_type:
+                continue
+            valid_entities.append((name, entity_type, entity))
+
+        # Batch canonical-name resolution: find_entities_by_keys matches on
+        # exact (canonical_name, type) — the same key as find_entity — so the
+        # existing entity's canonical_name is the resolved canonical name.
+        existing_by_key: dict[tuple[str, str], str] = {}
+        if valid_entities:
+            resolution_keys = [
+                {"canonical_name": name, "type": etype} for name, etype, _ in valid_entities
+            ]
+            try:
+                resolved_entities = await self._entity_repo.find_entities_by_keys(resolution_keys)
+                existing_by_key = {
+                    (e.canonical_name, e.type): e.canonical_name for e in resolved_entities
+                }
+            except Exception as exc:
+                # Resolution failure must not silently degrade to all-new
+                # entities; surface a targeted error and let write() account it.
+                log.error(
+                    "neo4j_entity_resolution_batch_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                    entity_count=len(resolution_keys),
+                )
+                raise
+
         entity_data = []
         alias_data = []
         mentions_data = []
 
-        for entity in entities:
-            name = entity.get("name")
-            entity_type = entity.get("type")
+        for name, entity_type, entity in valid_entities:
             role = entity.get("role")
 
-            if not name or not entity_type:
-                continue
-
-            canonical_name = await self._resolve_canonical_name(name, entity_type)
+            canonical_name = existing_by_key.get((name, entity_type), name)
 
             # Build mapping from original name to canonical name
             original_to_canonical[name] = canonical_name
@@ -313,13 +342,33 @@ class Neo4jWriter:
             try:
                 await self._entity_repo.add_aliases_batch(alias_data)
             except Exception as exc:
-                log.warning("neo4j_aliases_batch_failed", error=str(exc))
+                # Aliases are supplementary, but a silent gap here means alias
+                # lookups miss while callers assume a complete write — surface
+                # at ERROR so the partial state is visible.
+                log.error(
+                    "neo4j_aliases_batch_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                    alias_count=len(alias_data),
+                )
 
         # Batch query to get entity IDs instead of N+1 individual queries
         entity_keys = [
             {"canonical_name": e["canonical_name"], "type": e["type"]} for e in entity_data
         ]
-        existing_entities = await self._entity_repo.find_entities_by_keys(entity_keys)
+        try:
+            existing_entities = await self._entity_repo.find_entities_by_keys(entity_keys)
+        except Exception as exc:
+            # Entities are already merged; without the ID map, MENTIONS and
+            # entity relations would be silently skipped — fail loudly so
+            # write() records the failure and the (idempotent) retry redoes it.
+            log.error(
+                "neo4j_entity_id_lookup_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                entity_count=len(entity_keys),
+            )
+            raise
 
         # Build lookup map for quick access
         existing_map = {(e.canonical_name, e.type): e.id for e in existing_entities}
@@ -481,34 +530,6 @@ class Neo4jWriter:
             log.info("entity_relations_created", count=count, total_rows=len(rows))
         return count
 
-    async def _resolve_canonical_name(
-        self,
-        name: str,
-        entity_type: str,
-    ) -> str:
-        """Resolve canonical name for an entity.
-
-        Looks up existing entities by vector similarity and determines
-        the canonical name based on existing entries.
-
-        Args:
-            name: The entity name to resolve.
-            entity_type: The entity type.
-
-        Returns:
-            The canonical name to use.
-        """
-        # First check if entity already exists
-        existing = await self._entity_repo.find_entity(name, entity_type)
-        if existing:
-            return existing.canonical_name
-
-        # For new entities, return the provided name as canonical
-        # In a more sophisticated implementation, this could use
-        # vector similarity to find existing entities and determine
-        # the canonical name based on rules from neo4j-detail.md
-        return name
-
     async def _create_followed_relations(
         self,
         article_id: str,
@@ -516,7 +537,7 @@ class Neo4jWriter:
     ) -> None:
         """Create FOLLOWED_BY relationships for merged articles using batch operation.
 
-        After the Article node slim-down (design.md §D2), the graph Article
+        After the Article node slim-down (design.md §), the graph Article
         node no longer carries ``publish_time``, so ``time_gap_hours`` can
         no longer be computed inside the graph layer. The relation is
         created with ``time_gap_hours=0.0``; callers needing accurate time
@@ -594,7 +615,7 @@ class Neo4jWriter:
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive old articles as part of data lifecycle management.
 
-        After the Article node slim-down (design.md §D2), the graph node no
+        After the Article node slim-down (design.md §), the graph node no
         longer carries ``publish_time``, so the caller must compute the
         cutoff by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'`` and pass the

@@ -123,6 +123,15 @@ class TestWeightedRRF:
         with pytest.raises(ValueError, match="Weights length"):
             weighted_rrf([list1], weights=[1.0, 2.0])
 
+    def test_all_zero_weights_raise(self) -> None:
+        """All-zero weights raise ValueError instead of ZeroDivisionError."""
+        import pytest
+
+        list1 = [("a", 1.0)]
+        list2 = [("b", 1.0)]
+        with pytest.raises(ValueError, match="zero"):
+            weighted_rrf([list1, list2], weights=[0.0, 0.0])
+
 
 class TestFusionScoreAtK:
     """Tests for fusion_score_at_k."""
@@ -141,3 +150,16 @@ class TestFusionScoreAtK:
         assert "precision_at_k" in metrics
         assert "num_unique_items" in metrics
         assert "num_fused_items" in metrics
+
+
+class TestFusionScoreAtKUniqueItems:
+    """Regression: num_unique_items must cover every ranked list (#96)."""
+
+    def test_unique_items_not_bounded_by_top_k_lists(self) -> None:
+        """With 3 lists and top_k=2, items in the third list still count."""
+        list1 = [("a", 1.0)]
+        list2 = [("b", 1.0)]
+        list3 = [("c", 1.0)]
+        metrics = fusion_score_at_k([list1, list2, list3], top_k=2)
+
+        assert metrics["num_unique_items"] == 3

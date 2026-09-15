@@ -320,6 +320,7 @@ class ContextBuilder(ABC):
                 "fetch_article_bodies_batch_failed",
                 pg_id_count=len(pg_ids),
                 error=str(exc),
+                exc_type=type(exc).__name__,
             )
             return {}
 
@@ -338,7 +339,12 @@ class ContextBuilder(ABC):
             except Exception as exc:
                 from core.observability import get_logger
 
-                get_logger(__name__).warning("fetch_body_failed", pg_id=pg_id, error=str(exc))
+                get_logger(__name__).warning(
+                    "fetch_body_failed",
+                    pg_id=pg_id,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
         return bodies
 
     def extract_key_excerpt(

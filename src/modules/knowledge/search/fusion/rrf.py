@@ -147,7 +147,8 @@ def weighted_rrf(
         Fused and weighted results.
 
     Raises:
-        ValueError: If weights length doesn't match results_list length.
+        ValueError: If weights length doesn't match results_list length,
+            or if all weights are zero (normalization undefined).
     """
     if not results_list:
         return []
@@ -161,8 +162,12 @@ def weighted_rrf(
             f"Weights length ({len(weights)}) must match results_list length ({len(results_list)})"
         )
 
-    # Normalize weights
+    # Normalize weights (all-zero weights would divide by zero)
     total_weight = sum(weights)
+    if total_weight == 0:
+        raise ValueError(
+            "Weights must not all be zero: normalization is undefined (sum(weights) == 0)"
+        )
     weights = [w / total_weight for w in weights]
 
     # Track RRF scores
@@ -199,11 +204,10 @@ def fusion_score_at_k(
     if not fused:
         return {"precision_at_k": 0.0, "num_unique_items": 0}
 
-    # Calculate overlap between sources
-    all_items = set()
-    for ranked_list in results_list[:top_k]:
-        for item, _ in ranked_list[:top_k]:
-            all_items.add(item)
+    # Unique items across every ranked list (all of them — the previous
+    # results_list[:top_k] slice wrongly bounded the number of lists, not
+    # the items per list).
+    all_items = {item for ranked_list in results_list for item, _ in ranked_list}
 
     return {
         "precision_at_k": len(fused[:top_k]) / top_k if top_k > 0 else 0.0,

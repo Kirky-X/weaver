@@ -10,6 +10,8 @@ drives the diff writer and modularity calculator.
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from typing import TYPE_CHECKING
 
@@ -124,8 +126,6 @@ class SubgraphClusteringService:
         Returns:
             IncrementalUpdateResult with statistics.
         """
-        import time
-
         from modules.knowledge.graph.community.updater import IncrementalUpdateResult
 
         start = time.monotonic()
@@ -173,6 +173,18 @@ class SubgraphClusteringService:
         # Step 4: Run clustering to get new assignments
         new_assignments = await self._cluster_communities(node_ids, edges)
 
+        # Step 4.2: Mark stale reports BEFORE deleting the old communities.
+        # Re-clustering always issues fresh community IDs, so every entity
+        # leaves its old community and each old report is stale. Marking
+        # after deletion would silently match nothing.
+        old_membership: dict[str, int] = {}
+        for old_comm in old_assignments.values():
+            old_membership[old_comm] = old_membership.get(old_comm, 0) + 1
+        result.reports_marked_stale = await self._diff_writer._mark_stale_reports(
+            affected_communities,
+            {comm_id: -count for comm_id, count in old_membership.items()},
+        )
+
         # Step 4.5: Delete affected communities to prevent duplicate accumulation
         await self._diff_writer._delete_communities_by_ids(affected_communities)
 
@@ -182,18 +194,11 @@ class SubgraphClusteringService:
         result.communities_created = diff_result["created"]
         result.communities_emptied = diff_result["emptied"]
 
-        # Step 6: Mark stale reports
-        result.reports_marked_stale = await self._diff_writer._mark_stale_reports(
-            affected_communities, diff_result["entity_count_changes"]
-        )
-
         # Step 6.5: Populate titles for newly created communities using
         # entity canonical_name concatenation (fallback to "Community {short_id}").
         # This runs synchronously to keep guarantees simple; cost is a single
         # Cypher UPDATE on the (small) set of just-touched communities.
-        await self._populate_community_titles(
-            list(diff_result.get("entity_count_changes", {}).keys())
-        )
+        await self._populate_community_titles(sorted(set(new_assignments.values())))
 
         # Get modularity after
         result.modularity_after = await self._modularity_calculator._calculate_modularity()
@@ -300,8 +305,6 @@ class SubgraphClusteringService:
         Returns:
             IncrementalUpdateResult with statistics.
         """
-        import time
-
         from modules.knowledge.graph.community.updater import IncrementalUpdateResult
 
         start = time.monotonic()
@@ -557,12 +560,13 @@ class SubgraphClusteringService:
         if not node_ids:
             return {}
 
-        # Try Leiden algorithm first
+        # Leiden / connected-components are CPU-bound; offload to a thread
+        # so a 2000-node subgraph does not block the event loop.
         if LEIDEN_AVAILABLE:
-            return self._cluster_with_leiden(node_ids, edges)
+            return await asyncio.to_thread(self._cluster_with_leiden, node_ids, edges)
         else:
             log.debug("leiden_unavailable_using_connected_components")
-            return self._cluster_with_connected_components(node_ids, edges)
+            return await asyncio.to_thread(self._cluster_with_connected_components, node_ids, edges)
 
     def _cluster_with_leiden(
         self,
@@ -582,15 +586,23 @@ class SubgraphClusteringService:
             # Create node ID to index mapping
             node_id_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
 
-            # Build edge list for igraph (using indices)
-            edge_list = []
-            weights = []
+            # Canonicalize undirected edges before building the igraph graph:
+            # the DB query matches relationships undirected, so both (a, b)
+            # and (b, a) may appear — parallel edges would skew Leiden's
+            # modularity. Keep the highest weight per pair (same convention
+            # as detector._build_edge_list).
+            edge_map: dict[tuple[int, int], float] = {}
             node_id_set = set(node_ids)
 
             for source, target, weight in edges:
                 if source in node_id_set and target in node_id_set:
-                    edge_list.append((node_id_to_idx[source], node_id_to_idx[target]))
-                    weights.append(weight)
+                    s, t = node_id_to_idx[source], node_id_to_idx[target]
+                    key = (s, t) if s < t else (t, s)
+                    if key not in edge_map or weight > edge_map[key]:
+                        edge_map[key] = weight
+
+            edge_list = list(edge_map.keys())
+            weights = list(edge_map.values())
 
             if not edge_list:
                 # No edges - each node is its own community

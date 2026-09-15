@@ -24,6 +24,11 @@ from core.observability import get_logger
 log = get_logger(__name__)
 
 
+# Trailing bracket annotation: "Name (content)" → ("Name", "(content)").
+# Precompiled because strip_bracket_variant runs several times per are_equivalent().
+_TRAILING_BRACKET_PATTERN = re.compile(r"^(.+?)\s*\(([^)]+)\)\s*$")
+
+
 # Shared organization suffix list for variant matching (Chinese + English)
 ORGANIZATION_SUFFIXES: tuple[str, ...] = (
     # Chinese suffixes
@@ -66,7 +71,7 @@ def strip_bracket_variant(name: str) -> tuple[str, str]:
              "Phone (4a)" → ("Phone", "(4a)")
     """
     # Match trailing bracket: "Name (content)"
-    m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
+    m = _TRAILING_BRACKET_PATTERN.match(name)
     if m:
         return m.group(1).strip(), f"({m.group(2)})"
     return name, ""
@@ -247,7 +252,7 @@ class NameNormalizer:
         text = re.sub(r"[「『](.+?)[」』]", r"\1", text)
         text = re.sub(r"[《》](.+?)[《》]", r"\1", text)
         # Strip ASCII quotes and backticks
-        text = re.sub(r'["""\'\'`]', "", text)
+        text = re.sub(r"[\"'`]", "", text)
         text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
         text = re.sub(r"\s*[-–—]\s*", "-", text)
         return text
@@ -329,7 +334,8 @@ class NameNormalizer:
                 score += 10.0
 
         if result.script == NameScript.ENGLISH:
-            if name[0].isupper():
+            # normalized can be "" for whitespace-only input
+            if name and name[0].isupper():
                 score += 2.0
 
         if 2 <= len(name) <= 50:

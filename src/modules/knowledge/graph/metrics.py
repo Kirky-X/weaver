@@ -181,8 +181,13 @@ class GraphQualityMetrics:
         if include is None or "distributions" in include:
             await self._calculate_distributions(metrics)
 
-        # Modularity — moderate cost (calculated alongside components)
+        # Modularity — moderate cost (calculated alongside components).
+        # Modularity depends on component data: requesting it implicitly
+        # requires components, otherwise _calculate_modularity would read
+        # the dataclass default (0) and wrongly report modularity 0.0.
         if include is None or "modularity" in include:
+            if include is not None and "components" not in include:
+                await self._calculate_component_metrics(metrics)
             await self._calculate_modularity(metrics)
 
         log.info(
@@ -353,13 +358,9 @@ class GraphQualityMetrics:
             results = await self._pool.execute_query(degree_query, {"limit": limit})
 
             high_degree_entities = []
-            total_degree_sum = 0
-            entity_count = 0
 
             for row in results:
                 total_degree = row.get("total_degree", 0)
-                total_degree_sum += total_degree
-                entity_count += 1
 
                 if total_degree >= min_degree:
                     high_degree_entities.append(
@@ -706,11 +707,11 @@ class GraphQualityMetrics:
             return 0.0
 
         if partitions is None:
-            partitions = await self._generate_simple_partitions(edges)
+            partitions = self._generate_simple_partitions(edges)
 
         return _compute_modularity(edges, partitions, resolution)
 
-    async def _generate_simple_partitions(
+    def _generate_simple_partitions(
         self,
         edges: list[tuple[str, str, float]],
     ) -> dict[str, int]:
@@ -727,8 +728,12 @@ class GraphQualityMetrics:
         return partitions
 
     async def get_health_summary(self) -> dict[str, Any]:
-        """Get a quick health summary of the graph."""
-        metrics = await self.calculate_all_metrics()
+        """Get a quick health summary of the graph.
+
+        Skips expensive metrics (distributions, high_degree, modularity) that
+        the summary does not use — keeps the health view fast.
+        """
+        metrics = await self.calculate_all_metrics(include={"components", "orphans"})
 
         health_score = self._compute_health_score(metrics)
 

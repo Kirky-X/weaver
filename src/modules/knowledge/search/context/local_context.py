@@ -39,8 +39,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     LadybugDB ``LadybugLocalContextBuilder`` overrides it to add a graph
     Article node search path (title-only match) before the relational
     fallback. The two backends are NOT semantically equivalent in the
-    no-entities path — accepted trade-off, see H1 in
-    ``specmark/changes/db-consistency-verify/design.md``.
+    no-entities path — an accepted trade-off.
 
     Implements: ContextBuilder (via BaseLocalContextBuilder)
     """
@@ -111,7 +110,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         rel_clause = self._build_rel_match_clause(relation_types)
 
         cypher = f"""
-        MATCH (e:Entity)-{rel_clause}(related:Entity)
+        MATCH (e:Entity){rel_clause}(related:Entity)
         WHERE e.canonical_name IN $names
         RETURN DISTINCT related.canonical_name AS canonical_name,
                related.type AS type,
@@ -157,6 +156,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
                            e2.canonical_name AS target_name,
                            '{rt_name_en}' AS relation_type,
                            true AS is_symmetric
+                    LIMIT $limit
                 """)
             cypher = "\n UNION ALL \n".join(queries) + "\n LIMIT $limit"
         else:
@@ -188,7 +188,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     ) -> list[dict[str, Any]]:
         """Get articles mentioning the query entities via MENTIONS edges.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down (design.md §), the graph query
         returns only ``a.pg_id AS id``. Title / publish_time are
         batch-fetched from PostgreSQL via ``enrich_articles_with_titles``
         when ``self._article_repo`` is available; article bodies are
@@ -204,6 +204,9 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         ORDER BY a.pg_id
         LIMIT $limit
         """
+        # `ORDER BY a.pg_id` is deliberate but not a relevance sort: pg_id is an
+        # arbitrary UUID, ordered only to make the deterministic LIMIT selection
+        # (and therefore caching/diff-testing) reproducible.
 
         try:
             results = await self._pool.execute_query(

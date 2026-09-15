@@ -74,9 +74,21 @@ class EntityBatchDedupOutput(BaseModel):
     decisions: list[EntityBatchDecision] = Field(description="与输入实体一一对应")
 
 
-def _is_constraint_error(exc: Exception) -> bool:
-    """Check if exception is a Constraint error."""
-    return "ConstraintError" in str(type(exc).__name__)
+def _is_constraint_error(exc: BaseException) -> bool:
+    """Check if exception is a Constraint error.
+
+    Walks the ``__cause__``/``__context__`` chain: drivers and session
+    wrappers may re-raise the driver's ConstraintError inside a generic
+    exception, so a top-level class-name check alone would miss it.
+    """
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if "ConstraintError" in type(current).__name__:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class EntityResolver:
@@ -106,7 +118,7 @@ class EntityResolver:
 
     def __init__(
         self,
-        entity_repo: EntityRepository | None,
+        entity_repo: EntityRepository,
         vector_repo: VectorRepository,
         llm: LLMClient | None = None,
         resolution_rules: EntityResolutionRules | None = None,
@@ -114,6 +126,11 @@ class EntityResolver:
         disable_data_metrics: bool = False,
         embedding_model: str = EmbeddingModel.DEFAULT,
     ) -> None:
+        if entity_repo is None:
+            # Fail fast: every resolution path calls entity_repo
+            # unconditionally, so None would only surface later as an
+            # AttributeError mid-resolution.
+            raise ValueError("entity_repo is required and must not be None")
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo
         self._llm = llm
@@ -513,6 +530,9 @@ class EntityResolver:
                         raise ConstraintError(str(exc)) from exc
                     raise
 
+        # Defensive only: with reraise=True the retryer always returns or
+        # re-raises, so this line is unreachable at runtime. It is kept so the
+        # -> dict[str, Any] return contract stays explicit for type checkers.
         raise RuntimeError("Failed to create entity after retries")
 
     async def _merge_with_existing(
@@ -776,8 +796,9 @@ class EntityResolver:
         if llm_pending:
             decisions = await self._decide_pending(llm_pending)
             for (idx, info), decision in zip(llm_pending, decisions, strict=True):
-                # H3 校验：target_neo4j_id 必须来自该实体的候选集，防幻觉 id 写悬空向量
-                valid_ids = {c.get("neo4j_id") for c in info["candidates"]}
+                # H3 校验：target_neo4j_id 必须来自该实体的候选集，防幻觉 id 写悬空向量。
+                # 排除空/缺失 id，避免 None 候选与 LLM 返回的空值互相匹配。
+                valid_ids = {c["neo4j_id"] for c in info["candidates"] if c.get("neo4j_id")}
                 merge_ok = (
                     decision is not None
                     and decision.should_merge
@@ -986,9 +1007,4 @@ class EntityResolver:
 
     def get_resolution_stats(self) -> dict[str, Any]:
         """Get statistics about resolution rules and mappings."""
-        return {
-            "known_aliases": len(self._rules._alias_map),
-            "abbreviations": len(self._rules._abbreviation_map) // 3,
-            "translations": len(self._rules._translation_map) // 2,
-            "rules_count": len(self._rules._rules),
-        }
+        return self._rules.get_rule_counts()

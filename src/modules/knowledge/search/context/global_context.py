@@ -89,11 +89,11 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
             query_embedding = embeddings[0]
 
-            cypher = f"""
+            cypher = """
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
             WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
-            WHERE score > {self._similarity_threshold}
+            WHERE score > $threshold
             RETURN c.id AS id,
                    c.title AS title,
                    COALESCE(r.summary, '') AS summary,
@@ -108,7 +108,12 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
             results = await self._pool.execute_query(
                 cypher,
-                {"level": level, "embedding": query_embedding, "limit": self._max_communities},
+                {
+                    "level": level,
+                    "embedding": query_embedding,
+                    "limit": self._max_communities,
+                    "threshold": self._similarity_threshold,
+                },
             )
 
             if results:
@@ -144,7 +149,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         Queries Article-Entity relationships via MENTIONS edges.
         Returns article-based results with entity context.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down (design.md §), the graph query
         returns only ``article_id`` (= ``a.pg_id``) plus entity fields.
         When ``self._article_repo`` is available, title and score are
         batch-fetched from PostgreSQL; otherwise the result falls back
@@ -187,7 +192,11 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             for r in results:
                 row = dict(r)
                 pg_id = str(row.get("article_id") or "")
-                meta = titles.get(pg_id.lower()) if pg_id else None
+                if not pg_id:
+                    # Rows without a valid article_id would all share the
+                    # "fallback:" id and confuse downstream dedup/routing.
+                    continue
+                meta = titles.get(pg_id.lower())
                 entity_name = row.get("entity_name", "")
                 # When article_repo is available, use the real title;
                 # otherwise degrade to entity_name only (no trailing dash).

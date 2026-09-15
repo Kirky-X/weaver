@@ -35,10 +35,10 @@ from modules.knowledge.search import (
     ContextBuilder,
     GlobalContextBuilder,
     GlobalSearchEngine,
+    HybridSearchEngine,
     LocalContextBuilder,
     LocalSearchEngine,
 )
-from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 __all__ = [
     # Graph operations

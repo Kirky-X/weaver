@@ -92,6 +92,17 @@ class TestCommunityHealthRepo:
         assert result[0]["stale"] is True
 
     @pytest.mark.asyncio
+    async def test_find_stale_reports_uses_parameterized_duration(self, repo):
+        """Neo4j duration must be built from the $days integer
+        parameter (duration({days: $days})), not string concatenation."""
+        repo._pool.execute_query = AsyncMock(return_value=[])
+        await repo.find_stale_reports(days_threshold=14)
+        query = repo._pool.execute_query.call_args[0][0]
+        assert "duration({days: $days})" in query
+        assert "'P' + $days" not in query
+        assert repo._pool.execute_query.call_args[0][1] == {"days": 14}
+
+    @pytest.mark.asyncio
     async def test_find_hierarchy_breaks(self, repo):
         """Test finding hierarchy breaks."""
         repo._pool.execute_query = AsyncMock(

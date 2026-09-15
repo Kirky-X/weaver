@@ -1332,3 +1332,85 @@ class TestMetadataTracking:
         context = await builder.build(query="test", community_level=3)
 
         assert context.metadata["community_level"] == 3
+
+
+class TestVectorSearchScoreAlignment:
+    """Regression: cosine scores must stay aligned with their result rows
+    even when some rows carry unusable embeddings (vuln-CORR#318)."""
+
+    @pytest.mark.asyncio
+    async def test_scores_aligned_after_dropping_invalid_embedding_rows(self, mock_pool) -> None:
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "comm-1",
+                    "title": "Near",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [0.9, 0.1, 0.0],
+                },
+                {
+                    "id": "comm-2",
+                    "title": "Tuple embedding",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    # Not a list — must be dropped without shifting scores.
+                    "embedding": (0.5, 0.5, 0.5),
+                },
+                {
+                    "id": "comm-3",
+                    "title": "Exact",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [1.0, 0.0, 0.0],
+                },
+            ]
+        )
+
+        mock_llm = AsyncMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
+
+        builder = LadybugGlobalContextBuilder(
+            graph_pool=mock_pool,
+            llm_client=mock_llm,
+        )
+
+        result = await builder._vector_search_communities("technology", level=0)
+
+        # comm-3 has cosine 1.0, comm-1 ~0.9938; the dropped tuple row must
+        # not shift either score.
+        assert [r["id"] for r in result] == ["comm-3", "comm-1"]
+        assert result[0]["similarity_score"] == pytest.approx(1.0, abs=1e-3)
+        assert result[1]["similarity_score"] == pytest.approx(0.9938, abs=1e-3)
+
+
+class TestEmbeddingCandidateCap:
+    """#207: the module-level cap is applied as a PRE-rank LIMIT."""
+
+    @pytest.mark.asyncio
+    async def test_cap_passed_as_candidate_cap_parameter(self, mock_pool) -> None:
+        from modules.knowledge.search.context.ladybug_global_context import (
+            _EMBEDDING_CANDIDATE_CAP,
+        )
+
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        mock_llm = AsyncMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 8])
+
+        builder = LadybugGlobalContextBuilder(graph_pool=mock_pool, llm_client=mock_llm)
+
+        await builder._vector_search_communities("test", level=0)
+
+        cypher, params = mock_pool.execute_query.call_args.args
+        assert params["candidate_cap"] == _EMBEDDING_CANDIDATE_CAP
+        # The cap is applied before cosine ranking, ordered by community rank.
+        assert "ORDER BY c.rank DESC" in cypher

@@ -223,3 +223,15 @@ class TestTemporalAwareRetriever:
         result_1 = retriever.score(base_score=1.0, age_in_days=30)
         result_2 = retriever.score(base_score=2.0, age_in_days=30)
         assert abs(result_2 - 2 * result_1) < 0.001
+
+
+class TestNaiveTimestamp:
+    """Regression: naive timestamps must not raise TypeError (#349)."""
+
+    def test_naive_timestamp_does_not_raise(self) -> None:
+        from datetime import datetime, timedelta
+
+        naive = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=3)
+        age = calculate_age_in_days(naive, datetime.now(UTC))
+
+        assert 2.9 < age < 3.1

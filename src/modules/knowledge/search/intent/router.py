@@ -11,7 +11,7 @@ from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 
 from .classifier import IntentClassifier
-from .schemas import IntentClassification, QueryIntent
+from .schemas import IntentClassification, QueryIntent, TemporalSignal
 
 if TYPE_CHECKING:
     from modules.storage.postgres.vector_repo import VectorRepo
@@ -91,8 +91,12 @@ class IntentRouter:
         search_func = self._intent_map.get(intent)
 
         if search_func is None:
-            log.warning("no_search_handler", intent=intent.value)
-            search_func = self._search_open
+            log.warning(
+                "no_search_handler",
+                intent=intent.value,
+                fallback_mode=self._config.fallback_mode,
+            )
+            search_func = self._search_fallback
 
         # Build intent-specific parameters
         params = self._build_intent_params(classification)
@@ -137,9 +141,22 @@ class IntentRouter:
             use_llm=True,
         )
 
-    async def _search_when(self, query: str, **kwargs) -> object:
-        """WHEN query: apply temporal window and sorting."""
+    async def _search_when(
+        self, query: str, temporal_signals: list[TemporalSignal] | None = None, **kwargs
+    ) -> object:
+        """WHEN query: anchor the search to detected temporal expressions.
+
+        The local engine has no dedicated temporal-window parameter, so the
+        resolved temporal expressions are appended to the query as an
+        explicit time anchor for the context match and the LLM answer.
+        """
         log.debug("routing_to_when", query=query)
+        if temporal_signals:
+            expressions = "、".join(
+                signal.expression for signal in temporal_signals if signal.expression
+            )
+            if expressions:
+                query = f"{query}（时间限定：{expressions}）"
         return await self._local.search(
             query=query,
             use_llm=True,
@@ -174,11 +191,22 @@ class IntentRouter:
             use_llm=True,
         )
 
+    async def _search_fallback(self, query: str, **kwargs) -> object:
+        """Unknown intent: dispatch per the configured fallback mode."""
+        if self._config.fallback_mode == "local":
+            log.debug("routing_to_fallback_local", query=query)
+            return await self._local.search(query=query, use_llm=True)
+        log.debug("routing_to_fallback_global", query=query)
+        return await self._global.search(query=query, community_level=0, use_llm=True)
+
     def _build_intent_params(self, classification: IntentClassification) -> dict:
         """Build intent-specific search parameters."""
         params: dict = {}
 
         if classification.entity_signals:
             params["entity_names"] = classification.entity_signals
+
+        if classification.temporal_signals:
+            params["temporal_signals"] = classification.temporal_signals
 
         return params

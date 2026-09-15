@@ -14,6 +14,7 @@ Security Note:
 from __future__ import annotations
 
 import hashlib
+import threading
 
 # BM25 索引持久化，已用 RestrictedUnpickler 加固防 RCE
 import pickle  # nosec B403
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import bm25s
+import numpy as np
 
 from core.observability import get_logger
 from core.security.crypto.signing import (
@@ -91,24 +93,29 @@ class RestrictedUnpickler(pickle.Unpickler):
         )
 
 
+_pickle_lock = threading.Lock()
+
+
 @contextmanager
 def _secure_pickle_load() -> Generator[None, None, None]:
     """Context manager that patches pickle.load to use RestrictedUnpickler.
 
     This prevents arbitrary code execution when loading bm25s index files
     that use pickle internally. The patch is scoped to the context manager
-    lifetime only.
+    lifetime only. A module-level lock serializes concurrent callers so
+    the global monkey-patch cannot race.
     """
-    _original_load = pickle.load
+    with _pickle_lock:
+        _original_load = pickle.load
 
-    def _restricted_load(f, **kwargs):
-        return RestrictedUnpickler(f, **kwargs).load()
+        def _restricted_load(f, **kwargs):
+            return RestrictedUnpickler(f, **kwargs).load()
 
-    pickle.load = _restricted_load  # type: ignore[assignment]
-    try:
-        yield
-    finally:
-        pickle.load = _original_load  # type: ignore[assignment]
+        pickle.load = _restricted_load  # type: ignore[assignment]
+        try:
+            yield
+        finally:
+            pickle.load = _original_load  # type: ignore[assignment]
 
 
 def _compute_file_hash(path: Path) -> str:
@@ -246,7 +253,7 @@ class BM25Retriever:
         self._needs_reindex: bool = False  # Flag to track if index needs rebuilding
 
         # Initialize stemmer for English
-        if language == "en" and STEMMER_AVAILABLE and Stemmer is not None:
+        if language == "en" and STEMMER_AVAILABLE:
             self._stemmer = Stemmer.Stemmer("english")
 
         log.info(
@@ -352,9 +359,14 @@ class BM25Retriever:
         if not documents:
             return
 
-        # Append to existing documents
+        # Skip doc_ids already in the index: overwriting the map would orphan
+        # the old corpus slot (still scoring in BM25) while pointing at the
+        # new position — duplicate slots skew idf/scores.
+        added = 0
         start_idx = len(self._documents)
         for doc in documents:
+            if doc.doc_id in self._doc_id_to_idx:
+                continue
             self._doc_id_to_idx[doc.doc_id] = start_idx
             self._documents.append(doc)
             start_idx += 1
@@ -363,11 +375,22 @@ class BM25Retriever:
             combined_text = f"{doc.title} {doc.content}"
             tokens = self._tokenize(combined_text)
             self._corpus.append(tokens)
+            added += 1
 
-        # Mark that index needs rebuilding before next search
-        self._needs_reindex = True
+        if added:
+            # Mark that index needs rebuilding before next search
+            self._needs_reindex = True
 
-        log.info("bm25_documents_added", count=len(documents), total=len(self._documents))
+        skipped = len(documents) - added
+        if skipped:
+            log.info(
+                "bm25_documents_added",
+                count=added,
+                skipped_duplicates=skipped,
+                total=len(self._documents),
+            )
+        else:
+            log.info("bm25_documents_added", count=added, total=len(self._documents))
 
     def _ensure_indexed(self) -> None:
         """Rebuild BM25 index if documents have been added since last index.
@@ -415,8 +438,6 @@ class BM25Retriever:
         scores = self._retriever.get_scores(query_tokens)
 
         # Get top-k indices
-        import numpy as np
-
         top_k_indices = np.argsort(scores)[-top_k:][::-1]
 
         # Build result objects
@@ -530,7 +551,12 @@ class BM25Retriever:
         self._language = data.get("language", "zh")
         self._k1 = data.get("k1", 1.5)
         self._b = data.get("b", 0.75)
-        # Corpus is loaded with bm25s index, mark as not needing reindex
+        # Rebuild the tokenized corpus from the restored documents. Without
+        # this, a later add_documents() incremental rebuild would build the
+        # index from the newly added tokens only, silently dropping every
+        # loaded document from the searchable index.
+        self._corpus = [self._tokenize(f"{d.title} {d.content}") for d in self._documents]
+        # Index on disk matches the corpus above, mark as not needing reindex
         self._needs_reindex = False
 
         log.info("bm25_index_loaded", path=str(load_dir), num_documents=len(self._documents))

@@ -134,6 +134,42 @@ class TestCommunityDetectorGetOrphanEntities:
         orphans = await detector._get_orphan_entities()
         assert orphans == []
 
+    @pytest.mark.asyncio
+    async def test_orphan_query_semantics_consistent_across_backends(self):
+        """Both backends must define orphans as entities with
+        no entity-to-entity edges outside the structural types — an entity
+        connected only via RELATED_TO is not an orphan."""
+        from core.db.graph_query_builders import GraphDatabaseType
+
+        neo4j_detector = CommunityDetector(MagicMock(), database_type=GraphDatabaseType.NEO4J)
+        ladybug_detector = CommunityDetector(MagicMock(), database_type=GraphDatabaseType.LADYBUG)
+
+        neo4j_query_holder: list[str] = []
+        ladybug_query_holder: list[str] = []
+
+        async def capture(holder):
+            async def _inner(query):
+                holder.append(query)
+                return []
+
+            return _inner
+
+        neo4j_detector._pool.execute_query = await capture(neo4j_query_holder)
+        ladybug_detector._pool.execute_query = await capture(ladybug_query_holder)
+
+        await neo4j_detector._get_orphan_entities()
+        await ladybug_detector._get_orphan_entities()
+
+        neo4j_query = neo4j_query_holder[0]
+        ladybug_query = ladybug_query_holder[0]
+
+        # Neo4j branch negates the presence of NON-structural entity edges
+        assert "NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']" in neo4j_query
+        # The old inverted semantics must be gone (it treated structural-only
+        # entities as orphans and RELATED_TO-connected ones as non-orphans)
+        assert "HAS_ENTITY|MENTIONS|FOLLOWED_BY" not in neo4j_query
+        assert "RELATED_TO" in ladybug_query
+
 
 class TestCommunityDetectorRunHierarchicalLeiden:
     """Test _run_hierarchical_leiden method."""
@@ -393,6 +429,30 @@ class TestCommunityDetectorDetectCommunities:
         # Both should succeed (different parameters may produce different results)
         assert isinstance(result1, CommunityDetectionResult)
         assert isinstance(result2, CommunityDetectionResult)
+
+    @pytest.mark.asyncio
+    async def test_recursive_split_keeps_parent_node_names(self, detector):
+        """#183: subgraph re-indexing must not leak vertex indices as names.
+
+        Forces the recursion by using a dense clique that is far larger than
+        ``max_cluster_size``; every node reported by the recursion must be one
+        of the original entity names.
+        """
+        names = [f"E{i}" for i in range(24)]
+        edges = [
+            {"source": a, "target": b, "weight": 1.0}
+            for i, a in enumerate(names)
+            for b in names[i + 1 :]
+        ]
+        detector._pool.execute_query = AsyncMock(
+            side_effect=[edges, []],  # edges, then orphans
+        )
+
+        result = await detector.detect_communities(max_cluster_size=3)
+
+        reported = {node for community in result.communities for node in community.entity_ids}
+        assert reported
+        assert reported <= set(names)
 
 
 class TestCommunityDetectorRebuildCommunities:

@@ -118,6 +118,16 @@ class HybridSearchEngine:
             mmr_enabled=self._config.mmr_enabled,
         )
 
+    @property
+    def bm25_retriever(self) -> BM25Retriever | None:
+        """Public accessor for the BM25 retriever (OCR LOW #60).
+
+        The container reads this to build the BM25 index service; exposing a
+        property keeps that wiring safe against internal renames of the
+        underscore-prefixed attribute.
+        """
+        return self._bm25_retriever
+
     async def search(
         self,
         query: str,
@@ -270,7 +280,7 @@ class HybridSearchEngine:
 
         try:
             # Run BM25 in thread pool (it's synchronous)
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             results = await loop.run_in_executor(
                 None,
                 lambda: self._bm25_retriever.retrieve(query, top_k=limit),
@@ -441,8 +451,11 @@ class HybridSearchEngine:
             # Calculate age and apply decay
             age_days = calculate_age_in_days(timestamp, now)
 
-            # Use rerank_score if available (after reranking), else rrf_score
-            original_score = result.get("rerank_score") or result.get("rrf_score", 0.0)
+            # Use rerank_score if available (after reranking), else rrf_score.
+            # Explicit None check: a legitimate 0.0 rerank score must not
+            # fall through to rrf_score.
+            rerank = result.get("rerank_score")
+            original_score = rerank if rerank is not None else result.get("rrf_score", 0.0)
 
             decayed_score = apply_temporal_decay(
                 score=original_score,
@@ -463,7 +476,9 @@ class HybridSearchEngine:
 
         # Re-sort by final score (rerank_score or rrf_score)
         results.sort(
-            key=lambda x: x.get("rerank_score") or x.get("rrf_score", 0),
+            key=lambda x: (
+                x["rerank_score"] if x.get("rerank_score") is not None else x.get("rrf_score", 0)
+            ),
             reverse=True,
         )
 
@@ -484,8 +499,12 @@ class HybridSearchEngine:
         return [
             HybridSearchResult(
                 doc_id=r.get("doc_id", ""),
-                # Use rerank_score if present and > 0, else rrf_score
-                score=r.get("rerank_score") if r.get("rerank_score") else r.get("rrf_score", 0.0),
+                # Use rerank_score if present, else rrf_score (0.0 is valid)
+                score=(
+                    r["rerank_score"]
+                    if r.get("rerank_score") is not None
+                    else r.get("rrf_score", 0.0)
+                ),
                 title=r.get("title", ""),
                 content=r.get("content", ""),
                 source=SearchMode.HYBRID.value,
@@ -495,7 +514,9 @@ class HybridSearchEngine:
                 mmr_score=r.get("mmr_score"),
                 publish_time=r.get("publish_time"),
                 temporal_decay_multiplier=r.get("temporal_decay_multiplier"),
-                metadata=r,
+                # Copy: aliasing the internal result dict would leak mutations
+                # from callers back into the ranking pipeline.
+                metadata=dict(r),
             )
             for r in results
         ]

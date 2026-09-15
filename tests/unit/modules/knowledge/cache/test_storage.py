@@ -427,6 +427,22 @@ class TestKnowledgeCacheFindSimilarCluster:
         assert len(cache_hit_calls) == 1
         assert cache_hit_calls[0].kwargs.get("confidence") == "high"
 
+    @pytest.mark.asyncio
+    async def test_empty_embedding_response_returns_none(self, tmp_path):
+        """#265: an empty embedding list must degrade to None, not IndexError."""
+        with patch("modules.knowledge.cache.storage.log") as mock_log:
+            with self._make_cache_with_result(tmp_path, 0.9) as cache:
+                cache._llm_client.embed_default = AsyncMock(return_value=[])
+                cluster = await cache.find_similar_cluster("test query")
+
+        assert cluster is None
+        empty_calls = [
+            c
+            for c in mock_log.warning.call_args_list
+            if c.args and c.args[0] == "cache_query_embedding_empty"
+        ]
+        assert len(empty_calls) == 1
+
 
 class TestKnowledgeCacheDecayHotness:
     """Test decay_hotness method (Task 7: hotness decay)."""
@@ -503,7 +519,7 @@ class TestKnowledgeCacheDecayHotness:
 
 
 class TestKnowledgeCachePathGuard:
-    """T005: non-path cache_path values are rejected at init (mock-leak defense)."""
+    """non-path cache_path values are rejected at init (mock-leak defense)."""
 
     def test_rejects_magic_mock_path(self):
         """A MagicMock (auto __fspath__) must not become a filesystem path."""
@@ -526,3 +542,104 @@ class TestKnowledgeCachePathGuard:
                 with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
                     cache = KnowledgeCache(cache_path=tmp_path)
                     assert cache.cache_path == tmp_path.resolve()
+
+
+class TestKnowledgeCacheRemoveRealDuckDB:
+    """Regression: remove()/cleanup_stale() must work against real DuckDB.
+
+    DuckDB DELETE statements produce no fetchable result, so the previous
+    ``result.fetchone()[0]`` on DELETE raised (swallowed by a broad except),
+    making remove() always return False and never mark the cache dirty.
+    """
+
+    @pytest.fixture
+    def real_cache(self, tmp_path):
+        """KnowledgeCache backed by a real in-memory DuckDB, no sync thread."""
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                cache = KnowledgeCache(cache_path=str(tmp_path), sync_threshold=1000)
+                yield cache
+                cache.db.close()
+
+    def _cluster(self, cluster_id: str, hotness: float = 0.9):
+        return KnowledgeCluster(
+            id=cluster_id,
+            name=f"cluster-{cluster_id}",
+            description="d",
+            content="c",
+            embedding=None,
+            query="q",
+            hotness=hotness,
+        )
+
+    @pytest.mark.asyncio
+    async def test_remove_returns_true_and_marks_dirty(self, real_cache):
+        """remove() on an existing cluster returns True and triggers
+        _mark_dirty (dirty cache must not keep serving deleted entries)."""
+        await real_cache.store_cluster(self._cluster("c1"))
+
+        dirty_before = real_cache._dirty_count
+        result = await real_cache.remove("c1")
+        assert result is True
+        assert real_cache._dirty_count > dirty_before
+
+        fetched = await real_cache.get("c1")
+        assert fetched is None
+
+    @pytest.mark.asyncio
+    async def test_remove_missing_returns_false(self, real_cache):
+        """remove() on a non-existent cluster returns False without
+        incrementing the dirty counter."""
+        dirty_before = real_cache._dirty_count
+        result = await real_cache.remove("nonexistent")
+        assert result is False
+        assert real_cache._dirty_count == dirty_before
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_removes_low_hotness_and_marks_dirty(self, real_cache):
+        """cleanup_stale deletes only clusters below the threshold, reports
+        the count, and marks the cache dirty."""
+        await real_cache.store_cluster(self._cluster("stale", hotness=0.1))
+        await real_cache.store_cluster(self._cluster("fresh", hotness=0.9))
+
+        dirty_before = real_cache._dirty_count
+        removed = await real_cache.cleanup_stale(hotness_threshold=0.3)
+
+        assert removed == 1
+        assert real_cache._dirty_count > dirty_before
+        assert await real_cache.get("stale") is None
+        assert await real_cache.get("fresh") is not None
+
+
+class TestFindSimilarClusterParameterized:
+    """Regression: query embedding must be a bound parameter, not an
+    f-string interpolated Python list literal (#264)."""
+
+    @pytest.mark.asyncio
+    async def test_embedding_passed_as_bound_param(self, tmp_path):
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        mock_llm = MagicMock()
+        embedding = [0.1] * 384
+        mock_llm.embed_default = AsyncMock(return_value=[embedding])
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path), llm_client=mock_llm)
+
+        await cache.find_similar_cluster("test query")
+
+        search_calls = [
+            c for c in mock_db.execute.call_args_list if "list_cosine_similarity" in c.args[0]
+        ]
+        assert len(search_calls) == 1
+        sql, params = search_calls[0].args
+        # Embedding arrives as a positional parameter…
+        assert params == [embedding]
+        # …and the SQL contains a placeholder cast, not a list repr.
+        assert "CAST(? AS FLOAT[384])" in sql
+        assert str(embedding)[:8] not in sql

@@ -99,6 +99,24 @@ class GlobalSearchEngine:
         # Extract pool from context_builder for DRIFT search compatibility
         self._pool = getattr(context_builder, "_pool", None)
 
+    def get_drift_deps(self) -> tuple[Any, LLMClient]:
+        """Return validated dependencies for DRIFT search construction.
+
+        the DRIFT endpoint previously reached into ``_context_builder``
+        and ``_llm`` directly. ``llm`` is optional on this engine but required
+        by ``DRIFTSearchEngine``, so this accessor makes the None case an
+        explicit error instead of a downstream AttributeError.
+
+        Raises:
+            RuntimeError: If the LLM client was not configured.
+
+        """
+        if self._llm is None:
+            raise RuntimeError(
+                "GlobalSearchEngine has no LLM client configured; DRIFT search unavailable"
+            )
+        return self._context_builder, self._llm
+
     @staticmethod
     def _collect_entities(communities) -> list[str]:
         return list(set(e for c in communities if c.key_entities for e in c.key_entities))
@@ -150,6 +168,12 @@ class GlobalSearchEngine:
             if not use_llm:
                 return self._build_no_llm_result(query, communities, community_level)
 
+            # No LLM configured: degrade to context-only result instead of
+            # crashing on self._llm.call in the map/reduce phases.
+            if self._llm is None:
+                log.warning("global_search_no_llm_configured", query=query[:50])
+                return self._build_no_llm_result(query, communities, community_level)
+
             # Sort communities by similarity score (weight) and limit to top 3
             # to avoid excessive LLM calls causing timeouts
             sorted_communities = sorted(
@@ -170,7 +194,7 @@ class GlobalSearchEngine:
 
             # Parallel LLM calls with semaphore for rate limiting and timeout
             map_result = await self._map_communities_with_llm(
-                query, communities, sorted_communities, community_level, max_tokens, use_llm, start
+                query, sorted_communities, community_level, max_tokens, use_llm, start
             )
             fallback, intermediate_answers, community_weights, total_tokens = map_result
             if fallback is not None:
@@ -216,17 +240,8 @@ class GlobalSearchEngine:
         if self._local is not None:
             log.info("global_search_fallback_to_local", query=query)
             local_result = await self._local.search(query=query, use_llm=use_llm)
-            if isinstance(local_result, dict):
-                local_result["metadata"] = {
-                    **local_result.get("metadata", {}),
-                    "search_type": SearchMode.HYBRID.value,
-                    "fallback_from_global": True,
-                }
-                return local_result
-            elif hasattr(local_result, "metadata"):
-                local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                local_result.metadata["fallback_from_global"] = True
-                return local_result
+            if isinstance(local_result, dict) or hasattr(local_result, "metadata"):
+                return self._apply_local_fallback_metadata(local_result)
 
         return SearchResult(
             query=query,
@@ -297,13 +312,12 @@ class GlobalSearchEngine:
     async def _map_communities_with_llm(
         self,
         query: str,
-        communities,
         sorted_communities: list,
         community_level: int,
         max_tokens: int,
         use_llm: bool,
         start: float,
-    ) -> tuple[SearchResult | None, list[str], int]:
+    ) -> tuple[SearchResult | None, list[str], list[dict[str, Any]], int]:
         """Map phase: parallel per-community LLM synthesis (fallback embedded)."""
         intermediate_answers: list[str] = []
         total_tokens = 0
@@ -458,19 +472,11 @@ class GlobalSearchEngine:
             log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
             try:
                 local_result = await self._local.search(query=query, use_llm=use_llm)
-                if isinstance(local_result, dict):
-                    local_result["metadata"] = {
-                        **local_result.get("metadata", {}),
-                        "search_type": SearchMode.HYBRID.value,
-                        "fallback_from_global": True,
-                        "fallback_reason": "low_relevance_skip",
-                    }
-                    return local_result
-                elif hasattr(local_result, "metadata"):
-                    local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                    local_result.metadata["fallback_from_global"] = True
-                    local_result.metadata["fallback_reason"] = "low_relevance_skip"
-                    return local_result
+                if isinstance(local_result, dict) or hasattr(local_result, "metadata"):
+                    return self._apply_local_fallback_metadata(
+                        local_result,
+                        fallback_reason="low_relevance_skip",
+                    )
             except Exception as exc:
                 log.warning("global_search_local_fallback_failed", error=str(exc))
 
@@ -488,6 +494,38 @@ class GlobalSearchEngine:
                 "low_relevance_skip": True,
             },
         )
+
+    @staticmethod
+    def _apply_local_fallback_metadata(
+        local_result: Any,
+        fallback_reason: str | None = None,
+    ) -> Any:
+        """Tag a local-result fallback as originating from a global search.
+
+        Handles both dict-shaped and object-shaped results (``local_result``
+        may be either, depending on the local engine's implementation) and
+        returns it unchanged in shape so callers can return it directly.
+
+        Args:
+            local_result: Result returned by the local search engine.
+            fallback_reason: Optional reason marker for the fallback.
+
+        Returns:
+            ``local_result`` with global-fallback metadata applied.
+        """
+        extra: dict[str, Any] = {
+            "search_type": SearchMode.HYBRID.value,
+            "fallback_from_global": True,
+        }
+        if fallback_reason is not None:
+            extra["fallback_reason"] = fallback_reason
+
+        if isinstance(local_result, dict):
+            local_result["metadata"] = {**local_result.get("metadata", {}), **extra}
+        elif hasattr(local_result, "metadata"):
+            local_result.metadata.update(extra)
+
+        return local_result
 
     async def _get_community_contexts(
         self,
@@ -517,6 +555,9 @@ class GlobalSearchEngine:
             # Get entities for this community
             entities = await self._context_builder.get_community_entities(comm.get("id", ""))
 
+            similarity = comm.get("similarity_score")
+            if similarity is None:
+                similarity = (comm.get("rank") or 1.0) / 10.0
             contexts.append(
                 CommunityContext(
                     id=comm.get("id", ""),
@@ -524,8 +565,8 @@ class GlobalSearchEngine:
                     summary=comm.get("summary", ""),
                     entity_count=comm.get("entity_count", 0),
                     rank=comm.get("rank") or 1.0,
-                    similarity_score=comm.get("similarity_score")
-                    or (comm.get("rank") or 1.0) / 10.0,
+                    # Explicit None check: a genuine 0.0 score must be kept.
+                    similarity_score=similarity,
                     full_content=comm.get("full_content"),
                     key_entities=comm.get("key_entities", []),
                     entities=entities,

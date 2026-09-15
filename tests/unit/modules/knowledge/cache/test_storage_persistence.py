@@ -303,3 +303,78 @@ class TestKnowledgeCacheParquetFormat:
                         assert result[6] == 0.75  # hotness
                     finally:
                         new_db.close()
+
+
+class TestKnowledgeCacheThreadSafety:
+    """Event-loop-side DuckDB access must hold ``_sync_lock``.
+
+    The Parquet sync daemon executes on ``self.db`` from a background thread;
+    every async method must route its statements through ``_execute`` so both
+    threads serialize on the shared connection.
+    """
+
+    def _make_cache(self, tmp_path, **kwargs):
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    from modules.knowledge.cache.storage import KnowledgeCache
+
+                    return KnowledgeCache(cache_path=str(tmp_path), **kwargs)
+
+    def test_async_db_access_holds_sync_lock(self, tmp_path):
+        """Statements issued from async methods run under the sync lock."""
+        import asyncio
+
+        cache = self._make_cache(tmp_path)
+        lock_ownership: list[bool] = []
+        sync_lock = cache._sync_lock
+        real_conn = cache.db
+
+        class _RecordingConn:
+            """Proxy recording whether each execute() ran under the lock."""
+
+            def execute(self, sql, params=None):
+                lock_ownership.append(bool(sync_lock._is_owned()))
+                if params is None:
+                    return real_conn.execute(sql)
+                return real_conn.execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(real_conn, name)
+
+        cache.db = _RecordingConn()
+        try:
+            asyncio.run(cache.get("cluster-1"))
+            cache.get_stats()
+        finally:
+            cache.db = real_conn
+
+        assert lock_ownership, "expected at least one DB statement"
+        assert all(lock_ownership), "async DB access escaped the sync lock"
+
+    def test_store_cluster_immediate_sync_no_deadlock(self, tmp_path):
+        """sync_threshold=1 triggers _sync_to_parquet while the RLock is held."""
+        import asyncio
+
+        from core.protocols import KnowledgeCluster
+
+        cache = self._make_cache(tmp_path, sync_threshold=1)
+        cluster = KnowledgeCluster(
+            id="c1",
+            name="Cluster",
+            description="d",
+            content="c",
+            embedding=None,
+            query="q",
+            hotness=0.5,
+            create_time=None,
+            last_modified=None,
+            version=0,
+        )
+
+        asyncio.run(cache.store_cluster(cluster))
+
+        # Immediate sync fired inside the store path without deadlock and
+        # produced the parquet snapshot.
+        assert Path(cache.parquet_file).exists()
+        assert cache._dirty_count == 0

@@ -1031,3 +1031,19 @@ class TestForceRebuild:
 
         assert result["triggered"] is True
         assert result["reason"] == "forced"
+
+
+class TestCommunityModuleImports:
+    """Lazy imports that had no circular-import reason were hoisted (#16, #196)."""
+
+    def test_database_type_imported_at_module_level(self):
+        """#16: ``DatabaseType`` must not be imported inside ``__init__``."""
+        import modules.knowledge.graph.community.updater_modularity as module
+
+        assert hasattr(module, "DatabaseType")
+
+    def test_time_imported_at_module_level(self):
+        """#196: ``time`` is a stdlib import with no circular-import risk."""
+        import modules.knowledge.graph.community.updater_clustering as module
+
+        assert hasattr(module, "time")

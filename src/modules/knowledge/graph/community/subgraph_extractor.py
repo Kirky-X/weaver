@@ -56,6 +56,16 @@ class SubgraphExtractor:
         if not entity_names:
             return []
 
+        # The backends implement 1-hop and 2-hop extraction only — clamp
+        # out-of-range values instead of silently returning 2-hop results
+        # for max_hops >= 3.
+        if max_hops < 1:
+            log.warning("subgraph_max_hops_clamped", requested=max_hops, clamped_to=1)
+            max_hops = 1
+        elif max_hops > 2:
+            log.warning("subgraph_max_hops_clamped", requested=max_hops, clamped_to=2)
+            max_hops = 2
+
         if self._database_type == GraphDatabaseType.LADYBUG:
             return await self._extract_ladybug(entity_names, max_hops)
         return await self._extract_neo4j(entity_names, max_hops)
@@ -86,8 +96,8 @@ class SubgraphExtractor:
         }) YIELD nodes, relationships
         UNWIND relationships AS r
         WITH startNode(r) AS src, endNode(r) AS tgt, r
-        WHERE src.pruned IS NULL OR src.pruned = false
-          AND tgt.pruned IS NULL OR tgt.pruned = false
+        WHERE (src.pruned IS NULL OR src.pruned = false)
+          AND (tgt.pruned IS NULL OR tgt.pruned = false)
         RETURN src.canonical_name AS source,
                tgt.canonical_name AS target,
                coalesce(r.weight, 1.0) AS weight
@@ -152,9 +162,9 @@ class SubgraphExtractor:
             OPTIONAL MATCH (e)-[r1:RELATED_TO]-(n1:Entity)
             WITH e, collect(DISTINCT n1.canonical_name) AS hop1_nodes
 
-            // Unwind hop1 to get edges (LadybugDB uses 1-based indexing)
-            UNWIND range(1, size(hop1_nodes)) AS idx
-            WITH e.canonical_name AS center, hop1_nodes[idx] AS hop1
+            // Unwind hop1 to get edges (Cypher list iteration skips no elements)
+            UNWIND hop1_nodes AS hop1
+            WITH e.canonical_name AS center, hop1
 
             // Get 1-hop edges
             MATCH (a:Entity {canonical_name: center})-[r1:RELATED_TO]-(b:Entity {canonical_name: hop1})

@@ -1464,7 +1464,7 @@ class TestBatchTargetValidation:
 
 
 class TestBatchRetrievalConcurrency:
-    """T008: Phase A retrieval is bounded-concurrent with order preserved."""
+    """Phase A retrieval is bounded-concurrent with order preserved."""
 
     @pytest.fixture
     def mock_entity_repo(self):
@@ -1544,3 +1544,131 @@ class TestBatchRetrievalConcurrency:
         mock_exact.assert_awaited_once()
         mock_similar.assert_not_awaited()
         assert results[0] == existing
+
+
+class TestEntityRepoRequired:
+    """Regression: entity_repo=None must fail fast in __init__ instead of
+    raising AttributeError at first resolution (vuln-CORR#298)."""
+
+    def test_none_entity_repo_raises_immediately(self):
+        from unittest.mock import MagicMock
+
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+        import pytest
+
+        with pytest.raises(ValueError, match="entity_repo is required"):
+            EntityResolver(
+                entity_repo=None,
+                vector_repo=MagicMock(),
+            )
+
+
+class TestConstraintErrorWrapped:
+    """Regression: constraint errors wrapped by drivers must be detected (#299)."""
+
+    def test_wrapped_cause_chain_detected(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        class ConstraintError(Exception):
+            pass
+
+        class SessionExecutionError(Exception):
+            pass
+
+        inner = ConstraintError("duplicate key")
+        wrapped = SessionExecutionError("query failed")
+        wrapped.__cause__ = inner
+
+        assert _is_constraint_error(wrapped) is True
+
+    def test_wrapped_context_chain_detected(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        class ConstraintError(Exception):
+            pass
+
+        class WrapperError(Exception):
+            pass
+
+        try:
+            try:
+                raise ConstraintError("dup")
+            except ConstraintError as inner:
+                raise WrapperError("outer") from inner
+        except WrapperError as exc:
+            wrapped = exc
+
+        assert _is_constraint_error(wrapped) is True
+
+    def test_plain_exception_not_matched(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        assert _is_constraint_error(ValueError("unrelated")) is False
+
+
+class TestCreateEntityRetryExhaustion:
+    """Regression for #199: retry exhaustion re-raises the concrete error."""
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries_reraise_constraint_error(self):
+        """With reraise=True the ConstraintError surfaces, not a RuntimeError."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        class FakeConstraintError(Exception):
+            pass
+
+        mock_entity_repo = MagicMock()
+        mock_entity_repo.merge_entity = AsyncMock(side_effect=FakeConstraintError("duplicate"))
+        mock_entity_repo.find_entity = AsyncMock(return_value=None)
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.upsert_entity_vector = AsyncMock()
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        with (
+            patch(
+                "modules.knowledge.graph.entity_resolver._is_constraint_error",
+                return_value=True,
+            ),
+            patch(
+                "modules.knowledge.graph.entity_resolver.ConstraintError",
+                FakeConstraintError,
+            ),
+        ):
+            with pytest.raises(FakeConstraintError):
+                await resolver._create_entity(
+                    name="TestEntity",
+                    entity_type="PERSON",
+                    embedding=[0.1] * 10,
+                    description=None,
+                    is_new=True,
+                    match_type="new",
+                    confidence=1.0,
+                )
+
+        assert mock_entity_repo.merge_entity.await_count == 3
+
+
+class TestGetResolutionStats:
+    """Regression for #200: stats come from the rules' own public method."""
+
+    def test_stats_match_rule_counts(self):
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=MagicMock(),
+            vector_repo=MagicMock(),
+        )
+
+        stats = resolver.get_resolution_stats()
+
+        assert stats == resolver._rules.get_rule_counts()
+        assert set(stats) == {
+            "known_aliases",
+            "abbreviations",
+            "translations",
+            "rules_count",
+        }

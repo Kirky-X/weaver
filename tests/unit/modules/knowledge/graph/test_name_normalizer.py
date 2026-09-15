@@ -215,3 +215,51 @@ class TestDetectScript:
     def test_other(self) -> None:
         normalizer = NameNormalizer()
         assert normalizer._detect_script("12345") == NameScript.OTHER
+
+
+class TestWhitespaceOnlyCandidate:
+    """Regression: whitespace-only candidates normalize to "" and must not
+    crash the scorer with IndexError (vuln-CORR#305)."""
+
+    def test_whitespace_only_name_does_not_crash(self) -> None:
+        normalizer = NameNormalizer()
+        result = normalizer.normalize("   ", "概念")
+        score = normalizer._score_canonical_candidate(result)
+        assert isinstance(score, float)
+
+    def test_select_canonical_with_whitespace_candidates(self) -> None:
+        normalizer = NameNormalizer()
+        # Must not raise IndexError even though all candidates normalize
+        # to empty strings.
+        selected = normalizer.select_canonical(["   ", ""], "概念")
+        assert isinstance(selected, str)
+
+
+class TestQuoteStrippingCharacterClass:
+    """#201: the quote/backtick character class must be explicit."""
+
+    def test_ascii_quotes_and_backticks_stripped(self) -> None:
+        normalizer = NameNormalizer()
+
+        result = normalizer.normalize("\"华为\" 'Mate' `P`")
+
+        assert '"' not in result.normalized
+        assert "'" not in result.normalized
+        assert "`" not in result.normalized
+        assert "华为" in result.normalized
+
+
+class TestTrailingBracketPattern:
+    """#92: the trailing-bracket regex is precompiled once at module level."""
+
+    def test_pattern_is_precompiled_and_reused(self) -> None:
+        import importlib
+        import re as re_module
+
+        # NOTE: `modules.knowledge.graph.name_normalizer` is shadowed in the
+        # package namespace by the exported singleton of the same name.
+        module = importlib.import_module("modules.knowledge.graph.name_normalizer")
+
+        assert isinstance(module._TRAILING_BRACKET_PATTERN, re_module.Pattern)
+        assert module.strip_bracket_variant("Phone (4a)") == ("Phone", "(4a)")
+        assert module.strip_bracket_variant("Phone") == ("Phone", "")

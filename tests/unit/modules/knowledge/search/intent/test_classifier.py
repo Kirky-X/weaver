@@ -346,3 +346,27 @@ class TestTemporalSignal:
         """Test that QueryIntent works as string."""
         assert str(QueryIntent.WHY) == "why"
         assert QueryIntent.WHY == "why"
+
+
+class TestPromptPlaceholderSubstitution:
+    """Regression: the {query} placeholder inside INTENT_CLASSIFICATION_PROMPT
+    must be substituted; the constant contains literal JSON braces so
+    str.format() is not an option (vuln-CORR#335)."""
+
+    @pytest.mark.asyncio
+    async def test_query_substituted_inside_user_query_tags(self):
+        mock_llm = AsyncMock()
+        mock_llm.default_chat_label = "chat"
+        mock_llm.call = AsyncMock(return_value='{"intent": "OPEN", "confidence": 0.5}')
+        classifier = IntentClassifier(mock_llm)
+
+        await classifier.classify("华为的竞争对手是谁")
+
+        payload = mock_llm.call.call_args.kwargs["payload"]
+        user_content = payload["user_content"]
+        assert "华为的竞争对手是谁" in user_content
+        assert "{query}" not in user_content
+        # The real query must appear exactly once (inside <user_query>),
+        # not duplicated in a suffix outside the tags.
+        assert user_content.count("华为的竞争对手是谁") == 1
+        assert user_content.index("华为的竞争对手是谁") > user_content.index("<user_query>")

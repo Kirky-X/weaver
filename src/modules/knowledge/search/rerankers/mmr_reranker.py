@@ -87,6 +87,7 @@ class MMRReranker:
         self._lambda = lambda_param
         self._similarity_mode = similarity_mode
         self._similarity_fn = similarity_fn or self._jaccard_similarity
+        self._custom_similarity_fn = similarity_fn is not None
 
         log.info(
             "mmr_reranker_initialized",
@@ -162,7 +163,7 @@ class MMRReranker:
             return False
 
         # Custom similarity_fn overrides mode
-        if self._similarity_fn is not self._jaccard_similarity:
+        if self._custom_similarity_fn:
             return False
 
         # Check all candidates have embedding fields

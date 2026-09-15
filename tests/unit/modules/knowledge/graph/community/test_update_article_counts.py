@@ -162,3 +162,39 @@ class TestDetectorRebuildCommunitiesBackfill:
 
         # Should not raise — best-effort per Rule 12
         await detector.rebuild_communities()
+
+
+class TestDiffWriterModuleImports:
+    """#197: ``LadybugDialect`` is imported once at module level."""
+
+    def test_ladybug_dialect_imported_at_module_level(self):
+        import modules.knowledge.graph.community.updater_diff as module
+
+        assert hasattr(module, "LadybugDialect")
+
+    def test_methods_do_not_shadow_it_with_local_imports(self):
+        import inspect
+
+        import modules.knowledge.graph.community.updater_diff as module
+
+        for method_name in ("_mark_stale_reports", "_write_new_assignments"):
+            source = inspect.getsource(getattr(module.DiffWriter, method_name))
+            assert "import LadybugDialect" not in source
+
+
+class TestDiffWriterModuleImports:
+    """#197: ``LadybugDialect`` is imported once at module level."""
+
+    def test_ladybug_dialect_imported_at_module_level(self):
+        import modules.knowledge.graph.community.updater_diff as module
+
+        assert hasattr(module, "LadybugDialect")
+
+    def test_methods_do_not_shadow_it_with_local_imports(self):
+        import inspect
+
+        import modules.knowledge.graph.community.updater_diff as module
+
+        for method_name in ("_mark_stale_reports", "_write_new_assignments"):
+            source = inspect.getsource(getattr(module.DiffWriter, method_name))
+            assert "import LadybugDialect" not in source

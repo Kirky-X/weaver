@@ -57,10 +57,10 @@ class TemporalAwareRetriever:
         if not self._enabled:
             return base_score
 
-        time_decay = self._calculate_decay(age_in_days)
+        time_decay = self.calculate_decay(age_in_days)
         return base_score * (0.6 + 0.4 * time_decay)
 
-    def _calculate_decay(self, age_in_days: float) -> float:
+    def calculate_decay(self, age_in_days: float) -> float:
         """Calculate exponential decay multiplier.
 
         Formula: exp(-λ * age), where λ = ln(2) / half_life_days
@@ -97,6 +97,11 @@ class TemporalAwareRetriever:
         if now is None:
             now = datetime.now(UTC)
 
+        # Normalize naive timestamps to UTC — subtracting a naive datetime
+        # from an aware one raises TypeError.
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+
         age_delta = now - timestamp
         return max(0.0, age_delta.total_seconds() / 86400.0)
 
@@ -108,7 +113,7 @@ def apply_temporal_decay(
 ) -> float:
     """Apply exponential temporal decay to a relevance score (score * multiplier)."""
     retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
-    return score * retriever._calculate_decay(age_in_days)
+    return score * retriever.calculate_decay(age_in_days)
 
 
 def calculate_age_in_days(
