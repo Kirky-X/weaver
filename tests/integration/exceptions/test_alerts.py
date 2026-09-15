@@ -1,46 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Alert monitoring integration tests (AL-01 ~ AL-08).
+"""Alert monitoring integration tests.
 
 Covers 8 alert use cases across rule CRUD, trigger/cooldown, and events:
-- AL-01: Create alert rule (POST /api/v1/monitoring/alerts/rules)
-- AL-02: List alert rules (GET /api/v1/monitoring/alerts/rules)
-- AL-03: Update alert rule (PATCH /api/v1/monitoring/alerts/rules/{rule_id})
-- AL-04: Delete rule with cascade cleanup (DELETE /api/v1/monitoring/alerts/rules/{rule_id})
-- AL-05: Trigger alert within cooldown returns None
-- AL-06: Trigger alert outside cooldown returns new event
-- AL-07: Acknowledge alert event (POST /api/v1/monitoring/alerts/events/{event_id}/acknowledge)
-- AL-08: List alert events (GET /api/v1/monitoring/alerts/events)
+- Create alert rule (POST /api/v1/monitoring/alerts/rules)
+- List alert rules (GET /api/v1/monitoring/alerts/rules)
+- Update alert rule (PATCH /api/v1/monitoring/alerts/rules/{rule_id})
+- Delete rule with cascade cleanup (DELETE /api/v1/monitoring/alerts/rules/{rule_id})
+- Trigger alert within cooldown returns None
+- Trigger alert outside cooldown returns new event
+- Acknowledge alert event (POST /api/v1/monitoring/alerts/events/{event_id}/acknowledge)
+- List alert events (GET /api/v1/monitoring/alerts/events)
 
 Conflict notes (Rule 4 — expose conflicts, do not paper over):
-1. AL-03: Task spec says ``PUT /api/v1/monitoring/alerts/rules/{rule_id}``,
+1. Task spec says ``PUT /api/v1/monitoring/alerts/rules/{rule_id}``,
    but the actual endpoint is ``PATCH`` (src/api/endpoints/monitoring/alerts.py:137).
    FastAPI registers the route as ``@router.patch``. Tests use the actual
    PATCH method and document the conflict.
-2. AL-01: Task spec allows 200 or 201. The actual endpoint returns 200
+2. Task spec allows 200 or 201. The actual endpoint returns 200
    (FastAPI default for POST without explicit ``status_code=201``). Tests
    accept both but note the actual behavior.
-3. AL-06: Task spec says "冷却期外返回 event". The default cooldown is
+3. Task spec says "冷却期外返回 event". The default cooldown is
    60 minutes (alert_service.py:40, models/alert.py:48) — waiting 60+
-   minutes in a test is impractical. AL-06 creates a rule with
+   minutes in a test is impractical. The outside-cooldown test creates a rule with
    ``cooldown_minutes=0`` instead. With cooldown=0, the cutoff equals
    ``now`` and the cooldown query checks ``triggered_at > now``; past
    events (triggered_at ≤ now) never match, so the second trigger always
    succeeds. This validates the "outside cooldown" code path without
    monkeypatching or ``pytest.skip``. Design choice documented per
-   task requirement 6 ("monkeypatch 缩短冷却期或 pytest.skip" —
+   the task spec ("monkeypatch 缩短冷却期或 pytest.skip" —
    cooldown_minutes=0 is a cleaner third option that uses the API's own
    parameter, avoiding monkeypatch).
 
 Implementation notes:
 - Hand-written fakes only — no MagicMock/AsyncMock/patch (project hook
   in conftest.py:736-784 forbids them in integration tests).
-- AL-01~AL-04 share a rule via module-level ``_SHARED_RULE_ID`` list.
-  AL-01 creates and appends; AL-02/AL-03 read (skip if absent); AL-04
-  deletes and clears. A session-scoped autouse cleanup fixture catches
-  any leftovers if AL-04 is not collected/run.
-- AL-05~AL-08 are independent — each creates its own rule with a unique
-  entity_name (uuid suffix per task requirement 5) and cleans up.
+- The create/list/update/delete tests share a rule via the module-level
+  ``_SHARED_RULE_ID`` list. The create test appends; list/update read
+  (skip if absent); delete removes and clears. A session-scoped autouse
+  cleanup fixture catches any leftovers if the delete test is not
+  collected/run.
+- The cooldown/acknowledge/list tests are independent — each creates its
+  own rule with a unique entity_name (uuid suffix per the task spec) and
+  cleans up.
 - All entity_names use prefix ``test-alert-al-`` so the session cleanup
   fixture can identify and remove stray test data.
 - ``async_client`` and ``admin_headers`` are session-scoped fixtures
@@ -55,9 +57,9 @@ import pytest
 
 pytestmark = [pytest.mark.integration]
 
-# Module-level shared state: rule_id created by AL-01, consumed by
-# AL-02/AL-03/AL-04. Using a list (mutable) so test functions can
-# append/clear without ``nonlocal`` declarations.
+# Module-level shared state: rule_id created by the create test,
+# consumed by the list/update/delete tests. Using a list (mutable) so
+# test functions can append/clear without ``nonlocal`` declarations.
 _SHARED_RULE_ID: list[int] = []
 
 # Prefix for all test entity_names — enables session-scoped cleanup
@@ -87,8 +89,8 @@ async def _cleanup_alert_test_rules(async_client):
     """Session-scoped cleanup: delete any test alert rules left behind.
 
     Runs at end of session (after all tests in the file). Catches rules
-    created by AL-01 (if AL-04 did not run/delete) and any independent
-    rules from AL-05~AL-08 that were not cleaned up by their own
+    created by the create test (if the delete test did not run/delete) and
+    any independent rules that were not cleaned up by their own
     teardown. Identifies test rules by the ``_ENTITY_PREFIX`` prefix
     on ``entity_name``.
 
@@ -115,13 +117,13 @@ async def _cleanup_alert_test_rules(async_client):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AL-01 ~ AL-04: Shared rule lifecycle (create → list → update → delete)
+# Shared rule lifecycle (create → list → update → delete)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_al01_create_alert_rule(async_client):
-    """AL-01: POST /api/v1/monitoring/alerts/rules creates a rule.
+    """POST /api/v1/monitoring/alerts/rules creates a rule.
 
     Body: ``CreateAlertRuleRequest`` (entity_name, metric, operator,
     threshold, channel, cooldown_minutes). Response:
@@ -129,7 +131,8 @@ async def test_al01_create_alert_rule(async_client):
     its auto-generated ``id``.
 
     Expected: 200 or 201 (actual: 200 — FastAPI default for POST).
-    The created rule_id is stored in ``_SHARED_RULE_ID`` for AL-02~AL-04.
+    The created rule_id is stored in ``_SHARED_RULE_ID`` for the
+    list/update/delete tests.
     """
     entity_name = _unique_entity_name("al01")
     resp = await async_client.post(
@@ -154,22 +157,23 @@ async def test_al01_create_alert_rule(async_client):
     assert data["cooldown_minutes"] == 60
     assert data["enabled"] is True
 
-    # Store for AL-02/AL-03/AL-04
+    # Store for the list/update/delete tests
     _SHARED_RULE_ID.append(data["id"])
 
 
 @pytest.mark.asyncio
 async def test_al02_list_alert_rules(async_client):
-    """AL-02: GET /api/v1/monitoring/alerts/rules returns 200, list contains AL-01 rule.
+    """GET /api/v1/monitoring/alerts/rules returns 200, list contains the created rule.
 
     Response: ``APIResponse[list[AlertRuleResponse]]``. Verifies the rule
-    created in AL-01 (stored in ``_SHARED_RULE_ID``) appears in the list.
+    created by the create test (stored in ``_SHARED_RULE_ID``) appears in
+    the list.
 
-    If AL-01 did not run (e.g., ``-k al02``), this test skips — the
+    If the create test did not run (e.g., ``-k al02``), this test skips — the
     shared rule_id is required to verify presence.
     """
     if not _SHARED_RULE_ID:
-        pytest.skip("AL-01 did not create a shared rule — cannot verify list")
+        pytest.skip("Create test did not create a shared rule — cannot verify list")
     rule_id = _SHARED_RULE_ID[0]
 
     resp = await async_client.get("/api/v1/monitoring/alerts/rules")
@@ -177,12 +181,12 @@ async def test_al02_list_alert_rules(async_client):
     rules = resp.json().get("data", [])
     assert isinstance(rules, list)
     rule_ids = [r.get("id") for r in rules]
-    assert rule_id in rule_ids, f"AL-01 rule_id={rule_id} not found in list of {len(rules)} rules"
+    assert rule_id in rule_ids, f"Shared rule_id={rule_id} not found in list of {len(rules)} rules"
 
 
 @pytest.mark.asyncio
 async def test_al03_update_alert_rule(async_client):
-    """AL-03: Update alert rule.
+    """Update alert rule.
 
     Conflict: Task spec says ``PUT /api/v1/monitoring/alerts/rules/{rule_id}``,
     but the actual endpoint is ``PATCH`` (alerts.py:137 ``@router.patch``).
@@ -198,10 +202,10 @@ async def test_al03_update_alert_rule(async_client):
     Body: ``UpdateAlertRuleRequest`` (partial fields). Verifies the
     updated field (threshold) is reflected in the response.
 
-    If AL-01 did not run, this test skips.
+    If the create test did not run, this test skips.
     """
     if not _SHARED_RULE_ID:
-        pytest.skip("AL-01 did not create a shared rule — cannot update")
+        pytest.skip("Create test did not create a shared rule — cannot update")
     rule_id = _SHARED_RULE_ID[0]
 
     resp = await async_client.request(
@@ -218,7 +222,7 @@ async def test_al03_update_alert_rule(async_client):
 
 @pytest.mark.asyncio
 async def test_al04_delete_rule_cascade_cleanup(async_client):
-    """AL-04: DELETE rule triggers cascade cleanup of alert_events.
+    """DELETE rule triggers cascade cleanup of alert_events.
 
     Verifies F2 transactional cascade cleanup (alert_service.py:183-237):
     1. Trigger an event on the shared rule (so there's data to cascade-delete).
@@ -231,11 +235,11 @@ async def test_al04_delete_rule_cascade_cleanup(async_client):
     ``DELETE FROM alert_rules WHERE id=...`` in a single
     ``session_context`` transaction (F2 fix for PG NO ACTION FK).
 
-    If AL-01 did not run, this test skips. The session-scoped cleanup
+    If the create test did not run, this test skips. The session-scoped cleanup
     fixture handles any leftover rules.
     """
     if not _SHARED_RULE_ID:
-        pytest.skip("AL-01 did not create a shared rule — cannot delete")
+        pytest.skip("Create test did not create a shared rule — cannot delete")
     rule_id = _SHARED_RULE_ID[0]
 
     # Step 1: Create an event on the rule so cascade cleanup is observable
@@ -276,13 +280,13 @@ async def test_al04_delete_rule_cascade_cleanup(async_client):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AL-05 ~ AL-06: Cooldown behavior
+# Cooldown behavior
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_al05_trigger_within_cooldown_returns_none(async_client):
-    """AL-05: Triggering an alert within the cooldown period returns None.
+    """Triggering an alert within the cooldown period returns None.
 
     Creates a rule with ``cooldown_minutes=60`` (default), triggers it
     twice in quick succession. The second trigger should be blocked by
@@ -347,7 +351,7 @@ async def test_al05_trigger_within_cooldown_returns_none(async_client):
 
 @pytest.mark.asyncio
 async def test_al06_trigger_outside_cooldown_returns_event(async_client):
-    """AL-06: Triggering an alert outside the cooldown period returns a new event.
+    """Triggering an alert outside the cooldown period returns a new event.
 
     Conflict/Design: The default cooldown is 60 minutes. Waiting 60+
     minutes is impractical. Instead of monkeypatching or skipping, this
@@ -413,20 +417,20 @@ async def test_al06_trigger_outside_cooldown_returns_event(async_client):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AL-07: Acknowledge alert event
+# Acknowledge alert event
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_al07_acknowledge_alert_event(async_client):
-    """AL-07: POST /events/{event_id}/acknowledge acknowledges an event.
+    """POST /events/{event_id}/acknowledge acknowledges an event.
 
     Creates a rule, triggers an event, then acknowledges it. Verifies
     the endpoint returns 200 with ``data=true`` and that the event's
     ``acknowledged_at`` field is populated when listed.
 
     Per task requirement 7: this test is self-sufficient — it creates
-    its own rule and event rather than depending on AL-05/AL-06, so it
+    its own rule and event rather than depending on the cooldown tests, so it
     passes even if those tests are skipped or fail.
     """
     entity_name = _unique_entity_name("al07")
@@ -452,7 +456,7 @@ async def test_al07_acknowledge_alert_event(async_client):
         )
         assert trigger_resp.status_code == 200
         event_data = trigger_resp.json().get("data")
-        assert event_data is not None, "Trigger should create an event for AL-07"
+        assert event_data is not None, "Trigger should create an event"
         event_id = event_data["id"]
 
         # Acknowledge the event
@@ -479,13 +483,13 @@ async def test_al07_acknowledge_alert_event(async_client):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AL-08: List alert events
+# List alert events
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_al08_list_alert_events(async_client):
-    """AL-08: GET /api/v1/monitoring/alerts/events returns 200 with list structure.
+    """GET /api/v1/monitoring/alerts/events returns 200 with list structure.
 
     Creates a rule, triggers an event, then lists events. Verifies:
     - Response status 200

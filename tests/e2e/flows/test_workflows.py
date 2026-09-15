@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
+
+# Stable public RSS feed; full CRUD workflows are skipped when offline.
+PUBLIC_FEED_URL = "https://feeds.bbci.co.uk/news/rss.xml"
 
 
 @pytest.mark.e2e
@@ -13,37 +17,39 @@ class TestWorkflows:
 
     def test_full_source_crud_workflow(
         self,
-        client: TestClient,  # type: ignore[name-defined]
+        client: TestClient,
         admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test complete Source CRUD workflow: Create -> List -> Update -> Delete."""
-        # 1. Create
+        # 1. Create (feed validation fetches the URL; skip when offline)
         create_response = client.post(
             "/api/v1/sources",
             json={
                 "id": unique_source_id,
                 "name": "Workflow Test Source",
-                "url": "https://example.com/workflow.xml",
+                "url": PUBLIC_FEED_URL,
                 "source_type": "rss",
                 "enabled": True,
                 "interval_minutes": 30,
             },
             headers=admin_headers,
         )
-        assert create_response.status_code == 201
+        if create_response.status_code == 422:
+            pytest.skip("Public feed unreachable (offline environment)")
+        assert create_response.status_code == 201, create_response.text[:300]
         create_data = create_response.json()["data"]
         assert create_data["id"] == unique_source_id
 
-        # 2. List - verify it appears
+        # 2. List - verify it appears (list returns a paginated envelope)
         list_response = client.get(
             "/api/v1/sources",
-            params={"enabled_only": False},
+            params={"enabled_only": "false"},
             headers=admin_headers,
         )
         assert list_response.status_code == 200
         list_data = list_response.json()["data"]
-        source_ids = [s["id"] for s in list_data]
+        source_ids = [s["id"] for s in list_data["items"]]
         assert unique_source_id in source_ids
 
         # 3. Update
@@ -56,40 +62,44 @@ class TestWorkflows:
         update_data = update_response.json()["data"]
         assert update_data["name"] == "Updated Workflow Source"
 
-        # 4. Delete
+        # 4. Delete → 204, no body
         delete_response = client.delete(
             f"/api/v1/sources/{unique_source_id}",
             headers=admin_headers,
         )
         assert delete_response.status_code == 204
 
-        # 5. Verify deleted
+        # 5. Verify deleted → 404 code 40001
         get_response = client.get(
             f"/api/v1/sources/{unique_source_id}",
             headers=admin_headers,
         )
         assert get_response.status_code == 404
+        assert get_response.json()["code"] == 40001
 
     def test_source_then_pipeline_workflow(
         self,
-        client: TestClient,  # type: ignore[name-defined]
+        client: TestClient,
         admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
-        """Test workflow: Create source -> Trigger pipeline -> Verify no crash."""
+        """Test workflow: Create source -> Trigger pipeline -> Verify task status."""
         # 1. Create a source
-        client.post(
+        create_response = client.post(
             "/api/v1/sources",
             json={
                 "id": unique_source_id,
                 "name": "Pipeline Workflow Source",
-                "url": "https://example.com/pipeline-workflow.xml",
+                "url": PUBLIC_FEED_URL,
                 "source_type": "rss",
                 "enabled": True,
                 "interval_minutes": 30,
             },
             headers=admin_headers,
         )
+        if create_response.status_code == 422:
+            pytest.skip("Public feed unreachable (offline environment)")
+        assert create_response.status_code == 201, create_response.text[:300]
 
         # 2. Trigger pipeline with this source
         trigger_response = client.post(
@@ -97,8 +107,9 @@ class TestWorkflows:
             json={"source_id": unique_source_id},
             headers=admin_headers,
         )
-        assert trigger_response.status_code == 200
+        assert trigger_response.status_code == 200, trigger_response.text[:300]
         trigger_data = trigger_response.json()["data"]
+        assert trigger_data["status"] == "queued"
         task_id = trigger_data["task_id"]
 
         # 3. Get task status
@@ -112,7 +123,7 @@ class TestWorkflows:
 
     def test_unauthorized_access_blocked(
         self,
-        client: TestClient,  # type: ignore[name-defined]
+        client: TestClient,
     ) -> None:
         """Test that missing API key is blocked on protected endpoints."""
         protected_endpoints = [
@@ -128,41 +139,35 @@ class TestWorkflows:
                 response = client.post(endpoint, json={})
 
             assert response.status_code == 401, f"{method} {endpoint} should require auth"
+            assert response.json()["code"] == 10002
 
     def test_health_check_integration(
         self,
-        client: TestClient,  # type: ignore[name-defined]
+        client: TestClient,
     ) -> None:
-        """Test that health check endpoint returns proper response structure."""
+        """Public health probe deliberately omits per-service checks (CWE-200)."""
         response = client.get("/health")
-        # Health endpoint returns 200 if healthy, 503 if unhealthy
-        # Either status is acceptable for testing the endpoint works
-        assert response.status_code in (200, 503)
+        assert response.status_code == 200
         data = response.json()
 
-        # Health response wraps status inside data field
         assert "data" in data
         health_data = data["data"]
-        # Health response should have status field
         assert "status" in health_data
-        # Should have checks dict with service details
-        assert "checks" in health_data
-        # Verify checks structure contains expected services
-        checks = health_data["checks"]
-        assert isinstance(checks, dict)
+        assert health_data["status"] in ("healthy", "unhealthy")
+        # Error details are intentionally excluded from the public probe
+        assert "checks" not in health_data
 
     def test_graph_entity_not_found(
         self,
-        client: TestClient,  # type: ignore[name-defined]
+        client: TestClient,
         admin_headers: dict[str, str],
     ) -> None:
-        """Test that querying a non-existent entity returns appropriate response."""
+        """Unknown entity → 404 with envelope code 10004."""
         response = client.get(
             "/api/v1/graph/entities/NonexistentEntity12345",
             headers=admin_headers,
         )
-        # Acceptable responses:
-        # - 404: entity not found
-        # - 200: empty result returned
-        # - 500/503: service unavailable (Neo4j pool not started)
-        assert response.status_code in (200, 404, 500, 503)
+        assert response.status_code == 404
+        body = response.json()
+        assert body["code"] == 10004
+        assert "NonexistentEntity12345" in body["message"]

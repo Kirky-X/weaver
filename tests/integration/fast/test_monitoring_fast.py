@@ -7,7 +7,8 @@
 
 端点路径以源文件实际注册为准（见 src/api/router.py 与各 endpoints 模块）：
 - /api/v1/system/status                       (system.py)
-- /api/v1/system/health/dependencies          (system.py — 返回 dependencies 字段)
+- /api/v1/health/dependencies                 (health.py — 聚合 checks)
+- /api/v1/system/health/dependencies          (system.py — admin 详细 dependencies)
 - /api/v1/monitoring/alerts/rules|events      (monitoring/alerts.py)
 - /api/v1/monitoring/llm/usage|failures       (monitoring/llm.py)
 - /api/v1/saga/failed/list                    (saga.py)
@@ -40,19 +41,19 @@ async def test_fm_01_system_status(async_client):
 
 @pytest.mark.integration
 async def test_fm_02_health_dependencies(async_client):
-    """GET /api/v1/health/dependencies 返回 200 且含 dependencies 字段。
+    """GET /api/v1/health/dependencies 返回 200 且含 checks 字段。
 
-    注：system_router 无 prefix（见 src/api/endpoints/system.py:34），
-    实际路径为 /api/v1/health/dependencies，非 /api/v1/system/health/dependencies。
-    带 ``dependencies`` 字段的是 admin 端点（需 verify_admin_api_key）。
+    该路径是 health_router 的聚合版（verify_api_key，data.checks）；
+    带 ``dependencies`` 字段的详细版在 admin 端点
+    /api/v1/system/health/dependencies（verify_admin_api_key）。
     """
     resp = await async_client.get("/api/v1/health/dependencies")
     assert resp.status_code == 200
     payload = resp.json()
     data = payload.get("data") if isinstance(payload, dict) else payload
     assert isinstance(data, dict)
-    assert "dependencies" in data
-    assert isinstance(data["dependencies"], dict)
+    assert "checks" in data
+    assert isinstance(data["checks"], dict)
 
 
 @pytest.mark.integration

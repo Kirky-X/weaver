@@ -133,19 +133,22 @@ class TestPipelineEndpoint:
         unique_source_id: str,
     ) -> None:
         """Test triggering pipeline with specific source_id filter."""
-        # Create a source first
-        client.post(
+        # Create a source first (feed validation fetches the URL; skip offline)
+        create_response = client.post(
             "/api/v1/sources",
             json={
                 "id": unique_source_id,
                 "name": "Pipeline Test Source",
-                "url": "https://example.com/pipeline-test.xml",
+                "url": "https://feeds.bbci.co.uk/news/rss.xml",
                 "source_type": "rss",
                 "enabled": True,
                 "interval_minutes": 30,
             },
             headers=admin_headers,
         )
+        if create_response.status_code in (403, 422):
+            pytest.skip("Public feed unreachable (offline environment)")
+        assert create_response.status_code == 201, create_response.text[:300]
 
         # Trigger with specific source
         response = client.post(
