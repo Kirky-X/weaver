@@ -10,6 +10,7 @@ relevant regions while staying within token budgets.
 from __future__ import annotations
 
 import random
+import re
 from typing import TYPE_CHECKING
 
 from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
@@ -21,6 +22,11 @@ if TYPE_CHECKING:
     from core.llm.config.token_budget import TokenBudgetManager
 
 log = get_logger(__name__)
+
+# Pre-compiled tokenizer patterns (OCR LOW #25): ``_tokenize`` is invoked on
+# every fuzz-anchor step, so keep the patterns out of the per-call path.
+_WORD_RE = re.compile(r"[a-zA-Z]+")
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
 
 
 class MCSampler:
@@ -185,13 +191,17 @@ class MCSampler:
 
         # Limit to sample_size most relevant anchors
         if len(anchors) > self._sample_size:
-            # Prioritize fuzz anchors (content change points)
+            # Prioritize fuzz anchors (content change points); ties broken by
+            # position so the selection is deterministic for a given anchor
+            # set (the set itself is already randomly sampled above).
+            # frozenset for O(1) membership instead of O(n) list scan
+            # (OCR LOW #91).
+            fuzz_anchors_set = frozenset(fuzz_anchors)
             anchors = sorted(
                 anchors,
-                # 非密码学排序用途
                 key=lambda x: (
-                    x not in fuzz_anchors,  # Fuzz anchors first
-                    random.random(),  # nosec B311
+                    x not in fuzz_anchors_set,  # Fuzz anchors first
+                    x,
                 ),
             )[: self._sample_size]
 
@@ -218,6 +228,11 @@ class MCSampler:
             List of anchor indices at content change points.
         """
         text_len = len(text)
+        # Short documents (text_len < 10) yield window == 0; slicing then
+        # produces empty strings and every step is flagged as a change point
+        # (OCR LOW #115).
+        if window <= 0:
+            return []
         anchors: list[int] = []
         step = max(100, window // 2)  # Step size for scanning
 
@@ -237,7 +252,7 @@ class MCSampler:
         return anchors
 
     def _simple_similarity(self, text1: str, text2: str) -> float:
-        """Calculate word-level similarity ratio (P1-2 fix).
+        """Calculate word-level similarity ratio (fix).
 
         Uses word-level tokenization instead of character-level:
         - English: ``[a-zA-Z]+`` word tokens
@@ -270,7 +285,7 @@ class MCSampler:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Tokenize text into word-level tokens (P1-2 fix).
+        """Tokenize text into word-level tokens (fix).
 
         - English / Latin: ``re.findall(r'[a-zA-Z]+', text)``
         - Chinese (CJK): 2-gram sliding window over each CJK run
@@ -286,15 +301,13 @@ class MCSampler:
         Returns:
             List of tokens.
         """
-        import re
-
         tokens: list[str] = []
 
         # English / Latin words
-        tokens.extend(re.findall(r"[a-zA-Z]+", text))
+        tokens.extend(_WORD_RE.findall(text))
 
         # Chinese 2-grams: for each CJK run, slide a 2-char window
-        for cjk_run in re.findall(r"[\u4e00-\u9fff]+", text):
+        for cjk_run in _CJK_RUN_RE.findall(text):
             if len(cjk_run) < 2:
                 # Single CJK char — treat as a token
                 tokens.append(cjk_run)

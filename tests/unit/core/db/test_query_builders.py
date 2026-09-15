@@ -34,7 +34,6 @@ class TestSimilarityQuery:
 
     def test_default_values(self) -> None:
         config = SimilarityQuery()
-        assert config.embedding_param == ":embedding"
         assert config.threshold == 0.80
         assert config.limit == 20
         assert config.category_param == ":category"
@@ -62,7 +61,6 @@ class TestEntitySimilarityQuery:
 
     def test_default_values(self) -> None:
         config = EntitySimilarityQuery()
-        assert config.embedding_param == ":embedding"
         assert config.threshold == 0.85
         assert config.limit == 5
 
@@ -112,7 +110,10 @@ class TestPgVectorQueryBuilder:
         assert "SELECT" in result
         assert "FROM article_vectors av" in result
         assert "JOIN articles a" in result
-        assert "ORDER BY similarity DESC" in result
+        # ORDER BY 直接使用相似度表达式（而非 SELECT 别名 similarity），
+        # 与 DuckDB builder 保持一致，避免别名解析在边界情况下的歧义。
+        similarity_expr = builder.build_similarity_expression("av.embedding")
+        assert f"ORDER BY {similarity_expr} DESC" in result
         assert "LIMIT 10" in result
 
     def test_build_find_similar_entities_query(self, builder: PgVectorQueryBuilder) -> None:
@@ -324,3 +325,49 @@ class TestQueryOutputComparison:
 
         assert "ANY" in pg_expr
         assert "unnest" in duck_expr
+
+
+class TestProtocolCompleteness:
+    """VectorQueryBuilder Protocol must document every implemented capability."""
+
+    def test_protocol_declares_upsert_entity_vector_query(self) -> None:
+        """build_upsert_entity_vector_query 必须出现在 Protocol 中。
+
+        两个实现类都定义了该方法，但 Protocol 此前未声明，导致新实现者
+        无从知晓需要提供该能力（OCR LOW #86）。
+        """
+        assert hasattr(VectorQueryBuilder, "build_upsert_entity_vector_query")
+
+    def test_both_builders_satisfy_protocol(self) -> None:
+        assert isinstance(PgVectorQueryBuilder(), VectorQueryBuilder)
+        assert isinstance(DuckDBVectorQueryBuilder(), VectorQueryBuilder)
+
+    def test_entity_upsert_query_differs_by_backend(self) -> None:
+        pg = PgVectorQueryBuilder()
+        duck = DuckDBVectorQueryBuilder()
+
+        pg_query = pg.build_upsert_entity_vector_query()
+        duck_query = duck.build_upsert_entity_vector_query()
+
+        assert "ON CONFLICT (neo4j_id)" in pg_query
+        assert ":neo4j_id" in pg_query
+        assert "ON CONFLICT (neo4j_id)" in duck_query
+        assert "FLOAT[1024]" in duck_query
+
+
+class TestOrderByUsesExpression:
+    """ORDER BY must reference the similarity expression, not the alias."""
+
+    def test_pg_similar_articles_orders_by_expression(self) -> None:
+        builder = PgVectorQueryBuilder()
+        result = builder.build_find_similar_articles_query(SimilarityQuery(limit=10))
+        expr = builder.build_similarity_expression("av.embedding")
+        assert f"ORDER BY {expr} DESC" in result
+        assert "ORDER BY similarity DESC" not in result
+
+    def test_pg_similar_entities_orders_by_expression(self) -> None:
+        builder = PgVectorQueryBuilder()
+        result = builder.build_find_similar_entities_query(EntitySimilarityQuery(limit=3))
+        expr = builder.build_similarity_expression("embedding")
+        assert f"ORDER BY {expr} DESC" in result
+        assert "ORDER BY similarity DESC" not in result

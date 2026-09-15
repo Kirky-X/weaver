@@ -46,7 +46,7 @@ class TestDailyBriefingModel:
         assert col.unique is None
 
     def test_category_column_added_by_migration_32(self) -> None:
-        """T004/Migration 32 added category column (finance/tech/ai/general).
+        """/Migration 32 added category column (finance/tech/ai/general).
 
         Nullable for backward compat with pre-migration-32 rows.
         """

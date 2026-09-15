@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from core.llm.types import (
-    TYPE_TO_CAPABILITY,
     Capability,
     Label,
     LLMType,
@@ -154,11 +153,10 @@ class ModelSelector:
         if required is None:
             return candidates
 
-        required_cap = TYPE_TO_CAPABILITY.get(required)
-        if required_cap is None:
-            return candidates
-
-        return [label for label in candidates if label.llm_type == _cap_to_type(required_cap)]
+        # required is already a Capability — map it straight to LLMType.
+        # (The old TYPE_TO_CAPABILITY.get(required) lookup only worked by
+        # accident because Capability and LLMType share identical values.)
+        return [label for label in candidates if label.llm_type == _cap_to_type(required)]
 
     def _score_and_rank(
         self,
@@ -182,11 +180,10 @@ class ModelSelector:
         norm_latencies = _normalize_inverse(latencies)
 
         scored: list[tuple[float, Label]] = []
-        for label in candidates:
+        for idx, label in enumerate(candidates):
             key = str(label)
             reliability = self.experience.reliability(call_point, label.provider, label.model)
             # Editorial: inverse position in candidate list (first = highest)
-            idx = candidates.index(label)
             editorial = 1.0 / (idx + 1)
 
             # Circuit breaker slow request degradation
@@ -231,21 +228,39 @@ class ModelSelector:
 
 
 def _normalize_inverse(values: dict[str, float]) -> dict[str, float]:
-    """Inverse min-max normalization: lowest value gets 1.0, highest gets 0.0."""
+    """Inverse min-max normalization: lowest value gets 1.0, highest gets 0.0.
+
+    Degenerate cases:
+      * ``max_val == 0`` — every candidate costs/latency is 0, i.e. already the
+        best possible value, so all candidates get the full 1.0 instead of a
+        neutral 0.5 (0.5 would needlessly penalise the dimension).
+      * ``max_val == min_val`` (非 0) — true tie with no signal; keep 0.5.
+    """
     if not values:
         return {}
     min_val = min(values.values())
     max_val = max(values.values())
-    if max_val <= min_val or max_val == 0:
+    if max_val == 0:
+        return dict.fromkeys(values, 1.0)
+    if max_val <= min_val:
         return dict.fromkeys(values, 0.5)
     return {k: 1.0 - (v - min_val) / (max_val - min_val) for k, v in values.items()}
 
 
 def _cap_to_type(cap: Capability) -> LLMType:
-    """Map Capability to LLMType."""
+    """Map Capability to LLMType.
+
+    Raises:
+        ValueError: For capabilities without an LLMType counterpart (e.g.
+            VISION) — silently routing them to chat models would select
+            wrong candidates.
+    """
     mapping = {
         Capability.CHAT: LLMType.CHAT,
         Capability.EMBEDDING: LLMType.EMBEDDING,
         Capability.RERANK: LLMType.RERANK,
     }
-    return mapping.get(cap, LLMType.CHAT)
+    try:
+        return mapping[cap]
+    except KeyError:
+        raise ValueError(f"Capability {cap} has no LLMType mapping") from None

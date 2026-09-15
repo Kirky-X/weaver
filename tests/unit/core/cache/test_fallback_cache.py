@@ -521,3 +521,56 @@ class TestFallbackCachePoolEdgeCases:
         mock_redis.get.side_effect = ConnectionError("Redis down")
         await fallback_pool.get("key")
         assert fallback_pool.cache_type == "cashews"
+
+
+class _BareClient:
+    """Client stand-in that genuinely lacks every attribute.
+
+    Unlike ``AsyncMock`` (which auto-creates any attribute), this mirrors the
+    real client behaviour that ``getattr`` raises ``AttributeError``.
+    """
+
+
+class TestExecuteOperationNameGuard:
+    """A misspelled operation name must not be masked as infra failure.
+
+    OCR LOW #79: ``getattr(self._primary, operation)`` used to raise
+    AttributeError inside the broad ``except Exception``, degrading the pool
+    to a fallback that lacks the attribute too. The typo must surface.
+    """
+
+    async def test_unknown_operation_raises_attribute_error(
+        self, fallback_pool: FallbackCachePool
+    ) -> None:
+        fallback_pool._primary = _BareClient()
+        with pytest.raises(AttributeError, match="no operation"):
+            await fallback_pool._execute("definitely_not_an_operation")
+
+    async def test_typo_does_not_degrade_primary(self, fallback_pool: FallbackCachePool) -> None:
+        """A typo is a programming error — the primary must stay healthy."""
+        fallback_pool._primary = _BareClient()
+        assert fallback_pool.primary_healthy is True
+        with pytest.raises(AttributeError):
+            await fallback_pool._execute("definitely_not_an_operation")
+        assert fallback_pool.primary_healthy is True
+
+
+class TestRegisterScriptDegradedWarning:
+    """register_script must warn when it can only hand back a placeholder.
+
+    OCR LOW #64: in degraded mode the returned ``_CashewsScript`` only fails
+    on first invocation, so registration must log a warning up front.
+    """
+
+    async def test_degraded_register_script_logs_warning(
+        self, fallback_pool: FallbackCachePool, mock_redis: AsyncMock
+    ) -> None:
+        mock_redis.get.side_effect = ConnectionError("Redis down")
+        await fallback_pool.get("key")
+        assert fallback_pool.primary_healthy is False
+
+        with patch("core.cache.fallback.log") as mock_log:
+            fallback_pool.register_script("return 1")
+
+        mock_log.warning.assert_called_once()
+        assert mock_log.warning.call_args[0][0] == "fallback_register_script_degraded"

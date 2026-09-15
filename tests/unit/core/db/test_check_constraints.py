@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for CHECK constraints and GIN indexes (Task 7).
+"""Tests for CHECK constraints and GIN indexes.
 
 Verifies:
 - document_type CHECK constraint with correct values

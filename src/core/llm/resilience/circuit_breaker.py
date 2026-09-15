@@ -12,6 +12,7 @@ not native Python async/await. We implement manual async handling here.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from collections.abc import Callable
@@ -51,7 +52,15 @@ class ProviderCircuitBreaker:
         reset_timeout: float = 60.0,
         exclude_exceptions: list[type[Exception]] | None = None,
         slow_threshold: float = 0.5,
+        timeout: float = 120.0,
+        slow_threshold_count: int = 5,
     ) -> None:
+        """初始化熔断器.
+
+        Args:
+            slow_threshold_count: 连续慢请求达到该次数即判定为 degraded。
+                此前硬编码为 5，无法按 provider 调整。
+        """
         self.name = name
         self._breaker = PyBreaker(
             name=name,
@@ -60,8 +69,9 @@ class ProviderCircuitBreaker:
             exclude=exclude_exceptions or [],
         )
         self._slow_threshold = slow_threshold
+        self._slow_threshold_count = slow_threshold_count
         self._consecutive_slow = 0
-        self._timeout: float = 120.0
+        self._timeout = timeout
         # Self-maintained counters to avoid pybreaker private _state_storage API
         self._failure_counter: int = 0
         self._success_counter: int = 0
@@ -71,6 +81,8 @@ class ProviderCircuitBreaker:
         # but this wrapper calls ``func`` directly, so we replicate the timeout
         # check here using a self-maintained timestamp.
         self._opened_at: float | None = None
+        # Asyncio lock to protect concurrent state mutations in call()
+        self._state_lock = asyncio.Lock()
 
     @property
     def slow_count(self) -> int:
@@ -78,11 +90,12 @@ class ProviderCircuitBreaker:
 
     def mark_slow(self) -> None:
         self._consecutive_slow += 1
-        if self._consecutive_slow >= 5:
+        if self._consecutive_slow >= self._slow_threshold_count:
             log.warning(
                 "circuit_slow_degraded",
                 provider=self.name,
                 consecutive=self._consecutive_slow,
+                threshold=self._slow_threshold_count,
             )
 
     def mark_fast(self) -> None:
@@ -90,7 +103,7 @@ class ProviderCircuitBreaker:
 
     @property
     def is_slow(self) -> bool:
-        return self._consecutive_slow >= 5
+        return self._consecutive_slow >= self._slow_threshold_count
 
     def _can_attempt_reset(self) -> bool:
         """Return True if ``reset_timeout`` has elapsed since the circuit opened.
@@ -104,18 +117,19 @@ class ProviderCircuitBreaker:
             return False
         return (time.monotonic() - self._opened_at) >= self._breaker.reset_timeout
 
-    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        if self._breaker.current_state == "open":
-            if self._can_attempt_reset():
-                self._breaker.half_open()
-                log.info(
-                    "circuit_half_open_after_timeout",
-                    provider=self.name,
-                    reset_timeout=self._breaker.reset_timeout,
-                )
-            else:
-                log.warning("circuit_open", provider=self.name)
-                raise CircuitOpenError(self.name)
+    async def call(self, func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+        async with self._state_lock:
+            if self._breaker.current_state == "open":
+                if self._can_attempt_reset():
+                    self._breaker.half_open()
+                    log.info(
+                        "circuit_half_open_after_timeout",
+                        provider=self.name,
+                        reset_timeout=self._breaker.reset_timeout,
+                    )
+                else:
+                    log.warning("circuit_open", provider=self.name)
+                    raise CircuitOpenError(self.name)
 
         try:
             start = time.monotonic()
@@ -128,14 +142,16 @@ class ProviderCircuitBreaker:
             else:
                 self.mark_fast()
 
-            self._handle_success()
+            async with self._state_lock:
+                self._handle_success()
             return result
 
-        except PyCircuitBreakerError:
+        except PyCircuitBreakerError as err:
             log.warning("circuit_open_during_call", provider=self.name)
-            raise CircuitOpenError(self.name) from None
+            raise CircuitOpenError(self.name) from err
         except Exception as e:
-            self._handle_failure()
+            async with self._state_lock:
+                self._handle_failure()
             log.error(
                 "circuit_failure_recorded",
                 provider=self.name,
@@ -155,10 +171,13 @@ class ProviderCircuitBreaker:
                 self._breaker.close()
                 log.info("circuit_closed_after_success", provider=self.name)
         else:
-            # In closed state, reset counters on success
+            # In closed state, reset counters on success. Only touch the
+            # breaker when it is not already closed — close() is a no-op then,
+            # but guarding keeps the hot path read-only (OCR LOW #141).
             self._success_counter = 0
             self._failure_counter = 0
-            self._breaker.close()
+            if self._breaker.current_state != "closed":
+                self._breaker.close()
 
     def _handle_failure(self) -> None:
         # In half-open state, any failure re-opens the circuit immediately,

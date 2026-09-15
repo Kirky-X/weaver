@@ -65,6 +65,7 @@ class AlertRule(Base):
     trend_threshold: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        nullable=False,
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
@@ -76,7 +77,8 @@ class AlertRule(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "metric IN ('reference_count', 'sentiment_change', 'volume_spike')",
+            "metric IN ('reference_count', 'sentiment_change', 'volume_spike', "
+            "'saga_failure', 'compensation_failure', 'saga_timeout')",
             name="chk_alert_metric_values",
         ),
         CheckConstraint(

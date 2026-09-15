@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for LLM cache key v2 grayscale integration (Task 11)."""
+"""Tests for LLM cache key v2 grayscale integration."""
 
 import hashlib
 import json
@@ -70,7 +70,7 @@ def _make_mock_response() -> MagicMock:
 
 
 class TestCacheKeyV2Grayscale:
-    """Test LLM_CACHE_KEY_V2_ENABLED grayscale switch (Task 11)."""
+    """Test LLM_CACHE_KEY_V2_ENABLED grayscale switch."""
 
     @pytest.mark.asyncio
     async def test_v2_disabled_uses_old_key_format(self):

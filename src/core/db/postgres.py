@@ -104,6 +104,10 @@ class PostgresPool:
         """Close the async engine and release connections."""
         if self._engine:
             await self._engine.dispose()
+            # Clear references so post-shutdown access raises the clear
+            # "not started" RuntimeError instead of PoolClosed confusion.
+            self._engine = None
+            self._session_factory = None
             log.info("postgres_pool_closed")
 
     @property
@@ -146,8 +150,16 @@ class PostgresPool:
             yield session
             await session.commit()
         except Exception:
-            log.warning("Database session commit failed, rolling back", exc_info=True)
-            await session.rollback()
+            log.warning("Database session error, rolling back", exc_info=True)
+            try:
+                await session.rollback()
+            except Exception as rollback_exc:
+                # Surface the rollback failure without masking the original error.
+                log.error(
+                    "Database session rollback failed",
+                    error=str(rollback_exc),
+                    exc_type=type(rollback_exc).__name__,
+                )
             raise
         finally:
             await session.close()

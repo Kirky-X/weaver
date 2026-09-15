@@ -159,7 +159,7 @@ SCHEMA_QUERIES = [
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         synced_at TIMESTAMP WITH TIME ZONE
     )""",
-    # ── Event Outbox (T018: transactional outbox, at-least-once) ──
+    # ── Event Outbox (transactional outbox, at-least-once) ──
     """CREATE TABLE IF NOT EXISTS event_outbox
     (
         id BIGINT DEFAULT nextval('event_outbox_seq') PRIMARY KEY,
@@ -283,7 +283,7 @@ SCHEMA_QUERIES = [
         last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",
     # ── Article Vectors ─────────────────────────────────────────
-    # REM-003: Schema upgraded to match PostgreSQL ORM (ArticleVector).
+    # Schema upgraded to match PostgreSQL ORM (ArticleVector).
     # Previously used composite PK (article_id, vector_type); now uses
     # id BIGINT PK + UNIQUE(article_id, vector_type) to match ORM and
     # support proper updated_at tracking.
@@ -457,7 +457,7 @@ SCHEMA_QUERIES = [
         UNIQUE (time_bucket, call_point, primary_model, candidate_model)
     )""",
     # ── Prompt Templates ────────────────────────────────────────
-    # REM-006: Added to match PostgreSQL ORM (PromptTemplate) and
+    # Added to match PostgreSQL ORM (PromptTemplate) and
     # migration 10_simplify_prompt_templates. Legacy columns (version,
     # prompt_type, is_active, change_reason, prompt_metadata, created_by,
     # content) are intentionally omitted — migration 10 dropped them.
@@ -493,9 +493,9 @@ SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS article_versions_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS audit_log_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_compare_hourly_seq START 1",
-    # REM-003: article_vectors upgraded from composite PK to id PK
+    # article_vectors upgraded from composite PK to id PK
     "CREATE SEQUENCE IF NOT EXISTS article_vectors_seq START 1",
-    # REM-006: prompt_templates table added to DuckDB schema
+    # prompt_templates table added to DuckDB schema
     "CREATE SEQUENCE IF NOT EXISTS prompt_templates_seq START 1",
 ]
 
@@ -716,7 +716,7 @@ async def _upgrade_schema(session) -> None:
             error=str(exc),
         )
 
-    # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
+    # Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.
     await _upgrade_article_vectors_schema(session)
 
@@ -830,15 +830,29 @@ async def _reset_duckdb_sequences(session) -> None:
             )
             log.info("duckdb_schema_sequence_reset", sequence=seq_name, next_value=next_id)
         except Exception as exc:
+            # If DROP DEFAULT succeeded but a later step failed, the column is
+            # left without its auto-increment default. Restore it so the table
+            # keeps working (pointing at the old sequence is still valid when
+            # the failure happened before DROP SEQUENCE).
+            try:
+                await session.execute(
+                    text(f"ALTER TABLE \"{table}\" ALTER COLUMN id SET DEFAULT nextval('{seq_name}')")
+                )
+            except Exception as restore_exc:
+                log.warning(
+                    "duckdb_schema_sequence_default_restore_failed",
+                    sequence=seq_name,
+                    error=str(restore_exc),
+                )
             log.warning("duckdb_schema_sequence_reset_failed", sequence=seq_name, error=str(exc))
 
 
 async def _upgrade_article_vectors_schema(session) -> None:
     """Upgrade article_vectors table to match ORM (id PK + updated_at column).
 
-    Pre-REM-003 schema:
+    Pre-schema:
         PRIMARY KEY (article_id, vector_type), no id, no updated_at
-    Post-REM-003 schema:
+    Post-schema:
         id BIGINT PK + UNIQUE(article_id, vector_type) + updated_at
 
     DuckDB ALTER TABLE limitations:
@@ -878,7 +892,7 @@ async def _upgrade_article_vectors_schema(session) -> None:
                 CREATE TABLE article_vectors
                 (
                     id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
-                    article_id VARCHAR,
+                    article_id UUID,
                     vector_type VARCHAR,
                     embedding FLOAT[1024],
                     model_id VARCHAR NOT NULL,
@@ -889,7 +903,7 @@ async def _upgrade_article_vectors_schema(session) -> None:
                 """)
         )
         # Copy existing data back (id auto-generated, updated_at defaults to NOW())
-        # REM-003: Check if backup table has created_at column — old schema may lack it.
+        # Check if backup table has created_at column — old schema may lack it.
         backup_cols_result = await session.execute(
             text(
                 "SELECT column_name FROM information_schema.columns "
@@ -1117,6 +1131,11 @@ async def _seed_relation_types(session) -> None:
             {"name_en": rt_copy["name_en"]},
         )
         type_id = result.scalar()
+        if type_id is None:
+            raise RuntimeError(
+                "relation_types seed INSERT did not yield an id "
+                f"(name_en={rt_copy['name_en']!r}); transaction state is inconsistent"
+            )
 
         for alias in aliases:
             await session.execute(

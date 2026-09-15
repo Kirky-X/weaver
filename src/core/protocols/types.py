@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Shared type definitions used in Protocol signatures.
 
-This module DEFINES PersistStatus (owned here since T020 so the protocols
+This module DEFINES PersistStatus (owned here since so the protocols
 layer never depends on ``core.db``) and re-exports the remaining types used
 in Protocol method signatures.
 
@@ -21,6 +21,7 @@ Re-exported types:
 
 from __future__ import annotations
 
+import enum
 from datetime import datetime
 from typing import TypedDict
 
@@ -33,13 +34,12 @@ from core.models.shared import (
     ArticleSearchResultView,
     ArticleView,
     CommunitySearchResultView,
+    CommunityView,
     EntitySearchResultView,
     EntityView,
+    EventView,
 )
 from core.types.pipeline_state import PipelineState
-
-
-import enum
 
 
 class PersistStatus(str, enum.Enum):
@@ -86,7 +86,7 @@ class PersistStatus(str, enum.Enum):
         """Validate if a status transition is allowed.
 
         Valid transitions:
-        - PENDING → PROCESSING, FAILED, SAGA_STARTED
+        - PENDING → PROCESSING, FAILED, SAGA_STARTED, LADYBUG_DONE, NEO4J_DONE
         - PROCESSING → PG_DONE, FAILED
         - PG_DONE → NEO4J_DONE, LADYBUG_DONE, NEO4J_FAILED, FAILED
         - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
@@ -174,7 +174,7 @@ class ArticleTitleMeta(TypedDict):
     """Article metadata returned by ``ArticleRepository.fetch_titles_by_pg_ids``.
 
     Used by graph-query callers that, after the Article node slim-down
-    (design.md §D2), can only read ``pg_id`` from the graph DB and must
+    (design.md §), can only read ``pg_id`` from the graph DB and must
     look up the business fields from the relational DB in a batch.
     """
 
@@ -189,8 +189,10 @@ __all__ = [
     "ArticleTitleMeta",
     "ArticleView",
     "CommunitySearchResultView",
+    "CommunityView",
     "EntitySearchResultView",
     "EntityView",
+    "EventView",
     "PersistStatus",
     "PipelineState",
 ]

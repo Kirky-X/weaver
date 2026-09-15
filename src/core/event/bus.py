@@ -8,7 +8,7 @@ Uses blinker for signal dispatching while maintaining a type-safe API.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -150,7 +150,7 @@ class CircuitStateEvent(BaseEvent):
 
 # ── Event Bus (Blinker-backed) ────────────────────────────────────────
 
-EventHandler = Callable[[Any], Coroutine[Any, Any, None]]
+EventHandler = Callable[[Any], Awaitable[None]]
 
 
 class EventBus:
@@ -168,6 +168,13 @@ class EventBus:
         self._signals: dict[type, Signal] = {}
         # Store async handlers for proper dispatch
         self._handlers: dict[type, list[EventHandler]] = {}
+        # Sync wrappers connected to blinker on subscribe. Kept per handler
+        # so unsubscribe() can disconnect them — otherwise every
+        # subscribe/unsubscribe cycle leaks a no-op receiver on the Signal.
+        self._sync_wrappers: dict[int, tuple[type, EventHandler, Any]] = {}
+        # Strong refs to fire-and-forget emit tasks — prevents the GC from
+        # collecting a task before it runs (CPython drops unreferenced tasks).
+        self._emit_tasks: set[asyncio.Task[None]] = set()
 
     def _get_signal(self, event_type: type) -> Signal:
         """Get or create a Signal for an event type."""
@@ -195,6 +202,7 @@ class EventBus:
             pass
 
         signal.connect(sync_wrapper, sender=event_type)
+        self._sync_wrappers[id(sync_wrapper)] = (event_type, handler, sync_wrapper)
 
         log.debug(
             "event_subscribed",
@@ -216,6 +224,14 @@ class EventBus:
             handlers.remove(handler)
         except ValueError:
             return
+        # Disconnect the blinker sync wrapper registered for this handler so
+        # repeated subscribe/unsubscribe cycles do not leak receivers.
+        for wrapper_id, (etype, hdlr, wrapper) in list(self._sync_wrappers.items()):
+            if etype is event_type and hdlr is handler:
+                signal = self._signals.get(event_type)
+                if signal is not None:
+                    signal.disconnect(wrapper, sender=event_type)
+                self._sync_wrappers.pop(wrapper_id, None)
         if not handlers:
             self._handlers.pop(event_type, None)
             self._signals.pop(event_type, None)
@@ -295,13 +311,16 @@ class EventBus:
             event: The event instance to emit.
         """
         try:
-            asyncio.create_task(self.publish(event))
+            task = asyncio.create_task(self.publish(event))
         except RuntimeError:
             # No running event loop, log warning
             log.warning(
                 "emit_no_event_loop",
                 event_type=type(event).__name__,
             )
+        else:
+            self._emit_tasks.add(task)
+            task.add_done_callback(self._emit_tasks.discard)
 
 
 # ── Global Event Bus Instance ─────────────────────────────────────

@@ -9,11 +9,11 @@ list of candidate labels for each call point.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core.llm.routing.model_selector import ModelSelector
 from core.llm.routing.router import LabelRouter
-from core.llm.types import GlobalConfig, Label, RoutingMode
+from core.llm.types import GlobalConfig, Label, LLMType, RoutingMode
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -118,6 +118,7 @@ class SmartRouter:
                 "smart_router_fallback",
                 call_point=call_point,
                 error=str(exc),
+                exc_type=type(exc).__name__,
             )
             return static_labels
 
@@ -134,10 +135,8 @@ class SmartRouter:
                 return []
 
     @staticmethod
-    def _infer_llm_type(call_point: str) -> Any:
+    def _infer_llm_type(call_point: str) -> LLMType:
         """Infer LLMType from call point name."""
-        from core.llm.types import LLMType
-
         if "embedding" in call_point:
             return LLMType.EMBEDDING
         if "rerank" in call_point:

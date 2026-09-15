@@ -29,7 +29,7 @@ def parse_tables_from_schema() -> dict[str, set[str]]:
     """Parse SCHEMA_QUERIES to extract {table_name: {col1, col2, ...}}.
 
     Cached because SCHEMA_QUERIES is a module-level constant and 250+ parameterized
-    test cases call this function (performance M-1 fix).
+    test cases call this function.
     """
     tables: dict[str, set[str]] = {}
     for query in SCHEMA_QUERIES:
@@ -601,7 +601,7 @@ class TestLLMCompareHourlyTable:
 class TestArticleVectorsTable:
     """article_vectors must match PostgreSQL ORM (ArticleVector).
 
-    REM-003: DuckDB schema was missing `id` (BIGINT PK) and `updated_at` columns,
+    DuckDB schema was missing `id` (BIGINT PK) and `updated_at` columns,
     using composite PK (article_id, vector_type) instead. After fix, DuckDB schema
     must match ORM: `id` as PK + UNIQUE(article_id, vector_type).
     """
@@ -656,7 +656,7 @@ class TestArticleVectorsTable:
 class TestPromptTemplatesTable:
     """prompt_templates must exist matching PostgreSQL ORM (PromptTemplate).
 
-    REM-006: DuckDB schema was missing the prompt_templates table entirely.
+    DuckDB schema was missing the prompt_templates table entirely.
     Schema matches the simplified version (migration 10_simplify_prompt_templates):
     id, name (UNIQUE), template, created_at, updated_at.
     """
@@ -828,9 +828,9 @@ class TestSequenceCompleteness:
         "article_versions",
         "audit_log",
         "llm_compare_hourly",
-        # article_vectors upgraded from composite PK to id PK (REM-003)
+        # article_vectors upgraded from composite PK to id PK
         "article_vectors",
-        # prompt_templates table added to DuckDB (REM-006)
+        # prompt_templates table added to DuckDB
         "prompt_templates",
     }
 

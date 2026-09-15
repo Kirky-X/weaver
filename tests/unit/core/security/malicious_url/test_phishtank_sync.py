@@ -113,7 +113,7 @@ class TestPhishTankSync:
         await phishtank.sync()
         data_file = tmp_path / "phishtank.json"
         assert data_file.exists()
-        stored = json.loads(data_file.read_text())
+        stored = json.loads(data_file.read_text(encoding="utf-8"))
         assert "entries" in stored
         assert len(stored["entries"]) == 2
 

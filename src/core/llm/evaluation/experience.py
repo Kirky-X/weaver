@@ -336,6 +336,11 @@ class ExperienceStore:
         # Random exploration probability
         # ε-greedy 探索非密码学
         if random.random() < self._exploration_weight:  # nosec B311
+            # Exploration still counts as a real observed call: advance the
+            # round-robin cursor so warmup completion reflects actual usage.
+            idx = self._round_robin_indices.get(warmup_key, 0)
+            self._round_robin_indices[warmup_key] = (idx + 1) % len(providers)
+            self._warmup_counts[warmup_key] = current_count + 1
             return random.choice(providers)  # nosec B311
 
         # Thompson Sampling after warmup

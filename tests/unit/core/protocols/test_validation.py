@@ -272,3 +272,40 @@ class TestExplicitInterfaceMixin:
         svc = MyService()
         assert svc.method_a() == "a"
         assert svc.method_b() == 42
+
+
+from core.protocols.validation import assert_implements
+
+
+class _ProcessProto(Protocol):
+    def process(self, url: str, depth: int) -> str: ...
+
+
+class _ProcessKwOnlyProto(Protocol):
+    def process(self, url: str, *, force: bool = False) -> str: ...
+
+
+class TestStarArgsSignatureCheck:
+    """*args/**kwargs implementations must pass the param check."""
+
+    def test_var_args_accepts_named_protocol_params(self) -> None:
+        class Impl:
+            def process(self, *args: object, **kwargs: object) -> str:
+                return "ok"
+
+        assert_implements(Impl, _ProcessProto)
+
+    def test_missing_named_param_still_fails(self) -> None:
+        class Impl:
+            def process(self, url: str) -> str:
+                return url
+
+        with pytest.raises(TypeError, match="depth"):
+            assert_implements(Impl, _ProcessProto)
+
+    def test_kwargs_accepts_keyword_only_proto_params(self) -> None:
+        class Impl:
+            def process(self, url: str, **kwargs: object) -> str:
+                return url
+
+        assert_implements(Impl, _ProcessKwOnlyProto)

@@ -69,6 +69,10 @@ class URLSecurityCache:
     async def get(self, url: str) -> dict[str, Any] | None:
         """Get cached result for URL.
 
+        The stored payload includes the original URL; on a (64-bit) hash
+        collision the entry is discarded instead of returning another
+        URL's verdict.
+
         Args:
             url: The URL to look up.
 
@@ -80,18 +84,27 @@ class URLSecurityCache:
 
         try:
             key = self._get_key(url)
+            cached: str | None = None
 
             # Check if redis client has the get method
             if hasattr(self._redis, "get"):
                 cached = await self._redis.get(key)
-                if cached:
-                    return json.loads(cached)
             elif hasattr(self._redis, "execute_command"):
                 # Fallback for different redis client interfaces
                 cached = await self._redis.execute_command("GET", key)
-                if cached:
-                    return json.loads(cached)
 
+            if not cached:
+                return None
+
+            parsed = json.loads(cached)
+            if isinstance(parsed, dict) and "result" in parsed:
+                # Wrapped payload — verify the URL to reject collisions.
+                if parsed.get("url") != url:
+                    log.warning("cache_url_hash_collision", url=url)
+                    return None
+                return parsed["result"]
+            # Legacy unwrapped entry — expires via TTL.
+            return parsed
             return None
 
         except Exception as e:
@@ -112,7 +125,8 @@ class URLSecurityCache:
         try:
             key = self._get_key(url)
             ttl = self._get_ttl_for_risk(risk)
-            value = json.dumps(result)
+            # Wrap with the URL so reads can reject hash collisions.
+            value = json.dumps({"url": url, "result": result})
 
             # Use appropriate redis method
             if hasattr(self._redis, "set"):

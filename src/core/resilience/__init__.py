@@ -8,7 +8,6 @@
 - retry_db, retry_llm, retry_network: 重试装饰器
 """
 
-from core.llm.utils.json_parser import OutputParserException
 from core.resilience.circuit_breaker import CBState, CircuitBreaker
 from core.resilience.retry import (
     retry_db,
@@ -22,7 +21,6 @@ from core.resilience.retry import (
 __all__ = [
     "CBState",
     "CircuitBreaker",
-    "OutputParserException",
     "retry_db",
     "retry_llm",
     "retry_network",

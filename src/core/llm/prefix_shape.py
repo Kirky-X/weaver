@@ -94,7 +94,8 @@ def capture_shape(
     else:
         # Normalize tools schema: sort keys within each dict, then sort list elements
         normalized_items = [
-            json.dumps(item, sort_keys=True, ensure_ascii=False) for item in tools_schema
+            json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+            for item in tools_schema
         ]
         normalized_items.sort()
         tools_normalized = "[" + ",".join(normalized_items) + "]"
@@ -104,7 +105,11 @@ def capture_shape(
     from core.llm.client import NON_SEMANTIC_FIELDS
 
     semantic_payload = {k: v for k, v in payload.items() if k not in NON_SEMANTIC_FIELDS}
-    payload_normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False)
+    # default=str: this is a diagnostics path — a non-JSON-serializable
+    # value (datetime, enum) must not crash the LLM request itself.
+    payload_normalized = json.dumps(
+        semantic_payload, sort_keys=True, ensure_ascii=False, default=str
+    )
     payload_hash = _short_hash(payload_normalized)
 
     return PrefixShape(

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for LOW priority fixes (Task 18).
+"""Tests for LOW priority fixes.
 
 Verifies:
 - 18.1: data_conflicts GIN index on ArticleAnalysis and Article

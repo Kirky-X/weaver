@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from core.constants import TaskStatus
@@ -61,8 +62,6 @@ class InMemoryTaskRegistry:
             entry = self._tasks.get(task_id)
             if entry is None:
                 return
-            import time
-
             completed_at = time.time()
             try:
                 entry["result"] = t.result()
@@ -80,6 +79,28 @@ class InMemoryTaskRegistry:
                 log.error("task_failed", task_id=task_id, error=str(e))
 
         async_task.add_done_callback(on_done)
+        # Bound memory: production never calls cleanup_completed(), so prune
+        # the oldest terminal-state entries here or the dict grows forever.
+        self._prune_terminal_entries()
+
+    def _prune_terminal_entries(self, max_terminal: int = 500) -> int:
+        """Drop oldest DONE/CANCELLED/FAILED entries beyond ``max_terminal``."""
+        terminal_states = (
+            TaskStatus.DONE.value,
+            TaskStatus.CANCELLED.value,
+            TaskStatus.FAILED.value,
+        )
+        terminal_ids = [
+            tid for tid, entry in self._tasks.items() if entry.get("status") in terminal_states
+        ]
+        overflow = len(terminal_ids) - max_terminal
+        if overflow <= 0:
+            return 0
+        # Dict preserves insertion order — oldest registrations come first.
+        for tid in terminal_ids[:overflow]:
+            self._tasks.pop(tid, None)
+        log.debug("task_registry_pruned", count=overflow)
+        return overflow
 
     async def get_status(self, task_id: str) -> dict[str, Any]:
         """Get the status of a registered task.
@@ -136,7 +157,9 @@ class InMemoryTaskRegistry:
         """List registered tasks.
 
         Args:
-            status: Filter by status (pending, running, done, cancelled, failed).
+            status: Filter by status (running, done, cancelled, failed).
+                ``pending`` 不是合法取值——TaskStatus 未定义 PENDING，任务注册时
+                直接处于 RUNNING 状态。
             limit: Maximum number of tasks to return.
 
         Returns:
@@ -167,8 +190,6 @@ class InMemoryTaskRegistry:
             Number of tasks removed.
         """
         # Remove done/cancelled/failed tasks older than max_age_seconds
-        import time
-
         current_time = time.time()
         to_remove = [
             tid

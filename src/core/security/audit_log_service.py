@@ -77,6 +77,7 @@ class AuditLogService:
         action: str | None = None,
         target_type: str | None = None,
         limit: int = 100,
+        include_pii: bool = False,
     ) -> list[dict[str, Any]]:
         """Query audit log events.
 
@@ -84,11 +85,15 @@ class AuditLogService:
             key_id: Filter by API key ID.
             action: Filter by action.
             target_type: Filter by target type.
-            limit: Maximum number of events to return.
+            limit: Maximum number of events to return (clamped to 1-10_000).
+            include_pii: Include PII fields (client_ip, user_agent). Only
+                enable for admin-privileged callers.
 
         Returns:
             List of audit event dicts.
         """
+        limit = min(max(int(limit), 1), 10_000)
+
         async with self._pool.session() as session:
             query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
 
@@ -110,8 +115,8 @@ class AuditLogService:
                     "target_type": e.target_type,
                     "target_id": e.target_id,
                     "detail": e.detail,
-                    "client_ip": e.client_ip,
-                    "user_agent": e.user_agent,
+                    "client_ip": e.client_ip if include_pii else None,
+                    "user_agent": e.user_agent if include_pii else None,
                     "created_at": e.created_at.isoformat() if e.created_at else None,
                 }
                 for e in events

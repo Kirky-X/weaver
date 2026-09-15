@@ -11,7 +11,7 @@ them dynamically via engine events in PostgresPool.startup().
 import time
 
 from sqlalchemy import event
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, Engine
 
 from core.observability import get_logger
 
@@ -45,8 +45,13 @@ def before_cursor_execute(
         context: Execution context.
         executemany: Whether this is an executemany operation.
     """
-    conn.info.setdefault("query_start_time", []).append(time.time())
-    log.debug("query_start", statement=statement[:100])
+    stack = conn.info.setdefault("query_start_time", [])
+    stack.append(time.time())
+    # Cap the stack: if after_cursor_execute never fires for an entry
+    # (broken cursor, aborted path), the list would grow unboundedly.
+    if len(stack) > 64:
+        del stack[:-32]
+    log.debug("query_start", statement=statement[:100], executemany=executemany)
 
 
 def after_cursor_execute(
@@ -77,20 +82,22 @@ def after_cursor_execute(
     threshold_ms = conn.info.get("slow_query_threshold_ms", DEFAULT_SLOW_QUERY_THRESHOLD_MS)
 
     if total_time_ms > threshold_ms:
+        # Bind parameters are deliberately omitted — they can contain
+        # credentials or PII that must not reach logs.
         log.warning(
             "slow_query_detected",
             duration_ms=round(total_time_ms, 2),
             threshold_ms=threshold_ms,
             statement=statement[:200],
-            parameters=str(parameters)[:100] if parameters else None,
+            executemany=executemany,
         )
 
 
-def register_engine_events(engine) -> None:
+def register_engine_events(engine: Engine) -> None:
     """Register event listeners on a SQLAlchemy engine.
 
     Args:
-        engine: SQLAlchemy engine (sync or async engine's sync_engine).
+        engine: SQLAlchemy sync engine (or an ``AsyncEngine.sync_engine``).
     """
     event.listen(engine, "before_cursor_execute", before_cursor_execute)
     event.listen(engine, "after_cursor_execute", after_cursor_execute)

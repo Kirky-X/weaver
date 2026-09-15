@@ -282,3 +282,45 @@ class TestSSLVerifier:
 
             assert result.risk == URLRisk.MEDIUM
             assert "san" in result.message.lower()
+
+
+class TestTrustedIssuerMatching:
+    """CA matching uses token boundaries, not bare substrings (#44)."""
+
+    @pytest.fixture
+    def verifier(self) -> SSLVerifier:
+        return SSLVerifier(enabled=True)
+
+    def test_real_trusted_issuers_match(self, verifier: SSLVerifier) -> None:
+        assert verifier._is_trusted_issuer("DigiCert Global G2 TLS RSA SHA256 2022 CA1")
+        assert verifier._is_trusted_issuer("Let's Encrypt Authority X3")
+        assert verifier._is_trusted_issuer("DigiCert, Inc.")
+        assert verifier._is_trusted_issuer("Google Trust Services EV TLS CA1")
+
+    def test_lookalike_issuers_do_not_match(self, verifier: SSLVerifier) -> None:
+        assert not verifier._is_trusted_issuer("EvilDigiCertCA")
+        assert not verifier._is_trusted_issuer("NotLetsEncrypt LLC")
+        assert not verifier._is_trusted_issuer("CloudflareFreeCertPhish")
+        assert not verifier._is_trusted_issuer("")
+
+    def test_case_insensitive(self, verifier: SSLVerifier) -> None:
+        assert verifier._is_trusted_issuer("digicert inc")
+        assert verifier._is_trusted_issuer("DIGICERT GLOBAL ROOT CA")
+
+
+class TestTrustedCASImmutability:
+    """类级共享的信任集合必须是不可变的（OCR LOW #151）。
+
+    ``set`` 可被任意代码 ``SSLVerifier.TRUSTED_CAS.add("BadCA")`` 污染，
+    影响所有实例；改为 ``frozenset`` 后此类操作直接失败。
+    """
+
+    def test_trusted_cas_is_frozenset(self) -> None:
+        assert isinstance(SSLVerifier.TRUSTED_CAS, frozenset)
+
+    def test_ev_oids_is_frozenset(self) -> None:
+        assert isinstance(SSLVerifier.EV_OIDS, frozenset)
+
+    def test_trusted_cas_cannot_be_mutated(self) -> None:
+        with pytest.raises(AttributeError):
+            SSLVerifier.TRUSTED_CAS.add("BadCA")  # type: ignore[attr-defined]

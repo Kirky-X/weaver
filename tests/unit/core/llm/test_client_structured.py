@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for LLMClient.structured_call (T024 / R-structured-002, R-structured-003).
+"""Unit tests for LLMClient.structured_call.
 
 Verifies the 4 scenarios mandated by spec:
 1. Success: schema exists, LLM returns valid JSON matching schema → return dict
@@ -11,7 +11,7 @@ Verifies the 4 scenarios mandated by spec:
 4. SchemaNotFoundError: schema not found → log warning + return
    {_fallback: true, content: <llm_response>} (degrade, no retry)
 
-Spec R-structured-002 priority:
+Spec priority:
     1. SchemaNotFoundError → DIRECT fallback (no retry — schema absent,
        retry is meaningless).
     2. Schema exists → retry path: validate → fail → retry 1x → fail →
@@ -231,14 +231,17 @@ class TestStructuredCallRetrySuccess:
                 schema_node_id="schema-funding",
             )
 
-        # 2nd call's payload should contain a retry hint key.
+        # 2nd call must embed the schema-violation hint directly in the
+        # prompt (call() does not process a "_retry_hint" payload key).
         second_call_args = mock_call.call_args_list[1]
         second_payload = (
             second_call_args.args[1]
             if second_call_args.args
             else second_call_args.kwargs.get("payload")
         )
-        assert "_retry_hint" in second_payload
+        assert "_retry_hint" not in second_payload
+        assert "不符合 JSON Schema" in second_payload["user_content"]
+        assert second_payload["user_content"].startswith("Extract funding")
 
 
 class TestStructuredCallRetryFails:
@@ -334,7 +337,7 @@ class TestStructuredCallSchemaNotFound:
     async def test_fallback_does_not_pass_response_format(self):
         """Fallback path does NOT pass response_format to LLM (plain call).
 
-        Spec R-structured-002: SchemaNotFoundError → DIRECT fallback.
+        Spec SchemaNotFoundError → DIRECT fallback.
         The plain call should not include response_format=schema because
         the schema was not found.
         """
@@ -398,7 +401,7 @@ class TestStructuredCallInvalidJsonResponse:
         """LLM returns non-JSON text → StructuredOutputValidationError after retry.
 
         Non-JSON response is treated as validation failure — retry once,
-        then raise. This is consistent with the retry path (R-structured-003).
+        then raise. This is consistent with the retry path.
         """
         from core.llm.structured_output import StructuredOutputValidationError
 
@@ -423,7 +426,7 @@ class TestStructuredCallInvalidJsonResponse:
 
 
 class TestStructuredCallDegradeVsRetryMutex:
-    """Verify degrade and retry are mutually exclusive (R-structured-002)."""
+    """Verify degrade and retry are mutually exclusive."""
 
     @pytest.mark.asyncio
     async def test_schema_not_found_does_not_retry(self):

@@ -54,7 +54,7 @@ class TestPortAnnouncer:
             announcer.announce("127.0.0.1", 8005, 8000)
 
         assert env_file.exists()
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
         assert "WEAVER_ACTUAL_PORT=8005" in content
 
     def test_announce_does_not_write_env_file_when_disabled(self, tmp_path: Path) -> None:

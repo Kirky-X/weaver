@@ -59,6 +59,26 @@ async def _handle_llm_usage_metrics(event: Any) -> None:
         )
 
 
+def _log_warmup_failure(task: Any) -> None:
+    """Done-callback for fire-and-forget warmup tasks.
+
+    Logs the failure instead of letting the exception surface only as an
+    "exception was never retrieved" warning at GC time.
+    """
+    from core.observability import get_logger
+
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        get_logger(__name__).warning(
+            "background_warmup_task_failed",
+            task=getattr(task, "get_name", lambda: "")(),
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
+
+
 class EmbeddingServiceWrapper:
     """Wraps LLMClient to provide embed() interface for search endpoints.
 
@@ -228,6 +248,18 @@ class ContainerLifecycleMixin:
             raise RuntimeError("LLM client not initialized. Call init_llm() first.")
         return self._llm_client
 
+    def embedding_service(self) -> Any:
+        """Return the embedding service instance."""
+        if self._embedding_service is None:
+            raise RuntimeError("Embedding service not initialized")
+        return self._embedding_service
+
+    def intent_classifier(self) -> Any:
+        """Return the intent classifier instance."""
+        if self._intent_classifier is None:
+            raise RuntimeError("Intent classifier not initialized")
+        return self._intent_classifier
+
     def _init_tiered_router(self) -> None:
         """Initialize TieredRouter from call-point configuration.
 
@@ -377,6 +409,9 @@ class ContainerLifecycleMixin:
         if self._gliner_extractor is not None:
             try:
                 self._gliner_warmup_task = asyncio.create_task(self._gliner_extractor.warmup())
+                # Surface warmup failures: an unretrieved task exception would
+                # otherwise only appear as a GC-time warning (or be dropped).
+                self._gliner_warmup_task.add_done_callback(_log_warmup_failure)
             except Exception as exc:
                 log.debug("gliner_warmup_scheduling_failed", error=str(exc))
 
@@ -408,6 +443,16 @@ class ContainerLifecycleMixin:
         settings = self._settings.scheduler
         if not settings.enabled:
             log.info("scheduler_disabled")
+            return
+
+        # Idempotency guard: startup() invoked twice without shutdown() must
+        # not re-register jobs (DuplicateJobError or duplicated background
+        # work). Mirrors the event-subscription dedup via _owned_event_handlers.
+        if self._scheduler is not None:
+            log.warning(
+                "scheduler_setup_skipped_already_running",
+                jobs=len(self._scheduler.get_jobs()),
+            )
             return
 
         scheduler = AsyncIOScheduler(

@@ -11,7 +11,7 @@ import hashlib
 import json
 import os
 import time
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import jsonschema
 from cachetools import TTLCache
@@ -96,12 +96,17 @@ def build_stable_cache_key(call_point: str, payload: dict[str, Any]) -> str:
         Cache key in format: cache:llm:v2:{call_point}:{sha256[:16]}
     """
     semantic_payload = {k: v for k, v in payload.items() if k not in NON_SEMANTIC_FIELDS}
-    normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False)
+    normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False, default=str)
     stable_hash = hashlib.sha256(normalized.encode()).hexdigest()[:16]
     return f"cache:llm:v2:{call_point}:{stable_hash}"
 
 
 # Embedding cache settings
+# NOTE: ``emb:`` is deliberately disjoint from the LLM response-cache namespace
+# ``cache:llm:v2:`` (see _make_llm_cache_key). The generic ``call()`` cache-read
+# path does ``json.loads(cached)["content"]``, which assumes a JSON object — an
+# embedding entry is a bare JSON list, so any overlap would raise
+# TypeError/KeyError. Keep these prefixes distinct (OCR LOW #131).
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
 EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60  # 7 days
 
@@ -690,6 +695,13 @@ class LLMClient:
             try:
                 cp = CallPoint(call_point)
             except ValueError:
+                # 与 call() 保持一致：非法 call_point 必须留可观测信号，
+                # 否则 batch 路径会静默降级为 CLASSIFIER（OCR LOW #39）。
+                log.warning(
+                    "batch_call_point_invalid",
+                    call_point=call_point,
+                    fallback_call_point=CallPoint.CLASSIFIER.value,
+                )
                 cp = CallPoint.CLASSIFIER
         else:
             cp = call_point
@@ -700,7 +712,9 @@ class LLMClient:
         # 避免 batch 路径 key 格式与灰度开关脱节。
         cache_keys = [self._build_cache_key(cp.value, p) for p in payloads]
 
-        # Batch cache lookup via MGET
+        # Batch cache lookup via MGET.
+        # 列表元素仅作为占位：下方每个下标要么命中缓存、要么由单次 call()
+        # 填满（失败会直接抛异常），因此返回时不会再残留 None。
         results: list[T | str | None] = [None] * len(payloads)
         uncached_indices: list[int] = []
 
@@ -720,7 +734,10 @@ class LLMClient:
                         uncached_indices.append(i)
             except Exception as exc:
                 log.debug("batch_cache_mget_failed", error=str(exc))
-                uncached_indices = list(range(len(payloads)))
+                # Preserve entries already parsed from cache before the
+                # failure; only re-fetch the ones still missing so a single
+                # corrupt cache entry does not defeat the whole cache.
+                uncached_indices = [i for i, r in enumerate(results) if r is None]
         else:
             uncached_indices = list(range(len(payloads)))
 
@@ -770,7 +787,7 @@ class LLMClient:
                         error_type=type(exc).__name__,
                     )
 
-        return results  # type: ignore[return-value]
+        return cast(list[T | str], results)
 
     async def call_at(
         self,
@@ -1405,7 +1422,7 @@ class LLMClient:
         if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "true").lower() == "true":
             return build_stable_cache_key(call_point, payload)
 
-        return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()}"
 
     def get_metrics(self) -> dict[str, dict[str, Any]]:
         """获取所有provider的监控指标."""

@@ -53,20 +53,20 @@ class LLMSettings(BaseSettings):
     default_timeout: float = 120.0
 
     # Provider configurations (dynamic keys)
-    providers: dict[str, ProviderConfig] = {}
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
     # Default routing
-    defaults: dict[str, RoutingConfig] = {}
+    defaults: dict[str, RoutingConfig] = Field(default_factory=dict)
 
     # Per-call-point input truncation limits (characters), overrides the
     # built-in defaults by call-point name (see core.llm.client._INPUT_LIMITS).
-    input_limits: dict[str, int] = {}
+    input_limits: dict[str, int] = Field(default_factory=dict)
 
     # Call-point routing (maps from TOML "call-points" key)
-    call_points: dict[str, RoutingConfig] = {}
+    call_points: dict[str, RoutingConfig] = Field(default_factory=dict)
 
     # Per-call-point routing mode and weights
-    routing: dict[str, dict[str, Any]] = {}
+    routing: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     # Shadow evaluation config
     eval_config: EvalConfig = Field(default_factory=EvalConfig)
@@ -193,5 +193,28 @@ class LLMSettings(BaseSettings):
             # Map hyphenated keys to underscored keys
             if "call-points" in toml_data and "call_points" not in data:
                 data["call_points"] = toml_data["call-points"]
+
+            # extra="ignore" would silently drop any other hyphenated
+            # top-level section; surface it so config typos are visible.
+            known_hyphenated = {"call-points"}
+            unexpected = [k for k in toml_data if "-" in k and k not in known_hyphenated]
+            if unexpected:
+                log.warning(
+                    "llm_config_unexpected_hyphenated_keys",
+                    keys=sorted(unexpected),
+                )
+
+            # Map [global] section → top-level fields. pydantic-settings 的
+            # TOML source 只映射顶层键，[global] 表会被静默丢弃（僵尸配置）：
+            # 改 [global] 永不生效。显式映射使熔断阈值/超时可配置。
+            global_cfg = toml_data.get("global", {})
+            if isinstance(global_cfg, dict):
+                for key in (
+                    "circuit_breaker_threshold",
+                    "circuit_breaker_timeout",
+                    "default_timeout",
+                ):
+                    if key in global_cfg and key not in data:
+                        data[key] = global_cfg[key]
 
         super().__init__(**data)

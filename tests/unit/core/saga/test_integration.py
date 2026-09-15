@@ -273,7 +273,7 @@ class TestSagaMetrics:
 
 
 class TestFaultRecovery:
-    """Tests for saga fault recovery scenarios (Task 11.3)."""
+    """Tests for saga fault recovery scenarios."""
 
     @pytest.mark.asyncio
     async def test_recovery_after_step_failure_with_compensation(self, orchestrator, mock_pool):
@@ -407,7 +407,7 @@ class TestFaultRecovery:
 
 
 class TestPerformanceStress:
-    """Performance stress tests for saga system (Task 11.4)."""
+    """Performance stress tests for saga system."""
 
     @pytest.mark.asyncio
     async def test_concurrent_saga_steps(self, orchestrator, mock_pool):
@@ -505,7 +505,7 @@ class TestPerformanceStress:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Spec Coverage Documentation (Task 11.5)
+# Spec Coverage Documentation
 # ─────────────────────────────────────────────────────────────────────────────
 # The following scenarios are covered by tests in the corresponding files:
 #

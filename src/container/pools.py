@@ -116,16 +116,30 @@ class ContainerPoolsMixin:
             except Exception as exc:
                 log.warning("redis_unavailable_fallback_to_cashews", error=str(exc))
 
-            await fallback.startup()
+            try:
+                await fallback.startup()
+            except Exception:
+                # Primary Redis is already started — release it before
+                # propagating, otherwise the connected client leaks.
+                if primary_ok:
+                    try:
+                        await primary.shutdown()
+                    except Exception as shutdown_exc:
+                        log.warning(
+                            "redis_shutdown_after_fallback_failure",
+                            error=str(shutdown_exc),
+                            exc_type=type(shutdown_exc).__name__,
+                        )
+                raise
             log.info("cashews_client_initialized")
 
             # Wrap in FallbackCachePool for runtime degradation
             pool = FallbackCachePool(primary=primary, fallback=fallback)
 
-            # If primary failed at startup, mark as degraded
+            # If primary failed at startup, mark as degraded via the public
+            # API so state/metrics/logging stay consistent with runtime degradation.
             if not primary_ok:
-                pool._primary_healthy = False
-                pool._set_fallback_active(1)
+                pool.mark_primary_degraded_at_startup("primary startup failed")
 
             self._cache_client = pool
 

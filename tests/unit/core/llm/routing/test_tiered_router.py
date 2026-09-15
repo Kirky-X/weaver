@@ -182,3 +182,17 @@ class TestTieredRouterGetInputTruncation:
         router = _make_router(tiers=None)
         truncation = router.get_input_truncation("classifier", "some text")
         assert truncation is None
+
+
+class TestFindTierEmptyList:
+    """an empty tiers list must return None, not IndexError."""
+
+    def test_empty_unified_tiers_returns_none(self) -> None:
+        router = _make_router(tiers=[])
+        tier = router._find_tier("classifier", difficulty=0.5)
+        assert tier is None
+
+    def test_empty_per_call_point_tiers_returns_none(self) -> None:
+        router = TieredRouter(estimator=DifficultyEstimator(), tiers_by_call_point={"classifier": []})
+        tier = router._find_tier("classifier", difficulty=0.5)
+        assert tier is None

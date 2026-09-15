@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for TrendDetectionProtocol and TrendDetectionResult (T014 / R-trend-001).
+"""Tests for TrendDetectionProtocol and TrendDetectionResult.
 
 Verifies:
-- R-trend-001: Protocol defines detect_trends method
+- Protocol defines detect_trends method
 - TrendDetectionResult dataclass has 5 fields per spec:
   window_days / entity_type / trends / list / status
 - Protocol is @runtime_checkable
 - status ∈ {'ok', 'insufficient_data'}
-- Default values reflect "no data" state (R-trend-003):
+- Default values reflect "no data" state:
   trends=[], list=[], status='insufficient_data' is the explicit no-data state;
   status='ok' represents the data-sufficient state.
 - detect_trends signature: detect_trends(window_days=7, entity_type=None)
@@ -26,7 +26,7 @@ from modules.trend.models import TrendDetectionResult
 
 
 class TestTrendDetectionProtocolStructure:
-    """Verify TrendDetectionProtocol is defined correctly (R-trend-001)."""
+    """Verify TrendDetectionProtocol is defined correctly."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
         """TrendDetectionProtocol MUST be @runtime_checkable per spec."""
@@ -49,7 +49,7 @@ class TestTrendDetectionProtocolStructure:
 
 
 class TestTrendDetectionProtocolMockCompliance:
-    """Verify mock implementations satisfy the Protocol (R-trend-001)."""
+    """Verify mock implementations satisfy the Protocol."""
 
     def test_mock_with_detect_trends_satisfies_protocol(self) -> None:
         """A class implementing detect_trends should satisfy the Protocol."""
@@ -84,7 +84,7 @@ class TestTrendDetectionProtocolMockCompliance:
 
     @pytest.mark.asyncio
     async def test_detect_trends_no_data_returns_insufficient_data(self) -> None:
-        """R-trend-003: insufficient data scenario returns status='insufficient_data'."""
+        """insufficient data scenario returns status='insufficient_data'."""
         mock_service = MagicMock(spec=TrendDetectionProtocol)
         no_data = TrendDetectionResult(
             window_days=7,
@@ -101,7 +101,7 @@ class TestTrendDetectionProtocolMockCompliance:
 
 
 class TestTrendDetectionResultDataclass:
-    """Verify TrendDetectionResult dataclass shape (R-trend-001)."""
+    """Verify TrendDetectionResult dataclass shape."""
 
     def test_is_dataclass(self) -> None:
         assert is_dataclass(TrendDetectionResult)
@@ -121,7 +121,7 @@ class TestTrendDetectionResultDataclass:
         assert required.issubset(field_names), f"Missing fields: {required - field_names}"
 
     def test_default_values_reflect_insufficient_data_state(self) -> None:
-        """R-trend-003: no-data defaults — trends=[], list=[],
+        """no-data defaults — trends=[], list=[],
         status='insufficient_data' (explicitly NOT 'ok' to signal absence).
         """
         result = TrendDetectionResult()
@@ -161,10 +161,10 @@ class TestTrendDetectionResultDataclass:
 
 
 class TestProtocolMethodSignatures:
-    """Verify Protocol method signatures match spec (R-trend-001) — strict."""
+    """Verify Protocol method signatures match spec — strict."""
 
     def test_detect_trends_signature(self) -> None:
-        """detect_trends(window_days=7, entity_type=None) per spec R-trend-001."""
+        """detect_trends(window_days=7, entity_type=None) per spec."""
         import inspect
 
         sig = inspect.signature(TrendDetectionProtocol.detect_trends)

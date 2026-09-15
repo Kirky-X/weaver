@@ -38,8 +38,6 @@ def get_settings() -> Settings:
     global _settings_instance
     with _settings_lock:
         if _settings_instance is None:
-            from config.settings import Settings
-
             _settings_instance = Settings()
         return _settings_instance
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for scheduler distributed lock (T013)."""
+"""Tests for scheduler distributed lock."""
 
 from __future__ import annotations
 

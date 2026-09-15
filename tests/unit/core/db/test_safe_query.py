@@ -267,3 +267,29 @@ class TestValidateSQLIdentifierIntegration:
         for malicious in malicious_inputs:
             with pytest.raises(ValueError):
                 validate_sql_identifier(malicious)
+
+
+class TestValidateHopPattern:
+    """Tests for validate_hop_pattern (vuln-SEC#24 defense in depth)."""
+
+    def test_valid_patterns_pass(self) -> None:
+        from core.db.safe_query import validate_hop_pattern
+
+        for pattern in ["*", "*1..1", "*1..2", "*1..4", "*..3", "*0..5"]:
+            assert validate_hop_pattern(pattern) == pattern
+
+    def test_malicious_patterns_rejected(self) -> None:
+        from core.db.safe_query import validate_hop_pattern
+
+        malicious = [
+            "",
+            "*1..2} DELETE (a)",
+            "*1..2)]) RETURN n //",
+            "1..2",
+            "*1..2..3",
+            "*-1..2",
+            "MATCH (n) RETURN n",
+        ]
+        for pattern in malicious:
+            with pytest.raises(ValueError):
+                validate_hop_pattern(pattern)

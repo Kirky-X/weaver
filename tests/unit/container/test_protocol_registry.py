@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for Protocol → implementation binding registry (T030)."""
+"""Tests for Protocol → implementation binding registry."""
 
 from unittest.mock import MagicMock, patch
 

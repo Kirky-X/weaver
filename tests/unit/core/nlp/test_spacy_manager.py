@@ -307,3 +307,32 @@ class TestSpacyModelManagerIntegration:
                 manager.check_and_install()
 
                 mock_download.assert_called_once()
+
+
+class TestDetectMissingModelsBroadCatch:
+    """any spacy.load failure marks the model as missing."""
+
+    def test_import_error_marks_model_missing(self) -> None:
+        manager = SpacyModelManager.__new__(SpacyModelManager)
+        manager._config = SpacyModelConfig(
+            models=["en_core_web_sm"], local_paths={}, force_install=False
+        )
+
+        with patch(
+            "spacy.load",
+            side_effect=ImportError("spacy entry point broken"),
+        ):
+            missing = manager._detect_missing_models()
+
+        assert missing == ["en_core_web_sm"]
+
+    def test_oserror_still_marks_model_missing(self) -> None:
+        manager = SpacyModelManager.__new__(SpacyModelManager)
+        manager._config = SpacyModelConfig(
+            models=["zh_core_web_sm"], local_paths={}, force_install=False
+        )
+
+        with patch("spacy.load", side_effect=OSError("[E050] Model not found")):
+            missing = manager._detect_missing_models()
+
+        assert missing == ["zh_core_web_sm"]

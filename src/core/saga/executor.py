@@ -59,7 +59,7 @@ class CompensationExecutor:
 
     def __init__(
         self,
-        timeout_seconds: int = DEFAULT_COMPENSATION_TIMEOUT_SECONDS,
+        timeout_seconds: float = DEFAULT_COMPENSATION_TIMEOUT_SECONDS,
         relational_pool: Any = None,
         graph_pool: Any = None,
         article_repo: Any = None,
@@ -80,6 +80,14 @@ class CompensationExecutor:
                 article_repo=self._article_repo,
                 vector_repo=self._vector_repo,
             )
+            return
+        # 缺少 inject_pools 的命令不会拿到连接，只会在 execute() 深处以
+        # AttributeError / 连接缺失报错。这里显式告警，让配置问题在补偿
+        # 开始时就可见（无法在此 fail-fast：并非所有命令都需要连接池）。
+        log.warning(
+            "compensation_command_without_inject_pools",
+            command_type=type(command).__name__,
+        )
 
     async def execute_compensations(
         self,

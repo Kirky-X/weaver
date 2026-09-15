@@ -104,6 +104,29 @@ class TestProviderConfig:
         assert config.get_model("nonexistent") is None
 
 
+class TestProviderApiKeySecretStr:
+    """api_key must be a SecretStr so repr/logs never leak the key (#31)."""
+
+    def test_api_key_is_secret_str(self) -> None:
+        config = ProviderConfig(api_key="test-key")
+        from pydantic import SecretStr
+
+        assert isinstance(config.api_key, SecretStr)
+
+    def test_repr_does_not_leak_key(self) -> None:
+        config = ProviderConfig(api_key="super-secret-key-123")
+        assert "super-secret-key-123" not in repr(config)
+        assert "super-secret-key-123" not in str(config)
+
+    def test_get_secret_value_round_trip(self) -> None:
+        config = ProviderConfig(api_key="plain-key")
+        assert config.api_key.get_secret_value() == "plain-key"
+
+    def test_default_is_empty_secret(self) -> None:
+        config = ProviderConfig()
+        assert config.api_key.get_secret_value() == ""
+
+
 class TestTokenUsage:
     """Tests for TokenUsage."""
 

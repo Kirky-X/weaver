@@ -127,11 +127,14 @@ class CleanerOutput(BaseModel):
         # 修复 1: content 字段类型异常
         content_val = data.get("content")
         if content_val is None:
-            # content=None → 从顶层 title/subtitle/summary/body 重建
+            # content=None → 从顶层 title/subtitle/summary/body 重建。
+            # Read (not pop) the top-level keys: this validator runs on the
+            # caller's raw LLM output dict, and callers may reuse it (retry,
+            # logging) after validation.
             content: dict[str, Any] = {}
             for key in ("title", "subtitle", "summary", "body"):
                 if key in data:
-                    content[key] = data.pop(key)
+                    content[key] = data[key]
             data["content"] = content
         elif isinstance(content_val, dict):
             # content 是 dict → 修复子字段类型 (str | None)

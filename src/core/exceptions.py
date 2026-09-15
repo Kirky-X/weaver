@@ -67,7 +67,9 @@ class InvalidStateTransitionError(Exception):
     Attributes:
         from_status: The current status before transition.
         to_status: The attempted target status.
-        message: Human-readable error message.
+        message: Human-readable error message. Derived in ``__init__`` from
+            ``from_status``/``to_status`` — callers must treat it as
+            read-only and should not assign to it.
     """
 
     def __init__(self, from_status: str, to_status: str) -> None:

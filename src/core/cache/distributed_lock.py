@@ -19,7 +19,7 @@ import functools
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from core.observability import get_logger
 
@@ -93,7 +93,7 @@ def distributed_lock(
             finally:
                 await _release_lock(cache_pool, name, holder_id)
 
-        return wrapper  # type: ignore[return-value]
+        return cast(F, wrapper)
 
     return decorator
 
@@ -119,9 +119,11 @@ def wrap_scheduler_with_lock(
     original_add_job = scheduler.add_job
 
     def add_job_with_lock(func: Any, trigger: Any = None, *args: Any, **kwargs: Any) -> Any:
-        job_id = kwargs.get("id") or getattr(func, "__name__", "job")
+        job_id = kwargs.get("id") or getattr(func, "__name__", None) or f"job_{id(func):x}"
         interval = trigger_interval_seconds(trigger)
-        ttl = min(int(interval * 0.8), ttl_cap) if interval else ttl_cap
+        # Floor at 1s: sub-1.25s intervals would otherwise truncate to ttl=0,
+        # making the lock expire immediately.
+        ttl = max(1, min(int(interval * 0.8), ttl_cap)) if interval else ttl_cap
         locked = distributed_lock(
             f"weaver:scheduler:{job_id}", ttl_seconds=ttl, cache_pool=cache_pool
         )(func)

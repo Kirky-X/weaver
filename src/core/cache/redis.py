@@ -39,7 +39,7 @@ class RedisClient:
             await self._redis.ping()
             log.info("redis_client_started", url=sanitize_dsn(self._url))
         except Exception as exc:
-            await self._redis.close()
+            await self._redis.aclose()
             self._redis = None
             self._pool = None
             log.error("redis_connection_failed", error=str(exc))
@@ -532,7 +532,13 @@ class CashewsClient:
 
     async def hincrby(self, name: str, key: str, amount: int = 1) -> int:
         h = self._hashes.setdefault(name, {})
-        current = int(h.get(key, "0"))
+        raw = h.get(key, "0")
+        try:
+            current = int(raw)
+        except (TypeError, ValueError) as exc:
+            # Mirror real Redis WRONGTYPE: surface the bad value with context
+            # instead of an opaque bare ValueError from int().
+            raise ValueError(f"hash value at {name}.{key} is not an integer: {raw!r}") from exc
         new_val = current + amount
         h[key] = str(new_val)
         return new_val
@@ -553,23 +559,33 @@ class CashewsClient:
             return lst.pop()
         return None
 
+    @staticmethod
+    def _redis_index(index: int, length: int) -> int:
+        """Normalize a Redis list index (negative counts from the end)."""
+        if index < 0:
+            return max(length + index, 0)
+        return min(index, length)
+
     async def lrange(self, name: str, start: int, stop: int) -> list[str]:
-        """Return a slice of a list."""
+        """Return a slice of a list (Redis inclusive negative-index semantics)."""
         self._check_expiry(name)
         lst = self._lists.get(name, [])
-        if stop == -1:
-            return list(lst[start:])
-        return list(lst[start : stop + 1])
+        start_n = self._redis_index(start, len(lst))
+        stop_n = self._redis_index(stop, len(lst))
+        if start_n > stop_n:
+            return []
+        return list(lst[start_n : stop_n + 1])
 
     async def ltrim(self, name: str, start: int, stop: int) -> None:
-        """Trim a list to the specified range."""
+        """Trim a list to the specified range (Redis inclusive semantics)."""
         self._check_expiry(name)
         lst = self._lists.get(name, [])
-        if stop == -1:
-            trimmed = lst[start:]
-        else:
-            trimmed = lst[start : stop + 1]
-        self._lists[name] = trimmed
+        start_n = self._redis_index(start, len(lst))
+        stop_n = self._redis_index(stop, len(lst))
+        if start_n > stop_n:
+            self._lists[name] = []
+            return
+        self._lists[name] = lst[start_n : stop_n + 1]
 
     # ── Sorted Set ─────────────────────────────────────────────
 
@@ -613,6 +629,10 @@ class CashewsClient:
         Expired keys are lazily cleaned up here so callers never receive
         a key whose TTL has already elapsed (matching real Redis, where
         expired keys are skipped by SCAN).
+
+        Limitation: unlike the real Redis client's streaming SCAN, this
+        in-memory fallback materialises the full key set before yielding
+        (OCR LOW #21). Acceptable for the test/in-memory backend only.
         """
         all_keys = set(self._store.keys())
         all_keys.update(self._hashes.keys())

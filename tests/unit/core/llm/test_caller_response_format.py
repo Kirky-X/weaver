@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -201,26 +202,74 @@ class TestBatchCallCacheSerialization:
             assert self._Out.model_validate_json(data["content"]) == expected
 
 
-class TestRerankClientCacheCap:
-    """The rerank client cache must stay bounded (FIFO eviction)."""
+def _patch_rerank_client(monkeypatch):
+    """Replace core.llm.caller.AsyncOpenAI with a counting fake.
 
-    def test_cache_evicts_oldest_beyond_cap(self):
+    Returns (created, closed): base_url lists recording construction and
+    close() of each fake client.
+    """
+    created: list[str] = []
+    closed: list[str] = []
+
+    class FakeRerankClient:
+        def __init__(
+            self,
+            api_key: str | None = None,
+            base_url: str | None = None,
+            timeout: float | None = None,
+        ) -> None:
+            created.append(base_url)
+            self.close = AsyncMock(side_effect=lambda: closed.append(base_url))
+
+    monkeypatch.setattr("core.llm.caller.AsyncOpenAI", FakeRerankClient)
+    return created, closed
+
+
+class TestRerankClientCacheCap:
+    """The rerank client cache must stay bounded (FIFO eviction) and race-free."""
+
+    @pytest.mark.asyncio
+    async def test_cache_evicts_oldest_beyond_cap(self, monkeypatch):
         caller = LLMCaller()
         caller._RERANK_CLIENT_CAP = 2
+        created, closed = _patch_rerank_client(monkeypatch)
 
         for i in range(4):
-            caller._get_rerank_client(f"https://api{i}.example.com", f"key-{i}", 10.0)
+            await caller._get_rerank_client(f"https://api{i}.example.com", f"key-{i}", 10.0)
 
         assert len(caller._rerank_clients) == 2
-        # The two oldest endpoints were evicted.
+        # The two oldest endpoints were evicted and their clients closed.
         assert ("https://api0.example.com", "key-0") not in caller._rerank_clients
         assert ("https://api1.example.com", "key-1") not in caller._rerank_clients
         assert ("https://api2.example.com", "key-2") in caller._rerank_clients
         assert ("https://api3.example.com", "key-3") in caller._rerank_clients
+        assert created == [
+            "https://api0.example.com",
+            "https://api1.example.com",
+            "https://api2.example.com",
+            "https://api3.example.com",
+        ]
+        assert closed == ["https://api0.example.com", "https://api1.example.com"]
 
-    def test_same_endpoint_reuses_client(self):
+    @pytest.mark.asyncio
+    async def test_same_endpoint_reuses_client(self, monkeypatch):
         caller = LLMCaller()
-        a = caller._get_rerank_client("https://api.example.com", "k", 10.0)
-        b = caller._get_rerank_client("https://api.example.com/", "k", 10.0)
+        created, _ = _patch_rerank_client(monkeypatch)
+        a = await caller._get_rerank_client("https://api.example.com", "k", 10.0)
+        b = await caller._get_rerank_client("https://api.example.com/", "k", 10.0)
         assert a is b
+        assert len(caller._rerank_clients) == 1
+        assert len(created) == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_first_calls_create_single_client(self, monkeypatch):
+        """Concurrent first calls for one endpoint must build exactly one client."""
+        caller = LLMCaller()
+        created, _ = _patch_rerank_client(monkeypatch)
+
+        await asyncio.gather(
+            *(caller._get_rerank_client("https://api.example.com", "k", 10.0) for _ in range(8))
+        )
+
+        assert len(created) == 1
         assert len(caller._rerank_clients) == 1

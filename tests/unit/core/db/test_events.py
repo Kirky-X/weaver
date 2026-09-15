@@ -253,7 +253,8 @@ class TestSlowQueryLogging:
         assert "threshold_ms" in kwargs
         assert kwargs["threshold_ms"] == DEFAULT_SLOW_QUERY_THRESHOLD_MS
         assert "statement" in kwargs
-        assert "parameters" in kwargs
+        #: bind parameters must never reach logs
+        assert "parameters" not in kwargs
 
     @patch("core.db.events.log")
     def test_fast_query_no_warning(self, mock_log, mock_connection):
@@ -337,10 +338,10 @@ class TestSlowQueryLogging:
         )
 
         kwargs = mock_log.warning.call_args[1]
-        logged_params = kwargs["parameters"]
 
-        assert logged_params is not None
-        assert len(logged_params) <= 100
+        #: parameters are omitted entirely — they can contain
+        # credentials or PII.
+        assert "parameters" not in kwargs
 
     @patch("core.db.events.log")
     def test_slow_query_handles_none_parameters(self, mock_log, mock_connection):
@@ -358,8 +359,8 @@ class TestSlowQueryLogging:
         )
 
         kwargs = mock_log.warning.call_args[1]
-        # Parameters should be None in the log
-        assert kwargs["parameters"] is None
+        #: parameters are omitted entirely
+        assert "parameters" not in kwargs
 
     def test_custom_threshold_from_conn_info(self, mock_connection):
         """Test custom slow query threshold from conn.info."""

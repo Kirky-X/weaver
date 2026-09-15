@@ -12,12 +12,8 @@ import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
 
 from core.observability import get_logger
-
-if TYPE_CHECKING:
-    pass
 
 logger = get_logger(__name__)
 
@@ -104,14 +100,6 @@ _CYPHER_FSTRING_PATTERN = re.compile(
 
 # pickle.load usage
 _PICKLE_LOAD_PATTERN = re.compile(r"pickle\.load[s]?\s*\(")
-
-# Hardcoded secrets patterns
-_SECRET_PATTERNS = [
-    re.compile(r'password\s*=\s*["\'][^"\']+(["\'])', re.IGNORECASE),
-    re.compile(r'api_key\s*=\s*["\'][^"\']+(["\'])', re.IGNORECASE),
-    re.compile(r'secret\s*=\s*["\'][^"\']+(["\'])', re.IGNORECASE),
-    re.compile(r'token\s*=\s*["\'][^"\']+(["\'])', re.IGNORECASE),
-]
 
 
 def check_env_security(environment: str = "development") -> list[SecurityCheckResult]:
@@ -267,7 +255,11 @@ def run_security_audit(
             critical=report.critical_count,
             high=report.high_count,
             medium=report.medium_count,
-            issues=[r.message for r in results if r.severity in ("CRITICAL", "HIGH")],
+            issues=[
+                r.message
+                for r in results
+                if r.severity in (SecurityCheckSeverity.CRITICAL, SecurityCheckSeverity.HIGH)
+            ],
         )
 
     return report

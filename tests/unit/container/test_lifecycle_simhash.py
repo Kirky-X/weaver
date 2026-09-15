@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T001 RED: lifecycle.py must wire simhash_dedup into DiscoveryProcessor.
+"""RED: lifecycle.py must wire simhash_dedup into DiscoveryProcessor.
 
-Bug report (D1 dead code):
+Bug report (dead code):
     src/container/lifecycle.py:1023-1028 instantiates DiscoveryProcessor
     without the ``simhash_dedup`` kwarg, leaving
     ``DiscoveryProcessor._simhash_dedup = None`` and disabling cross-source
@@ -101,5 +101,5 @@ async def test_discovery_processor_receives_simhash_dedup() -> None:
     assert instance is not None, "lifecycle.py must instantiate DiscoveryProcessor"
     assert instance._simhash_dedup is not None, (
         "DiscoveryProcessor._simhash_dedup must not be None after startup() — "
-        "lifecycle.py:1023-1028 must pass simhash_dedup=self.simhash_dedup() (D1 dead code)"
+        "lifecycle.py:1023-1028 must pass simhash_dedup=self.simhash_dedup() (dead code)"
     )

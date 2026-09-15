@@ -68,6 +68,31 @@ class ValidationResult:
     latency_ms: float | None = None
 
 
+def _extract_db_name(dsn: str) -> str:
+    """Extract the database name from a DSN for display purposes.
+
+    Prefers the ``dbname``/``database`` query parameter (key=value style
+    DSNs) and falls back to the URL path (``postgresql://host:port/dbname``).
+    Plain ``dsn.split("/")[-1]`` returned host:port (or the whole query
+    string) for key=value DSNs, which made the report misleading.
+
+    Args:
+        dsn: PostgreSQL DSN.
+
+    Returns:
+        The database name, or ``"unknown"`` when it cannot be determined.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(dsn)
+    for key in ("dbname", "database"):
+        values = parse_qs(parsed.query).get(key)
+        if values and values[0]:
+            return values[0]
+    path = parsed.path.lstrip("/")
+    return path or "unknown"
+
+
 # ────────────────────────────────────────────────────────────
 # Validation Cache
 # ────────────────────────────────────────────────────────────
@@ -174,12 +199,12 @@ class EnvironmentValidator:
                     await conn.execute(text("SELECT 1"))
                     result.details.append("✓ Connection successful")
 
-                    db_name = dsn.split("/")[-1].split("?")[0]
+                    db_name = _extract_db_name(dsn)
                     result.details.append(f"✓ Database: {db_name}")
 
                     # Check pgvector
                     ext_result = await conn.execute(
-                        text("SELECT * FROM pg_extension WHERE extname = 'vector'")
+                        text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
                     )
                     if ext_result.fetchone():
                         result.details.append("✓ pgvector extension available")
@@ -234,16 +259,19 @@ class EnvironmentValidator:
                 password = self._settings.neo4j.password
 
                 driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
-                await driver.verify_connectivity()
+                try:
+                    await driver.verify_connectivity()
 
-                result.details.append("✓ Connection successful")
-                result.details.append(f"✓ URI: {uri}")
+                    result.details.append("✓ Connection successful")
+                    result.details.append(f"✓ URI: {uri}")
 
-                await driver.close()
-
-                result.healthy = True
-                result.latency_ms = (time.monotonic() - start_time) * 1000
-                return result
+                    result.healthy = True
+                    result.latency_ms = (time.monotonic() - start_time) * 1000
+                    return result
+                finally:
+                    # Idempotent — releases the driver even when
+                    # verify_connectivity() fails (previously leaked).
+                    await driver.close()
 
             except Exception as exc:
                 if attempt < max_retries - 1:
@@ -355,6 +383,15 @@ class EnvironmentValidator:
         retry_delay = self._settings.health_check.retry_delay_seconds
         timeout = self._settings.health_check.timeout_seconds
 
+        if not base_url:
+            # Without a base URL the branches below would build a relative
+            # path ("/models") that httpx cannot resolve — fail with a
+            # clear hint instead of a confusing validation error.
+            result.details.append("✗ base_url not configured")
+            result.suggestions.append(f"Set base_url for provider '{primary_name}'")
+            self._cache.set(cache_key, result)
+            return result
+
         for attempt in range(max_retries):
             try:
                 if provider_type == LLMProvider.OPENAI.value:
@@ -414,12 +451,16 @@ class EnvironmentValidator:
                 elif provider_type == LLMProvider.ANTHROPIC.value:
                     async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.get(base_url, follow_redirects=True)
-                        result.details.append(f"✓ Provider accessible at {base_url}")
-                        result.details.append(f"✓ Model {model} configured")
-                        result.healthy = True
-                        result.latency_ms = (time.monotonic() - start_time) * 1000
-                        self._cache.set(cache_key, result)
-                        return result
+
+                        if response.status_code == 200:
+                            result.details.append(f"✓ Provider accessible at {base_url}")
+                            result.details.append(f"✓ Model {model} configured")
+                            result.healthy = True
+                            result.latency_ms = (time.monotonic() - start_time) * 1000
+                            self._cache.set(cache_key, result)
+                            return result
+                        result.details.append(f"✗ API returned status {response.status_code}")
+                        result.suggestions.append("Check API key and base URL")
 
                 else:
                     result.details.append(f"✗ Unknown provider type: {provider_type}")
@@ -432,8 +473,11 @@ class EnvironmentValidator:
                 result.details.append("✗ Connection failed")
                 result.suggestions.append(f"Check if {provider_type} server is running")
             except Exception as exc:
+                # Non-transient failure (config/response error) — retrying
+                # would not change the outcome and only duplicates details.
                 result.details.append(f"✗ Validation failed: {exc}")
                 result.suggestions.append(f"Check {provider_type} configuration")
+                break
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
         self._cache.set(cache_key, result)
@@ -548,7 +592,9 @@ class EnvironmentValidator:
                 result.details.append("✗ Connection failed")
                 result.suggestions.append(f"Check if {provider_type} server is running")
             except Exception as exc:
+                # Non-transient failure — retrying only duplicates details.
                 result.details.append(f"✗ Validation failed: {exc}")
+                break
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
         return result
@@ -575,7 +621,13 @@ class EnvironmentValidator:
         }
 
         if services:
-            validators = {k: v for k, v in all_validators.items() if k in services}
+            # Normalize case and surface unknown names — an empty validator
+            # set would make all_healthy() vacuously true and hide the typo.
+            requested = [s.lower() for s in services]
+            unknown = sorted(set(requested) - set(all_validators))
+            if unknown:
+                log.warning("env_validator_unknown_services", services=unknown)
+            validators = {k: v for k, v in all_validators.items() if k in requested}
         else:
             validators = all_validators
 
@@ -624,7 +676,11 @@ class EnvironmentValidator:
         total_count = len(results)
 
         print("=" * 60)
-        if healthy_count == total_count:
+        if total_count == 0:
+            # 例如调用方传入了无法识别的 services 列表，过滤后为空：
+            # 「All 0 services healthy」会被误读为全部通过。
+            print(f"{Colors.YELLOW}No services requested/validated{Colors.RESET}")
+        elif healthy_count == total_count:
             print(f"{Colors.GREEN}All {total_count} services healthy{Colors.RESET}")
         else:
             print(f"{Colors.YELLOW}{healthy_count}/{total_count} services healthy{Colors.RESET}")

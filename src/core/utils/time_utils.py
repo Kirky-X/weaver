@@ -5,7 +5,7 @@
 """时间工具模块 - 支持 NTP 网络时间获取"""
 
 from datetime import UTC, datetime
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from time import monotonic
 from typing import Any
 
@@ -33,16 +33,12 @@ CACHE_TTL = 3600
 # 模块级 NTP 缓存 (进程内)
 _ntp_cache: dict[str, datetime | None | float] = {"time": None, "expires": 0.0}
 
-# 单例 NTP 客户端
-_ntp_client: ntplib.NTPClient | None = None
+# 保护缓存读写的锁：避免过期后多线程并发重建探测线程（惊群），
+# 以及 time/expires 两个字段写入交错导致的不一致状态。
+_ntp_cache_lock = Lock()
 
-
-def _get_ntp_client() -> ntplib.NTPClient:
-    """获取单例 NTP 客户端."""
-    global _ntp_client
-    if _ntp_client is None:
-        _ntp_client = ntplib.NTPClient()
-    return _ntp_client
+# NTP 探测进行中标志（配合 _ntp_cache_lock 使用）
+_ntp_probing = False
 
 
 def get_current_time_with_timezone() -> str:
@@ -109,46 +105,58 @@ def _get_ntp_time() -> datetime | None:
     结果缓存到进程内缓存（TTL=3600s）。
 
     Note: Previously attempted Redis cross-process cache, but RedisClient is async
-    and cannot be awaited in this sync function (Bug-B: coroutine never awaited
+    and cannot be awaited in this sync function (coroutine never awaited
     caused fromisoformat TypeError). Removed — NTP is low-frequency (1hr TTL),
     process-local cache is sufficient for single-process uvicorn deployment.
 
     Returns:
         UTC 时间或 None(获取失败时)
     """
-    # 进程内缓存
-    if monotonic() < _ntp_cache["expires"]:
-        return _ntp_cache["time"]  # type: ignore[return-value]
+    # 进程内缓存（锁内 double-check，防止惊群与缓存状态不一致）
+    global _ntp_probing
+    with _ntp_cache_lock:
+        if monotonic() < _ntp_cache["expires"]:
+            return _ntp_cache["time"]  # type: ignore[return-value]
+        if _ntp_probing:
+            # 另一线程正在探测：直接降级本地时间，不再重复探测
+            return _ntp_cache["time"]  # type: ignore[return-value]
+        _ntp_probing = True
 
-    result: dict[str, datetime | None] = {"time": None}
-    ready = Event()
+    try:
+        result: dict[str, datetime | None] = {"time": None}
+        ready = Event()
 
-    def _probe(server: str) -> None:
-        try:
-            client = _get_ntp_client()
-            response = client.request(server, version=4, timeout=NTP_TIMEOUT)
-            ts = datetime.fromtimestamp(response.tx_time, tz=UTC)
-            if result["time"] is None:
-                result["time"] = ts
-                ready.set()
-        except ntplib.NTPException as e:
-            log.info("ntp_request_failed", server=server, error=str(e))
-        except Exception as e:
-            log.info("ntp_unexpected_error", server=server, error=str(e))
+        def _probe(server: str) -> None:
+            # 每个探测线程使用独立的 NTPClient，避免共享实例的内部状态问题
+            try:
+                client = ntplib.NTPClient()
+                response = client.request(server, version=4, timeout=NTP_TIMEOUT)
+                ts = datetime.fromtimestamp(response.tx_time, tz=UTC)
+                if result["time"] is None:
+                    result["time"] = ts
+                    ready.set()
+            except ntplib.NTPException as e:
+                log.info("ntp_request_failed", server=server, error=str(e))
+            except Exception as e:
+                log.info("ntp_unexpected_error", server=server, error=str(e))
 
-    threads = [Thread(target=_probe, args=(s,), daemon=True) for s in NTP_SERVERS]
-    for t in threads:
-        t.start()
+        threads = [Thread(target=_probe, args=(s,), daemon=True) for s in NTP_SERVERS]
+        for t in threads:
+            t.start()
 
-    ready.wait(timeout=NTP_TIMEOUT)
+        ready.wait(timeout=NTP_TIMEOUT)
 
-    if result["time"] is not None:
-        _ntp_cache["time"] = result["time"]
-        _ntp_cache["expires"] = monotonic() + CACHE_TTL
-        return result["time"]
+        with _ntp_cache_lock:
+            if result["time"] is not None:
+                _ntp_cache["time"] = result["time"]
+                _ntp_cache["expires"] = monotonic() + CACHE_TTL
+                return result["time"]
 
-    # 全部失败
-    log.warning("ntp_all_servers_failed", servers=NTP_SERVERS)
-    _ntp_cache["time"] = None
-    _ntp_cache["expires"] = monotonic() + CACHE_TTL
-    return None
+            # 全部失败
+            log.warning("ntp_all_servers_failed", servers=NTP_SERVERS)
+            _ntp_cache["time"] = None
+            _ntp_cache["expires"] = monotonic() + CACHE_TTL
+            return None
+    finally:
+        with _ntp_cache_lock:
+            _ntp_probing = False

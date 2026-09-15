@@ -84,7 +84,7 @@ class TestCheckPostgresHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # After CWE-200 fix error is bool (True on failure);
         # detailed exception messages are logged server-side only.
         assert result["error"] is True
 
@@ -139,7 +139,7 @@ class TestCheckNeo4jHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # After CWE-200 fix error is bool (True on failure);
         # detailed exception messages are logged server-side only.
         assert result["error"] is True
 
@@ -194,7 +194,7 @@ class TestCheckRedisHealth:
         assert result["status"] == "error"
         assert "latency_ms" in result
         assert "error" in result
-        # After CWE-200 fix (vuln-0011): error is bool (True on failure);
+        # After CWE-200 fix error is bool (True on failure);
         # detailed exception messages are logged server-side only.
         assert result["error"] is True
 
@@ -379,7 +379,7 @@ class TestHealthCheck:
         assert result.checks["postgres"].status == "unavailable"
         assert result.checks["neo4j"].status == "unavailable"
         assert result.checks["redis"].status == "unavailable"
-        # After CWE-200 fix (vuln-0011): error is a bool flag (True on failure);
+        # After CWE-200 fix error is a bool flag (True on failure);
         # detailed messages are logged server-side only, not exposed via API.
         assert result.checks["postgres"].error is True
         assert result.checks["neo4j"].error is True
@@ -504,7 +504,7 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        # After CWE-200 fix (vuln-0011): error is a bool flag (True on failure);
+# After CWE-200 fix error is a bool flag (True on failure);
         # detailed exception messages are logged server-side only.
         assert result.checks["postgres"].error is True
         assert result.checks["neo4j"].error is True

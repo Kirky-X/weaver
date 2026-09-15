@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""REVISED (llm-token-optimization T005): 区域评分已批量化.
+"""REVISED (llm-token-optimization): 区域评分已批量化.
 
-原 P1-2 测试断言 asyncio.gather 并发评分（每区域一次调用）；
+原 测试断言 asyncio.gather 并发评分（每区域一次调用）；
 批量化后 5 个区域合并为 1 次 LLM 调用，时延断言的前提不复存在，
 改断言新的调用次数契约：5 区域全程恰好 1 次 call_at。
 """

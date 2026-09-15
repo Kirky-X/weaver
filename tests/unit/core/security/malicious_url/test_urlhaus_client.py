@@ -143,6 +143,22 @@ class TestURLhausClient:
         assert response.status == URLhausStatus.ERROR
 
     @pytest.mark.asyncio
+    async def test_check_error_message_fixed_not_exception_text(
+        self, client: URLhausClient, mock_fetcher: MagicMock
+    ) -> None:
+        """Exception text must stay in logs, never reach the response (#45)."""
+        mock_fetcher.post.side_effect = ConnectionError(
+            "secret https://user:pass@internal.host:5432/db leaked"
+        )
+
+        response = await client.check("https://example.com")
+
+        assert response.status == URLhausStatus.ERROR
+        assert response.error_message == "URLhaus request failed"
+        assert "user:pass" not in response.error_message
+        assert "internal.host" not in response.error_message
+
+    @pytest.mark.asyncio
     async def test_check_no_api_key(self, mock_fetcher: MagicMock) -> None:
         """Handle missing API key."""
         client_no_key = URLhausClient(api_key="", fetcher=mock_fetcher)

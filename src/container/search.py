@@ -180,7 +180,7 @@ class ContainerSearchMixin:
         try:
             # Trigger hybrid engine initialization (lazy load)
             hybrid_engine = self.hybrid_search_engine()
-            bm25_retriever = hybrid_engine._bm25_retriever if hybrid_engine else None
+            bm25_retriever = hybrid_engine.bm25_retriever if hybrid_engine else None
 
             if bm25_retriever is not None:
                 try:

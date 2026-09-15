@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for PrefixHashTracker integration into LLMClient (Task 13)."""
+"""Tests for PrefixHashTracker integration into LLMClient."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -68,7 +68,7 @@ def _make_mock_response() -> MagicMock:
 
 
 class TestPrefixHashTrackerIntegration:
-    """Test PrefixHashTracker integration in LLMClient (Task 13)."""
+    """Test PrefixHashTracker integration in LLMClient."""
 
     def test_client_has_prefix_tracker(self):
         """LLMClient 初始化时创建 PrefixHashTracker."""

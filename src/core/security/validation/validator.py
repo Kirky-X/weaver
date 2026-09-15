@@ -105,6 +105,10 @@ class URLValidator:
         self._config = config
         self._fetcher = fetcher
 
+        # Strong refs to fire-and-forget cache tasks — the event loop only
+        # holds weak refs, so unreferenced tasks can be GC'd mid-run.
+        self._cache_tasks: set[asyncio.Task[None]] = set()
+
         # Initialize cache
         self._cache = URLSecurityCache(
             cache_client=cache_client,
@@ -210,13 +214,17 @@ class URLValidator:
         if should_run_local:
             # PhishTank
             if self._phishtank:
-                pt_result = self._phishtank.check(url)
+                pt_result = self._run_local_check(
+                    url, CheckSource.PHISHTANK, self._phishtank.check
+                )
                 checks.append(pt_result)
                 if pt_result.risk == URLRisk.BLOCKED:
                     return self._build_result(url, checks)
 
             # Heuristic
-            heuristic_result = self._heuristic.check(url)
+            heuristic_result = self._run_local_check(
+                url, CheckSource.HEURISTIC, self._heuristic.check
+            )
             checks.append(heuristic_result)
 
         # 5. SSL verification
@@ -224,6 +232,38 @@ class URLValidator:
         checks.append(ssl_result)
 
         return self._build_result(url, checks)
+
+    def _run_local_check(self, url: str, source: CheckSource, check_fn) -> CheckResult:
+        """Run a synchronous local check, isolating internal checker failures.
+
+        A single checker crashing (e.g. a malformed URL slipping past its own
+        guards) must not abort the whole validation pipeline — degrade to a
+        LOW-risk result and let the remaining checks decide.
+
+        Args:
+            url: URL being validated.
+            source: Check source for the fallback result.
+            check_fn: The checker's ``check(url)`` callable.
+
+        Returns:
+            CheckResult from the checker, or a LOW-risk fallback on failure.
+        """
+        try:
+            return check_fn(url)
+        except Exception as exc:
+            log.warning(
+                "local_check_failed",
+                source=source.value,
+                url=url,
+                error=str(exc),
+                exc_info=True,
+            )
+            return CheckResult(
+                source=source,
+                risk=URLRisk.LOW,
+                message=f"{source.value} check failed: {exc!s}",
+                details={"error": str(exc)},
+            )
 
     async def _run_ssrf(self, url: str) -> CheckResult:
         """Run SSRF check.
@@ -294,22 +334,23 @@ class URLValidator:
         )
 
         # Cache result asynchronously (fire-and-forget with error logging)
-        _cache_task = asyncio.create_task(
+        cache_task = asyncio.create_task(
             self._cache.set(
                 url=url,
                 result={"risk": max_risk.value, "is_safe": is_safe},
                 risk=max_risk.value,
             )
         )
-        _cache_task.add_done_callback(
-            lambda t: (
-                log.warning("url_validation_cache_failed", error=str(t.exception()))
-                if t.exception()
-                else None
-            )
-        )
+        self._cache_tasks.add(cache_task)
+        cache_task.add_done_callback(self._on_cache_task_done)
 
         return result
+
+    def _on_cache_task_done(self, task: asyncio.Task[None]) -> None:
+        """Release the strong ref and surface cache-task failures."""
+        self._cache_tasks.discard(task)
+        if task.exception():
+            log.warning("url_validation_cache_failed", error=str(task.exception()))
 
     def _disabled_result(self, url: str) -> ValidationResult:
         """Return result when validation is disabled.

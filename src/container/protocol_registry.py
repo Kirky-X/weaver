@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Protocol → implementation binding registry (T030).
+"""Protocol → implementation binding registry.
 
 The single source of truth for runtime contract validation: at startup the
 container validates every registered binding via ``assert_implements`` so a

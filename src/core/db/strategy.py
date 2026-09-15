@@ -41,6 +41,24 @@ class DatabaseStrategy:
     graph_type: str  # "neo4j" | "ladybug" | "none"
 
 
+async def _shutdown_quietly(pool: RelationalPool) -> None:
+    """Best-effort shutdown during failover-abort cleanup.
+
+    Shutdown failures are logged but never mask the original startup error.
+    """
+    shutdown = getattr(pool, "shutdown", None)
+    if shutdown is None:
+        return
+    try:
+        await shutdown()
+    except Exception as exc:
+        log.warning(
+            "relational_pool_cleanup_on_failure_failed",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
+
+
 async def create_strategy(
     pg_settings: PostgresSettings,
     neo4j_settings: Neo4jSettings,
@@ -145,43 +163,55 @@ async def create_strategy(
             log.info("duckdb_connected", db_path=duckdb_settings.db_path)
 
     # 2. Try Neo4j or LadybugDB
+    # If graph initialization raises after the relational pool already
+    # started, shut the relational pool down before propagating — otherwise
+    # the healthy engine/driver leaks with no owner (failover startup aborts).
     graph_pool: GraphPool | None = None
     graph_type: str = "none"
 
-    if neo4j_settings.enabled:
-        try:
-            neo_pool = Neo4jPool(
-                uri=neo4j_settings.uri,
-                auth=(neo4j_settings.user, neo4j_settings.password),
+    try:
+        if neo4j_settings.enabled:
+            try:
+                neo_pool = Neo4jPool(
+                    uri=neo4j_settings.uri,
+                    auth=(neo4j_settings.user, neo4j_settings.password),
+                )
+                await neo_pool.startup()
+                graph_pool = neo_pool
+                graph_type = "neo4j"
+                log.info("neo4j_connected", uri=neo4j_settings.uri)
+            except Exception as exc:
+                log.warning("neo4j_unavailable_fallback_to_ladybug", error=str(exc))
+                if not ladybug_settings.enabled:
+                    log.warning("ladybug_fallback_disabled")
+                else:
+                    # Fallback to LadybugDB
+                    ladybug_pool = LadybugPool(db_path=ladybug_settings.db_path)
+                    await ladybug_pool.startup()
+                    # Initialize schema
+                    await initialize_ladybug_schema(ladybug_pool)
+                    graph_pool = ladybug_pool
+                    graph_type = "ladybug"
+                    log.info("ladybug_connected", db_path=ladybug_settings.db_path)
+        elif ladybug_settings.enabled:
+            # Neo4j disabled, use LadybugDB as primary graph database
+            ladybug_pool = LadybugPool(db_path=ladybug_settings.db_path)
+            await ladybug_pool.startup()
+            # Initialize schema
+            await initialize_ladybug_schema(ladybug_pool)
+            graph_pool = ladybug_pool
+            graph_type = "ladybug"
+            log.info("ladybug_connected_as_primary", db_path=ladybug_settings.db_path)
+        else:
+            # 两个图后端都关闭时图能力完全不可用：用 warning 让运维可见，
+            # 而不是静默地以 graph_type="none" 继续启动。
+            log.warning(
+                "graph_backend_disabled",
+                message="Neo4j 与 LadybugDB 均已禁用，系统将在无图存储的情况下运行",
             )
-            await neo_pool.startup()
-            graph_pool = neo_pool
-            graph_type = "neo4j"
-            log.info("neo4j_connected", uri=neo4j_settings.uri)
-        except Exception as exc:
-            log.warning("neo4j_unavailable_fallback_to_ladybug", error=str(exc))
-            if not ladybug_settings.enabled:
-                log.warning("ladybug_fallback_disabled")
-            else:
-                # Fallback to LadybugDB
-                ladybug_pool = LadybugPool(db_path=ladybug_settings.db_path)
-                await ladybug_pool.startup()
-                # Initialize schema
-                await initialize_ladybug_schema(ladybug_pool)
-                graph_pool = ladybug_pool
-                graph_type = "ladybug"
-                log.info("ladybug_connected", db_path=ladybug_settings.db_path)
-    elif ladybug_settings.enabled:
-        # Neo4j disabled, use LadybugDB as primary graph database
-        ladybug_pool = LadybugPool(db_path=ladybug_settings.db_path)
-        await ladybug_pool.startup()
-        # Initialize schema
-        await initialize_ladybug_schema(ladybug_pool)
-        graph_pool = ladybug_pool
-        graph_type = "ladybug"
-        log.info("ladybug_connected_as_primary", db_path=ladybug_settings.db_path)
-    else:
-        log.info("neo4j_disabled")
+    except Exception:
+        await _shutdown_quietly(relational_pool)
+        raise
 
     return DatabaseStrategy(
         relational_pool=relational_pool,

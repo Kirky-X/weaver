@@ -450,7 +450,7 @@ class CacheScan(Protocol):
         - FallbackCachePool: Redis→Cashews degradation proxy
     """
 
-    async def scan_iter(self, pattern: str, count: int = 100):
+    async def scan_iter(self, pattern: str, count: int = 100) -> AsyncIterator[str]:
         """Iterate over keys matching pattern using SCAN (non-blocking).
 
         Args:

@@ -13,6 +13,7 @@ Implements:
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -169,10 +170,13 @@ class SagaOrchestrator:
         completed_steps: list[str] = []
         completed_compensation_data: list[dict[str, Any]] = []
 
+        deadline = time.monotonic() + self._timeout_seconds
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 for step in steps:
-                    step_result = await self._execute_step_with_retry(saga_id, article_id, step)
+                    step_result = await self._execute_step_with_retry(
+                        saga_id, article_id, step, deadline=deadline
+                    )
 
                     if step_result is None:
                         # Step succeeded
@@ -225,6 +229,7 @@ class SagaOrchestrator:
         saga_id: uuid.UUID,
         article_id: uuid.UUID,
         step: SagaStep,
+        deadline: float | None = None,
     ) -> str | None:
         """Execute a step with retry and exponential backoff.
 
@@ -272,11 +277,23 @@ class SagaOrchestrator:
                 )
 
                 if attempt < self._max_retries:
-                    await self._log_repo.increment_retry(log_id)
                     delay = min(
                         self._retry_base_delay * (2**attempt),
                         self._retry_max_delay,
                     )
+                    if deadline is not None and time.monotonic() + delay >= deadline:
+                        # Sleeping past the outer saga timeout would abort the
+                        # saga mid-backoff and trigger full compensation; fail
+                        # the step cleanly instead.
+                        log.warning(
+                            "saga_retry_budget_exhausted",
+                            saga_id=str(saga_id),
+                            step_name=step.name,
+                            attempt=attempt,
+                            delay=delay,
+                        )
+                        break
+                    await self._log_repo.increment_retry(log_id)
                     await asyncio.sleep(delay)
 
         # All retries exhausted
@@ -403,9 +420,11 @@ class SagaOrchestrator:
         compensation_data = await self._log_repo.get_completed_compensation_data(saga_id)
 
         if not compensation_data:
+            # Nothing was compensated, so reporting COMPENSATED would falsely
+            # signal a safe rollback (e.g. recover_stale_sagas counts on it).
             return SagaResult(
                 saga_id=saga_id,
-                status=SagaStatus.COMPENSATED,
+                status=SagaStatus.FAILED,
                 error="No completed steps to compensate",
             )
 

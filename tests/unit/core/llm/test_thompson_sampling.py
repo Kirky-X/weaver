@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for Thompson Sampling integration (Task 17).
+"""Tests for Thompson Sampling integration.
 
 Verifies:
 - TS sample multiplied by base_score (not additive bonus)

@@ -50,7 +50,7 @@ class TieredRouter:
     def _find_tier(self, call_point: str, difficulty: float) -> TierConfig | None:
         """Find the matching tier for a given difficulty."""
         tiers = self._get_tiers(call_point)
-        if tiers is None:
+        if not tiers:
             return None
         for tier in tiers:
             if difficulty < tier.max_difficulty:

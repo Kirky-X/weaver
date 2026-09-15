@@ -88,9 +88,17 @@ class SpacyModelManager:
             try:
                 spacy.load(model)
                 log.debug("spacy_model_found", model=model)
-            except OSError:
+            except Exception as exc:
+                # Any load failure (missing OSError [E050], broken install
+                # ImportError, config errors) marks the model as missing so
+                # the install path runs instead of crashing detection.
                 missing.append(model)
-                log.debug("spacy_model_missing", model=model)
+                log.debug(
+                    "spacy_model_missing",
+                    model=model,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
 
         return missing
 
@@ -227,6 +235,16 @@ class SpacyModelManager:
         except SystemExit as e:
             # spacy.cli.download calls sys.exit on failure
             self._handle_install_failure(model, f"spacy download exited with code {e.code}")
+        except Exception as exc:
+            # Network/subprocess failures must reach _handle_install_failure
+            # so strict_mode logic is applied instead of crashing startup.
+            log.error(
+                "spacy_network_install_failed",
+                model=model,
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+            self._handle_install_failure(model, f"spacy download failed: {exc}")
 
     def _handle_install_failure(self, model: str, error: str) -> None:
         """Handle installation failure based on strict_mode setting.

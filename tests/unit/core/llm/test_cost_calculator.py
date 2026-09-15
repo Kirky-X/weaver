@@ -4,7 +4,7 @@
 
 Moved from tests/unit/modules/analytics/test_cost_calculator.py to
 tests/unit/core/llm/test_cost_calculator.py when CostCalculator was
-moved from modules.analytics to core.llm.cost (D2 / audit-unintegrated-modules).
+moved from modules.analytics to core.llm.cost.
 
 Test 5.4:
 - Standard call: input=1000, output=500, rate input=0.0025 output=0.01 -> cost = 0.0075

@@ -5,7 +5,7 @@
 This module tests the security hardening measures implemented to prevent
 SQL and Cypher injection attacks across the codebase.
 
-Task 9.3: Manual testing of injection attack protection
+Manual testing of injection attack protection
 """
 
 from __future__ import annotations

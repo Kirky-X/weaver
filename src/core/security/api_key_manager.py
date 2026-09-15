@@ -121,7 +121,12 @@ class ApiKeyManager:
             if session.get_bind().dialect.name != "duckdb":
                 stmt = stmt.with_for_update()
         except AttributeError:
-            pass
+            # Non-SQLAlchemy session (or mock) without get_bind(): the row
+            # lock is skipped, which must not fail the operation silently.
+            log.warning(
+                "for_update_lock_skipped",
+                reason="session has no get_bind(); proceeding without row-level lock",
+            )
         return stmt
 
     @staticmethod
@@ -369,6 +374,17 @@ class ApiKeyManager:
                     owner=target.created_by,
                 )
                 return KeyOpResult(status=KeyOpStatus.FORBIDDEN)
+
+            rotated_to = getattr(target, "rotated_to", None)
+            if rotated_to:
+                # Distinguish "explicitly revoked" from "rotated, then also
+                # revoked" in audit trails — the key is dead either way.
+                log.warning(
+                    "api_key_revoke_after_rotation",
+                    key_id=key_id,
+                    actor=actor,
+                    rotated_to=str(rotated_to),
+                )
 
             await session.execute(
                 update(ApiKey).where(ApiKey.key_id == key_id).values(is_revoked=True)

@@ -88,7 +88,7 @@ class TestGlobalContextBuilderFallback:
     async def test_fallback_returns_entities_when_no_communities(self):
         """When Community nodes don't exist, fallback returns Article-Entity aggregation.
 
-        After Article node slim-down (design.md §D2), the graph query returns
+        After Article node slim-down (design.md §), the graph query returns
         only ``article_id`` (pg_id) and entity fields. Title/score are
         batch-fetched from PostgreSQL via ``article_repo.fetch_titles_by_pg_ids``.
         """
@@ -297,7 +297,7 @@ class TestGlobalContextBuilderFallback:
     async def test_fallback_sorting_by_article_score(self):
         """Fallback results are sorted by article.score descending.
 
-        After Article node slim-down (design.md §D2), score comes from PG
+        After Article node slim-down (design.md §), score comes from PG
         via ``fetch_titles_by_pg_ids``. MockNeo4jPool still sorts by
         ``article_score`` field (kept in mock data for sort simulation).
         """

@@ -31,20 +31,38 @@ def mock_pipeline() -> MagicMock:
             "phase3_completed": True,
         }
     )
-    pipeline.run = AsyncMock(
-        return_value={
-            "article_id": "test-article-id",
-            "url": "https://example.com/test",
-            "status": "completed",
-        }
+    pipeline.process_batch = AsyncMock(
+        return_value=[
+            {
+                "article_id": "test-article-id",
+                "status": "completed",
+            }
+        ]
     )
     return pipeline
 
 
 @pytest.fixture
+def mock_crawler() -> MagicMock:
+    """Create a mock Crawler whose crawl_batch returns a fetched article."""
+    crawler = MagicMock()
+    article = MagicMock()
+    crawler.crawl_batch = AsyncMock(return_value=[article])
+    return crawler
+
+
+@pytest.fixture
 def pipeline_service(mock_pipeline: MagicMock) -> PipelineServiceImpl:
-    """Create a PipelineServiceImpl instance."""
+    """Create a PipelineServiceImpl instance (no crawler)."""
     return PipelineServiceImpl(mock_pipeline)
+
+
+@pytest.fixture
+def pipeline_service_with_crawler(
+    mock_pipeline: MagicMock, mock_crawler: MagicMock
+) -> PipelineServiceImpl:
+    """Create a PipelineServiceImpl instance with a crawler attached."""
+    return PipelineServiceImpl(mock_pipeline, crawler=mock_crawler)
 
 
 class TestPipelineServiceImpl:
@@ -91,28 +109,73 @@ class TestPipelineServiceImpl:
         assert result["phase2_completed"] is True
         assert result["phase3_completed"] is True
 
-    async def test_run_full_pipeline_delegates_to_pipeline(
+    async def test_run_full_pipeline_crawls_then_processes(
+        self,
+        pipeline_service_with_crawler: PipelineServiceImpl,
+        mock_pipeline: MagicMock,
+        mock_crawler: MagicMock,
+    ) -> None:
+        """Test that run_full_pipeline crawls the URL then runs process_batch."""
+        url = "https://example.com/test"
+
+        result = await pipeline_service_with_crawler.run_full_pipeline(
+            url=url,
+            source_name="test-source",
+        )
+
+        # Verify crawl happened with a NewsItem carrying the source
+        mock_crawler.crawl_batch.assert_awaited_once()
+        item = mock_crawler.crawl_batch.await_args.args[0][0]
+        assert item.url == url
+        assert item.source == "test-source"
+
+        # Verify the fetched article went through process_batch
+        mock_pipeline.process_batch.assert_awaited_once()
+        assert (
+            mock_pipeline.process_batch.await_args.args[0][0]
+            is mock_crawler.crawl_batch.return_value[0]
+        )
+
+        # Verify result is the first pipeline state
+        assert result["article_id"] == "test-article-id"
+
+    async def test_run_full_pipeline_without_crawler_raises(
         self,
         pipeline_service: PipelineServiceImpl,
         mock_pipeline: MagicMock,
     ) -> None:
-        """Test that run_full_pipeline delegates to pipeline."""
-        url = "https://example.com/test"
+        """run_full_pipeline must fail fast when no crawler was injected."""
+        with pytest.raises(RuntimeError, match="Crawler not configured"):
+            await pipeline_service.run_full_pipeline("https://example.com/test")
+        mock_pipeline.process_batch.assert_not_awaited()
 
-        result = await pipeline_service.run_full_pipeline(
-            url=url,
-            source_name="test-source",
+    async def test_run_full_pipeline_fetch_error_raises(
+        self,
+        pipeline_service_with_crawler: PipelineServiceImpl,
+        mock_crawler: MagicMock,
+    ) -> None:
+        """A FetchError from the crawler must propagate to the caller."""
+        from modules.ingestion.fetching.exceptions import FetchError
+
+        mock_crawler.crawl_batch = AsyncMock(
+            return_value=[FetchError(url="https://example.com/test", message="blocked")]
         )
 
-        # Verify delegation
-        mock_pipeline.run.assert_called_once_with(
-            url=url,
-            source_name="test-source",
-        )
+        with pytest.raises(FetchError):
+            await pipeline_service_with_crawler.run_full_pipeline("https://example.com/test")
 
-        # Verify result
-        assert result["article_id"] == "test-article-id"
-        assert result["url"] == url
+    async def test_run_full_pipeline_empty_results_raises(
+        self,
+        pipeline_service_with_crawler: PipelineServiceImpl,
+        mock_pipeline: MagicMock,
+        mock_crawler: MagicMock,
+    ) -> None:
+        """No crawl results must raise instead of silently succeeding."""
+        mock_crawler.crawl_batch = AsyncMock(return_value=[])
+
+        with pytest.raises(RuntimeError, match="no results"):
+            await pipeline_service_with_crawler.run_full_pipeline("https://example.com/test")
+        mock_pipeline.process_batch.assert_not_awaited()
 
     async def test_run_phase3_without_force_reprocess(
         self,
@@ -131,18 +194,16 @@ class TestPipelineServiceImpl:
 
     async def test_run_full_pipeline_without_source_name(
         self,
-        pipeline_service: PipelineServiceImpl,
-        mock_pipeline: MagicMock,
+        pipeline_service_with_crawler: PipelineServiceImpl,
+        mock_crawler: MagicMock,
     ) -> None:
-        """Test run_full_pipeline without source_name."""
+        """Test run_full_pipeline without source_name uses default source."""
         url = "https://example.com/test"
 
-        await pipeline_service.run_full_pipeline(url)
+        await pipeline_service_with_crawler.run_full_pipeline(url)
 
-        mock_pipeline.run.assert_called_once_with(
-            url=url,
-            source_name=None,
-        )
+        item = mock_crawler.crawl_batch.await_args.args[0][0]
+        assert item.source == "url_endpoint"
 
     async def test_service_handles_pipeline_errors(
         self,

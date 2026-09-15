@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Shared ingestion domain models (NewsItem / RawArticle).
 
-Owned by ``core.types`` since T021: these dataclasses flow through
+Owned by ``core.types`` since these dataclasses flow through
 processing and storage, so their canonical home must be outside the
 ``modules`` package to keep module import directions acyclic.
 """

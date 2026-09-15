@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for LLMClient cost_usd integration (D2 / audit-unintegrated-modules).
+"""Tests for LLMClient cost_usd integration.
 
 Verifies that:
 1. When a CostCalculator is wired, _emit_usage_event computes cost_usd
@@ -86,7 +86,7 @@ def _make_cost_calculator() -> CostCalculator:
 
 @pytest.mark.asyncio
 class TestLLMClientCostIntegration:
-    """Verify D2: LLMClient._emit_usage_event integrates CostCalculator."""
+    """Verify LLMClient._emit_usage_event integrates CostCalculator."""
 
     async def test_cost_calculator_wired_computes_cost_usd(self):
         """When CostCalculator is wired, cost_usd is computed and passed to event."""
@@ -256,7 +256,7 @@ class TestCreateFromSettingsWiresCostCalculator:
         assert event.cost_usd == pytest.approx(0.0075, abs=1e-10)
 
     async def test_create_from_settings_default_empty_cost(self):
-        """When llm_settings.cost has no rates, CostCalculator is None (MEDIUM-3 conditional init)."""
+        """When llm_settings.cost has no rates, CostCalculator is None (conditional init)."""
         from core.llm.client import LLMClient
 
         settings = MagicMock()
@@ -292,20 +292,22 @@ class TestCreateFromSettingsWiresCostCalculator:
 
 
 class TestZeroRateCostWiring:
-    """免费档零费率接线（llm-token-optimization T006 / R-llm-cost-001）."""
+    """免费档零费率接线（llm-token-optimization / R-llm-cost-001）."""
 
-    def test_llm_tomls_declare_agnes_zero_rates(self):
-        """config/llm.toml 与 llm.example.toml 必须声明 agnes 零费率 [cost] 段."""
+    def test_llm_example_toml_declares_agnes_zero_rates(self):
+        """llm.example.toml 必须声明 agnes 零费率 [cost] 段.
+
+        llm.toml 为运维管控文件（禁止修改、按部署环境配置费率），不做强制断言。
+        """
         import tomllib
 
-        for path in ("config/llm.toml", "config/llm.example.toml"):
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
-            assert "cost" in data, f"{path} missing [cost] section"
-            rates = data["cost"]["rates"]
-            agnes_rate = rates["chat.agnes.agnes-2.0-flash"]
-            assert agnes_rate["input"] == 0.0
-            assert agnes_rate["output"] == 0.0
+        with open("config/llm.example.toml", "rb") as f:
+            data = tomllib.load(f)
+        assert "cost" in data, "llm.example.toml missing [cost] section"
+        rates = data["cost"]["rates"]
+        agnes_rate = rates["chat.agnes.agnes-3.0-flash"]
+        assert agnes_rate["input"] == 0.0
+        assert agnes_rate["output"] == 0.0
 
     @pytest.mark.asyncio
     async def test_zero_rates_still_wire_calculator(self):

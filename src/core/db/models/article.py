@@ -479,6 +479,9 @@ class Article(Base):
     # Article maps to a backward-compatible view; use ArticleCore for vector access
 
     # Constraints
+    # NOTE: Article maps to the read-only "articles" VIEW; the Index entries
+    # below are informational — real indexes live on the base tables and are
+    # managed by migrations, never created via metadata.create_all().
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
         CheckConstraint(

@@ -2,7 +2,10 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for centralized path constants."""
 
+import sys
 from pathlib import Path
+
+import pytest
 
 from core.utils.paths import CACHE_DIR, CONFIG_DIR, DATA_DIR, PROJECT_ROOT, data_path
 
@@ -79,3 +82,22 @@ class TestDataPath:
         """data_path must work with different filenames."""
         assert data_path("phishtank.json") == str(DATA_DIR / "phishtank.json")
         assert data_path("weaver.lbug") == str(DATA_DIR / "weaver.lbug")
+
+    def test_rejects_parent_traversal(self):
+        """data_path must reject paths escaping the data directory."""
+        with pytest.raises(ValueError, match="escapes the data directory"):
+            data_path("../config/llm.toml")
+
+    def test_rejects_absolute_escape(self):
+        """data_path must reject absolute paths outside DATA_DIR."""
+        with pytest.raises(ValueError, match="escapes the data directory"):
+            data_path(
+                str(
+                    Path("C:/Windows/system32/config") if sys.platform == "win32" else "/etc/passwd"
+                )
+            )
+
+    def test_allows_nested_subdirectory(self):
+        """data_path must allow legitimate nested filenames inside DATA_DIR."""
+        result = Path(data_path(".cache/index.json"))
+        assert result.resolve().is_relative_to(DATA_DIR.resolve())

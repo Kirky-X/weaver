@@ -72,6 +72,9 @@ class TestEventBusSharing:
         container._event_bus = existing_bus
         container._llm_client = MagicMock()
         container._prompt_loader = MagicMock()
+        # EntityResolver now fails fast on a None entity_repo (graph pool is
+        # mocked away below), so stub the resolver factory entirely.
+        container.entity_resolver = MagicMock(return_value=MagicMock())
 
         # Mock strategy to avoid database initialization
         mock_strategy = MagicMock()
@@ -109,6 +112,9 @@ class TestEventBusSharing:
         container._event_bus = None
         container._llm_client = MagicMock()
         container._prompt_loader = MagicMock()
+        # EntityResolver now fails fast on a None entity_repo (graph pool is
+        # mocked away below), so stub the resolver factory entirely.
+        container.entity_resolver = MagicMock(return_value=MagicMock())
 
         # Mock strategy to avoid database initialization
         mock_strategy = MagicMock()

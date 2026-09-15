@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, SecretStr, field_validator
 
 
 class LLMType(str, Enum):
@@ -287,7 +287,9 @@ def parse_routing_dict_shared(v: Any) -> dict[str, RoutingConfig]:
             if isinstance(val, RoutingConfig):
                 result[key] = val
             elif isinstance(val, dict):
-                # Parse tiers if present (enhanced version)
+                # Parse tiers if present (enhanced version). Build a copy so
+                # the caller's config dict is not mutated as a side effect.
+                val = dict(val)
                 tiers_data = val.pop("tiers", None)
                 tiers: list[TierConfig] = []
                 if isinstance(tiers_data, list):
@@ -331,7 +333,9 @@ class ProviderConfig(BaseModel):
 
     name: str = ""
     type: str = "openai"  # LiteLLM provider type
-    api_key: str = ""
+    # SecretStr keeps the key out of repr()/logs; consumers must call
+    # .get_secret_value() explicitly (only the resilience pool does).
+    api_key: SecretStr = SecretStr("")
     base_url: str = ""
     rpm_limit: int = 60
     concurrency: int = 5
@@ -455,16 +459,16 @@ class EvalConfig:
     Attributes:
         enabled: Whether shadow evaluation is enabled
         sample_rate: Fraction of requests to shadow (0.0 to 1.0)
-        target_call_points: List of call points to evaluate
+        target_call_points: Immutable sequence of call points to evaluate
         baseline_model: Baseline model label for comparison
-        candidate_models: List of candidate model labels to compare
+        candidate_models: Immutable sequence of candidate model labels to compare
     """
 
     enabled: bool = False
     sample_rate: float = 0.1
-    target_call_points: list[str] = ()  # type: ignore[assignment]
+    target_call_points: tuple[str, ...] = ()
     baseline_model: str = ""
-    candidate_models: list[str] = ()  # type: ignore[assignment]
+    candidate_models: tuple[str, ...] = ()
 
 
 # Cache TTL per call point (in seconds)

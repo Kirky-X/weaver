@@ -44,7 +44,7 @@ SCHEMA_QUERIES = [
     # initialize_ladybug_schema so already-migrated databases skip
     # silently. Title/category/publish_time/score are now batch-fetched
     # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids
-    # (design.md §D2).
+    # (design.md §).
     "ALTER TABLE Article DROP COLUMN title",
     "ALTER TABLE Article DROP COLUMN category",
     "ALTER TABLE Article DROP COLUMN publish_time",
@@ -222,15 +222,26 @@ SCHEMA_QUERIES = [
 async def initialize_ladybug_schema(pool) -> None:
     """Initialize LadybugDB schema with all node and relationship tables.
 
+    Best-effort by design: statements that fail because the target object
+    already exists (or the engine predates the syntax, e.g. ALTER/DROP on
+    older deployments) are skipped so reruns stay idempotent. Failures are
+    logged at WARNING with context — never silently dropped.
+
     Args:
         pool: LadybugPool instance with execute_query method.
     """
+    skipped = 0
     for query in SCHEMA_QUERIES:
         try:
             await pool.execute_query(query)
             log.info("ladybug_schema_created", query=query[:50])
         except Exception as exc:
-            # Table may already exist
-            log.debug("ladybug_schema_check", error=str(exc))
+            skipped += 1
+            log.warning(
+                "ladybug_schema_statement_skipped",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                query=query[:80],
+            )
 
-    log.info("ladybug_schema_initialized")
+    log.info("ladybug_schema_initialized", total=len(SCHEMA_QUERIES), skipped=skipped)

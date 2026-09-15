@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+import re
 from typing import Any
 
 from core.observability import get_logger
@@ -95,11 +96,20 @@ class TrafficAnomalyDetector:
         self,
         redis: Any,
         config: TrafficAnomalyConfig | None = None,
-        api_key_manager: Any = None,
     ) -> None:
         self._redis = redis
         self._config = config or TrafficAnomalyConfig()
-        self._key_manager = api_key_manager
+
+    @staticmethod
+    def _safe_component(value: str) -> str:
+        """Sanitize an identifier used inside a Redis key.
+
+        key_id / ip normally come from validated sources, but anything
+        reaching this module via request.state could carry ':' or control
+        characters that corrupt the key namespace. Keep only characters that
+        cannot alter the key structure.
+        """
+        return re.sub(r"[^A-Za-z0-9._-]", "_", value)
 
     async def check_request(
         self,
@@ -157,18 +167,19 @@ class TrafficAnomalyDetector:
         """Record response status code for error rate monitoring."""
         now = datetime.now(UTC)
         minute_key = now.strftime("%Y%m%d%H%M")
-        scope = key_id or "global"
+        scope = self._safe_component(key_id or "global")
 
         if status_code >= 400:
-            await self._redis.incr(f"traffic:error:{scope}:{minute_key}")
+            error_key = f"traffic:error:{scope}:{minute_key}"
+            await self._redis.incr(error_key)
+            await self._redis.expire(error_key, 300)
         await self._redis.incr(f"traffic:total:{scope}:{minute_key}")
-        await self._redis.expire(f"traffic:error:{scope}:{minute_key}", 300)
         await self._redis.expire(f"traffic:total:{scope}:{minute_key}", 300)
 
     async def get_error_rate(self, key_id: str | None = None) -> float:
         """Get current error rate for a key or globally."""
         minute_key = datetime.now(UTC).strftime("%Y%m%d%H%M")
-        scope = key_id or "global"
+        scope = self._safe_component(key_id or "global")
         errors = await self._redis.get(f"traffic:error:{scope}:{minute_key}") or 0
         total = await self._redis.get(f"traffic:total:{scope}:{minute_key}") or 1
         return int(errors) / max(int(total), 1)
@@ -178,7 +189,7 @@ class TrafficAnomalyDetector:
     async def _is_ip_banned(self, ip: str) -> bool:
         """Check if an IP is currently banned."""
         try:
-            banned = await self._redis.exists(f"traffic:blocked:ip:{ip}")
+            banned = await self._redis.exists(f"traffic:blocked:ip:{self._safe_component(ip)}")
             return bool(banned)
         except Exception as exc:
             log.warning(
@@ -189,17 +200,23 @@ class TrafficAnomalyDetector:
             return False
 
     async def _get_ip_ban_ttl(self, ip: str) -> int:
-        """Get remaining TTL for an IP ban."""
+        """Get remaining TTL for an IP ban.
+
+        Returns the real remaining TTL: it is no longer inflated to a 60s
+        floor (a ban with 5s left must not tell the client to wait 60s).
+        ``ttl <= 0`` (key gone / has no TTL) returns 0 so the caller may
+        retry immediately (OCR LOW #185).
+        """
         try:
-            ttl = await self._redis.ttl(f"traffic:blocked:ip:{ip}")
-            return max(ttl, 60) if ttl > 0 else 60
+            ttl = await self._redis.ttl(f"traffic:blocked:ip:{self._safe_component(ip)}")
+            return ttl if ttl and ttl > 0 else 0
         except Exception:
             return 60
 
     async def _check_key_rate(self, key_id: str, rate_limit: int) -> TrafficDecision:
         """Check per-key rate limit."""
         now_minute = int(time.time()) // 60
-        key = f"traffic:key:{key_id}:{now_minute}"
+        key = f"traffic:key:{self._safe_component(key_id)}:{now_minute}"
 
         try:
             count = await self._redis.incr(key)
@@ -239,7 +256,7 @@ class TrafficAnomalyDetector:
     async def _check_ip_rate(self, ip: str) -> TrafficDecision:
         """Check per-IP rate limit."""
         now_minute = int(time.time()) // 60
-        key = f"traffic:ip:{ip}:{now_minute}"
+        key = f"traffic:ip:{self._safe_component(ip)}:{now_minute}"
 
         try:
             count = await self._redis.incr(key)
@@ -249,7 +266,7 @@ class TrafficAnomalyDetector:
             if count > self._config.ip_rate_limit:
                 # Ban the IP
                 await self._redis.set(
-                    f"traffic:blocked:ip:{ip}",
+                    f"traffic:blocked:ip:{self._safe_component(ip)}",
                     "1",
                     ex=self._config.ip_ban_duration_seconds,
                 )
@@ -278,7 +295,7 @@ class TrafficAnomalyDetector:
     async def _check_burst(self, identifier: str) -> TrafficDecision:
         """Check burst detection (per-second rate)."""
         now_second = int(time.time())
-        key = f"traffic:burst:{identifier}:{now_second}"
+        key = f"traffic:burst:{self._safe_component(identifier)}:{now_second}"
 
         try:
             count = await self._redis.incr(key)
@@ -310,7 +327,7 @@ class TrafficAnomalyDetector:
     async def _check_unknown_key_scan(self, ip: str) -> TrafficDecision:
         """Check for unknown key scan attack."""
         now_minute = int(time.time()) // 60
-        key = f"traffic:unknown_ip:{ip}:{now_minute}"
+        key = f"traffic:unknown_ip:{self._safe_component(ip)}:{now_minute}"
 
         try:
             count = await self._redis.incr(key)

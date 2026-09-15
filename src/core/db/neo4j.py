@@ -43,6 +43,10 @@ class Neo4jPool:
             log.info("neo4j_connection_verified")
         except Exception as exc:
             log.warning("neo4j_connection_verify_failed", error=str(exc))
+            try:
+                await self._driver.close()
+            except Exception as close_exc:
+                log.debug("neo4j_driver_close_on_failure_failed", error=str(close_exc))
             self._driver = None
             raise ConnectionError(f"Failed to connect to Neo4j at {self._uri}: {exc}") from exc
 
@@ -53,11 +57,23 @@ class Neo4jPool:
             log.info("neo4j_driver_closed")
 
     def close(self) -> None:
-        """Close the Neo4j driver synchronously."""
+        """Close the Neo4j driver synchronously.
+
+        Fails fast with RuntimeError when the current thread already runs
+        an event loop — blocking it with run_until_complete would raise or
+        corrupt the loop. Use ``await shutdown()`` from async contexts.
+        """
         import asyncio
 
         if self._driver:
-            asyncio.get_event_loop().run_until_complete(self._driver.close())
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(self._driver.close())
+            else:
+                raise RuntimeError(
+                    "close() cannot block a running event loop; use await shutdown()"
+                )
             log.info("neo4j_pool_closed")
 
     @property

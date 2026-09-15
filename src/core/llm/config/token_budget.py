@@ -51,6 +51,11 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.EVIDENCE_SAMPLING: 4000,
     CallPoint.SENTIMENT: 1000,
     CallPoint.CLAIM_EXTRACTION: 3000,
+    # Briefing: multi-article per-category summary (same scale as
+    # COMMUNITY_REPORT).
+    CallPoint.BRIEFING: 6000,
+    # Query expander: input is a short search query — tight budget.
+    CallPoint.QUERY_EXPANDER: 500,
 }
 
 DEFAULT_LIMIT = 4000
@@ -94,8 +99,15 @@ class TokenBudgetManager:
 
             settings = get_settings()
             return settings.llm.tokenizer_model
-        except Exception:
-            log.warning("Failed to get tokenizer model, falling back to default", exc_info=True)
+        except Exception as exc:
+            # 记录具体异常类型：仅 "falling back to default" 无法区分
+            # ImportError（无 config 包）与配置项错误（llm 属性缺失等）。
+            log.warning(
+                "tokenizer_model_unresolved",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                exc_info=True,
+            )
             return None
 
     def truncate(self, text: str, call_point: CallPoint) -> str:

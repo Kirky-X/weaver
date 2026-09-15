@@ -204,17 +204,19 @@ class HeuristicChecker:
         Returns:
             Tuple of (risk, warning message).
         """
-        # Double encoding
-        if "%" in decoded:
+        # Double encoding: "%25" followed by two hex digits in the original
+        # means a doubly-encoded character. A bare "%25" is the legitimate
+        # encoding of a literal "%" (e.g. "text=100%25") and must not flag.
+        if re.search(r"%25[0-9a-fA-F]{2}", original) or re.search(r"%[0-9a-fA-F]{2}", decoded):
             return URLRisk.MEDIUM, "Double URL encoding detected"
 
-        # Suspicious encoded characters
+        # Suspicious encoded characters. 大小写由 re.IGNORECASE 处理，字符类
+        # 里的 [dD] 等冗余写法已去掉，避免误导（OCR LOW #188）。
         suspicious_patterns = [
             (r"%00", "Null byte injection"),
-            (r"%0[dD]", "Carriage return injection"),
-            (r"%0[aA]", "Line feed injection"),
-            (r"%2[eE]%2[eE]", "Directory traversal encoding"),
-            (r"%25", "Percent encoding of percent"),
+            (r"%0d", "Carriage return injection"),
+            (r"%0a", "Line feed injection"),
+            (r"%2e%2e", "Directory traversal encoding"),
         ]
 
         for pattern, desc in suspicious_patterns:
@@ -235,7 +237,9 @@ class HeuristicChecker:
         url_lower = decoded_url.lower()
         found_keywords = []
 
-        for keyword in self.SUSPICIOUS_KEYWORDS:
+        # SUSPICIOUS_KEYWORDS 是 set，迭代顺序不确定；排序后风险消息
+        # （found_keywords[0] / [:5]）对同一输入保持稳定，便于日志比对。
+        for keyword in sorted(self.SUSPICIOUS_KEYWORDS):
             if keyword in url_lower:
                 found_keywords.append(keyword)
 
@@ -281,8 +285,10 @@ class HeuristicChecker:
         if domain.count("-") > 5:
             warnings.append("Excessive hyphens in domain")
 
-        # IDN homograph attack
-        if "xn--" in domain:
+        # IDN homograph attack — check per-label: a bare substring match
+        # would flag legitimate labels that merely contain "xn--"
+        # (e.g. "example-xn--foo.com"); punycode always starts a label.
+        if any(label.startswith("xn--") for label in parts):
             warnings.append("IDN/punycode domain detected (potential homograph attack)")
 
         # Numeric subdomain
@@ -310,14 +316,21 @@ class HeuristicChecker:
         Returns:
             Tuple of (risk, warning message).
         """
-        if not parsed.port:
+        try:
+            port = parsed.port
+        except ValueError:
+            # urllib raises ValueError for malformed ports (:abc, out of
+            # range) — treat the URL itself as suspicious.
+            return URLRisk.HIGH, "Invalid port in URL"
+
+        if not port:
             return URLRisk.SAFE, ""
 
-        if parsed.port in self.SUSPICIOUS_PORTS:
-            return URLRisk.HIGH, f"Suspicious port: {parsed.port}"
+        if port in self.SUSPICIOUS_PORTS:
+            return URLRisk.HIGH, f"Suspicious port: {port}"
 
-        if parsed.port > 49151:
-            return URLRisk.MEDIUM, f"Non-standard port: {parsed.port}"
+        if port > 49151:
+            return URLRisk.MEDIUM, f"Non-standard port: {port}"
 
         return URLRisk.SAFE, ""
 

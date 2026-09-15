@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for SchemaDrivenStructuredOutput (T023 / R-structured-001).
+"""Unit tests for SchemaDrivenStructuredOutput.
 
 Verifies:
 - SchemaNode → JSON Schema conversion (pattern parsed, event_type used as title)
@@ -10,7 +10,7 @@ Verifies:
 - pattern field invalid JSON → ValueError (Rule 12 fail-loud)
 - schema_node_id propagation through return value
 
-Spec R-structured-001 field naming conflict (Rule 7 exposed in docstring):
+Spec field naming conflict (Rule 7 exposed in docstring):
     Spec mentions "SchemaNode.properties" and "entity_type", but actual
     SchemaNode schema uses ``pattern`` (JSON Schema string) and
     ``event_type`` (business key). Resolution: aligned with actual schema
@@ -94,7 +94,7 @@ def _make_schema_record(
 
 
 class TestSchemaNotFoundError:
-    """Verify SchemaNotFoundError exception structure (R-structured-001)."""
+    """Verify SchemaNotFoundError exception structure."""
 
     def test_exception_carries_schema_node_id(self):
         """SchemaNotFoundError must carry schema_node_id attribute."""
@@ -144,7 +144,7 @@ class TestSchemaDrivenStructuredOutputConstructor:
 
 
 class TestGetSchema:
-    """Verify get_schema happy path + JSON Schema conversion (R-structured-001)."""
+    """Verify get_schema happy path + JSON Schema conversion."""
 
     @pytest.mark.asyncio
     async def test_get_schema_returns_schema_dict_and_id(self):
@@ -267,7 +267,7 @@ class TestGetSchema:
 
 
 class TestSchemaNotFound:
-    """Verify SchemaNotFoundError path (R-structured-001)."""
+    """Verify SchemaNotFoundError path."""
 
     @pytest.mark.asyncio
     async def test_get_schema_raises_when_no_records(self):

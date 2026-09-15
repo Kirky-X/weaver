@@ -112,6 +112,9 @@ class ProcessingStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     RETRY = "retry"
+    # Neo4j pending-sync completion state (pending_sync_repo.mark_synced).
+    # Not an articles_core pipeline state — sync bookkeeping only.
+    SYNCED = "synced"
 
     @classmethod
     def from_str(cls, value: str) -> ProcessingStatus:

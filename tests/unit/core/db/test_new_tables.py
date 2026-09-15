@@ -124,11 +124,23 @@ class TestAlertRuleModel:
         assert "created_at" in self.columns
 
     def test_metric_check_constraint(self):
-        """metric must be CHECK constrained to reference_count/sentiment_change/volume_spike."""
+        """metric must be CHECK constrained to the migration-36 value list."""
         constraints = [c for c in self.table.constraints if hasattr(c, "sqltext")]
         # Verify at least one CHECK constraint references 'metric'
-        has_metric_check = any("metric" in str(c.sqltext).lower() for c in constraints)
-        assert has_metric_check
+        metric_checks = [c for c in constraints if "metric" in str(c.sqltext).lower()]
+        assert metric_checks
+        # Model must stay in sync with migration 36_extend_alert_metrics.
+        expected_values = {
+            "reference_count",
+            "sentiment_change",
+            "volume_spike",
+            "saga_failure",
+            "compensation_failure",
+            "saga_timeout",
+        }
+        check_text = str(metric_checks[0].sqltext)
+        for value in expected_values:
+            assert value in check_text
 
     def test_operator_check_constraint(self):
         """operator must be CHECK constrained to z_score>/pct_change>/absolute>."""

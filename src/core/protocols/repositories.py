@@ -83,7 +83,7 @@ class EntityRepository(Protocol):
             tier: Source tier (1=authoritative, 2+=general).
 
         Returns:
-            The Neo4j internal ID of the entity.
+            The graph database internal ID of the entity.
         """
         ...
 
@@ -315,7 +315,7 @@ class ArticleRepository(Protocol):
         """Batch fetch article metadata by PostgreSQL IDs.
 
         Used by graph-query callers that, after the Article node slim-down
-        (design.md §D2), can only read ``pg_id`` from the graph DB and must
+        (design.md §), can only read ``pg_id`` from the graph DB and must
         look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
         the relational DB in a single batched query.
 
@@ -348,7 +348,7 @@ class ArticleRepository(Protocol):
         N+1 per-id ``repo.get`` loop with a single batched SELECT against
         ``article_bodies``. Pairs with ``fetch_titles_by_pg_ids`` to
         rebuild full article context after the Article node slim-down
-        (design.md §D2).
+        (design.md §).
 
         .. warning::
             Do NOT call this method inside a per-article loop — that
@@ -396,7 +396,7 @@ class SourceAuthorityRepository(Protocol):
 class GraphArticleRepository(Protocol):
     """Protocol for graph article repository implementations.
 
-    After the Article node slim-down (design.md §D2), the graph Article node
+    After the Article node slim-down (design.md §), the graph Article node
     stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
     Business fields (title / category / publish_time / score) are no longer
     persisted on the node — callers that need them must batch-fetch from
@@ -518,7 +518,7 @@ class GraphArticleRepository(Protocol):
     async def delete_article(self, article_id: str) -> int:
         """Delete an Article node by PostgreSQL ID.
 
-        T051 LOW-1: return type unified to ``int`` (count of nodes
+        Return type unified to ``int`` (count of nodes
         actually deleted). Both Neo4j and LadybugDB implementations
         return the number of nodes actually deleted (0 if no match,
         1 if a node was deleted) — callers can distinguish the no-op
@@ -597,7 +597,7 @@ class GraphWriter(Protocol):
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive (delete) Article nodes whose pg_id is in ``cutoff_pg_ids``.
 
-        After the Article node slim-down (design.md §D2), the graph node no
+        After the Article node slim-down (design.md §), the graph node no
         longer carries ``publish_time``, so the cutoff must be computed by
         the caller (typically by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'``) and the resulting
@@ -678,13 +678,13 @@ class AnalyticsStorageProtocol(Protocol):
           (src/modules/analytics/storage.py)
 
     Used by:
-        - BriefingGenerator (T004): depends on this Protocol for fetching
+        - BriefingGenerator: depends on this Protocol for fetching
           articles + persisting daily briefings.
-        - T008 DailyBriefingService: depends on this Protocol for fetching
+        - DailyBriefingService: depends on this Protocol for fetching
           (get_briefing) + listing (list_briefings) existing briefings.
           Generation is delegated to BriefingGenerator (which itself uses
           fetch_articles_for_briefing + save_briefing on this same Protocol).
-        - T010 scheduler: will use DailyBriefingService, transitively
+        - scheduler: will use DailyBriefingService, transitively
           depends on this Protocol.
 
     Decoupling rationale: BriefingGenerator is in modules/briefing/, storage

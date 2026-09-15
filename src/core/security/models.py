@@ -31,13 +31,22 @@ class URLRisk(Enum):
 
     def __gt__(self, other: "URLRisk") -> bool:
         """Compare risk levels."""
-        order = [URLRisk.SAFE, URLRisk.LOW, URLRisk.MEDIUM, URLRisk.HIGH, URLRisk.BLOCKED]
-        return order.index(self) > order.index(other)
+        return _RISK_RANK[self] > _RISK_RANK[other]
 
     def __lt__(self, other: "URLRisk") -> bool:
         """Compare risk levels."""
-        order = [URLRisk.SAFE, URLRisk.LOW, URLRisk.MEDIUM, URLRisk.HIGH, URLRisk.BLOCKED]
-        return order.index(self) < order.index(other)
+        return _RISK_RANK[self] < _RISK_RANK[other]
+
+
+# Precomputed risk ranking. Module level because the Enum metaclass
+# intercepts class attributes that hold tuples of members. A dict lookup
+# also beats rebuilding an order list on every comparison.
+_RISK_RANK: dict[URLRisk, int] = {
+    member: idx
+    for idx, member in enumerate(
+        (URLRisk.SAFE, URLRisk.LOW, URLRisk.MEDIUM, URLRisk.HIGH, URLRisk.BLOCKED)
+    )
+}
 
 
 class CheckSource(Enum):

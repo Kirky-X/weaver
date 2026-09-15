@@ -233,7 +233,7 @@ class TestNeo4jQueryBuilder:
         assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
         assert "e.canonical_name IN $names" in result
         assert "RETURN DISTINCT a.pg_id AS id" in result
-        # After Article node slim-down (design.md §D2): publish_time is no
+        # After Article node slim-down (design.md §): publish_time is no
         # longer stored on the graph node. Callers fetch it from PostgreSQL.
         assert "publish_time" not in result
 
@@ -924,7 +924,7 @@ class TestNeo4jQueryBuilderSecurity:
         assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
         assert "$tokens" in result
         assert "$limit" in result
-        # After Article node slim-down (design.md §D2): return pg_id as
+        # After Article node slim-down (design.md §): return pg_id as
         # article_id (instead of article_score) for batch PG lookup.
         assert "article_id" in result
         assert "a.pg_id AS article_id" in result
@@ -953,7 +953,7 @@ class TestNeo4jQueryBuilderSecurity:
     def test_build_articles_by_text_query(self, builder: Neo4jQueryBuilder) -> None:
         result = builder.build_articles_by_text_query(limit=10)
         assert "MATCH (a:Article)" in result
-        # After Article node slim-down (design.md §D2): the query no longer
+        # After Article node slim-down (design.md §): the query no longer
         # filters by title in the graph (Article node has no title). It
         # returns pg_ids only; callers filter by title in PostgreSQL.
         assert "$query" not in result
@@ -1097,8 +1097,32 @@ class TestLadybugQueryBuilderSecurity:
     def test_build_articles_by_text_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_articles_by_text_query(limit=10)
         assert "MATCH (a:Article)" in result
-        # After Article node slim-down (design.md §D2): no $query param;
+        # After Article node slim-down (design.md §): no $query param;
         # graph returns pg_ids only, callers filter by title in PostgreSQL.
         assert "$query" not in result
         assert "RETURN a.pg_id AS id" in result
         assert "$limit" in result
+
+
+class TestSubgraphHopPatternValidation:
+    """Regression: builder layer must validate hop_pattern before Cypher
+    interpolation, even though the API layer whitelists values
+    (defense in depth, vuln-SEC#24)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("db_type", ["neo4j", "ladybug"])
+    async def test_malicious_hop_pattern_rejected(self, db_type):
+        from core.db.graph_query_builders import create_graph_query_builder
+
+        qb = create_graph_query_builder(db_type)
+        with pytest.raises(ValueError):
+            qb.build_subgraph_nodes_query("*1..2} DETACH DELETE (e) //", False)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("db_type", ["neo4j", "ladybug"])
+    async def test_valid_hop_pattern_builds_query(self, db_type):
+        from core.db.graph_query_builders import create_graph_query_builder
+
+        qb = create_graph_query_builder(db_type)
+        query = qb.build_subgraph_nodes_query("*1..2", False)
+        assert "MATCH path" in query

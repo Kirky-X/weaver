@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for DailyBriefingProtocol and BriefingResult (T007).
+"""Tests for DailyBriefingProtocol and BriefingResult.
 
 Verifies:
-- R-briefing-001: Protocol defines generate_briefing/get_briefing/list_briefings
-- R-briefing-008: BriefingResult has narrative_mode field, default False
+- Protocol defines generate_briefing/get_briefing/list_briefings
+- BriefingResult has narrative_mode field, default False
 - Protocol is @runtime_checkable
 - BriefingResult dataclass shape matches spec
 """
@@ -22,7 +22,7 @@ from modules.briefing.models import BriefingResult
 
 
 class TestDailyBriefingProtocolStructure:
-    """Verify DailyBriefingProtocol is defined correctly (R-briefing-001)."""
+    """Verify DailyBriefingProtocol is defined correctly."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
         """DailyBriefingProtocol MUST be @runtime_checkable per spec."""
@@ -54,7 +54,7 @@ class TestDailyBriefingProtocolStructure:
 
 
 class TestDailyBriefingProtocolMockCompliance:
-    """Verify mock implementations satisfy the Protocol (R-briefing-001)."""
+    """Verify mock implementations satisfy the Protocol."""
 
     def test_mock_with_all_methods_satisfies_protocol(self) -> None:
         """A class implementing all 3 methods should satisfy the Protocol."""
@@ -100,7 +100,7 @@ class TestDailyBriefingProtocolMockCompliance:
 
 
 class TestBriefingResultDataclass:
-    """Verify BriefingResult dataclass shape (R-briefing-008)."""
+    """Verify BriefingResult dataclass shape."""
 
     def test_is_dataclass(self) -> None:
         assert is_dataclass(BriefingResult)
@@ -120,7 +120,7 @@ class TestBriefingResultDataclass:
         assert required.issubset(field_names), f"Missing fields: {required - field_names}"
 
     def test_narrative_mode_defaults_to_false(self) -> None:
-        """R-briefing-008: narrative_mode default is False (template mode)."""
+        """narrative_mode default is False (template mode)."""
         result = BriefingResult(
             date=date(2026, 7, 17),
             category="general",
@@ -189,10 +189,10 @@ class TestExports:
 
 
 class TestProtocolMethodSignatures:
-    """Verify Protocol method signatures match spec (R-briefing-001) — strict."""
+    """Verify Protocol method signatures match spec — strict."""
 
     def test_generate_briefing_accepts_date_and_optional_category(self) -> None:
-        """generate_briefing(date, category=None) per spec R-briefing-001."""
+        """generate_briefing(date, category=None) per spec."""
         import inspect
 
         sig = inspect.signature(DailyBriefingProtocol.generate_briefing)
@@ -208,7 +208,7 @@ class TestProtocolMethodSignatures:
         )
 
     def test_get_briefing_accepts_date_and_optional_category(self) -> None:
-        """get_briefing(date, category=None) per spec R-briefing-001."""
+        """get_briefing(date, category=None) per spec."""
         import inspect
 
         sig = inspect.signature(DailyBriefingProtocol.get_briefing)
@@ -223,7 +223,7 @@ class TestProtocolMethodSignatures:
         )
 
     def test_list_briefings_accepts_date_range(self) -> None:
-        """list_briefings(date_from, date_to) per spec R-briefing-001."""
+        """list_briefings(date_from, date_to) per spec."""
         import inspect
 
         sig = inspect.signature(DailyBriefingProtocol.list_briefings)

@@ -12,9 +12,7 @@ in their docstring using the "Implements:" section.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeVar, runtime_checkable
-
-ViewT = TypeVar("ViewT")
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable

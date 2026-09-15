@@ -42,7 +42,14 @@ class JSONCompatible(TypeDecorator):
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all ORM models."""
+    """Declarative base for all ORM models.
+
+    ``type_annotation_map`` resolves bare ``Mapped[...]`` annotations that have
+    no explicit column type. NOTE: every model in ``core/db/models/`` currently
+    passes an explicit type to ``mapped_column(...)`` (e.g. ``ARRAY(Text)``,
+    ``JSONCompatible``), so these entries are not consulted in practice — they
+    are a safety net for future models that omit the explicit type.
+    """
 
     type_annotation_map = {
         dict[str, Any]: JSONCompatible,

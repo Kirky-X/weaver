@@ -12,9 +12,9 @@ This module provides SSRF protection by blocking requests to:
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
-import socket
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
@@ -137,15 +137,20 @@ class SSRFChecker:
         }
     )
 
-    _blocked_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(
+    # 按地址族预先分组，检查时只扫描同族网络，避免每次 IP 校验都线性
+    # 遍历全部 13 个网络（OCR LOW #46）。
+    _blocked_ipv4_networks: list[ipaddress.IPv4Network] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _blocked_ipv6_networks: list[ipaddress.IPv6Network] = field(
         default_factory=list, init=False, repr=False
     )
 
     def __post_init__(self) -> None:
-        """Initialize cached IP network objects."""
-        self._blocked_networks = [
-            ipaddress.ip_network(cidr, strict=False) for cidr in self.BLOCKED_IP_RANGES
-        ]
+        """Initialize cached IP network objects, grouped by address family."""
+        networks = [ipaddress.ip_network(cidr, strict=False) for cidr in self.BLOCKED_IP_RANGES]
+        self._blocked_ipv4_networks = [n for n in networks if n.version == 4]
+        self._blocked_ipv6_networks = [n for n in networks if n.version == 6]
 
     async def validate(self, url: str) -> str:
         """Validate a URL for SSRF safety.
@@ -263,9 +268,7 @@ class SSRFChecker:
 
         # Perform DNS resolution for hostnames
         try:
-            import asyncio
-
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             addr_infos = await loop.getaddrinfo(hostname, None)
 
             for family, _, _, _, sockaddr in addr_infos:
@@ -276,12 +279,11 @@ class SSRFChecker:
                 except ValueError:
                     continue
 
-        except socket.gaierror as e:
-            log.debug("dns_resolution_skipped", hostname=hostname, error=str(e))
         except SSRFError:
             raise
         except Exception as e:
-            log.warning("dns_resolution_error", hostname=hostname, error=str(e))
+            log.warning("dns_resolution_error_blocking", hostname=hostname, error=str(e))
+            raise SSRFError(f"DNS resolution failed for hostname '{hostname}'", url) from e
 
     async def _check_redirect_chain(self, url: str) -> None:
         """Track HTTP redirect chain and validate each redirect target.
@@ -360,7 +362,9 @@ class SSRFChecker:
         Raises:
             SSRFError: If IP is in blocked range.
         """
-        for network in self._blocked_networks:
+        # 只扫描与目标 IP 同族的网络列表（OCR LOW #46）。
+        networks = self._blocked_ipv4_networks if ip.version == 4 else self._blocked_ipv6_networks
+        for network in networks:
             if ip in network:
                 raise SSRFError(
                     f"Access to private/internal IP address {ip} is blocked",

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for database optimization indexes (Task 5).
+"""Unit tests for database optimization indexes.
 
 Tests verify that the required optimization indexes exist on the
 articles_core and article_analysis tables as specified in the

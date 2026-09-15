@@ -29,7 +29,7 @@ class ArticleView(BaseModel):
     key_data: list[str] | None = None
     score: float | None = None
     quality_score: float | None = None
-    data_conflicts: list[dict[str, Any]] = []
+    data_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     sentiment: str | None = None
     sentiment_score: float | None = None
     emotion_targets: list[str] | None = None
@@ -53,7 +53,7 @@ class EntityView(BaseModel):
     id: str = Field(validation_alias="neo4j_id")
     canonical_name: str = Field(validation_alias="name")
     type: str = Field(validation_alias="entity_type")
-    aliases: list[str] = []
+    aliases: list[str] = Field(default_factory=list)
     description: str | None = None
     degree: int = 0
     community_id: str | None = None

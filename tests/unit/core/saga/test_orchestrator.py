@@ -265,13 +265,15 @@ class TestSagaOrchestratorManualCompensation:
 
     @pytest.mark.asyncio
     async def test_compensate_saga_no_completed_steps(self, orchestrator, mock_log_repo):
-        """Test manual compensation when no steps completed."""
+        """No completed steps → FAILED: nothing was compensated, so reporting
+        COMPENSATED would falsely signal a safe rollback."""
         saga_id = uuid.uuid4()
         mock_log_repo.get_completed_compensation_data.return_value = []
 
         result = await orchestrator.compensate_saga(saga_id)
 
-        assert result.status == SagaStatus.COMPENSATED
+        assert result.status == SagaStatus.FAILED
+        assert result.error == "No completed steps to compensate"
 
 
 class TestSagaOrchestratorStatus:
@@ -328,3 +330,38 @@ class TestSagaResult:
         )
         assert result.status == SagaStatus.FAILED
         assert result.failed_step == "step2"
+
+
+class TestRetryBudgetGuard:
+    """backoff sleeps that would exceed the saga timeout must be
+    skipped in favour of a clean retry-exhaustion failure."""
+
+    @pytest.mark.asyncio
+    async def test_backoff_capped_by_deadline(self, mock_log_repo):
+        """A step failing twice with a large backoff must fail cleanly
+        (status COMPENSATED/FAILED) instead of hitting the outer timeout."""
+        alert_service = AsyncMock()
+        orchestrator = SagaOrchestrator(
+            log_repo=mock_log_repo,
+            alert_service=alert_service,
+            timeout_seconds=0.2,
+            max_retries=5,
+            retry_base_delay=0.15,
+            retry_max_delay=0.3,
+        )
+
+        calls = {"n": 0}
+
+        async def always_fails() -> None:
+            calls["n"] += 1
+            raise RuntimeError("boom")
+
+        steps = [SagaStep(name="flaky", execute=always_fails)]
+        result = await orchestrator.start_saga(uuid.uuid4(), steps)
+
+        # Attempt 1 + one budgeted retry (0.15s delay < 0.2s deadline); the
+        # second backoff (0.3s) would exceed the deadline, so the step fails
+        # cleanly instead of the saga being aborted mid-sleep by TimeoutError.
+        assert calls["n"] == 2
+        assert result.status != SagaStatus.TIMED_OUT
+        alert_service.alert_saga_timeout.assert_not_called()

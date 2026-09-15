@@ -20,13 +20,20 @@ class ChangeDetector:
     def compute_hash(article: dict) -> str:
         """Compute SHA-256 hash based on title + body.
 
+        ``None`` (missing/absent field) is normalized to the empty string so
+        that a missing value never hashes the same as the literal text
+        ``"None"``. The same normalization is applied to both fields for
+        symmetry.
+
         Args:
             article: Dict with at least 'title' and 'body' keys.
 
         Returns:
             Hex digest of SHA-256 hash (64 characters).
         """
-        content = f"{article.get('title', '')}|{article.get('body', '')}"
+        title = article.get("title") or ""
+        body = article.get("body") or ""
+        content = f"{title}|{body}"
         return hashlib.sha256(content.encode()).hexdigest()
 
     @staticmethod

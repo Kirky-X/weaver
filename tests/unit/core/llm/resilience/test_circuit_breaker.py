@@ -223,3 +223,37 @@ class TestCircuitBreakerRepr:
         cb.mark_slow()
         repr_str = repr(cb)
         assert "slow=1" in repr_str
+
+
+class TestClosedStateSuccessGuard:
+    """已 CLOSED 状态下的成功不应重复调用 ``breaker.close()``。
+
+    OCR LOW #141：close() 在已关闭时是 no-op，但热路径上每次成功都调用它
+    会做一次多余的状态写入；仅在状态不是 closed 时才调用。
+    """
+
+    def test_closed_success_does_not_call_close(self):
+        cb = ProviderCircuitBreaker(name="test")
+        with patch.object(cb._breaker, "close") as mock_close:
+            cb._handle_success()
+
+        mock_close.assert_not_called()
+        assert cb._failure_counter == 0
+
+    def test_half_open_success_still_closes(self):
+        from unittest.mock import PropertyMock
+
+        cb = ProviderCircuitBreaker(name="test")
+        with (
+            patch.object(
+                type(cb._breaker),
+                "current_state",
+                new_callable=PropertyMock,
+                return_value="half-open",
+            ),
+            patch.object(cb._breaker, "close") as mock_close,
+        ):
+            cb._success_counter = 10**6
+            cb._handle_success()
+
+        mock_close.assert_called_once()

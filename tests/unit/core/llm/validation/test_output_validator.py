@@ -2,17 +2,17 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for CleanerOutput._repair_llm_output model_validator.
 
-Covers Bug-C: CleanerOutput validation rejected valid-LLM-but-wrong-type inputs
+Covers CleanerOutput validation rejected valid-LLM-but-wrong-type inputs
 because the prompt explicitly tells the LLM to fill missing fields with null,
 but CleanerContent.title/body were typed as `str` (non-Optional). The
 _repair_llm_output validator bridges this prompt-model contract gap and
 also defends against other common LLM type drift (int/list/dict for str fields,
 None for list fields, non-dict content, etc.).
 
-Bug-C HIGH-1 fix: CleanerContent.title/body changed to `str | None = None`
+CleanerContent.title/body changed to ``str | None = None``
 to align with prompt contract; caller applies `or ""` fallback.
 
-Bug-C HIGH-2 fix: _coerce_str_field helper never str()s dict/list — extracts
+_coerce_str_field helper never str()s dict/list — extracts
 subfield or returns None, preventing silent data corruption from garbage
 repr strings like "{'text': '...'}".
 """
@@ -437,7 +437,7 @@ class TestRepairComplexScenarios:
     def test_content_body_dict_does_not_pollute_downstream(self) -> None:
         """蓝军挑战 1: LLM returns body as dict; must NOT become str(dict) garbage.
 
-        Before HIGH-2 fix: body would become \"{'text': '正文', 'html': '...'}\"
+        Before fix: body would become \"{'text': '正文', 'html': '...'}\"
         After fix: extract 'text' subfield → clean string.
         """
         llm_output = {

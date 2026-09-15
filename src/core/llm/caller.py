@@ -451,7 +451,10 @@ class LiteLLMCaller:
         Returns:
             LLM响应，content为rerank结果列表
         """
-        top_n = top_n or len(documents)
+        # Only treat None as "not provided" so an explicit top_n=0 keeps
+        # its literal meaning instead of silently meaning "all documents".
+        if top_n is None:
+            top_n = len(documents)
         start_time = time.monotonic()
 
         try:
@@ -488,7 +491,9 @@ class LiteLLMCaller:
             # Rerank API 不返回 token usage, 使用 token_counter 估算
             all_text = query + " " + " ".join(documents)
             try:
-                estimated_tokens = token_counter(text=all_text)
+                # Pass the model so LiteLLM picks the matching tokenizer
+                # instead of an arbitrary default (OCR LOW #37).
+                estimated_tokens = token_counter(text=all_text, model=label.model)
             except Exception:
                 # token_counter 可能因模型不支持而失败, 使用简单估算
                 log.warning(

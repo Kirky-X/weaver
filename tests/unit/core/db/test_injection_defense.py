@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T032: builder-level injection defenses."""
+"""builder-level injection defenses."""
 
 import pytest
 

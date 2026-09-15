@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Shared article-enrichment helper used by graph-query context builders.
 
-After the Article node slim-down (design.md §D2), the graph DB Article
+After the Article node slim-down (design.md §), the graph DB Article
 node stores only ``pg_id``. Graph-query callers (``LocalContextBuilder``,
 ``LadybugLocalContextBuilder``) need to batch-fetch business fields
 (``title`` / ``category`` / ``publish_time`` / ``score``) from the
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 # Default ordered fallback of dict keys to try as the article's pg_id.
-# ``pg_id`` is the canonical key after the slim-down (design.md §D2);
+# ``pg_id`` is the canonical key after the slim-down (design.md §);
 # ``id`` is the legacy key still produced by Neo4j queries that select
 # ``a.pg_id AS id``. Both are tried in order so a single default works
 # for both Neo4j and LadybugDB callers.

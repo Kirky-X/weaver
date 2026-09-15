@@ -82,6 +82,7 @@ class ProviderPool:
             name=config.name,
             fail_max=circuit_breaker_threshold,
             reset_timeout=circuit_breaker_timeout,
+            timeout=config.timeout,
         )
 
         # 速率限制器
@@ -97,9 +98,6 @@ class ProviderPool:
 
         # 请求延迟器(类型注解)
         self._request_delay: Any = None
-
-        # Set timeout on circuit breaker for slow request detection
-        self._circuit_breaker._timeout = config.timeout
 
         # 初始化请求延迟器
         self._init_request_delay(config, global_config)
@@ -261,7 +259,8 @@ class ProviderPool:
                 )
                 continue
 
-        raise AllProvidersFailedError(labels, last_error)
+        # 显式串联最后一次失败，保留因果链（OCR LOW #142）。
+        raise AllProvidersFailedError(labels, last_error) from last_error
 
     async def _execute_single(
         self,
@@ -336,7 +335,7 @@ class ProviderPool:
             self._caller.call,
             label=label,
             provider_type=self.config.type,
-            api_key=self.config.api_key,
+            api_key=self.config.api_key.get_secret_value(),
             api_base=self.config.base_url,
             payload=payload,
             timeout=timeout,
@@ -371,7 +370,17 @@ class ProviderPool:
             attempt=attempt,
             fallback_tried=fallback_tried,
         )
-        await self._event_bus.publish(event)
+        try:
+            await self._event_bus.publish(event)
+        except Exception as exc:
+            # Telemetry must never fail the LLM call path (a publish error
+            # would otherwise surface as a retryable provider failure).
+            log.warning(
+                "llm_failure_event_publish_failed",
+                provider=self.config.name,
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""

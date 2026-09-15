@@ -14,6 +14,7 @@ from typing import Protocol, runtime_checkable
 
 from core.db.safe_query import (
     validate_edge_type,
+    validate_hop_pattern,
     validate_relation_types,
     validate_uuid,
 )
@@ -158,6 +159,15 @@ class GraphQueryBuilder(Protocol):
         self, relation_types: list[str] | None, entity_type: str | None = None
     ) -> str:
         """Build query to find entities by relation types."""
+
+    def build_cooccurrence_query(self) -> str:
+        """Build query counting shared articles between a source entity
+        and a set of target entities ($source, $targets).
+
+        Returns rows of (target_name, shared_count) used as dynamic
+        co-occurrence weights.
+        """
+        ...
 
     # === Visualization Queries ===
 
@@ -531,7 +541,7 @@ class Neo4jQueryBuilder:
         MENTIONS edge direction is (Article)-[:MENTIONS]->(Entity), so we
         traverse from Entity back to Article via incoming MENTIONS edges.
 
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         available on the node — callers batch-fetch title / category /
         publish_time / score from PostgreSQL via
         ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -548,7 +558,7 @@ class Neo4jQueryBuilder:
     def build_get_article_graph_query(self) -> str:
         """Build Neo4j query to get article node.
 
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -583,7 +593,7 @@ class Neo4jQueryBuilder:
         """Build Neo4j query to get related articles via shared entities.
 
         Finds articles that mention the same entities, ranked by overlap count.
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -670,7 +680,12 @@ class Neo4jQueryBuilder:
         else:
             # Validate edge types against whitelist to prevent injection
             validated_types = validate_relation_types(relation_types)
-            # Build safe filter using validated identifiers
+            # Below, `rt` is interpolated into Cypher rather than parameterised
+            # (Neo4j cannot parameterise relationship types in `type(r) = $x`).
+            # This is safe ONLY because validate_relation_types() already
+            # restricted every value to `[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*`
+            # (core.db.safe_query.validate_edge_type) — quotes, spaces and
+            # braces cannot reach the query text.
             type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in validated_types)
             return f"""
                 MATCH (e:Entity {type_clause})-[r]-(other:Entity)
@@ -697,6 +712,17 @@ class Neo4jQueryBuilder:
                 ORDER BY weight DESC
                 LIMIT $limit
             """
+
+    def build_cooccurrence_query(self) -> str:
+        """Build Neo4j query counting shared articles between entities."""
+        return """
+            MATCH (a:Article)-[:MENTIONS]->(src:Entity)
+            WHERE src.canonical_name = $source
+            MATCH (a)-[:MENTIONS]->(tgt:Entity)
+            WHERE tgt.canonical_name IN $targets
+            RETURN tgt.canonical_name AS target_name,
+                   count(DISTINCT a) AS shared_count
+        """
 
     # === Visualization Queries ===
 
@@ -739,6 +765,7 @@ class Neo4jQueryBuilder:
 
     def build_subgraph_nodes_query(self, hop_pattern: str, include_types: bool) -> str:
         """Build Neo4j query to get nodes for subgraph extraction."""
+        validate_hop_pattern(hop_pattern)
         if include_types:
             return f"""
             MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
@@ -772,10 +799,16 @@ class Neo4jQueryBuilder:
             """
 
     def build_subgraph_edges_query(self) -> str:
-        """Build Neo4j query to get edges for subgraph visualization."""
+        """Build Neo4j query to get edges for subgraph visualization.
+
+        Mirrors build_visualization_edges_query: entity-entity business
+        relations only, excluding structural MENTIONS/HAS_ENTITY and
+        event-chaining EVENT_FOLLOWED_BY edges.
+        """
         return """
         MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+          AND NOT type(r) IN ['MENTIONS','HAS_ENTITY','EVENT_FOLLOWED_BY']
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
                type(r) AS relation_type,
@@ -792,18 +825,27 @@ class Neo4jQueryBuilder:
         min_confidence: float | None = None,
     ) -> str:
         """Build Neo4j query for multi-hop graph traversal."""
-        confidence_filter = (
-            f" AND coalesce(r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
-            if min_confidence is not None
-            else ""
-        )
+        if relation_types:
+            for rt in relation_types:
+                validate_edge_type(rt)
+            # Explicit type list replaces the hardcoded MENTIONS/FOLLOWED_BY
+            # exclusions — requesting a type means the caller wants it.
+            rel_pattern = f"[r:{'|'.join(relation_types)}*1..{max_depth}]"
+            where_clause = ""
+        else:
+            rel_pattern = f"[r*1..{max_depth}]"
+            where_clause = "type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'"
+
+        if min_confidence is not None:
+            confidence = f"coalesce(r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
+            where_clause = f"{where_clause} AND {confidence}" if where_clause else confidence
+        where_sql = f"WHERE {where_clause}" if where_clause else ""
 
         if mode == "aggregate":
             return f"""
             MATCH (center:Entity {{canonical_name: $center}})
-            MATCH path = (center)-[r*1..{max_depth}]-(other:Entity)
-            WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
-            {confidence_filter}
+            MATCH path = (center)-{rel_pattern}-(other:Entity)
+            {where_sql}
             WITH count(DISTINCT other) AS total_nodes,
                  count(DISTINCT r) AS total_edges,
                  type(r[-1]) AS relation_type
@@ -815,9 +857,8 @@ class Neo4jQueryBuilder:
         if return_paths:
             return f"""
             MATCH (center:Entity {{canonical_name: $center}})
-            MATCH path = (center)-[r*1..{max_depth}]-(other:Entity)
-            WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
-            {confidence_filter}
+            MATCH path = (center)-{rel_pattern}-(other:Entity)
+            {where_sql}
             RETURN other.canonical_name AS node_name,
                    elementId(other) AS node_id,
                    other.type AS node_type,
@@ -836,9 +877,8 @@ class Neo4jQueryBuilder:
 
         return f"""
         MATCH (center:Entity {{canonical_name: $center}})
-        MATCH (center)-[r*1..{max_depth}]-(other:Entity)
-        WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
-        {confidence_filter}
+        MATCH (center)-{rel_pattern}-(other:Entity)
+        {where_sql}
         RETURN DISTINCT other.canonical_name AS node_name,
                elementId(other) AS node_id,
                other.type AS node_type,
@@ -1106,7 +1146,7 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §D2), Article nodes only
+        # After the Article node slim-down (design.md §), Article nodes only
         # store {pg_id, created_at}. We match Article-Entity via MENTIONS edges
         # for entity-centric ranking and return ``a.pg_id`` so callers can
         # batch-fetch title / score from PostgreSQL.
@@ -1156,7 +1196,7 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §D2), Article nodes no
+        # After the Article node slim-down (design.md §), Article nodes no
         # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
         # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """
@@ -1296,7 +1336,7 @@ class LadybugQueryBuilder:
         Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
         the reverse direction.
 
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         available on the node — callers batch-fetch title / category /
         publish_time / score from PostgreSQL via
         ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -1313,7 +1353,7 @@ class LadybugQueryBuilder:
     def build_get_article_graph_query(self) -> str:
         """Build LadybugDB query to get article node.
 
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -1340,9 +1380,12 @@ class LadybugQueryBuilder:
         """Build LadybugDB query to get relationships between entities in an article."""
         # LadybugDB RELATED_TO uses edge_type field, not relation_type
         # No source_article_id in RELATED_TO schema
+        # Match the same edge-type set as build_get_entity_relations_query so
+        # per-article and per-entity relationship views stay consistent
+        # (LadybugDB stores semantic edges under separate typed edge tables).
         return """
             MATCH (a:Article {pg_id: $id})-[:MENTIONS]->(e1:Entity)
-            MATCH (e1)-[r:RELATED_TO]->(e2:Entity)
+            MATCH (e1)-[r:RELATED_TO|CAUSES|ENABLES|PREVENTS|REPORTS_ON|FOLLOWED_BY|EVENT_FOLLOWED_BY|HAS_ENTITY]->(e2:Entity)
             WHERE (a)-[:MENTIONS]->(e2)
             RETURN e1.canonical_name as source, e2.canonical_name as target,
                    r.edge_type as relation_type,
@@ -1356,7 +1399,7 @@ class LadybugQueryBuilder:
         Only FOLLOWED_BY connects Article to Article (MENTIONS is Article->Entity).
         DISTINCT causes "variable not in scope" errors in LadybugDB.
 
-        After the Article node slim-down (design.md §D2), only ``pg_id`` is
+        After the Article node slim-down (design.md §), only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -1416,6 +1459,10 @@ class LadybugQueryBuilder:
             # Filter by specific edge types
             # Validate edge types against whitelist to prevent injection
             validated_types = validate_relation_types(relation_types)
+            # `rt` 为插值而非 `$params`（LadybugDB 侧同样无法参数化边类型）；
+            # 安全性依赖 validate_relation_types()/validate_edge_type 已把取值
+            # 限制为 `[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*`，引号与括号
+            # 无法进入查询文本。
             edge_type_filters = " OR ".join(f"r.edge_type = '{rt}'" for rt in validated_types)
             return f"""
                 MATCH (e:Entity {type_clause})-[r:RELATED_TO]-(other:Entity)
@@ -1429,6 +1476,21 @@ class LadybugQueryBuilder:
                 ORDER BY weight DESC
                 LIMIT $limit
             """
+
+    def build_cooccurrence_query(self) -> str:
+        """Build LadybugDB query counting shared articles between entities.
+
+        Same shape as the Neo4j variant: no type(r), no list comprehension,
+        plain MENTIONS traversal works on both backends.
+        """
+        return """
+            MATCH (a:Article)-[:MENTIONS]->(src:Entity)
+            WHERE src.canonical_name = $source
+            MATCH (a)-[:MENTIONS]->(tgt:Entity)
+            WHERE tgt.canonical_name IN $targets
+            RETURN tgt.canonical_name AS target_name,
+                   count(DISTINCT a) AS shared_count
+        """
 
     # === Visualization Queries ===
 
@@ -1476,6 +1538,7 @@ class LadybugQueryBuilder:
 
         Note: LadybugDB supports variable-length path syntax (*1..N).
         """
+        validate_hop_pattern(hop_pattern)
         if include_types:
             return f"""
             MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
@@ -1513,9 +1576,14 @@ class LadybugQueryBuilder:
 
         Note: LadybugDB uses r.edge_type for relationship type, not type(r).
         """
+        # Exclude structural edges to mirror build_visualization_edges_query
+        # (semantic entity relations only; MENTIONS/HAS_ENTITY are
+        # Article/Entity structural links, EVENT_FOLLOWED_BY chains events).
         return """
         MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+          AND r.edge_type <> 'MENTIONS' AND r.edge_type <> 'HAS_ENTITY'
+          AND r.edge_type <> 'EVENT_FOLLOWED_BY'
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
                r.edge_type AS relation_type,
@@ -1540,7 +1608,23 @@ class LadybugQueryBuilder:
            each connected entity for edge metadata.
         Relationship type filtering (excluding MENTIONS/FOLLOWED_BY) is
         applied on the direct relationship, not the variable-length path.
+        When ``relation_types`` is provided, the variable-length path is
+        restricted to those types and the direct relationship is filtered
+        with an IN list instead of the hardcoded exclusions.
         """
+        if relation_types:
+            for rt in relation_types:
+                validate_edge_type(rt)
+            rel_types = "|".join(relation_types)
+            rel_pattern = f"[r:{rel_types}*1..{max_depth}]"
+            direct_filter = (
+                "direct_r.edge_type IN [" + ", ".join(f"'{rt}'" for rt in relation_types) + "]"
+            )
+        else:
+            rel_pattern = f"[r*1..{max_depth}]"
+            direct_filter = (
+                "direct_r.edge_type <> 'MENTIONS' AND direct_r.edge_type <> 'FOLLOWED_BY'"
+            )
         confidence_filter = (
             f" AND coalesce(direct_r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
             if min_confidence is not None
@@ -1550,7 +1634,7 @@ class LadybugQueryBuilder:
         if mode == "aggregate":
             return f"""
             MATCH (center:Entity {{canonical_name: $center}})
-            MATCH (center)-[r*1..{max_depth}]-(other:Entity)
+            MATCH (center)-{rel_pattern}-(other:Entity)
             WITH count(DISTINCT other) AS total_nodes,
                  count(DISTINCT r) AS total_edges
             RETURN total_nodes, total_edges,
@@ -1560,11 +1644,10 @@ class LadybugQueryBuilder:
 
         return f"""
         MATCH (center:Entity {{canonical_name: $center}})
-        MATCH (center)-[r*1..{max_depth}]-(other:Entity)
+        MATCH (center)-{rel_pattern}-(other:Entity)
         WITH DISTINCT other, center
         OPTIONAL MATCH (center)-[direct_r]-(other)
-        WHERE direct_r.edge_type <> 'MENTIONS' AND direct_r.edge_type <> 'FOLLOWED_BY'
-        {confidence_filter}
+        WHERE {direct_filter}{confidence_filter}
         RETURN DISTINCT other.canonical_name AS node_name,
                other.id AS node_id,
                other.type AS node_type,
@@ -1671,7 +1754,9 @@ class LadybugQueryBuilder:
         self,
         config: CommunitySearchConfig,
     ) -> str:
-        limit = config.limit or 10
+        # Align with Neo4j: use the caller's limit verbatim so limit=0
+        # is rejected by the check below instead of silently becoming 10.
+        limit = config.limit
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
@@ -1684,7 +1769,8 @@ class LadybugQueryBuilder:
             RETURN c.id AS id,
                    c.title AS title,
                    c.summary AS summary,
-                   c.rank AS rank
+                   c.rank AS rank,
+                   c.entity_count AS entity_count
             ORDER BY c.rank DESC
             LIMIT $limit
             """
@@ -1695,7 +1781,8 @@ class LadybugQueryBuilder:
         RETURN c.id AS id,
                c.title AS title,
                c.summary AS summary,
-               c.rank AS rank
+               c.rank AS rank,
+               c.entity_count AS entity_count
         ORDER BY c.rank DESC
         LIMIT $limit
         """
@@ -1835,7 +1922,7 @@ class LadybugQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §D2), Article nodes no
+        # After the Article node slim-down (design.md §), Article nodes no
         # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
         # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """

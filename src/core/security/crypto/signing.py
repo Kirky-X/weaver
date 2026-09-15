@@ -11,20 +11,27 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import tempfile
+import contextlib
 import os
 import secrets
 from dataclasses import dataclass
 from typing import Any
-
-from core.observability import get_logger
-
-logger = get_logger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
 DEFAULT_ALGORITHM = "sha256"
 SIGNATURE_KEY_ENV = "INDEX_SIGNING_KEY"
 SIGNATURE_FIELD = "__signature__"
+
+# Whitelist of hash algorithms accepted for HMAC signing. A bare
+# getattr(hashlib, algorithm) would also accept weak digests (md5, sha1),
+# so the lookup goes through this explicit mapping instead.
+ALLOWED_ALGORITHMS: dict[str, Any] = {
+    "sha256": hashlib.sha256,
+    "sha384": hashlib.sha384,
+    "sha512": hashlib.sha512,
+}
 
 
 # ── Exceptions ─────────────────────────────────────────────────────────────
@@ -51,6 +58,14 @@ class SigningKey:
     key: bytes
     algorithm: str = DEFAULT_ALGORITHM
 
+    def __post_init__(self) -> None:
+        """Reject unknown algorithms early (fail fast on config errors)."""
+        if self.algorithm not in ALLOWED_ALGORITHMS:
+            raise ValueError(
+                f"Unsupported signing algorithm '{self.algorithm}'. "
+                f"Allowed: {sorted(ALLOWED_ALGORITHMS)}"
+            )
+
     @classmethod
     def from_env(cls, env_var: str = SIGNATURE_KEY_ENV) -> SigningKey:
         """Create a SigningKey from environment variable.
@@ -61,24 +76,24 @@ class SigningKey:
         Returns:
             SigningKey instance.
 
-        Note:
-            If key is not set, generates a random key for development
-            and emits a warning. Set the environment variable for production.
+        Raises:
+            RuntimeError: If the environment variable is not set. A random
+                key would invalidate every persisted signature across
+                restarts/instances, so a missing key fails fast instead.
+                Set the environment variable explicitly.
+
         """
         key_str = os.environ.get(env_var)
 
         if key_str:
             return cls(key=key_str.encode("utf-8"))
 
-        # Generate a random key for development
-        generated_key = secrets.token_hex(32)
-        logger.warning(
-            "signing_key_not_configured",
-            env_var=env_var,
-            message="Using generated signing key for development. "
-            f"Set {env_var} environment variable for production.",
+        raise RuntimeError(
+            f"Signing key environment variable '{env_var}' is not set. "
+            f"A randomly generated key would invalidate persisted signatures "
+            f"on every restart. Set {env_var} (e.g. via "
+            f'`python -c "import secrets; print(secrets.token_hex(32))"`).'
         )
-        return cls(key=generated_key.encode("utf-8"))
 
     @classmethod
     def generate(cls, length: int = 32) -> SigningKey:
@@ -109,11 +124,11 @@ def sign_data(data: dict[str, Any], key: SigningKey) -> str:
     # Serialize data deterministically (sorted keys)
     data_bytes = json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
 
-    # Compute HMAC
+    # Compute HMAC (algorithm is whitelist-validated in SigningKey)
     signature = hmac.new(
         key.key,
         data_bytes,
-        getattr(hashlib, key.algorithm),
+        ALLOWED_ALGORITHMS[key.algorithm],
     ).hexdigest()
 
     return signature
@@ -130,6 +145,10 @@ def verify_signature(data: dict[str, Any], signature: str, key: SigningKey) -> b
     Returns:
         True if signature is valid.
     """
+    # A tampered/foreign payload may carry a non-string signature (e.g. an
+    # int parsed from JSON); compare_digest would raise TypeError on that.
+    if not isinstance(signature, str):
+        return False
     expected = sign_data(data, key)
     return hmac.compare_digest(expected, signature)
 
@@ -220,8 +239,26 @@ def save_signed_json(
     """
     signed_data = sign_json(data, key)
 
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(signed_data, f, ensure_ascii=False, indent=2)
+    # Write to a temp file in the same directory, then atomically replace:
+    # a crash mid-write must not leave a truncated/invalid signed file.
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=os.fspath(os.path.dirname(os.fspath(file_path)) or "."),
+            prefix=".signed-",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            tmp_path = f.name
+            json.dump(signed_data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, file_path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
 
 
 def is_signed_json_file(file_path: str | os.PathLike[str]) -> bool:

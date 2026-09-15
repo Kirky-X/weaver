@@ -390,3 +390,34 @@ class TestRedisErrorHandling:
         det = TrafficAnomalyDetector(redis=failing_redis, config=config)
         decision = await det.check_request(key_id="key1", ip="1.2.3.4")
         assert decision.action == TrafficAction.ALLOW
+
+
+class TestIpBanTtlAccuracy:
+    """``retry_after`` 必须反映真实剩余封禁时长（OCR LOW #185）。
+
+    此前实现把 TTL 抬升到最少 60s（仅剩 5s 也会被告知等 60s），且 key 已
+    消失/无 TTL 时也返回 60。现在返回真实 TTL，缺失时返回 0。
+    """
+
+    @pytest.mark.asyncio
+    async def test_retry_after_uses_real_remaining_ttl(self, fake_redis, config):
+        await fake_redis.set("traffic:blocked:ip:9.9.9.9", "1", ex=5)
+        det = TrafficAnomalyDetector(redis=fake_redis, config=config)
+
+        decision = await det.check_request(key_id="key1", ip="9.9.9.9")
+
+        assert decision.action == TrafficAction.BLOCK
+        assert decision.retry_after == 5  # 不再被抬升到 60
+
+    @pytest.mark.asyncio
+    async def test_missing_ban_key_returns_zero(self, fake_redis, config):
+        det = TrafficAnomalyDetector(redis=fake_redis, config=config)
+
+        assert await det._get_ip_ban_ttl("10.0.0.1") == 0
+
+    @pytest.mark.asyncio
+    async def test_positive_ttl_returned_verbatim(self, fake_redis, config):
+        await fake_redis.set("traffic:blocked:ip:7.7.7.7", "1", ex=900)
+        det = TrafficAnomalyDetector(redis=fake_redis, config=config)
+
+        assert await det._get_ip_ban_ttl("7.7.7.7") == 900

@@ -18,9 +18,13 @@ import real_ladybug as ladybug
 from core.observability import get_logger
 from core.utils.paths import data_path
 
-# Global write lock for LadybugDB (only one write transaction at a time)
-# LadybugDB enforces single-writer at the database level
-_write_lock = asyncio.Lock()
+# Single process-wide write lock for LadybugDB (only one write transaction
+# at a time). LadybugDB enforces single-writer at the database level, and
+# every writer (pool queries and LadybugWriter batches) MUST share this one
+# lock — a second module-level lock would not provide mutual exclusion.
+ladybug_write_lock = asyncio.Lock()
+# Backwards-compatible alias used within this module.
+_write_lock = ladybug_write_lock
 
 
 class LadybugPool:
@@ -67,6 +71,9 @@ class LadybugPool:
         self._buffer_pool_size = buffer_pool_size or self.DEFAULT_BUFFER_POOL_SIZE
         self._db: ladybug.Database | None = None
         self._conn: ladybug.AsyncConnection | None = None
+        # Timed-out queries whose executor threads are still running; each
+        # orphan holds a pooled connection until the C-level timeout kills it.
+        self._orphaned_tasks: set[asyncio.Future] = set()
 
     async def startup(self) -> None:
         """Initialize the LadybugDB connection."""
@@ -164,10 +171,15 @@ class LadybugPool:
             # calls conn.interrupt() which may block the event loop.
             # Do NOT call _interrupt_all_connections() — conn.interrupt() may
             # cause deadlock. Rely on set_query_timeout() to kill the query.
+            # Track the orphan so operators can correlate repeated timeouts
+            # with pool exhaustion (each orphan holds a pooled connection).
+            self._orphaned_tasks.add(task)
+            task.add_done_callback(self._orphaned_tasks.discard)
             log = get_logger(__name__)
             log.warning(
                 "ladybug_query_timeout",
                 timeout_seconds=self.ASYNC_QUERY_TIMEOUT_SECONDS,
+                orphaned_queries=len(self._orphaned_tasks),
                 query_preview=query[:200],
             )
             raise TimeoutError(

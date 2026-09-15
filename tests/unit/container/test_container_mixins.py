@@ -132,6 +132,16 @@ def _make_settings(**overrides):
     settings.spacy.zh_model_path = "zh_core_web_lg"
     settings.spacy.en_model_path = "en_core_web_lg"
 
+    # Fake news detector (numeric fields required: from_settings validates
+    # confidence_suspicious < confidence_trusted via real comparison)
+    settings.fake_news_detector = MagicMock(
+        enabled=False,
+        confidence_suspicious=0.4,
+        confidence_trusted=0.7,
+        exaggeration_keywords=[],
+        model_path="",
+    )
+
     for k, v in overrides.items():
         setattr(settings, k, v)
 
@@ -1008,6 +1018,8 @@ class TestContainerServicesPipelineService:
         c = _make_container()
         c._pipeline = MagicMock()
         c._pipeline_service = None
+        # pipeline_service() now wires the lazy crawler getter into the impl
+        c.crawler = MagicMock(return_value=MagicMock())
 
         mock_svc = MagicMock()
         with patch("core.services.pipeline_service.PipelineServiceImpl", return_value=mock_svc):

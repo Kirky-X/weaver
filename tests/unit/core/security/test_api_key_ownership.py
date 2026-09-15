@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Ownership check tests for ApiKeyManager.revoke_key / rotate_key.
 
-Verifies vuln-0009 fix (CWE-639 IDOR): any admin could previously revoke
+Verifies fix (CWE-639 IDOR): any admin could previously revoke
 or rotate any other admin's key. Now the manager enforces ownership —
 only the key's creator or a super-admin ("env-admin" / "system") can
 operate on it.
@@ -23,7 +23,7 @@ from core.security.api_key_manager import (
 
 
 class TestRevokeKeyOwnership:
-    """revoke_key SHALL enforce ownership check (vuln-0009)."""
+    """revoke_key SHALL enforce ownership check."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -131,7 +131,7 @@ class TestRevokeKeyOwnership:
 
 
 class TestRotateKeyOwnership:
-    """rotate_key SHALL enforce ownership check (vuln-0009)."""
+    """rotate_key SHALL enforce ownership check."""
 
     @pytest.fixture
     def mock_pool(self):

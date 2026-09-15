@@ -10,6 +10,7 @@ parallel health checks with configurable timeouts and retries.
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,22 @@ if TYPE_CHECKING:
 from core.observability import get_logger
 
 log = get_logger(__name__)
+
+# Matches credentials embedded in a URI userinfo section — both
+# scheme://user:pass@host and the username-less scheme://:pass@host form
+# used by Redis.
+_URI_CREDENTIALS_RE = re.compile(r"(://[^:/?#\s]*:)([^@/\s]+)(@)")
+
+
+def _redact_uri_credentials(text: str) -> str:
+    """Mask passwords embedded in URI userinfo before display/storage.
+
+    Health-check details are printed to the terminal and returned via
+    ``get_summary()`` (exposed through admin endpoints), so any configured
+    URI that carries inline credentials (e.g. ``bolt://user:pass@host``)
+    must be redacted first.
+    """
+    return _URI_CREDENTIALS_RE.sub(r"\1***\3", text)
 
 
 @dataclass
@@ -88,6 +105,7 @@ class PreStartupHealthChecker:
         result = ServiceCheckResult(service="postgres")
 
         for attempt in range(self._health_settings.max_retries):
+            engine: Any = None
             try:
                 dsn = self._settings.postgres.dsn
                 engine = create_async_engine(dsn, echo=False)
@@ -115,7 +133,6 @@ class PreStartupHealthChecker:
                         log.warning("Could not check pgvector extension", exc_info=True)
                         result.details.append("Could not check pgvector extension")
 
-                await engine.dispose()
                 result.healthy = True
                 result.latency_ms = (time.monotonic() - start_time) * 1000
                 return result
@@ -124,8 +141,14 @@ class PreStartupHealthChecker:
                 if attempt < self._health_settings.max_retries - 1:
                     await asyncio.sleep(self._health_settings.retry_delay_seconds)
                     continue
-                result.error = str(exc)
-                result.details.append(f"Connection failed: {exc}")
+                result.error = _redact_uri_credentials(str(exc))
+                result.details.append(f"Connection failed: {_redact_uri_credentials(str(exc))}")
+
+            finally:
+                # Dispose on every path — a failed attempt must not leak the
+                # engine's connection pool (engine.dispose is idempotent).
+                if engine is not None:
+                    await engine.dispose()
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
         return result
@@ -144,6 +167,8 @@ class PreStartupHealthChecker:
         result = ServiceCheckResult(service="redis")
 
         for attempt in range(self._health_settings.max_retries):
+            pool: ConnectionPool | None = None
+            cache_client: Redis | None = None
             try:
                 url = self._settings.redis.url
                 pool = ConnectionPool.from_url(
@@ -161,9 +186,6 @@ class PreStartupHealthChecker:
                 db_num = url.split("/")[-1] if "/" in url else "0"
                 result.details.append(f"Database: {db_num}")
 
-                await cache_client.aclose()
-                await pool.disconnect()
-
                 result.healthy = True
                 result.latency_ms = (time.monotonic() - start_time) * 1000
                 return result
@@ -172,8 +194,22 @@ class PreStartupHealthChecker:
                 if attempt < self._health_settings.max_retries - 1:
                     await asyncio.sleep(self._health_settings.retry_delay_seconds)
                     continue
-                result.error = str(exc)
-                result.details.append(f"Connection failed: {exc}")
+                result.error = _redact_uri_credentials(str(exc))
+                result.details.append(f"Connection failed: {_redact_uri_credentials(str(exc))}")
+
+            finally:
+                # Clean up on every path so a failed attempt does not leak
+                # the client and its connection pool.
+                if cache_client is not None:
+                    try:
+                        await cache_client.aclose()
+                    except Exception:
+                        log.debug("redis_health_client_close_failed", exc_info=True)
+                if pool is not None:
+                    try:
+                        await pool.disconnect()
+                    except Exception:
+                        log.debug("redis_health_pool_disconnect_failed", exc_info=True)
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
         return result
@@ -192,6 +228,7 @@ class PreStartupHealthChecker:
         result = ServiceCheckResult(service="neo4j")
 
         for attempt in range(self._health_settings.max_retries):
+            driver: Any = None
             try:
                 uri = self._settings.neo4j.uri
                 user = self._settings.neo4j.user
@@ -201,9 +238,7 @@ class PreStartupHealthChecker:
                 await driver.verify_connectivity()
 
                 result.details.append("Connection successful")
-                result.details.append(f"URI: {uri}")
-
-                await driver.close()
+                result.details.append(f"URI: {_redact_uri_credentials(uri)}")
 
                 result.healthy = True
                 result.latency_ms = (time.monotonic() - start_time) * 1000
@@ -213,8 +248,16 @@ class PreStartupHealthChecker:
                 if attempt < self._health_settings.max_retries - 1:
                     await asyncio.sleep(self._health_settings.retry_delay_seconds)
                     continue
-                result.error = str(exc)
-                result.details.append(f"Connection failed: {exc}")
+                result.error = _redact_uri_credentials(str(exc))
+                result.details.append(f"Connection failed: {_redact_uri_credentials(str(exc))}")
+
+            finally:
+                # Close the driver on every path — verify_connectivity
+                # failure must not leak the driver's connection pool.
+                try:
+                    await driver.close()
+                except Exception:
+                    log.debug("neo4j_health_driver_close_failed", exc_info=True)
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
         return result
@@ -270,8 +313,8 @@ class PreStartupHealthChecker:
                 result.healthy = True
 
         except Exception as exc:
-            result.error = str(exc)
-            result.details.append(f"Validation failed: {exc}")
+            result.error = _redact_uri_credentials(str(exc))
+            result.details.append(f"Validation failed: {_redact_uri_credentials(str(exc))}")
             result.healthy = False
 
         result.latency_ms = (time.monotonic() - start_time) * 1000
@@ -313,8 +356,8 @@ class PreStartupHealthChecker:
                 self._results[name] = ServiceCheckResult(
                     service=name,
                     healthy=False,
-                    error=str(result),
-                    details=[f"Check raised exception: {result}"],
+                    error=_redact_uri_credentials(str(result)),
+                    details=[f"Check raised exception: {_redact_uri_credentials(str(result))}"],
                 )
             else:
                 self._results[name] = result

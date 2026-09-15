@@ -145,6 +145,7 @@ class PostgresCompensation(CompensationCommand):
                     log.warning(
                         "postgres_compensation_vector_cleanup_failed",
                         error=str(exc),
+                        exc_info=True,
                     )
 
         elif self.operation == "status_change":
@@ -173,7 +174,9 @@ class PostgresCompensation(CompensationCommand):
         return {
             "type": "postgres",
             "saga_id": self.saga_id,
-            "article_id": self.article_id,
+            # article_id 声明为 str，但上游可能传入 uuid.UUID；与 article_ids
+            # 一样做字符串化，避免 json 序列化时抛 TypeError。
+            "article_id": str(self.article_id) if self.article_id else self.article_id,
             "step_name": self.step_name,
             "operation": self.operation,
             "backup_data": self.backup_data,
@@ -247,6 +250,13 @@ class Neo4jCompensation(CompensationCommand):
         """Execute Neo4j compensation.
 
         Marks associated articles as FAILED when Phase 2 (Neo4j) fails.
+
+        Known limitation: ``entity_ids`` and ``relationship_ids`` are NOT
+        deleted — no current producer populates them (batch_merger only
+        fills ``article_ids``, whose handling covers the Phase 2 rollback
+        path). If a future producer starts filling them, they MUST be
+        cleaned up here; until then any non-empty values are logged as a
+        warning so the gap stays visible.
         """
         log.info(
             "neo4j_compensation_execute",
@@ -256,6 +266,15 @@ class Neo4jCompensation(CompensationCommand):
             operation=self.operation,
             article_ids_count=len(self.article_ids),
         )
+
+        if self.entity_ids or self.relationship_ids:
+            log.warning(
+                "neo4j_compensation_graph_cleanup_unimplemented",
+                saga_id=self.saga_id,
+                entity_ids_count=len(self.entity_ids),
+                relationship_ids_count=len(self.relationship_ids),
+                hint="Only article status is rolled back; graph nodes are left in place",
+            )
 
         if self.article_ids and self._article_repo:
             error_msg = f"Saga compensation: {self.step_name} failed"
@@ -276,16 +295,18 @@ class Neo4jCompensation(CompensationCommand):
     def serialize(self) -> dict[str, Any]:
         """Serialize to JSON-compatible dict.
 
-        UUID objects in article_ids are converted to strings.
+        UUID objects in entity_ids/relationship_ids/article_ids are converted
+        to strings for JSON compatibility.
         """
         return {
             "type": "neo4j",
             "saga_id": self.saga_id,
-            "article_id": self.article_id,
+            # 同 PostgresCompensation.serialize：article_id 可能是 uuid.UUID。
+            "article_id": str(self.article_id) if self.article_id else self.article_id,
             "step_name": self.step_name,
             "operation": self.operation,
-            "entity_ids": self.entity_ids,
-            "relationship_ids": self.relationship_ids,
+            "entity_ids": [str(e) for e in self.entity_ids],
+            "relationship_ids": [str(r) for r in self.relationship_ids],
             "article_ids": [str(a) for a in self.article_ids],
         }
 
