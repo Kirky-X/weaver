@@ -254,3 +254,52 @@ class TestSentimentShiftDetectorCustomConfig:
         signal = [0.5] * 7
         result = detector.detect(signal)
         assert isinstance(result, list)
+
+
+class TestMergeSameMethodDuplicates:
+    """Same-method duplicates within cooldown keep the best record (#224)."""
+
+    def _shift(self, method, breakpoint, confidence):
+        return {
+            "shift_type": method,
+            "detection_method": method,
+            "direction": "positive",
+            "magnitude": 0.3,
+            "confidence": confidence,
+            "breakpoint": breakpoint,
+            "before_avg": 0.4,
+            "after_avg": 0.7,
+        }
+
+    def test_same_method_keeps_higher_confidence(self):
+        """Second same-method detection must merge, not vanish (#224)."""
+        detector = SentimentShiftDetector()
+        merged = detector._merge_results(
+            [self._shift("cusum", 5, 0.6)],
+            [self._shift("cusum", 6, 0.9)],
+        )
+
+        assert len(merged) == 1
+        assert merged[0]["confidence"] == 0.9
+        assert merged[0]["detection_method"] == "cusum"
+
+    def test_same_method_keeps_first_on_tie(self):
+        """Equal confidence keeps the earlier record (stable, #224)."""
+        detector = SentimentShiftDetector()
+        merged = detector._merge_results(
+            [self._shift("pelt", 5, 0.7)],
+            [self._shift("pelt", 5, 0.7)],
+        )
+
+        assert len(merged) == 1
+        assert merged[0]["breakpoint"] == 5
+
+    def test_distant_same_method_shifts_both_kept(self):
+        """Outside cooldown both records survive (#224)."""
+        detector = SentimentShiftDetector()
+        merged = detector._merge_results(
+            [self._shift("cusum", 2, 0.6)],
+            [self._shift("cusum", 20, 0.9)],
+        )
+
+        assert len(merged) == 2

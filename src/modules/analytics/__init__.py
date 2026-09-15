@@ -5,7 +5,6 @@
 Consolidates LLM usage tracking and metrics:
 - LLM usage repository (hourly aggregation, multi-dimensional queries)
 - LLM failure tracking
-- Prometheus metrics
 - Fake news detection
 """
 

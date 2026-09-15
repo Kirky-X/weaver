@@ -80,17 +80,19 @@ class MemoryEventPublisher:
 
         # Outbox-first: persist before dispatching so a crash between the
         # pipeline write and event consumption cannot lose the event.
-        row_ids: dict[int, int | None] = {}
+        # Index-aligned with `events` — id(event) keys can be reused after
+        # GC and are not reliable.
+        row_ids: list[int | None] = [None] * len(events)
         if self._outbox_repo is not None:
-            for event in events:
+            for i, event in enumerate(events):
                 try:
-                    row_ids[id(event)] = await self._outbox_repo.enqueue(
+                    row_ids[i] = await self._outbox_repo.enqueue(
                         event_type=type(event).__name__,
                         payload={"article_id": event.article_id, "state": event.state},
                         article_id=event.article_id,
                     )
                 except Exception as exc:
-                    row_ids[id(event)] = None
+                    row_ids[i] = None
                     log.error(
                         "outbox_enqueue_failed",
                         article_id=event.article_id,
@@ -103,14 +105,24 @@ class MemoryEventPublisher:
             return_exceptions=True,
         )
 
-        for event, result in zip(events, results, strict=False):
-            row_id = row_ids.get(id(event))
+        for i, (event, result) in enumerate(zip(events, results, strict=True)):
+            row_id = row_ids[i]
             if isinstance(result, Exception):
-                log.warning(
-                    "failed_to_publish_memory_event",
-                    article_id=event.article_id,
-                    error=str(result),
-                )
+                if row_id is None:
+                    # Outbox AND bus both failed for this event — it is not
+                    # persisted anywhere, so the dispatcher cannot replay it.
+                    # Surface loudly for operator reconciliation.
+                    log.error(
+                        "memory_event_permanently_lost",
+                        article_id=event.article_id,
+                        bus_error=str(result),
+                    )
+                else:
+                    log.warning(
+                        "failed_to_publish_memory_event",
+                        article_id=event.article_id,
+                        error=str(result),
+                    )
                 # keep 'pending' — the dispatcher job retries it
             else:
                 log.debug("memory_ingest_event_published", article_id=event.article_id)

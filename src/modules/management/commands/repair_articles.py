@@ -146,6 +146,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
 
         repaired = 0
         total_checked = 0
+        failed_ids: set[str] = set()
 
         while True:
             articles = await article_repo.get_incomplete_articles(limit=limit)
@@ -153,6 +154,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                 break
 
             total_checked += len(articles)
+            batch_repaired = 0
             print(f"\nFound {len(articles)} incomplete articles (total checked: {total_checked})")
 
             if dry_run:
@@ -218,6 +220,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
 
                         if updated:
                             repaired += 1
+                            batch_repaired += 1
                             print(
                                 f"  Repaired: category={enriched_category} | "
                                 f"score={enriched_score} | cred={enriched_cred_score} | "
@@ -233,11 +236,34 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                             print("  No fields updated (all already set or no enrichment produced)")
 
                     except Exception as e:
+                        failed_ids.add(str(article.id))
                         print(f"  FAILED: {type(e).__name__}: {e}")
-                        log.error("article_repair_failed", article_id=str(article.id), error=str(e))
+                        log.error(
+                            "article_repair_failed",
+                            article_id=str(article.id),
+                            error=str(e),
+                            failed_count=len(failed_ids),
+                        )
 
-            # Exit loop if not forcing (only process one batch per run by default)
-            if not force:
+            # Exit loop if not forcing (only process one batch per run by default).
+            # dry_run never mutates data, so a second batch would return the
+            # exact same articles — looping is meaningless (and infinite).
+            if not force or dry_run:
+                break
+
+            # Force mode with zero progress this batch: the same unrepaired
+            # articles would be re-fetched and re-failed forever (corr#351).
+            # Track progress and terminate explicitly instead.
+            if batch_repaired == 0:
+                print(
+                    "\nNo articles repaired in this batch — stopping force loop "
+                    "to avoid reprocessing the same failures indefinitely."
+                )
+                log.error(
+                    "repair_force_no_progress_terminated",
+                    total_checked=total_checked,
+                    repaired=repaired,
+                )
                 break
 
         print("\n=== Summary ===")

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Alert module — trend alert evaluation (T018 / R-alert-002,004).
+"""Alert module — trend alert evaluation.
 
 This package groups alert-related services:
 - trend_evaluator: TrendAlertEvaluator implementing hourly evaluation of

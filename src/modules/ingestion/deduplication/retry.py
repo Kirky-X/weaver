@@ -37,6 +37,8 @@ class RetryQueue:
     """
 
     DEAD_LETTER_KEY = RedisKeys.CRAWL_DEAD_LETTER
+    MAX_DELAY_SECONDS = 3600.0
+    MAX_DEAD_LETTER_SIZE = 10_000
 
     def __init__(
         self,
@@ -63,7 +65,9 @@ class RetryQueue:
             await self._move_to_dead_letter(url, host, attempt)
             return
 
-        delay = self._base_delay * (2**attempt)
+        # Cap the exponential backoff so large max_retries values cannot
+        # produce multi-hour delays that violate operational SLOs.
+        delay = min(self._base_delay * (2**attempt), self.MAX_DELAY_SECONDS)
         next_retry = time.time() + delay
         key = RedisKeys.crawl_retry(host)
 
@@ -118,7 +122,7 @@ class RetryQueue:
 
             # Validate field types
             url = item.get("url")
-            host = item.get("host")
+            item_host = item.get("host")
             if not isinstance(url, str) or not url:
                 log.warning(
                     "invalid_retry_item_url",
@@ -126,13 +130,22 @@ class RetryQueue:
                     raw=item_str[:100],
                 )
                 continue
-            if not isinstance(host, str) or not host:
+            if not isinstance(item_host, str) or not item_host:
                 log.warning(
                     "invalid_retry_item_host",
-                    host_type=type(host).__name__,
+                    host_type=type(item_host).__name__,
                     raw=item_str[:100],
                 )
                 continue
+            if item_host != host:
+                # Items live in a per-host sorted set, so a mismatch means the
+                # payload was written for a different host (data corruption).
+                log.warning(
+                    "retry_item_host_mismatch",
+                    expected_host=host,
+                    item_host=item_host,
+                    raw=item_str[:100],
+                )
             attempt = item.get("attempt")
             if attempt is not None and not (isinstance(attempt, int) and attempt >= 0):
                 log.warning(
@@ -152,9 +165,22 @@ class RetryQueue:
 
             result.append(item)
 
-        # Remove fetched items from the sorted set
+        # Remove fetched items from the sorted set. Note: zrangebyscore +
+        # zrem are not atomic — a concurrent consumer may have already
+        # removed some of these members, or a concurrent enqueue may have
+        # re-added the same payload with a newer score. zrem removes by
+        # member (score-independent), so compare the removed count and
+        # surface any divergence instead of failing silently.
         if items:
-            await self._cache.zrem(key, *items)
+            removed = await self._cache.zrem(key, *items)
+            if removed < len(items):
+                log.warning(
+                    "retry_items_claimed_concurrently",
+                    host=host,
+                    fetched=len(items),
+                    removed=removed,
+                    duplicated=len(items) - removed,
+                )
 
         return result
 
@@ -169,6 +195,9 @@ class RetryQueue:
             }
         )
         await self._cache.lpush(self.DEAD_LETTER_KEY, payload)
+        # Cap the dead-letter list so sustained crawl failures cannot
+        # exhaust Redis memory; keep only the most recent entries.
+        await self._cache.ltrim(self.DEAD_LETTER_KEY, 0, self.MAX_DEAD_LETTER_SIZE - 1)
         log.warning(
             "move_to_dead_letter",
             url=url,

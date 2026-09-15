@@ -344,3 +344,18 @@ class TestGlobalSectionMapping:
         assert settings.circuit_breaker_threshold == 9
         assert settings.circuit_breaker_timeout == 42.0
         assert "classifier" in settings.call_points
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#256)."""
+
+    def test_stage_config_forbids_unknown_keys(self):
+        """#256: a TOML typo such as ``enableed`` must fail validation."""
+        from pydantic import ValidationError
+
+        from modules.processing.pipeline.config import StageConfig
+
+        with pytest.raises(ValidationError):
+            StageConfig(**{"name": "x", "enableed": False})
+
+        assert StageConfig(name="x", enabled=False).enabled is False

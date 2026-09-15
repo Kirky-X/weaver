@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for RuleBasedCredibilityCheckerNode._calc_timeliness.
 
-Regression tests for Bug-A: TypeError when publish_time is str (not datetime).
+Regression tests for TypeError when publish_time is str (not datetime).
 
 Root cause: cleaner.py backfills publish_time as str(date), but _calc_timeliness
 expected datetime. Fix: defensive _to_datetime helper handles str/datetime/None.
@@ -125,7 +125,7 @@ class TestCalcTimeliness:
     ):
         """Test _calc_timeliness handles str/datetime/None inputs defensively.
 
-        Regression: Bug-A TypeError when publish_time is str.
+        Regression: TypeError when publish_time is str.
         """
         score = RuleBasedCredibilityCheckerNode._calc_timeliness(publish_time, event_time)
         assert expected_min <= score <= expected_max, (

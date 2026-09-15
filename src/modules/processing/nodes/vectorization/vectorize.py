@@ -31,7 +31,11 @@ class VectorizeNode:
         if state.get("terminal"):
             return state
 
-        cleaned = state["cleaned"]
+        cleaned = state.get("cleaned")
+        if not cleaned:
+            # Upstream Cleaner may have failed — fail loudly with context
+            # instead of an opaque KeyError deep in the pipeline.
+            raise KeyError(f"vectorize_missing_cleaned article_id={state.get('article_id')}")
         texts = [
             cleaned["title"],
             f"{cleaned['title']}\n{cleaned['body'][: self._text_limit]}",
@@ -43,6 +47,13 @@ class VectorizeNode:
             article_id=state.get("article_id"),
             task_id=state.get("task_id"),
         )
+        # Fail loud: title+content vectors are positional, so a short/long
+        # response would silently mis-pair or drop embeddings.
+        if len(embeddings) < 2:
+            raise ValueError(
+                f"embed_default returned {len(embeddings)} embeddings, expected >= 2 "
+                f"(title+content) for article_id={state.get('article_id')}"
+            )
         state["vectors"] = {
             "title": embeddings[0],
             "content": embeddings[1],

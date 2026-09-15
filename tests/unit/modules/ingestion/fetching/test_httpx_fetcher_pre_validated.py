@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for HttpxFetcher.fetch(pre_validated=...) — D3 dead code fix.
+"""RED test for HttpxFetcher.fetch(pre_validated=...) — dead code fix.
 
 When the caller (SmartFetcher) has already validated the URL upstream,
 HttpxFetcher must skip the redundant ``url_validator.validate`` call to
 avoid double SSRF check + double URLhaus/PhishTank network round-trip.
 
-See ``temp/report.md`` D3 (HttpxFetcher.fetch 双重校验) and specmark
-change ``fix-pipeline-deadcode-perf`` T008-T009.
 """
 
 from __future__ import annotations

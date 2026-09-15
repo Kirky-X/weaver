@@ -3,6 +3,7 @@
 """Unit tests for NewsNow Parser (ingestion module)."""
 
 import json
+import re
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -312,3 +313,36 @@ class TestNewsNowParserClose:
         parser = NewsNowParser(MagicMock())
 
         await parser.close()
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#60)."""
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("https://news.example.com/newsflashes", True),
+            ("https://news.example.com/newsflashes/", True),
+            ("https://news.example.com/newsflashes/3765005718012416", False),
+            ("https://news.example.com/newsflashes/something", True),
+            ("https://news.example.com/category/tech", True),
+            ("https://news.example.com/archive/2024", True),
+            ("https://news.example.com/article/123", False),
+            ("https://news.example.com/list?page=2", True),
+        ],
+    )
+    def test_is_list_page_semantics_preserved(self, url, expected):
+        """#60: precompiled patterns keep the original _is_list_page behaviour."""
+        assert NewsNowParser._is_list_page(url) is expected
+
+    def test_url_patterns_are_precompiled_at_import(self):
+        """#60: patterns are compiled once, not rebuilt on every call."""
+        from modules.ingestion.parsing import newsnow_parser as module
+
+        assert module._NUMERIC_ARTICLE_PATTERNS == ("/newsflashes", "/newsflash")
+        assert set(module._NUMERIC_ID_RE) == set(module._NUMERIC_ARTICLE_PATTERNS)
+        assert set(module._SEGMENT_RE) == set(
+            module._NUMERIC_ARTICLE_PATTERNS + module._LIST_PAGE_PATTERNS
+        )
+        assert all(isinstance(p, re.Pattern) for p in module._NUMERIC_ID_RE.values())
+        assert all(isinstance(p, re.Pattern) for p in module._SEGMENT_RE.values())

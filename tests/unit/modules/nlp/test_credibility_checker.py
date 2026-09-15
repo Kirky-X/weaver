@@ -60,7 +60,7 @@ def mock_source_auth_repo():
     repo = AsyncMock()
     mock_auth = MagicMock()
     mock_auth.authority = 0.85
-    repo.get_or_create = AsyncMock(return_value=mock_auth)
+    repo.get = AsyncMock(return_value=mock_auth)
     return repo
 
 
@@ -233,7 +233,7 @@ class TestSourceAuthorityPriority:
         # Should use preset value, not the 0.85 from source_auth_repo
         assert result["credibility"]["source_credibility"] == 0.95
         # source_auth_repo should not be called since preset was found
-        mock_source_auth_repo.get_or_create.assert_not_called()
+        mock_source_auth_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_priority_2_auto_calculated(
@@ -265,7 +265,7 @@ class TestSourceAuthorityPriority:
 
         # Should use auto-calculated value
         assert result["credibility"]["source_credibility"] == 0.85
-        mock_source_auth_repo.get_or_create.assert_called_once()
+        mock_source_auth_repo.get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_priority_3_default(self, mock_llm, mock_budget, mock_event_bus, sample_raw):
@@ -444,7 +444,7 @@ class TestCredibilityCheckerNodeErrorHandling:
         self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         """Test that credibility checker handles source repo errors."""
-        mock_source_auth_repo.get_or_create = AsyncMock(
+        mock_source_auth_repo.get = AsyncMock(
             side_effect=Exception("Database connection failed")
         )
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
@@ -475,7 +475,7 @@ class TestCredibilityCheckerNodeIntegration:
     ):
         """Test that credibility score uses category-adaptive weights."""
         # Set up known values for each signal
-        mock_source_auth_repo.get_or_create = AsyncMock(
+        mock_source_auth_repo.get = AsyncMock(
             return_value=MagicMock(authority=1.0)  # s1 = 1.0
         )
 
@@ -513,7 +513,7 @@ class TestCredibilityCheckerNodeIntegration:
         self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo
     ):
         """Test credibility with economic news - source authority should dominate."""
-        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
+        mock_source_auth_repo.get = AsyncMock(return_value=MagicMock(authority=0.90))
 
         node = CredibilityCheckerNode(
             event_bus=mock_event_bus,

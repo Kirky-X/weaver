@@ -49,7 +49,7 @@ def _make_snapshot(**overrides):
 
 def _compute_content_hash(title: str, body: str) -> str:
     """Compute content hash matching service logic."""
-    content = f"{title}{body}"
+    content = f"{len(title)}:{title}\x00{body}"
     return hashlib.sha256(content.encode()).hexdigest()
 
 

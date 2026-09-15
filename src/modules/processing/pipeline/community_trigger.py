@@ -36,6 +36,10 @@ class CommunityUpdateTrigger:
 
     def __init__(self, *, community_updater: IncrementalCommunityUpdater | None) -> None:
         self._community_updater = community_updater
+        # Strong references keep fire-and-forget tasks alive until done —
+        # a task only referenced by its done callback can be GC'd mid-flight
+        # (the callback does not back-reference the task).
+        self._background_tasks: set[asyncio.Task[object]] = set()
 
     async def maybe_trigger(self, states: list[PipelineState]) -> None:
         """Check and trigger incremental community update after Phase 4 persist.
@@ -61,9 +65,15 @@ class CommunityUpdateTrigger:
                             if name:
                                 entity_names.append(name)
                         elif hasattr(entity, "canonical_name"):
-                            entity_names.append(entity.canonical_name)
+                            if entity.canonical_name:
+                                entity_names.append(entity.canonical_name)
                         elif hasattr(entity, "name"):
-                            entity_names.append(entity.name)
+                            if entity.name:
+                                entity_names.append(entity.name)
+
+        # The same entity can appear in many pipeline states — duplicates
+        # would inflate the pending count and skew the trigger threshold.
+        entity_names = list(dict.fromkeys(entity_names))
 
         if not entity_names:
             log.debug("community_update_skip_no_entities")
@@ -90,6 +100,7 @@ class CommunityUpdateTrigger:
 
                 def _on_community_update_done(t: asyncio.Task[object]) -> None:
                     """Log result or error from background community update."""
+                    self._background_tasks.discard(t)
                     try:
                         result = t.result()
                         log.info(
@@ -106,6 +117,7 @@ class CommunityUpdateTrigger:
                         )
 
                 task.add_done_callback(_on_community_update_done)
+                self._background_tasks.add(task)
             else:
                 # Increment pending count for next time
                 await self._community_updater.increment_pending_count(len(entity_names))

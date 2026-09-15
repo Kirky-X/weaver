@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import inspect
+
 import pytest
 
 from modules.ingestion.domain.models import RawArticle
@@ -291,3 +293,70 @@ class TestRuleBasedQualityScorerCompleteness:
         result = await node.execute(state)
 
         assert result["quality_score"] <= 0.35
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#253)."""
+
+    @staticmethod
+    def _node():
+        from modules.processing.nodes.quality.quality_scorer import RuleBasedQualityScorerNode
+
+        return RuleBasedQualityScorerNode()
+
+    def test_magic_numbers_are_module_level_constants(self):
+        """#253: the thresholds are named, tunable module constants."""
+        from modules.processing.nodes.quality import quality_scorer as module
+
+        assert module.MIN_BODY_LEN_FULL_ORIGINAL == 100
+        assert module.DEFAULT_TIMELINESS_SCORE == 0.5
+
+    def test_originality_threshold_boundary(self):
+        """#253: originality flips exactly at MIN_BODY_LEN_FULL_ORIGINAL."""
+        from modules.processing.nodes.quality.quality_scorer import (
+            MIN_BODY_LEN_FULL_ORIGINAL,
+        )
+
+        node = self._node()
+        at_threshold = {"cleaned": {"body": "x" * MIN_BODY_LEN_FULL_ORIGINAL}}
+        above_threshold = {"cleaned": {"body": "x" * (MIN_BODY_LEN_FULL_ORIGINAL + 1)}}
+
+        # originality is weighted 0.15 => 0.5 vs 1.0 differs by 0.075
+        assert node._compute_score(above_threshold) - node._compute_score(
+            at_threshold
+        ) == pytest.approx(0.075)
+
+    def test_missing_time_uses_named_timeliness_default(self):
+        """#253: the neutral timeliness default comes from the constant."""
+        from modules.processing.nodes.quality.quality_scorer import (
+            DEFAULT_TIMELINESS_SCORE,
+        )
+
+        node = self._node()
+        body = "x" * 200
+        without_time = {"cleaned": {"body": body}}
+        with_time = {
+            "cleaned": {"body": body},
+            "summary_info": {"event_time": "2024-01-01T00:00:00+00:00"},
+        }
+
+        # timeliness is weighted 0.10 => 0.5 vs 1.0 differs by 0.05
+        assert node._compute_score(with_time) - node._compute_score(without_time) == pytest.approx(
+            (1.0 - DEFAULT_TIMELINESS_SCORE) * 0.10
+        )
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#253)."""
+
+    def test_thresholds_are_named_constants(self):
+        """#253: the magic body length / timeliness defaults are named constants."""
+        from modules.processing.nodes.quality import quality_scorer as module
+
+        assert module.MIN_BODY_LEN_FULL_ORIGINAL == 100
+        assert module.DEFAULT_TIMELINESS_SCORE == 0.5
+
+        src = inspect.getsource(module.RuleBasedQualityScorerNode._compute_score)
+        assert "MIN_BODY_LEN_FULL_ORIGINAL" in src
+        assert "DEFAULT_TIMELINESS_SCORE" in src
+        assert "len(body) > 100" not in src

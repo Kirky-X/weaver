@@ -430,11 +430,12 @@ class Pipeline:
             for i, result in enumerate(phase1_results):
                 if isinstance(result, Exception):
                     src = pending_phase1[i]
+                    raw_obj = src.get("raw")
                     log.error(
                         "phase1_task_failed",
                         article_index=i,
                         article_id=src.get("article_id"),
-                        url=src["raw"].url,
+                        url=getattr(raw_obj, "url", "unknown"),
                         error=str(result),
                         error_type=type(result).__name__,
                     )
@@ -442,8 +443,12 @@ class Pipeline:
                         stage="phase1",
                         error_type=type(result).__name__,
                     ).inc()
-                    # Create failed state for the article
-                    failed_state = PipelineState(raw=src["raw"])
+                    # Create failed state for the article (raw may be absent
+                    # on a malformed/cached state — PipelineState is
+                    # total=False).
+                    failed_state = (
+                        PipelineState(raw=raw_obj) if raw_obj is not None else PipelineState()
+                    )
                     if src.get("article_id"):
                         failed_state["article_id"] = src["article_id"]
                     if task_id is not None:
@@ -1041,9 +1046,13 @@ class Pipeline:
                     entities=state["entities"]
                 )
                 state["resolved_entities"] = resolved_entities
+                # state["raw"] is always set for current callers, but use
+                # .get() so a future caller that omits it cannot crash this
+                # debug log.
+                raw_obj = state.get("raw")
                 log.debug(
                     "entity_resolver_complete",
-                    url=state["raw"].url,
+                    url=raw_obj.url if raw_obj else None,
                     resolved_count=len(resolved_entities),
                 )
 
@@ -1074,8 +1083,14 @@ class Pipeline:
         )
 
     async def stop_accepting(self) -> None:
-        """Stop accepting new pipeline tasks."""
-        self._accepting = False
+        """Stop accepting new pipeline tasks.
+
+        Acquires the same condition lock as _batch_slot so a batch cannot
+        claim a slot while _accepting flips (relevant when this is called
+        from another thread via call_soon_threadsafe).
+        """
+        async with self._batch_slot_lock:
+            self._accepting = False
         log.info("pipeline_stop_accepting")
 
     @asynccontextmanager

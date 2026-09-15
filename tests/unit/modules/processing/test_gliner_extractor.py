@@ -31,7 +31,7 @@ def config() -> GLiNERConfig:
 def extractor(config: GLiNERConfig) -> GLiNERExtractor:
     """GLiNERExtractor instance with mocked GLiNER.
 
-    Bug-D fix: GLiNERExtractor uses lazy init (_ensure_initialized called on
+    GLiNERExtractor uses lazy init (_ensure_initialized called on
     first extract_entities). The old fixture returned from inside a `with
     patch("gliner.GLiNER")` block, so the patch was gone by the time the test
     invoked extract_entities → _init_gliner → from gliner import GLiNER got
@@ -53,7 +53,7 @@ def extractor(config: GLiNERConfig) -> GLiNERExtractor:
 def extractor_with_llm(config: GLiNERConfig) -> GLiNERExtractor:
     """GLiNERExtractor instance with mocked GLiNER and LLM.
 
-    Bug-D fix: same lazy-init isolation as `extractor` fixture.
+    Same lazy-init isolation as the ``extractor`` fixture.
     """
     mock_model = MagicMock()
     llm = AsyncMock()
@@ -243,7 +243,7 @@ class TestEdgeCases:
 
 
 class TestLazyInitConcurrency:
-    """Test lazy initialization thread safety (Bug-D HIGH-001/HIGH-1 fix).
+    """Test lazy initialization thread safety (/fix).
 
     GLiNERExtractor is a singleton shared across pipeline requests. With
     asyncio.to_thread, concurrent first calls can race in _ensure_initialized.
@@ -314,7 +314,7 @@ class TestLazyInitConcurrency:
 
 
 class TestInitRetryOnFailure:
-    """Test that failed init allows retry (Bug-D HIGH-002 fix).
+    """Test that failed init allows retry (fix).
 
     Old code set _initialized=True BEFORE _init_gliner(), so a failed load
     permanently disabled GLiNER for the process lifetime. Fix: only set
@@ -365,7 +365,7 @@ class TestInitRetryOnFailure:
 
 
 class TestWarmup:
-    """Test warmup() method for pre-initialization (Bug-D HIGH-2 mitigation).
+    """Test warmup() method for pre-initialization (mitigation).
 
     warmup() allows lifecycle.py to pre-load the model at startup, avoiding
     first-request latency (7-20s). Non-blocking when called via asyncio.

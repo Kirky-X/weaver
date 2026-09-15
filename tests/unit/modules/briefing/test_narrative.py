@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for NarrativeBriefingGenerator (T020 / R-briefing-007).
+"""Unit tests for NarrativeBriefingGenerator.
 
 NarrativeBriefingGenerator produces narrative-style briefings by aggregating
 NarrativeNode framing data (source_bias/frame/tone/emphasis) across multiple
 articles for a given date + category.
 
-Spec R-briefing-007 acceptance:
+Spec acceptance:
 - Query NarrativeNode (HAS_NARRATIVE relationship from EventNode linked to
   Article via HAS_EVENT).
 - Filter articles by category (delegated to storage.fetch_articles_for_briefing
@@ -16,10 +16,10 @@ Spec R-briefing-007 acceptance:
 
 Failure handling (Rule 12 — fail loud):
 - LLM failures degrade gracefully (empty summary, briefing still persisted),
-  consistent with BriefingGenerator's R-briefing-002 contract.
+  consistent with BriefingGenerator's contract.
 - Storage failures raise to the caller.
 - InsufficientNarrativeError is the explicit "no degradation" signal — caller
-  (DailyBriefingService T021) catches it to fall back to template mode.
+  (DailyBriefingService) catches it to fall back to template mode.
 - Graph DB errors propagate (Rule 12).
 """
 
@@ -147,7 +147,7 @@ def _make_narrative_row(
 
 
 class TestInsufficientNarrativeError:
-    """Verify InsufficientNarrativeError structure (R-briefing-007)."""
+    """Verify InsufficientNarrativeError structure."""
 
     def test_is_exception_subclass(self) -> None:
         """InsufficientNarrativeError must be an Exception (catchable by except)."""
@@ -226,7 +226,7 @@ class TestNarrativeBriefingGeneratorCategoryFilter:
 
 
 class TestNarrativeBriefingGeneratorNarrativeQuery:
-    """Verify NarrativeNode query via graph DB (R-briefing-007)."""
+    """Verify NarrativeNode query via graph DB."""
 
     @pytest.mark.asyncio
     async def test_generate_queries_narrative_node_for_articles(
@@ -514,7 +514,7 @@ class TestNarrativeBriefingGeneratorFailureModes:
     async def test_generate_llm_failure_degrades_to_empty_summary(
         self, generator, mock_storage, mock_graph_pool, mock_llm
     ) -> None:
-        """LLM failure → summary=None, briefing still persisted (R-briefing-002)."""
+        """LLM failure → summary=None, briefing still persisted."""
         mock_storage.fetch_articles_for_briefing.return_value = [
             _make_article(article_id="art-1"),
         ]
@@ -634,7 +634,7 @@ class TestNarrativeBriefingGeneratorFailureModes:
 
 
 class TestNarrativeBriefingGeneratorReturnShape:
-    """Verify return dict shape matches BriefingGenerator (R-briefing-002 contract)."""
+    """Verify return dict shape matches BriefingGenerator (contract)."""
 
     @pytest.mark.asyncio
     async def test_generate_returns_dict_with_required_fields(
@@ -711,3 +711,18 @@ class TestNarrativeFormatSummaryFirst:
             articles=articles, narratives_by_article={}
         )
         assert text.count("字") == 500
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#80)."""
+
+    def test_score_none_is_coerced_to_zero(self):
+        """#80: a present-but-None score must not raise in the f-string format."""
+        import inspect
+
+        from modules.briefing.narrative import NarrativeBriefingGenerator
+
+        src = inspect.getsource(NarrativeBriefingGenerator._format_articles_with_narratives)
+
+        assert 'article.get("score") or 0.0' in src
+        assert 'article.get("score", 0.0)' not in src

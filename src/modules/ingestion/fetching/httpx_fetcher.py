@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -13,6 +14,7 @@ import httpx
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.retry import retry_network
+from core.security.validation.ssrf import SSRFError
 from modules.ingestion.fetching.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -152,7 +154,7 @@ class HttpxFetcher(BaseFetcher):
     Args:
         timeout: Request timeout in seconds.
         user_agents: User-Agent pool — each request draws a random UA
-            from this list (P1-4 fix). Defaults to a single-UA pool to
+            from this list (fix). Defaults to a single-UA pool to
             preserve backward-compatible behavior.
         http2: Enable HTTP/2 multiplexing (default True).
         max_connections: Maximum connections in pool.
@@ -183,7 +185,7 @@ class HttpxFetcher(BaseFetcher):
         # so an unvalidated redirect target is never contacted.
         self._redirect_handler = SecureRedirectHandler(url_validator)
 
-        # Per-request UA rotation (P1-4): do NOT set a client-level
+        # Per-request UA rotation: do NOT set a client-level
         # User-Agent header; instead, _get_headers picks one randomly
         # from self._user_agents on every request. Caller-supplied
         # headers still win (see _get_headers).
@@ -234,7 +236,7 @@ class HttpxFetcher(BaseFetcher):
             headers: Optional HTTP headers to include in the request.
             pre_validated: If True, skip url_validator.validate (caller has
                 already validated). Used by SmartFetcher to avoid double
-                SSRF/URLhaus/PhishTank checks. See ``temp/report.md`` D3.
+                SSRF/URLhaus/PhishTank checks.
 
         Returns:
             Tuple of (status_code, response_text, response_headers).
@@ -243,22 +245,25 @@ class HttpxFetcher(BaseFetcher):
             SSRFError: If URL is blocked for SSRF protection.
             RedirectBlockedError: If a redirect is blocked for security.
         """
-        import time
-
         start = time.monotonic()
 
         # Security validation - do NOT retry if this fails.
         # Skip when caller (e.g. SmartFetcher) has already validated upstream
         # to avoid duplicate SSRF + URLhaus + PhishTank network round-trips.
         if self._url_validator and not pre_validated:
-            await self._url_validator.validate(url)
+            result = await self._url_validator.validate(url)
+            if not result.is_safe:
+                raise SSRFError(
+                    url=url,
+                    message=f"URL blocked by security validation: {result.risk.value}",
+                )
 
         # Network operation with retry
         async for attempt in retry_network(max_attempts=3, min_wait=1.0, max_wait=10.0):
             with attempt:
                 try:
                     # Build request to allow redirect inspection.
-                    # Per-request UA rotation via _get_headers (P1-4 fix):
+                    # Per-request UA rotation via _get_headers (fix):
                     # caller headers override pool-selected UA.
                     request = self._client.build_request(
                         "GET", url, headers=self._get_headers(headers)
@@ -267,6 +272,12 @@ class HttpxFetcher(BaseFetcher):
                     # Redirect targets are validated by the client-level
                     # event-hook (SecureRedirectHandler) before each hop.
                     response = await self._client.send(request, follow_redirects=True)
+
+                    # send() does NOT raise for HTTP error statuses — surface
+                    # them as HTTPStatusError so the 429/503 Retry-After
+                    # backoff and 5xx retry logic below are reachable.
+                    if response.status_code >= 400:
+                        response.raise_for_status()
 
                     latency = time.monotonic() - start
                     MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
@@ -292,7 +303,7 @@ class HttpxFetcher(BaseFetcher):
                     latency = time.monotonic() - start
 
                     # 429/503 + Retry-After: respect the server's backoff
-                    # signal before re-raising (P1-4 fix). Cap the wait at
+                    # signal before re-raising (fix). Cap the wait at
                     # 60s so a hostile server cannot stall the crawler
                     # indefinitely. Re-raise so retry_network still owns
                     # the retry-loop accounting.
@@ -340,7 +351,9 @@ class HttpxFetcher(BaseFetcher):
                     )
                     raise  # Let retry_network handle
 
-        raise RuntimeError("Fetch retry exhausted")  # Should never reach here
+        # Unreachable: retry_network(reraise=True) re-raises the last exception
+        # when the retry budget is exhausted, so this loop never exits normally.
+        raise AssertionError("unreachable: retry_network always raises on exhaustion")
 
     async def post(
         self,
@@ -365,13 +378,16 @@ class HttpxFetcher(BaseFetcher):
             httpx.HTTPStatusError: On HTTP error status.
             httpx.TransportError: On transport error.
         """
-        import time
-
         start = time.monotonic()
         try:
             # Validate URL before making request (SSRF protection)
             if self._url_validator:
-                await self._url_validator.validate(url)
+                result = await self._url_validator.validate(url)
+                if not result.is_safe:
+                    raise SSRFError(
+                        url=url,
+                        message=f"URL blocked by security validation: {result.risk.value}",
+                    )
 
             response = await self._client.post(
                 url,

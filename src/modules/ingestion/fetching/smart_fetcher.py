@@ -121,10 +121,20 @@ class SmartFetcher(BaseFetcher):
         if host not in self._breakers:
             # Bound growth: a large crawl touches hundreds of thousands of
             # hosts; evict closed breakers of evicted entries via simple
-            # periodic sweep once the map exceeds 2× the cap.
+            # periodic sweep once the map exceeds 2× the cap. When most
+            # breakers are OPEN/HALF_OPEN, fall back to evicting the oldest
+            # entries regardless of state so the map stays bounded — an
+            # evicted OPEN breaker simply re-trips on the next failures.
             if len(self._breakers) >= self._BREAKER_CAP * 2:
-                closed = [h for h, b in self._breakers.items() if b.state == CBState.CLOSED]
-                for h in closed[: len(self._breakers) - self._BREAKER_CAP]:
+                excess = len(self._breakers) - self._BREAKER_CAP
+                evict = [h for h, b in self._breakers.items() if b.state == CBState.CLOSED][:excess]
+                if len(evict) < excess:
+                    for h in self._breakers:
+                        if len(evict) >= excess:
+                            break
+                        if h not in evict:
+                            evict.append(h)
+                for h in evict:
                     del self._breakers[h]
             self._breakers[host] = CircuitBreaker(
                 threshold=self._circuit_breaker_threshold,
@@ -175,9 +185,7 @@ class SmartFetcher(BaseFetcher):
             if self._circuit_breaker_enabled:
                 await self._get_breaker(host).record_success()
             return result
-        except CircuitOpenError:
-            raise  # Don't record failure for circuit open
-        except Exception as exc:
+        except Exception:
             if self._circuit_breaker_enabled:
                 await self._get_breaker(host).record_failure()
             raise
@@ -208,7 +216,7 @@ class SmartFetcher(BaseFetcher):
         try:
             # pre_validated=True: SmartFetcher.fetch() already validated URL
             # at line 148-149; skip HttpxFetcher's redundant validation
-            # to avoid double SSRF/URLhaus/PhishTank round-trips (D3 fix).
+            # to avoid double SSRF/URLhaus/PhishTank round-trips (fix).
             status, content, resp_headers = await self._httpx.fetch(
                 url, headers, pre_validated=True
             )

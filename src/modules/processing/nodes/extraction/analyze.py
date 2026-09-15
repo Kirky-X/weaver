@@ -180,7 +180,7 @@ class AnalyzeNode:
                         exc_type=type(e).__name__,
                         error=str(e),
                     )
-        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
+        except Exception as e:  # incl. AllProvidersFailedError/CircuitOpenError/ValueError
             # Fallback: use default values if LLM fails
             log.warning(
                 "analyze_failed_using_defaults",

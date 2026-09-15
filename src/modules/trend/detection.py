@@ -1,24 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Trend detector — implements TrendDetectionProtocol (T015 / R-trend-002,003,005).
+"""Trend detector — implements TrendDetectionProtocol.
 
 TrendDetector queries EventNode frequency over a time window, computes
 per-entity frequency_change (current vs previous window), and optionally
 blends sentiment contribution from SentimentTrendProtocol to produce a
 trend_score. The detector returns:
 
-- ``status='ok'`` when EventNode count >= 50 (R-trend-002 threshold).
-- ``status='insufficient_data'`` when < 50 (R-trend-003). This is NOT an
+- ``status='ok'`` when EventNode count >= 50 (threshold).
+- ``status='insufficient_data'`` when < 50. This is NOT an
   error — the detector returns this explicitly rather than raising
   (Rule 12: fail visible, but data insufficiency is a legitimate state).
 
-Trend score formula (R-trend-005):
+Trend score formula:
     trend_score = 0.6 * frequency_change + 0.4 * sentiment_change
     When sentiment data is unavailable (analyzer is None OR the analyzer
     returns empty shifts for the entity), trend_score degenerates to
     frequency_change alone. Degradation is per-entity, not global.
 
-Direction thresholds (R-trend-005):
+Direction thresholds:
     trend_score > 0.2  → 'up'
     trend_score < -0.2 → 'down'
     otherwise         → 'stable'
@@ -40,7 +40,7 @@ Spec conflict (Rule 7 — exposed):
     spec/tasks say "按 entity_type 过滤", but EventNode schema field is
     ``name`` (not ``event_type``). Implementation uses ``e.name`` for the
     filter — the ``entity_type`` parameter name is kept for API/spec
-    compatibility (R-trend-002), internally mapped to EventNode.name.
+    compatibility, internally mapped to EventNode.name.
 
 Failure handling (Rule 12 — fail loud):
     Graph DB errors and sentiment analyzer errors propagate to the caller.
@@ -79,7 +79,7 @@ _DOWN_THRESHOLD: float = -0.2
 
 
 class TrendDetector:
-    """Detect trending entities over a time window (R-trend-001).
+    """Detect trending entities over a time window.
 
     Implements: TrendDetectionProtocol (core.protocols.services)
 
@@ -113,11 +113,11 @@ class TrendDetector:
         window_days: int = 7,
         entity_type: str | None = None,
     ) -> TrendDetectionResult:
-        """Detect trending entities over a time window (R-trend-002/003).
+        """Detect trending entities over a time window (/003).
 
         Args:
             window_days: Time window in days — MUST be 7 or 30 per spec.
-            entity_type: Optional EventNode.name filter (R-trend-002).
+            entity_type: Optional EventNode.name filter.
                 None aggregates across all entity types.
 
         Returns:
@@ -292,7 +292,7 @@ class TrendDetector:
         - If analyzer available AND returns non-empty shifts:
             trend_score = 0.6 * freq_change + 0.4 * sentiment_change
         - Else (analyzer None OR empty shifts):
-            trend_score = freq_change (degraded — R-trend-005)
+            trend_score = freq_change (degraded —)
         - direction: >0.2 'up', <-0.2 'down', else 'stable'
 
         Args:

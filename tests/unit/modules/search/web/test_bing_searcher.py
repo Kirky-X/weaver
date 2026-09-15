@@ -3,12 +3,12 @@
 """Unit tests for BingSearcher (web search module).
 
 TDD Red phase: these tests fail until ``BingSearcher`` is implemented in
-``src/modules/search/web/bing_searcher.py`` (T003 Green). The mock fetcher
+``src/modules/search/web/bing_searcher.py`` (Green). The mock fetcher
 returns a fixed HTML payload so tests do not hit the network.
 
-Note: ``BingSettings`` is not implemented until T013. These tests use
+Note: ``BingSettings`` is not implemented until. These tests use
 ``SimpleNamespace`` as a duck-typed stand-in exposing the same attributes
-(``enabled``, ``max_results``, ``timeout``, ``user_agent``). Once T013
+(``enabled``, ``max_results``, ``timeout``, ``user_agent``). Once
 lands, the stand-in can be replaced with ``BingSettings()`` without
 touching the assertions (attribute access is compatible).
 """
@@ -51,7 +51,7 @@ def _make_settings(
     query_expansion_max_terms: int = 3,
     query_expansion_timeout: float = 5.0,
 ) -> SimpleNamespace:
-    """Build a duck-typed BingSettings stand-in (T013 replaces with real class)."""
+    """Build a duck-typed BingSettings stand-in (replaces with real class)."""
     return SimpleNamespace(
         enabled=enabled,
         max_results=max_results,
@@ -194,10 +194,10 @@ class TestBingSearcherSearch:
 
 
 class TestBingSearcherParserIntegration:
-    """Integration tests for search() + parse_bing_html() wiring (T006).
+    """Integration tests for search() + parse_bing_html() wiring.
 
     These tests use the shared ``bing_sample.html`` fixture to verify that
-    ``search()`` returns real parsed results (not the empty list from T003
+    ``search()`` returns real parsed results (not the empty list from
     skeleton) and that ``max_results`` propagates end-to-end to the parser.
     """
 
@@ -205,7 +205,7 @@ class TestBingSearcherParserIntegration:
     async def test_search_returns_parsed_results_from_fixture(self) -> None:
         """search() must return parsed BingSearchResult entries from fixture HTML.
 
-        T006 contract: search() wires parse_bing_html() — given the fixture
+        contract: search() wires parse_bing_html() — given the fixture
         (3 valid results + 2 skipped + 2 non-result list items), it must
         return exactly 3 BingSearchResult instances with title/url/snippet
         populated.
@@ -352,7 +352,7 @@ class TestBingSearcherInputValidation:
 
 
 class TestBingSearcherCache:
-    """Tests for BingSearcher TTL cache (LOW-2 perf fix).
+    """Tests for BingSearcher TTL cache (perf fix).
 
     Covers: cache miss (fetcher called, result cached), cache hit (fetcher
     NOT called), TTL expiry (entry disappears after TTL), cache write

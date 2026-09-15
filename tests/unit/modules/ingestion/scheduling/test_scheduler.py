@@ -3,7 +3,7 @@
 """Unit tests for SourceScheduler."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -60,10 +60,30 @@ class TestSourceSchedulerStartStop:
 
     def test_stop_shuts_down_scheduler(self, scheduler):
         """Test stop() shuts down scheduler."""
+        with patch.object(
+            type(scheduler._scheduler), "running", new_callable=PropertyMock, return_value=True
+        ):
+            with patch.object(scheduler._scheduler, "shutdown") as mock_shutdown:
+                scheduler.stop()
+
+                mock_shutdown.assert_called_once_with(wait=False)
+
+    def test_stop_is_noop_when_scheduler_not_running(self, scheduler):
+        """#181: stop() before start() must not raise SchedulerNotRunningError."""
         with patch.object(scheduler._scheduler, "shutdown") as mock_shutdown:
             scheduler.stop()
 
-            mock_shutdown.assert_called_once_with(wait=False)
+        mock_shutdown.assert_not_called()
+
+    def test_start_is_noop_when_already_running(self, scheduler):
+        """#181: a second start() must not raise SchedulerAlreadyRunningError."""
+        with patch.object(
+            type(scheduler._scheduler), "running", new_callable=PropertyMock, return_value=True
+        ):
+            with patch.object(scheduler._scheduler, "start") as mock_start:
+                scheduler.start()
+
+        mock_start.assert_not_called()
 
 
 class TestSourceSchedulerCrawlSource:

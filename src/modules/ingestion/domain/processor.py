@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import traceback
 import uuid
 from typing import Any
 
@@ -106,8 +107,6 @@ class DiscoveryProcessor:
             task_id: Optional task ID for tracking.
             force: Force re-crawl, skip URL dedup (still apply simhash for content quality).
         """
-        import traceback
-
         log.info("items_discovered", count=len(items), source=source.id, max_items=max_items)
 
         try:
@@ -127,8 +126,9 @@ class DiscoveryProcessor:
                 title_items = []
                 for item in items:
                     title = getattr(item, "title", None) or getattr(item, "name", "")
-                    if title:
-                        title_items.append(TitleItem(url=item.url, title=title))
+                    url = getattr(item, "url", "")
+                    if title and url:
+                        title_items.append(TitleItem(url=url, title=title))
 
                 if title_items:
                     (
@@ -136,8 +136,8 @@ class DiscoveryProcessor:
                         filtered_count,
                     ) = await self._simhash_dedup.dedup_titles_with_metrics(title_items)
                     # Filter original items based on unique titles
-                    unique_urls = {item.url for item in unique_items}
-                    items = [item for item in items if item.url in unique_urls]
+                    unique_urls = {t.url for t in unique_items}
+                    items = [item for item in items if getattr(item, "url", "") in unique_urls]
 
                     if not items:
                         log.info("all_items_deduplicated_by_simhash", source=source.id)
@@ -227,7 +227,11 @@ class DiscoveryProcessor:
                 # catch only triggers when the entire batch path fails hard
                 # (e.g. pool unavailable). Per-article errors are logged
                 # inside bulk_insert_raw as "bulk_insert_raw_fallback_failed".
+                # Re-raise (Rule 12): swallowing here would silently drop the
+                # whole batch — the scheduler's consecutive-failure counter
+                # must see this failure so auto-disable can trigger.
                 log.error("bulk_insert_raw_failed", error=str(exc))
+                raise
 
             if article_ids and self._processing_queue:
                 for idx, aid in enumerate(article_ids):
@@ -239,8 +243,7 @@ class DiscoveryProcessor:
                         # continue instead of break: give remaining articles
                         # a chance to enqueue (queue may have drained by next
                         # iteration). Log per-article so drops are visible
-                        # rather than silently swallowed. See temp/report.md
-                        # P0-4 (queue-full silent drop).
+                        # rather than silently swallowed (queue-full silent drop).
                         log.error(
                             "queue_full_article_dropped",
                             article_id=str(aid),

@@ -126,7 +126,7 @@ class TestAnalyticsStorageGetShifts:
         API endpoint catches and returns empty list to client; storage
         layer must surface the failure so callers can distinguish
         "no data" from "DB broken". Returning [] on error masked
-        failures (T003-sub4 H2).
+        failures (H2).
         """
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_session.execute.side_effect = Exception("DB error")
@@ -145,7 +145,7 @@ class TestAnalyticsStorageGetShifts:
 
 
 class TestAnalyticsStorageSaveArticleShift:
-    """Tests for AnalyticsStorage.save_shift with article-level fields (T003).
+    """Tests for AnalyticsStorage.save_shift with article-level fields.
 
     Migration 30 extended sentiment_shifts with article_id/entity_name/
     shift_value nullable fields. save_shift must persist these fields
@@ -218,7 +218,7 @@ class TestAnalyticsStorageSaveArticleShift:
 
 
 class TestAnalyticsStorageGetLastArticleShift:
-    """Tests for AnalyticsStorage.get_last_article_shift (T003).
+    """Tests for AnalyticsStorage.get_last_article_shift.
 
     Queries the most recent article-level sentiment_shifts record for a
     given entity_name. Returns None when no article-level record exists.
@@ -274,7 +274,7 @@ class TestAnalyticsStorageGetLastArticleShift:
 
     @pytest.mark.asyncio
     async def test_get_last_article_shift_raises_on_error(self, storage, mock_pool):
-        """Raises on DB error (Rule 12 — fail loud, T003-sub4 H2).
+        """Raises on DB error (Rule 12 — fail loud, H2).
 
         Previously returned None on error, which SentimentTrackerNode
         misread as "no previous article" and seeded an incorrect
@@ -309,11 +309,11 @@ class TestAnalyticsStorageGetLastArticleShift:
 
 
 class TestAnalyticsStorageGetShiftsScope:
-    """Tests for AnalyticsStorage.get_shifts scope parameter (T003-sub4 H1).
+    """Tests for AnalyticsStorage.get_shifts scope parameter (H1).
 
     scope separates community-level shifts (article_id IS NULL, from
     SentimentShiftDetector) from article-level shifts (article_id IS NOT
-    NULL, from T003 SentimentTrackerNode). Default scope='community'
+    NULL, from SentimentTrackerNode). Default scope='community'
     preserves historical API behavior and avoids polluting community
     queries with per-entity article-level rows (Rule 14).
     """
@@ -359,7 +359,7 @@ class TestAnalyticsStorageGetShiftsScope:
 
     @pytest.mark.asyncio
     async def test_get_shifts_scope_article_filters_article_id_not_null(self, storage, mock_pool):
-        """scope='article' returns only T003 article-level rows."""
+        """scope='article' returns only article-level rows."""
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -380,3 +380,204 @@ class TestAnalyticsStorageGetShiftsScope:
         await storage.get_shifts(scope="all")
 
         mock_session.execute.assert_awaited_once()
+
+
+class TestAnalyticsStorageGetShiftsArticleFields:
+    """get_shifts must expose article-level identity (#167)."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.__aexit__.return_value = None
+        pool.session_context.return_value = mock_session
+        return pool
+
+    @pytest.fixture
+    def storage(self, mock_pool):
+        return AnalyticsStorage(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_article_scope_includes_article_id_and_entity_name(self, storage, mock_pool):
+        """scope='article' rows carry article_id + entity_name (#167)."""
+        article_id = uuid.uuid4()
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_row = MagicMock()
+        mock_row.community_id = "c1"
+        mock_row.community_title = "t"
+        mock_row.shift_type = "pelt"
+        mock_row.direction = "positive"
+        mock_row.magnitude = 0.3
+        mock_row.confidence = 0.8
+        mock_row.detected_at = datetime(2026, 7, 17, 9, 0, 0)
+        mock_row.window_start = None
+        mock_row.window_end = None
+        mock_row.before_avg = 0.4
+        mock_row.after_avg = 0.7
+        mock_row.article_id = article_id
+        mock_row.entity_name = "CompanyX"
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_row]
+        mock_session.execute.return_value = mock_result
+
+        shifts = await storage.get_shifts(scope="article")
+
+        assert len(shifts) == 1
+        assert shifts[0]["article_id"] == str(article_id)
+        assert shifts[0]["entity_name"] == "CompanyX"
+
+    @pytest.mark.asyncio
+    async def test_community_scope_null_article_fields(self, storage, mock_pool):
+        """Community-level rows report None article identity (#167)."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_row = MagicMock()
+        mock_row.community_id = "c1"
+        mock_row.community_title = "t"
+        mock_row.shift_type = "pelt"
+        mock_row.direction = "positive"
+        mock_row.magnitude = 0.3
+        mock_row.confidence = 0.8
+        mock_row.detected_at = None
+        mock_row.window_start = None
+        mock_row.window_end = None
+        mock_row.before_avg = None
+        mock_row.after_avg = None
+        mock_row.article_id = None
+        mock_row.entity_name = None
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_row]
+        mock_session.execute.return_value = mock_result
+
+        shifts = await storage.get_shifts()
+
+        assert shifts[0]["article_id"] is None
+        assert shifts[0]["entity_name"] is None
+
+
+class TestAnalyticsStorageBriefingZeroScore:
+    """Briefing item score=0.0 is legitimate data, not missing (#228/#229)."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.__aexit__.return_value = None
+        pool.session_context.return_value = mock_session
+        return pool
+
+    @pytest.fixture
+    def storage(self, mock_pool):
+        return AnalyticsStorage(mock_pool)
+
+    def _briefing_row(self, score):
+        from datetime import date as date_type
+
+        item = MagicMock()
+        item.rank = 1
+        item.article_id = uuid.uuid4()
+        item.category = "finance"
+        item.score = score
+        item.score_breakdown = {}
+        item.reason = "r"
+        row = MagicMock()
+        row.id = 7
+        row.briefing_date = date_type(2026, 7, 17)
+        row.title = "t"
+        row.summary = "s"
+        row.status = "published"
+        row.total_items = 1
+        row.category = "finance"
+        row.generated_at = datetime(2026, 7, 17, 9, 0, 0)
+        row.items = [item]
+        return row
+
+    @pytest.mark.asyncio
+    async def test_get_briefings_with_items_preserves_zero_score(self, storage, mock_pool):
+        """score=0.0 must survive as 0.0, not None (#228)."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [self._briefing_row(0.0)]
+        mock_session.execute.return_value = mock_result
+
+        briefings = await storage.get_briefings_with_items()
+
+        assert briefings[0]["items"][0]["score"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_get_briefing_preserves_zero_score(self, storage, mock_pool):
+        """_briefing_row_to_dict maps 0.0 to 0.0, None stays None (#229)."""
+        from datetime import date as date_type
+
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = self._briefing_row(0.0)
+        mock_session.execute.return_value = mock_result
+
+        briefing = await storage.get_briefing(date_type(2026, 7, 17), "finance")
+
+        assert briefing is not None
+        assert briefing["items"][0]["score"] == 0.0
+        assert (
+            AnalyticsStorage._briefing_row_to_dict(self._briefing_row(None))["items"][0]["score"]
+            is None
+        )
+
+
+class TestAnalyticsStorageSaveBriefingConflictRetry:
+    """Concurrent same-key writers retry once on UNIQUE conflict (#78)."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        return pool
+
+    @pytest.fixture
+    def storage(self, mock_pool):
+        return AnalyticsStorage(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_integrity_error_retries_once_and_succeeds(self, storage, mock_pool):
+        """First attempt hits IntegrityError, retry persists (#78)."""
+        from datetime import date as date_type
+
+        from sqlalchemy.exc import IntegrityError
+
+        conflict = IntegrityError("INSERT", {}, Exception("duplicate key"))
+        with patch.object(storage, "_save_briefing_once", side_effect=[conflict, 42]) as mock_once:
+            briefing_id = await storage.save_briefing(
+                date_type(2026, 7, 17),
+                "finance",
+                "summary",
+                [
+                    {
+                        "article_id": str(uuid.uuid4()),
+                        "rank": 1,
+                        "score": 0.9,
+                    }
+                ],
+            )
+
+        assert briefing_id == 42
+        assert mock_once.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_conflict_propagates(self, storage, mock_pool):
+        """Two consecutive conflicts surface to the caller (#78)."""
+        from datetime import date as date_type
+
+        from sqlalchemy.exc import IntegrityError
+
+        with patch.object(
+            storage,
+            "_save_briefing_once",
+            side_effect=IntegrityError("INSERT", {}, Exception("duplicate key")),
+        ):
+            with pytest.raises(IntegrityError):
+                await storage.save_briefing(
+                    date_type(2026, 7, 17),
+                    "finance",
+                    "summary",
+                    [],
+                )

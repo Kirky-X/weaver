@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -21,7 +21,14 @@ log = get_logger("pipeline_config")
 
 
 class StageConfig(BaseModel):
-    """Configuration for a single pipeline stage (name + enabled flag)."""
+    """Configuration for a single pipeline stage (name + enabled flag).
+
+    ``extra="forbid"``: TOML stage tables are built with ``StageConfig(**item)``,
+    and Pydantic silently drops unknown keys by default — which would hide a
+    typo such as ``enableed = false``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = ""
     enabled: bool = True

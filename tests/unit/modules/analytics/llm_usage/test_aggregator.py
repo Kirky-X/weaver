@@ -504,17 +504,18 @@ class TestFlushUsageBuffer:
         expected_time_bucket = datetime(2026, 4, 5, 10, 0, 0, tzinfo=UTC)
 
         mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
+        # latency_min/latency_max now come from the hgetall snapshot itself
         mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "10",
             "chat::openai::gpt-4::classifier::input_tok": "2000",
             "chat::openai::gpt-4::classifier::output_tok": "1000",
             "chat::openai::gpt-4::classifier::total_tok": "3000",
             "chat::openai::gpt-4::classifier::latency_ms": "500",
+            "chat::openai::gpt-4::classifier::latency_min": "50",
+            "chat::openai::gpt-4::classifier::latency_max": "100",
             "chat::openai::gpt-4::classifier::success": "9",
             "chat::openai::gpt-4::classifier::failure": "1",
         }
-        # hget is called twice per group: latency_min, then latency_max
-        mock_cache.hget = AsyncMock(side_effect=["50", "100"])
 
         mock_repo = MagicMock()
         mock_repo.get_latency_bounds = AsyncMock(return_value=(50.0, 100.0))
@@ -616,3 +617,80 @@ class TestRedisKeyPrefix:
         from core.constants import RedisKeys
 
         assert RedisKeys.LLM_USAGE_PREFIX.rstrip(":") == REDIS_KEY_PREFIX
+
+
+class TestAggregateUsageDataFloatStrings:
+    """Float-string values must not be silently dropped (#214)."""
+
+    def test_float_string_count_accepted(self):
+        """Decimal strings are truncated to int instead of skipped (#214)."""
+        data = {
+            "chat::openai::gpt-4::classifier::count": "150.5",
+        }
+        result = aggregate_usage_data(data)
+
+        key = ("chat::openai::gpt-4", "classifier")
+        assert result[key]["count"] == 150
+
+    def test_non_numeric_value_still_skipped(self):
+        """Genuinely non-numeric values are still skipped with defaults."""
+        data = {
+            "chat::openai::gpt-4::classifier::count": "not_a_number",
+        }
+        result = aggregate_usage_data(data)
+
+        key = ("chat::openai::gpt-4", "classifier")
+        assert result[key]["count"] == 0
+
+    def test_nan_and_inf_values_skipped(self):
+        """NaN/inf strings cannot become ints and are skipped (#214)."""
+        data = {
+            "chat::openai::gpt-4::classifier::count": "nan",
+            "chat::openai::gpt-4::analyzer::count": "inf",
+        }
+        result = aggregate_usage_data(data)
+
+        assert result[("chat::openai::gpt-4", "classifier")]["count"] == 0
+        assert result[("chat::openai::gpt-4", "analyzer")]["count"] == 0
+
+
+class TestFlushUsageBufferFailureLogging:
+    """Failure logs must carry the aggregated snapshot for recovery (#75)."""
+
+    @staticmethod
+    def _async_key_iter(keys):
+        async def _gen():
+            for key in keys:
+                yield key
+
+        return _gen()
+
+    @pytest.mark.asyncio
+    @freeze_time("2026-04-06 14:30:00", tz_offset=0)
+    async def test_key_failure_log_includes_aggregated_snapshot(self):
+        """upsert failure logs groups + full aggregated dict (#75)."""
+        past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
+
+        cache = MagicMock()
+        cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
+        cache.hgetall = AsyncMock(return_value={"chat::openai::gpt-4::classifier::count": "5"})
+        cache.delete = AsyncMock()
+
+        repo = MagicMock()
+        repo.upsert_hourly = AsyncMock(side_effect=Exception("DB down"))
+
+        with (
+            patch(
+                "modules.analytics.llm_usage.repo.LLMUsageRepo",
+                return_value=repo,
+            ),
+            patch("modules.analytics.llm_usage.aggregator.log") as mock_log,
+        ):
+            result = await flush_usage_buffer(cache, MagicMock())
+
+        assert result == (0, 1)
+        mock_log.error.assert_called_once()
+        _, kwargs = mock_log.error.call_args
+        assert kwargs["key"] == past_hour_key
+        assert kwargs["groups"] == 1
+        assert kwargs["aggregated"][("chat::openai::gpt-4", "classifier")]["count"] == 5

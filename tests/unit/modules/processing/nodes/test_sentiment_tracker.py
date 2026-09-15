@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for SentimentTrackerNode (T003).
+"""Unit tests for SentimentTrackerNode.
 
 Verifies:
 - Article-level sentiment shift computation against previous article

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from core.observability import get_logger
@@ -46,6 +47,9 @@ class Crawl4AIFetcher(BaseFetcher):
         self._timeout = timeout
         self._crawler: AsyncWebCrawler | None = None
         self._initialized = False
+        # Serialize lazy init: two concurrent fetch() calls must not both
+        # construct an AsyncWebCrawler (the first instance would leak).
+        self._init_lock = asyncio.Lock()
         self._ssrf_checker = SSRFChecker()
 
     async def _ensure_initialized(self) -> None:
@@ -53,23 +57,40 @@ class Crawl4AIFetcher(BaseFetcher):
         if self._initialized:
             return
 
-        from crawl4ai import AsyncWebCrawler, BrowserConfig
+        async with self._init_lock:
+            if self._initialized:
+                return
 
-        config = BrowserConfig(
-            headless=self._headless,
-            verbose=False,
-            user_agent=self._user_agent,
-            enable_stealth=self._stealth_enabled,
-        )
+            from crawl4ai import AsyncWebCrawler, BrowserConfig
 
-        self._crawler = AsyncWebCrawler(config=config)
-        await self._crawler.start()
-        self._initialized = True
-        log.info(
-            "crawl4ai_initialized",
-            headless=self._headless,
-            stealth=self._stealth_enabled,
-        )
+            config = BrowserConfig(
+                headless=self._headless,
+                verbose=False,
+                user_agent=self._user_agent,
+                enable_stealth=self._stealth_enabled,
+            )
+
+            crawler = AsyncWebCrawler(config=config)
+            try:
+                await crawler.start()
+            except Exception:
+                # Do not leak a partially-started browser: close best-effort
+                # and leave _crawler unset so the next call retries cleanly.
+                try:
+                    await crawler.close()
+                except Exception as close_exc:
+                    log.warning(
+                        "crawl4ai_cleanup_after_failed_start_failed",
+                        error=str(close_exc),
+                    )
+                raise
+            self._crawler = crawler
+            self._initialized = True
+            log.info(
+                "crawl4ai_initialized",
+                headless=self._headless,
+                stealth=self._stealth_enabled,
+            )
 
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None

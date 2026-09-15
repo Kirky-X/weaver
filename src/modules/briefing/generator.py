@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Briefing generator — produce per-category daily briefings (T004).
+"""Briefing generator — produce per-category daily briefings.
 
 BriefingGenerator is an independent class (not a pipeline node — see design.md
-decision on T004 integration path) that:
+decision on integration path) that:
 
 1. Fetches articles for a given date filtered by category
    (finance→经济, tech→科技, ai→keyword match, general→no filter).
@@ -14,16 +14,16 @@ decision on T004 integration path) that:
 Failure handling follows Rule 12 (fail loud):
 - LLM failures (AllProvidersFailedError / CircuitOpenError / ValueError)
   degrade gracefully: empty summary, briefing still persisted. Per spec
-  R-briefing-002: "LLM 调用失败时：summary 为空，log warning，不抛异常".
+  "LLM 调用失败时：summary 为空，log warning，不抛异常".
 - Storage failures raise to the caller (briefing not silently dropped).
-  Callers (T010 scheduler / T009 endpoint) decide how to surface to user.
+  Callers (scheduler / endpoint) decide how to surface to user.
 - Empty article list short-circuits before LLM call (save RPM budget).
 - Unexpected errors (TypeError, AttributeError, etc.) propagate — these
   are programming bugs that must surface, not be hidden.
 
 Category mapping (Rule 7 — exposed conflict, decision: hybrid):
 - articles_core.category uses CategoryType enum (政治/军事/经济/科技/...).
-- daily_briefings.category uses finance/tech/ai/general (spec R-briefing-003).
+- daily_briefings.category uses finance/tech/ai/general (spec).
 - Mapping is hybrid: enum match for finance/tech, keyword match for ai
   (no direct enum equivalent), no filter for general. The mapping is
   implemented in AnalyticsStorage.fetch_articles_for_briefing (storage
@@ -111,7 +111,7 @@ class BriefingGenerator:
             ValueError: If category is not None and not in
                 VALID_BRIEFING_CATEGORIES.
             Exception: Storage failures propagate (Rule 12). LLM failures
-                degrade (empty summary) per spec R-briefing-002.
+                degrade (empty summary) per spec.
         """
         # Normalize None → 'general' (None 表示综合).
         normalized_category = category or "general"

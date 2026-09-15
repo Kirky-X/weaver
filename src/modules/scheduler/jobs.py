@@ -350,7 +350,10 @@ class SchedulerJobs:
 
                 log.info(
                     "persist_status_metrics_updated",
-                    statuses={row[0].value: row[1] for row in rows},
+                    statuses={
+                        (row[0].value if hasattr(row[0], "value") else str(row[0])): row[1]
+                        for row in rows
+                    },
                 )
         except Exception as exc:
             log.error("persist_status_metrics_update_error", error=str(exc))

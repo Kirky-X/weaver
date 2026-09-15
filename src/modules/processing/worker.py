@@ -46,6 +46,11 @@ class PipelineWorker:
 
     async def start(self) -> None:
         """Start consumer loop."""
+        if self._running:
+            # A second start would spawn a second consumer racing on the
+            # same queue (config hot-reload / double invoke).
+            log.warning("pipeline_worker_already_running")
+            return
         self._running = True
         self._task = asyncio.create_task(self._consume_loop())
         log.info("pipeline_worker_started", queue_key=QUEUE_KEY)
@@ -79,7 +84,7 @@ class PipelineWorker:
                     log.warning("articles_not_found", ids=article_ids)
                     continue
 
-                # Process batch — dispatch by processing_mode (D2 fix):
+                # Process batch — dispatch by processing_mode (fix):
                 # fast mode skips Phase 2/3 (only Phase 1 + vectorization).
                 if self._processing_mode == "fast":
                     await self._pipeline.process_batch_fast(
@@ -116,10 +121,15 @@ class PipelineWorker:
                 break
 
             article_ids = [item[0] for item in items]
+            task_id = items[0][1]  # Use first task_id for batch (same as _consume_loop)
             articles = await self._article_repo.get_by_ids(article_ids)
             if articles:
                 if self._processing_mode == "fast":
-                    await self._pipeline.process_batch_fast(articles, article_ids=article_ids)
+                    await self._pipeline.process_batch_fast(
+                        articles, article_ids=article_ids, task_id=task_id
+                    )
                 else:
-                    await self._pipeline.process_batch(articles, article_ids=article_ids)
+                    await self._pipeline.process_batch(
+                        articles, article_ids=article_ids, task_id=task_id
+                    )
                 log.info("drain_processed", count=len(articles), mode=self._processing_mode)

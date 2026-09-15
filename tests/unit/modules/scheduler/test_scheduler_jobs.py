@@ -271,19 +271,13 @@ class TestUpdateSourceAutoScores:
 
     @pytest.mark.asyncio
     async def test_update_source_auto_scores_with_sources(self, scheduler_jobs_service):
-        """Test updating scores for sources."""
-        # First query: select(Article.source_host).distinct() → iterates rows
-        hosts_result = MagicMock()
-        hosts_result.__iter__ = MagicMock(return_value=iter([("example.com",)]))
-
-        # Second query: select(Article).where(...) → scalars().all()
-        mock_article = MagicMock()
-        mock_article.credibility_score = 0.8
-        articles_result = MagicMock()
-        articles_result.scalars.return_value.all.return_value = [mock_article]
+        """Test updating scores for sources (single aggregate query — PERF#94)."""
+        # One query: select(source_host, avg(credibility_score)).group_by(host)
+        aggregate_result = MagicMock()
+        aggregate_result.all.return_value = [("example.com", 0.8)]
 
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=[hosts_result, articles_result])
+        mock_session.execute = AsyncMock(return_value=aggregate_result)
 
         scheduler_jobs_service._relational_pool.session = MagicMock()
         scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
@@ -297,12 +291,38 @@ class TestUpdateSourceAutoScores:
 
         result = await scheduler_jobs_service.update_source_auto_scores()
         assert result == 1
+        scheduler_jobs_service._source_authority_repo.update_auto_score.assert_awaited_once_with(
+            "example.com", 0.8
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_source_auto_scores_skips_null_aggregates(self, scheduler_jobs_service):
+        """Rows with NULL host or NULL avg must be skipped, not crash."""
+        aggregate_result = MagicMock()
+        aggregate_result.all.return_value = [(None, 0.8), ("empty.com", None)]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=aggregate_result)
+
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
+            return_value=None
+        )
+
+        scheduler_jobs_service._source_authority_repo.update_auto_score = AsyncMock()
+
+        result = await scheduler_jobs_service.update_source_auto_scores()
+        assert result == 0
+        scheduler_jobs_service._source_authority_repo.update_auto_score.assert_not_awaited()
 
 
 class TestArchiveOldNeo4jNodes:
     """Test archive_old_neo4j_nodes job (post-slim-down signature).
 
-    Streaming variant (LOW-1 perf fix from T050 review):
+    Streaming variant (perf fix from review):
     The job now reads cutoff pg_ids in batches of ``ARCHIVE_BATCH_SIZE``
     (1000) instead of loading all IDs at once. The mock helper below
     transparently splits the input list into batches and serves each
@@ -324,7 +344,7 @@ class TestArchiveOldNeo4jNodes:
         result is appended so the streaming loop sees a terminal empty
         batch (signals end of stream).
 
-        After the Article node slim-down (design.md §D2), the cutoff is
+        After the Article node slim-down (design.md §), the cutoff is
         computed by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$ARCHIVE_RETENTION_DAYS days'``
         and the resulting pg_ids are passed to ``archive_old_articles``.
@@ -409,7 +429,7 @@ class TestArchiveOldNeo4jNodes:
     async def test_archive_old_nodes_streams_in_multiple_batches(self, scheduler_jobs_service):
         """Verify that 2500 IDs are streamed across 3 batches (1000+1000+500).
 
-        LOW-1 perf: rather than loading all 2500 IDs at once and passing
+        perf: rather than loading all 2500 IDs at once and passing
         the full list to a single Cypher query (OOM risk on large
         archives), the job must paginate via LIMIT/OFFSET.
         """
@@ -508,7 +528,7 @@ class TestArchiveOldNeo4jNodes:
 
     @pytest.mark.asyncio
     async def test_archive_old_neo4j_nodes_keyset_pagination(self, scheduler_jobs_service):
-        """MEDIUM-2: keyset pagination uses ``WHERE id > :last_id`` (not OFFSET).
+        """keyset pagination uses ``WHERE id >:last_id`` (not OFFSET).
 
         For 2500 IDs, verifies 3 batches with the keyset pattern:
         - Batch 1 fetch: ``last_id`` is None (no id filter).
@@ -597,7 +617,7 @@ class TestArchiveOldNeo4jNodes:
     async def test_archive_old_neo4j_nodes_keyset_stable_across_concurrent_inserts(
         self, scheduler_jobs_service
     ):
-        """MEDIUM-2: keyset pagination is immune to OFFSET drift on concurrent inserts.
+        """keyset pagination is immune to OFFSET drift on concurrent inserts.
 
         Setup: 1500 IDs initially, sorted by ``id``.
         After batch 1 fetches IDs [0..999], a concurrent insert adds a
@@ -689,7 +709,7 @@ class TestArchiveOldNeo4jNodes:
 class TestCleanupOrphanEntityVectors:
     """Test cleanup_orphan_entity_vectors job.
 
-    REM-001 root cause fixes:
+    root cause fixes:
     - entity_vectors.neo4j_id stores a MIX of entity names (from extractor)
       and graph internal IDs (from resolver). Use UNION of
       list_all_entity_ids() and list_all_entity_names() to avoid false-positive
@@ -768,7 +788,7 @@ class TestCleanupOrphanEntityVectors:
     async def test_cleanup_with_empty_graph_uses_injected_vector_repo_no_typeerror(
         self, scheduler_jobs_service
     ):
-        """REM-001: cleanup with empty graph must use injected vector_repo (no TypeError).
+        """cleanup with empty graph must use injected vector_repo (no TypeError).
 
         Suggestion 6: Test name now reflects what it actually verifies —
         that cleanup completes without raising TypeError about missing
@@ -1395,7 +1415,7 @@ class TestSchedulerJobsGraphDoneStatus:
 
 
 class TestDailyHotnessDecay:
-    """Test daily_hotness_decay job (Task 8)."""
+    """Test daily_hotness_decay job."""
 
     @pytest.fixture
     def scheduler_jobs_service_with_cache(self):

@@ -91,7 +91,9 @@ class SentimentShiftDetector:
 
         shifts = []
         for bp in breakpoints:
-            if bp >= len(signal):
+            # bp==0 leaves an empty "before" window whose 0.0 average would
+            # fabricate a spurious shift magnitude at the signal start.
+            if bp <= 0 or bp >= len(signal):
                 continue
             before_avg = sum(signal[:bp]) / max(len(signal[:bp]), 1)
             after_avg = sum(signal[bp:]) / max(len(signal[bp:]), 1)
@@ -205,7 +207,8 @@ class SentimentShiftDetector:
 
         Shift points within cooldown_hours of each other are merged.
         When both algorithms detect the same shift, detection_method
-        is set to 'pelt+cusum'.
+        is set to 'pelt+cusum'. Same-method duplicates keep the
+        higher-confidence record (#224).
         """
         # Combine all shifts
         all_shifts = list(pelt_shifts) + list(cusum_shifts)
@@ -244,6 +247,12 @@ class SentimentShiftDetector:
                         existing["detection_method"] = "pelt+cusum"
                         existing["shift_type"] = "pelt+cusum"
                         existing["confidence"] = max(existing["confidence"], shift["confidence"])
+                    else:
+                        # Same-method duplicate within cooldown (#224): the
+                        # second detection was previously discarded without
+                        # any merge — keep the higher-confidence record.
+                        if shift["confidence"] > existing["confidence"]:
+                            existing.update(shift)
                     found = True
                     break
 

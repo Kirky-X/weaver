@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Narrative briefing generator — produces briefings from NarrativeNode framing (T020 / R-briefing-007).
+"""Narrative briefing generator — produces briefings from NarrativeNode framing.
 
-NarrativeBriefingGenerator is the narrative-mode counterpart of BriefingGenerator
-(T004). Instead of feeding raw article text to the LLM, it aggregates
+NarrativeBriefingGenerator is the narrative-mode counterpart of BriefingGenerator.
+Instead of feeding raw article text to the LLM, it aggregates
 NarrativeNode framing dimensions (source_bias/frame/tone/emphasis) across
 multiple articles and asks the LLM to produce a narrative-style summary that
 reflects how different sources framed the same topic.
 
-Spec R-briefing-007 acceptance:
+Spec acceptance:
 - Query NarrativeNode (HAS_NARRATIVE relationship from EventNode, which is
   linked to Article via HAS_EVENT).
 - Filter articles by category (delegated to storage.fetch_articles_for_briefing
@@ -31,12 +31,12 @@ Constructor injection (Rule — Protocol type, not concrete class):
 
 Failure handling (Rule 12 — fail loud):
     - LLM failures (AllProvidersFailedError / CircuitOpenError / ValueError)
-      degrade gracefully: empty summary, briefing still persisted (R-briefing-002
+      degrade gracefully: empty summary, briefing still persisted (
       best-effort contract, consistent with BriefingGenerator).
     - Storage failures (save_briefing) propagate to caller.
     - Graph DB errors propagate (Rule 12).
     - InsufficientNarrativeError is the explicit "no degradation" signal —
-      the caller (DailyBriefingService T021) catches it to fall back to
+      the caller (DailyBriefingService) catches it to fall back to
       template mode. This is NOT an error to swallow; it carries enough
       context (narrative_count, threshold, briefing_date, category, reason)
       for the caller to log a meaningful warning.
@@ -81,22 +81,22 @@ TOP_N_ITEMS: int = 10
 class InsufficientNarrativeError(Exception):
     """Raised when NarrativeNode count is below the narrative-mode threshold.
 
-    Spec R-briefing-007: NarrativeBriefingGenerator requires at least 3
-    NarrativeNodes to produce a narrative-style briefing. Below this threshold,
-    the generator raises this exception so the caller (DailyBriefingService
-    T021) can degrade to template mode (BriefingGenerator).
+        Spec NarrativeBriefingGenerator requires at least 3
+        NarrativeNodes to produce a narrative-style briefing. Below this threshold,
+        the generator raises this exception so the caller (DailyBriefingService
+    ) can degrade to template mode (BriefingGenerator).
 
-    This is NOT a programming bug — it signals data insufficiency. The caller
-    is expected to catch this exception (spec R-briefing-008: 降级为模板模式,
-    log warning 含原因). Propagating it would surface as a 500 to the API
-    caller, which is incorrect — degradation is the intended behavior.
+        This is NOT a programming bug — it signals data insufficiency. The caller
+        is expected to catch this exception (spec 降级为模板模式,
+        log warning 含原因). Propagating it would surface as a 500 to the API
+        caller, which is incorrect — degradation is the intended behavior.
 
-    Attributes:
-        narrative_count: Actual NarrativeNode count found.
-        threshold: Minimum required count (3, per spec).
-        briefing_date: Date the briefing was requested for.
-        category: Briefing category (finance/tech/ai/general).
-        reason: Human-readable explanation of why the threshold was not met.
+        Attributes:
+            narrative_count: Actual NarrativeNode count found.
+            threshold: Minimum required count (3, per spec).
+            briefing_date: Date the briefing was requested for.
+            category: Briefing category (finance/tech/ai/general).
+            reason: Human-readable explanation of why the threshold was not met.
     """
 
     def __init__(
@@ -120,7 +120,7 @@ class InsufficientNarrativeError(Exception):
 
 
 class NarrativeBriefingGenerator:
-    """Generate narrative-style briefings from NarrativeNode framing (R-briefing-007).
+    """Generate narrative-style briefings from NarrativeNode framing.
 
     Implements:
         NarrativeBriefingGenerator: Narrative-mode briefing generator with
@@ -192,7 +192,7 @@ class NarrativeBriefingGenerator:
             ValueError: If category is not None and not in
                 VALID_BRIEFING_CATEGORIES.
             InsufficientNarrativeError: If NarrativeNode count < 3
-                (spec R-briefing-007). Caller (T021) catches this to degrade.
+                (spec). Caller catches this to degrade.
             Exception: Graph DB errors and storage failures propagate
                 (Rule 12). LLM failures degrade to empty summary.
         """
@@ -477,7 +477,9 @@ class NarrativeBriefingGenerator:
             summary = article.get("summary")
             body = article.get("body", "")
             content = summary if summary else body[:500]
-            score = article.get("score", 0.0)
+            # `or 0.0` also covers a present-but-None score, which would raise
+            # TypeError in the f-string format below.
+            score = article.get("score") or 0.0
             category = article.get("category", "unknown")
             article_id = article.get("article_id") or article.get("id")
 

@@ -93,7 +93,7 @@ class GLiNERExtractor:
 
         Uses double-checked locking so concurrent first calls (via
         asyncio.to_thread) only load the model once. On failure, leaves
-        _initialized=False to allow retry on subsequent calls (Bug-D HIGH-002).
+        _initialized=False to allow retry on subsequent calls.
         """
         if self._initialized:
             return
@@ -193,10 +193,14 @@ class GLiNERExtractor:
 
     def _merge_entities(
         self,
-        spacy_entities: list[dict[str, Any]],
+        spacy_entities: list[Any],
         gliner_entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Merge spaCy and GLiNER entities, removing duplicates.
+
+        spaCy entities may be ``SpacyEntity`` dataclasses (with ``.name``/
+        ``.type`` attributes) or pre-converted dicts; both are normalized
+        to the dict contract used below.
 
         Args:
             spacy_entities: Entities from spaCy NER.
@@ -210,9 +214,18 @@ class GLiNERExtractor:
 
         # Add spaCy entities first (higher priority for standard types)
         for entity in spacy_entities:
-            key = entity["text"].lower().strip()
+            if isinstance(entity, dict):
+                item = dict(entity)
+            else:
+                # SpacyEntity dataclass has no .text/.confidence fields
+                item = {
+                    "text": getattr(entity, "name", ""),
+                    "type": getattr(entity, "type", ""),
+                    "confidence": 1.0,
+                }
+            key = item["text"].lower().strip()
             if key:
-                entity_map[key] = entity
+                entity_map[key] = item
 
         # Add GLiNER entities (skip duplicates, keep higher confidence)
         for entity in gliner_entities:
@@ -303,11 +316,19 @@ class GLiNERExtractor:
             },
         )
 
-        # Update entity with refined data
-        if result.get("entities"):
+        # Update entity with refined data. Without output_model the LLM
+        # result may be a raw string or a dict missing "entities" — guard
+        # instead of raising AttributeError/KeyError.
+        if isinstance(result, dict) and result.get("entities"):
             refined = result["entities"][0]
-            entity["text"] = refined.get("text", entity["text"])
-            entity["confidence"] = refined.get("confidence", entity["confidence"])
+            if isinstance(refined, dict):
+                entity["text"] = refined.get("text", entity["text"])
+                entity["confidence"] = refined.get("confidence", entity["confidence"])
+        elif not isinstance(result, dict):
+            log.warning(
+                "entity_refine_unexpected_result",
+                result_type=type(result).__name__,
+            )
 
         return entity
 

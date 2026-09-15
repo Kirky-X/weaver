@@ -194,10 +194,8 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.upsert = AsyncMock(return_value=new_config)
 
-        # Mock scheduler with registry
+        # Mock scheduler (create_source calls the public register_source API)
         mock_scheduler = MagicMock()
-        mock_scheduler._registry = MagicMock()
-        mock_scheduler._registry.add_source = MagicMock()
 
         # Mock fetcher returns valid RSS feed content
         valid_rss = (
@@ -227,7 +225,7 @@ class TestSourcesEndpoint:
         )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
-        mock_scheduler._registry.add_source.assert_called_once_with(new_config)
+        mock_scheduler.register_source.assert_called_once_with(new_config)
         mock_fetcher.fetch.assert_called_once()
 
     @pytest.mark.asyncio
@@ -298,11 +296,13 @@ class TestSourcesEndpoint:
 
         request = SourceUpdateRequest(name="New Name", enabled=False, credibility=0.85)
 
+        mock_scheduler = MagicMock()
         result = await update_source(
             source_id="source-1",
             request=request,
             _="test-key",
             repo=mock_repo,
+            scheduler=mock_scheduler,
         )
         assert result.data.name == "New Name"
         mock_repo.upsert.assert_called_once()
@@ -334,10 +334,12 @@ class TestSourcesEndpoint:
         mock_repo = AsyncMock()
         mock_repo.delete = AsyncMock(return_value=True)
 
+        mock_scheduler = MagicMock()
         await delete_source(
             source_id="source-1",
             _="test-key",
             repo=mock_repo,
+            scheduler=mock_scheduler,
         )
         mock_repo.delete.assert_called_once_with("source-1")
 
@@ -497,7 +499,11 @@ class TestCreateSourceWithValidation:
 
     @pytest.mark.asyncio
     async def test_create_source_rejects_unreachable_feed(self):
-        """Test POST /sources returns 422 for unreachable feed URL."""
+        """Test POST /sources rejects unreachable feed URL.
+
+        Fail-closed SSRF validation rejects hostnames whose DNS resolution
+        fails with 403 before the feed reachability check (422) can run.
+        """
         from api.endpoints.content.sources import SourceCreateRequest, create_source
 
         mock_repo = AsyncMock()
@@ -520,7 +526,7 @@ class TestCreateSourceWithValidation:
                 scheduler=MagicMock(),
                 fetcher=mock_fetcher,
             )
-        assert exc_info.value.status_code == 422
+        assert exc_info.value.status_code == 403
         # Source should not be persisted
         mock_repo.upsert.assert_not_called()
 
@@ -785,3 +791,88 @@ class TestSourceIdReflectedXSS:
         echoed = detail.split("'")[1] if "'" in detail else ""
         assert len(echoed) <= 64, f"Echoed ID too long: {len(echoed)} chars"
         assert exc_info.value.status_code == 404
+
+
+class TestUpdateSourceReachability:
+    """update_source must validate reachability when the URL changes (#6)."""
+
+    def _make_source(self, url: str):
+        from modules.ingestion.domain.models import SourceConfig
+
+        return SourceConfig(
+            id="source-1",
+            name="Old Name",
+            url=url,
+            source_type="rss",
+            enabled=True,
+            interval_minutes=30,
+            per_host_concurrency=2,
+        )
+
+    @pytest.mark.asyncio
+    async def test_url_change_triggers_reachability_check(self):
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=self._make_source("https://old.com/feed.xml"))
+        mock_repo.upsert = AsyncMock(return_value=self._make_source("https://new.com/feed.xml"))
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, _VALID_RSS, {}))
+
+        request = SourceUpdateRequest(url="https://new.com/feed.xml")
+        await update_source(
+            source_id="source-1",
+            request=request,
+            _="test-key",
+            repo=mock_repo,
+            scheduler=MagicMock(),
+            fetcher=mock_fetcher,
+        )
+
+        mock_fetcher.fetch.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unreachable_new_url_rejected(self):
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=self._make_source("https://old.com/feed.xml"))
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(500, "", {}))
+
+        request = SourceUpdateRequest(url="https://new.com/feed.xml")
+        with pytest.raises(HTTPException) as exc_info:
+            await update_source(
+                source_id="source-1",
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+                scheduler=MagicMock(),
+                fetcher=mock_fetcher,
+            )
+        assert exc_info.value.status_code == 422
+        mock_repo.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unchanged_url_skips_reachability_check(self):
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=self._make_source("https://old.com/feed.xml"))
+        mock_repo.upsert = AsyncMock(return_value=self._make_source("https://old.com/feed.xml"))
+
+        mock_fetcher = AsyncMock()
+
+        request = SourceUpdateRequest(name="Just renamed")
+        await update_source(
+            source_id="source-1",
+            request=request,
+            _="test-key",
+            repo=mock_repo,
+            scheduler=MagicMock(),
+            fetcher=mock_fetcher,
+        )
+
+        mock_fetcher.fetch.assert_not_awaited()

@@ -395,3 +395,57 @@ class TestCategorizerNodeIntegration:
 
             result = await node.execute(state)
             assert result["category"] == expected_chinese
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#241, #83, #84)."""
+
+    def test_prompt_version_lookup_failure_degrades(self):
+        """#241: a raising get_version must not crash the node."""
+        loader = MagicMock()
+        loader.get_version = MagicMock(side_effect=FileNotFoundError("categorizer.toml"))
+        node = CategorizerNode(MagicMock(), loader)
+
+        assert node._get_prompt_version() == "unknown"
+
+    def test_prompt_version_without_loader_is_unknown(self):
+        """#241: a node without a prompt loader keeps the documented default."""
+        node = CategorizerNode()
+
+        assert node._get_prompt_version() == "unknown"
+
+    def test_region_suffix_order_is_precomputed(self):
+        """#83: the longest-first ordering is computed once at import time."""
+        from modules.processing.nodes.classification import categorizer as module
+
+        expected = tuple(sorted(module.SOURCE_HOST_REGION_MAP, key=len, reverse=True))
+        assert expected == module._SUFFIXES_BY_LENGTH_DESC
+        # .com.cn must be tried before .cn
+        assert module._SUFFIXES_BY_LENGTH_DESC.index(".com.cn") < (
+            module._SUFFIXES_BY_LENGTH_DESC.index(".cn")
+        )
+
+    def test_infer_region_prefers_longest_suffix(self):
+        """#83: a host ending in .com.cn resolves via the longer suffix."""
+        from modules.processing.nodes.classification.categorizer import (
+            SOURCE_HOST_REGION_MAP,
+            infer_region_from_source_host,
+        )
+
+        assert infer_region_from_source_host("news.com.cn") == SOURCE_HOST_REGION_MAP[".com.cn"]
+
+    def test_chinese_regex_is_precompiled(self):
+        """#84: the CJK pattern is compiled once at import time."""
+        import re
+
+        from modules.processing.nodes.classification import categorizer as module
+
+        assert isinstance(module._CHINESE_CHAR_RE, re.Pattern)
+        assert module._CHINESE_CHAR_RE.pattern == r"[\u4e00-\u9fff]"
+
+    def test_has_chinese_detection(self):
+        """#84: detection still behaves the same with the compiled pattern."""
+        from modules.processing.nodes.classification.categorizer import _has_chinese
+
+        assert _has_chinese("hello 世界") is True
+        assert _has_chinese("hello world") is False

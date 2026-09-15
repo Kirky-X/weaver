@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for BriefingGenerator (T004).
+"""Unit tests for BriefingGenerator.
 
 BriefingGenerator is an independent class (not a pipeline node — user decision
-on T004 integration path) that:
+on integration path) that:
 1. Fetches articles for a given date filtered by category
    (finance→经济, tech→科技, ai→keyword match, general→no filter).
 2. Calls the LLM via CallPoint.BRIEFING to produce a summary.
@@ -17,7 +17,7 @@ Failure handling follows Rule 12 (fail loud):
 
 Category mapping rationale (Rule 7 — exposed conflict, decision: hybrid):
 - articles_core.category uses CategoryType enum (政治/军事/经济/科技/...).
-- daily_briefings.category uses finance/tech/ai/general (spec R-briefing-003).
+- daily_briefings.category uses finance/tech/ai/general (spec).
 - Mapping is hybrid: enum match for finance/tech, keyword match for ai
   (no direct enum equivalent), no filter for general.
 """
@@ -189,7 +189,7 @@ class TestBriefingGeneratorLLMCall:
     async def test_generate_calls_llm_with_briefing_call_point(
         self, generator, mock_llm, mock_storage
     ):
-        """LLM call uses CallPoint.BRIEFING (added in T004)."""
+        """LLM call uses CallPoint.BRIEFING (added in)."""
         mock_storage.fetch_articles_for_briefing.return_value = [
             _make_article(title="Article 1"),
             _make_article(title="Article 2"),
@@ -308,7 +308,7 @@ class TestBriefingGeneratorFailureModes:
     ):
         """LLM failure (AllProvidersFailedError) degrades: empty summary, briefing still persisted.
 
-        Per spec R-briefing-002: 'LLM 调用失败时：summary 为空，log warning，不抛异常'.
+        Per spec 'LLM 调用失败时：summary 为空，log warning，不抛异常'.
         """
         mock_storage.fetch_articles_for_briefing.return_value = [_make_article(title="Article 1")]
         mock_llm.call_at = AsyncMock(side_effect=AllProvidersFailedError("rate limited"))
@@ -351,7 +351,7 @@ class TestBriefingGeneratorFailureModes:
     async def test_generate_storage_failure_propagates(self, generator, mock_llm, mock_storage):
         """Storage save_briefing failure must raise (Rule 12 — no silent drop).
 
-        Caller (T010 scheduler / T009 endpoint) decides how to surface to user.
+        Caller (scheduler / endpoint) decides how to surface to user.
         """
         mock_storage.fetch_articles_for_briefing.return_value = [_make_article(title="Article 1")]
         mock_llm.call_at = AsyncMock(return_value="Summary")
@@ -373,7 +373,7 @@ class TestBriefingGeneratorFailureModes:
 
 
 class TestBriefingGeneratorResultShape:
-    """Verify BriefingGenerator return dict has fields required by T007 BriefingResult."""
+    """Verify BriefingGenerator return dict has fields required by BriefingResult."""
 
     @pytest.mark.asyncio
     async def test_result_has_required_fields(self, generator, mock_llm, mock_storage):
@@ -397,7 +397,7 @@ class TestBriefingGeneratorResultShape:
 
 
 class TestFormatArticlesSummaryFirst:
-    """LLM payload summary 优先（R-briefing-002，token 优化）."""
+    """LLM payload summary 优先（，token 优化）."""
 
     def test_article_with_summary_renders_summary_not_body(self):
         articles = [

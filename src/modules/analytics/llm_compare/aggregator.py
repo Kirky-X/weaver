@@ -73,9 +73,18 @@ async def flush_compare_buffer(
 
     for key in keys_to_process:
         try:
-            # Parse time bucket from key (llm:compare:2024011510)
+            # Parse time bucket from key (llm:compare:2024011510). A malformed
+            # bucket (e.g. a manually-created key) must not poison the flush
+            # loop forever: previously the ValueError skipped cache.delete(key),
+            # leaving the key to error on every cycle (#74).
             bucket_str = key.split(":")[-1]
-            time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
+            try:
+                time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
+            except ValueError:
+                log.warning("llm_compare_aggregator_bad_bucket", key=key)
+                await cache.delete(key)
+                processed += 1
+                continue
 
             # Get all data from the hash
             data = await cache.hgetall(key)
@@ -176,4 +185,7 @@ def aggregate_compare_data(
         elif metric == "candidate_success":
             aggregated[key]["candidate_success"] += value
 
-    return aggregated
+    # Wrap in a plain dict so callers get the declared return type; a bare
+    # defaultdict would silently materialize zeroed records on unknown-key
+    # access instead of raising KeyError (#160).
+    return dict(aggregated)

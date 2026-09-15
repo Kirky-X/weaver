@@ -8,6 +8,7 @@ import asyncio
 import time
 import traceback
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -23,6 +24,7 @@ from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from core.protocols import ArticleRepository, VectorRepository
+    from core.saga.orchestrator import SagaOrchestrator
     from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
 log = get_logger(__name__)
@@ -308,9 +310,14 @@ class BatchMergerNode:
             task_id=group_states[0].get("task_id"),
         )
 
+        # Sort key: (has_time, time). None publish_time sorts last and never
+        # compares against a datetime directly (avoids TypeError on mixed types).
         primary = max(
             group_states,
-            key=lambda s: s["raw"].publish_time if s["raw"].publish_time is not None else 0,
+            key=lambda s: (
+                s["raw"].publish_time is not None,
+                s["raw"].publish_time or datetime.min,
+            ),
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title
@@ -627,6 +634,18 @@ class BatchMergerNode:
             pg_compensation_data["article_ids"] = saga_context["article_ids"]
             pg_compensation_data["vector_article_ids"] = saga_context["vector_article_ids"]
 
+        # Defined unconditionally BEFORE the closures that reference it —
+        # the closure below syncs into this dict, and defining it only
+        # inside the graph_writer branch would be a latent NameError.
+        neo4j_compensation_data: dict[str, Any] = {
+            "type": "neo4j",
+            "step_name": "persist_neo4j",
+            "operation": "entity_create",
+            "saga_id": "",
+            "article_id": "",
+            "article_ids": saga_context["neo4j_article_ids"],
+        }
+
         async def execute_persist_neo4j() -> None:
             """Phase 2: Persist to Neo4j using batch write."""
             batch_result = await self._persist_to_neo4j(new_states)
@@ -646,14 +665,6 @@ class BatchMergerNode:
         ]
 
         if self._graph_writer:
-            neo4j_compensation_data: dict[str, Any] = {
-                "type": "neo4j",
-                "step_name": "persist_neo4j",
-                "operation": "entity_create",
-                "saga_id": "",
-                "article_id": "",
-                "article_ids": saga_context["neo4j_article_ids"],
-            }
             steps.append(
                 SagaStep(
                     name="persist_neo4j",
@@ -760,6 +771,22 @@ class BatchMergerNode:
                     )
             return result
 
+        async def _cleanup_phase1_vectors() -> None:
+            """Remove Phase 1 vectors when Phase 2 fails, mirroring the
+            Phase 1 exception handler so no orphan vector rows remain."""
+            if vector_article_ids and self._vector_repo:
+                try:
+                    deleted = await self._vector_repo.delete_article_vectors_by_article_ids(
+                        vector_article_ids
+                    )
+                    log.info("saga_phase2_vectors_cleaned", count=deleted)
+                except Exception as vec_exc:
+                    log.warning(
+                        "saga_phase2_vector_cleanup_failed",
+                        error=str(vec_exc),
+                        article_ids=[str(a) for a in vector_article_ids],
+                    )
+
         # Phase 2: Persist to Neo4j using batch write with concurrency control
         if self._graph_writer:
             try:
@@ -772,6 +799,7 @@ class BatchMergerNode:
                     result["compensation_executed"] = True
                     result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
                     result["success"] = False
+                    await _cleanup_phase1_vectors()
                     return result
 
             except Exception as exc:
@@ -797,6 +825,7 @@ class BatchMergerNode:
                                 article_id=state.get("article_id"),
                                 error=str(mark_exc),
                             )
+                await _cleanup_phase1_vectors()
                 return result
 
         # All phases succeeded

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""fetch_articles_for_briefing 返回 dict 必须携带 summary 键（R-briefing-001）。
+"""fetch_articles_for_briefing 返回 dict 必须携带 summary 键。
 
 briefing LLM payload 改为 summary 优先（token 优化），查询层必须把
 ArticleCore.summary 取出并透传。本测试用 mock session 验证映射逻辑，

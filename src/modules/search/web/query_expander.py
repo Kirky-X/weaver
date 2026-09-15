@@ -99,7 +99,14 @@ class LLMQueryExpander:
                     "system_prompt": (
                         "You are a query expansion assistant. Return a JSON array of strings only."
                     ),
-                    "user_content": _QUERY_EXPANDER_PROMPT.format(query=query, max_terms=max_terms),
+                    "user_content": _QUERY_EXPANDER_PROMPT.format(
+                        # Escape braces: a literal "{" in a user query (e.g.
+                        # "Python {3.12} 新特性") would raise inside
+                        # str.format() and make expansion silently fail for
+                        # any query containing braces.
+                        query=query.replace("{", "{{").replace("}", "}}"),
+                        max_terms=max_terms,
+                    ),
                 },
             )
 

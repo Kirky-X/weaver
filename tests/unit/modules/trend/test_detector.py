@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for TrendDetector (T015 / R-trend-002,003,005).
+"""Tests for TrendDetector.
 
 Verifies:
 - Protocol compliance (isinstance(TrendDetectionProtocol))
 - Scenario 1: sufficient data (>=50 EventNode) + sentiment available
     trend_score = 0.6 * freq_change + 0.4 * sentiment_change
 - Scenario 2: sufficient data + sentiment unavailable (analyzer=None)
-    trend_score degenerates to freq_change alone (R-trend-005)
+    trend_score degenerates to freq_change alone
 - Scenario 3: insufficient data (<50 EventNode) → status='insufficient_data'
-    trends=[], list=[] (does NOT raise — R-trend-003)
+    trends=[], list=[] (does NOT raise —)
 - Scenario 4: empty data (0 EventNode) → status='insufficient_data'
 - window_days validation (only 7/30 supported)
 - entity_type filter (EventNode.name filter, Rule 7 — exposed naming)
@@ -27,7 +27,7 @@ Spec conflict (Rule 7 — exposed):
     spec/tasks say "按 entity_type 过滤", but EventNode schema field is
     ``name`` (not ``event_type``). Implementation uses ``e.name`` for the
     filter — the ``entity_type`` parameter name is kept for API/spec
-    compatibility (R-trend-002), internally mapped to EventNode.name.
+    compatibility, internally mapped to EventNode.name.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def _make_sentiment_analyzer(
         has_shifts: If True, shifts list is non-empty (sentiment data
             available). If False, shifts=[] signals no sentiment data
             for the entity — TrendDetector should treat this as
-            sentiment_change=0.0 and NOT degrade to freq-only (R-trend-005
+            sentiment_change=0.0 and NOT degrade to freq-only (
             says "no sentiment_shifts" degrades; empty shifts means the
             analyzer found no data for this entity, which is the same
             condition).
@@ -149,7 +149,7 @@ def _build_sufficient_rows(
 
 
 class TestTrendDetectorProtocolCompliance:
-    """Verify TrendDetector satisfies TrendDetectionProtocol (R-trend-001)."""
+    """Verify TrendDetector satisfies TrendDetectionProtocol."""
 
     def test_detector_satisfies_protocol(self) -> None:
         """TrendDetector instance MUST satisfy TrendDetectionProtocol."""
@@ -175,7 +175,7 @@ class TestTrendDetectorProtocolCompliance:
 
 
 class TestDetectTrendsSufficientDataWithSentiment:
-    """Scenario 1: >=50 EventNode + sentiment analyzer available (R-trend-002/005)."""
+    """Scenario 1: >=50 EventNode + sentiment analyzer available (/005)."""
 
     @pytest.mark.asyncio
     async def test_up_trend_with_sentiment_contribution(self) -> None:
@@ -263,7 +263,7 @@ class TestDetectTrendsSufficientDataWithSentiment:
 
 
 class TestDetectTrendsSufficientDataWithoutSentiment:
-    """Scenario 2: analyzer=None → trend_score degenerates to freq_change (R-trend-005)."""
+    """Scenario 2: analyzer=None → trend_score degenerates to freq_change."""
 
     @pytest.mark.asyncio
     async def test_trend_score_degrades_to_frequency_when_analyzer_none(self) -> None:
@@ -317,14 +317,14 @@ class TestDetectTrendsSufficientDataWithoutSentiment:
 
 
 class TestDetectTrendsInsufficientData:
-    """Scenario 3: EventNode count < 50 → status='insufficient_data' (R-trend-003)."""
+    """Scenario 3: EventNode count < 50 → status='insufficient_data'."""
 
     @pytest.mark.asyncio
     async def test_insufficient_data_returns_empty_trends(self) -> None:
         """<50 EventNode → status='insufficient_data', trends=[], list=[].
 
         Does NOT raise — data insufficiency is a legitimate state, not an
-        error (R-trend-003). API returns HTTP 200 (R-trend-004).
+        error. API returns HTTP 200.
         """
         from modules.trend.detection import TrendDetector
 
@@ -366,7 +366,7 @@ class TestDetectTrendsInsufficientData:
 
 
 class TestDetectTrendsEmptyData:
-    """Scenario 4: 0 EventNode → status='insufficient_data' (R-trend-003)."""
+    """Scenario 4: 0 EventNode → status='insufficient_data'."""
 
     @pytest.mark.asyncio
     async def test_empty_data_returns_insufficient_status(self) -> None:
@@ -543,7 +543,7 @@ class TestDetectTrendsLadybugCompatibility:
 
 
 class TestDetectTrendsEntityTypeFilter:
-    """entity_type filter (EventNode.name) + result shape (R-trend-002)."""
+    """entity_type filter (EventNode.name) + result shape."""
 
     @pytest.mark.asyncio
     async def test_entity_type_filter_propagated_to_result(self) -> None:
@@ -580,7 +580,7 @@ class TestDetectTrendsEntityTypeFilter:
 
 
 class TestDetectTrendsListField:
-    """list field: aggregated MENTIONS heat time-series (R-trend-002)."""
+    """list field: aggregated MENTIONS heat time-series."""
 
     @pytest.mark.asyncio
     async def test_list_field_contains_daily_buckets(self) -> None:
@@ -622,7 +622,7 @@ class TestDetectTrendsListField:
 
 
 class TestDetectTrendsThresholdBoundaries:
-    """direction threshold boundaries (R-trend-005)."""
+    """direction threshold boundaries."""
 
     @pytest.mark.asyncio
     async def test_up_boundary_at_0_2(self) -> None:

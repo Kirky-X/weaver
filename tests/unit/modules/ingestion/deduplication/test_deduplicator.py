@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Unit tests for deduplicator module."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -287,3 +288,67 @@ class TestNormalizeUrl:
         """Full normalization with all transformations."""
         result = Deduplicator.normalize_url("http://www.EXAMPLE.COM:80/a/../b/./c?f=rss#anchor")
         assert result == "https://example.com/b/c"
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#56)."""
+
+    @staticmethod
+    def _deduplicator(existing_urls_return):
+        mock_cache = MagicMock()
+        mock_cache.ping = AsyncMock(return_value=True)
+        mock_cache.hexists_many = AsyncMock(return_value=[False, False])
+        mock_cache.hset = AsyncMock()
+        mock_cache.expire = AsyncMock()
+        mock_repo = MagicMock()
+        # A list return (not a set) — membership must stay O(1) and correct.
+        mock_repo.get_existing_urls = AsyncMock(return_value=existing_urls_return)
+        return Deduplicator(cache=mock_cache, article_repo=mock_repo)
+
+    @pytest.mark.asyncio
+    async def test_dedup_filters_against_list_returning_repo(self):
+        """#56: dedup() db filtering works when get_existing_urls returns a list."""
+        seen = "https://example.com/seen"
+        dedup = self._deduplicator([seen])
+        items = [
+            SimpleNamespace(url=seen),
+            SimpleNamespace(url="https://example.com/fresh"),
+        ]
+
+        result = await dedup.dedup(items)
+
+        assert [item.url for item in result] == ["https://example.com/fresh"]
+
+    @pytest.mark.asyncio
+    async def test_dedup_urls_filters_against_list_returning_repo(self):
+        """#56: dedup_urls() db filtering works when get_existing_urls returns a list."""
+        seen = "https://example.com/seen"
+        dedup = self._deduplicator([seen])
+
+        result = await dedup.dedup_urls([seen, "https://example.com/fresh"])
+
+        assert result == ["https://example.com/fresh"]
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#56)."""
+
+    @pytest.mark.asyncio
+    async def test_db_existing_membership_is_set_based(self):
+        """#56: the DB-existing URL check must use a set for O(1) membership."""
+        import inspect
+
+        from modules.ingestion.deduplication.deduplicator import Deduplicator
+
+        cache = MagicMock()
+        cache.pipeline = MagicMock(return_value=MagicMock())
+        repo = MagicMock()
+        repo.get_existing_urls = AsyncMock(return_value=["https://example.com/a"])
+
+        dedup = Deduplicator(cache=cache, article_repo=repo)
+        candidates = [SimpleNamespace(url="https://example.com/a")]
+
+        result = await dedup.dedup(candidates)
+
+        assert result == []
+        assert "set(" in inspect.getsource(Deduplicator.dedup)

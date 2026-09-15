@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Trend alert evaluator — evaluates trend rules and triggers alert events (T018 / R-alert-002,004).
+"""Trend alert evaluator — evaluates trend rules and triggers alert events.
 
 TrendAlertEvaluator is the core engine for C6 trend alerting. It runs
-hourly (T019 scheduler integration) and evaluates all enabled trend rules
+hourly (scheduler integration) and evaluates all enabled trend rules
 (trigger_type ∈ {trend_spike, trend_drop, sentiment_shift}) against the
 latest trend data:
 
@@ -19,11 +19,11 @@ latest trend data:
   community_id are None). For wildcard rules, the evaluator queries the
   sentiment_shifts table directly to fetch ALL shifts in the window across
   all entities. This is a pragmatic workaround for the analyzer's API
-  limitation (Rule 7 — exposed: spec R-alert-002 says to call
+  limitation (Rule 7 — exposed: spec says to call
   analyze_trend(window_days) without entity_name, but the analyzer
   requires at least one of entity_name/community_id).
 
-24h dedup (R-alert-002):
+24h dedup:
     Before inserting an alert event, the evaluator checks for an existing
     event with the same (rule_id, payload_hash) within the last 24h.
     payload_hash = sha256(json.dumps(payload, sort_keys=True,
@@ -36,13 +36,13 @@ latest trend data:
     times for the same entity+payload in a single evaluate() call (e.g.
     detect_trends returns duplicate trends), only one alert is inserted.
 
-Error isolation (R-alert-002 Constraints):
+Error isolation (Constraints):
     A single rule failure (detector/analyzer exception, or DB error on
     dedup check) does NOT block other rules. The exception is logged at
     error level and the evaluator continues to the next rule. DB commit
     errors propagate (Rule 12 — fail loud).
 
-Payload structure (R-alert-004):
+Payload structure:
     - trend_spike/trend_drop: {entity_name, trend_score, threshold, window_days}
     - sentiment_shift: {entity_name, shift_value, threshold, window_days}
 
@@ -95,10 +95,10 @@ class TrendAlertEvaluator:
             Used via ``pool.session_context()`` for all DB access — querying
             alert_rules, querying sentiment_shifts (wildcard path), dedup
             checks against alert_events, and inserting new alert_events.
-        trend_detector: TrendDetectionProtocol implementation (TrendDetector
-            T015). Called for trend_spike / trend_drop rules.
+        trend_detector: TrendDetectionProtocol implementation (TrendDetector).
+            Called for trend_spike / trend_drop rules.
         sentiment_analyzer: SentimentTrendProtocol implementation
-            (SentimentTrendAnalyzer T012). Called for sentiment_shift rules
+            (SentimentTrendAnalyzer). Called for sentiment_shift rules
             with specific entity_name (not wildcard).
 
     Raises:
@@ -225,7 +225,7 @@ class TrendAlertEvaluator:
             List of trigger dicts, each containing:
             - entity_name: Entity that triggered the alert.
             - metric_value: trend_score or shift_value (float).
-            - payload: Dict matching R-alert-004 structure.
+            - payload: Dict matching structure.
             - payload_hash: sha256 hex digest of normalized payload.
 
         Raises:
@@ -337,7 +337,7 @@ class TrendAlertEvaluator:
         For wildcard entity_name='*': queries sentiment_shifts table directly
         (SentimentTrendProtocol requires a specific entity_name, so wildcard
         bypasses the analyzer). This is a documented Rule 7 conflict — spec
-        R-alert-002 says to call analyze_trend(window_days) without entity_name,
+        says to call analyze_trend(window_days) without entity_name,
         but the analyzer raises ValueError if both entity_name and community_id
         are None.
 
@@ -427,7 +427,7 @@ class TrendAlertEvaluator:
         Args:
             entity_name: Entity that triggered the alert.
             metric_value: trend_score or shift_value (for AlertEvent.metric_value).
-            payload: Dict matching R-alert-004 structure.
+            payload: Dict matching structure.
 
         Returns:
             Dict with entity_name, metric_value, payload, payload_hash keys.

@@ -22,7 +22,7 @@ from modules.processing.pipeline.deps import (
 )
 
 # ---------------------------------------------------------------------------
-# Task 3.1 — Pipeline ML component pass-through tests
+# Pipeline ML component pass-through tests
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +395,7 @@ class TestPipelineNoMlComponentsDefaultsToNone:
 
 
 # ---------------------------------------------------------------------------
-# Task 3.2 — Container ML component initialization tests
+# Container ML component initialization tests
 # ---------------------------------------------------------------------------
 
 

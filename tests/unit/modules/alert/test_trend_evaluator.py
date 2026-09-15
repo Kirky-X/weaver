@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for TrendAlertEvaluator (T018 / R-alert-002,004).
+"""Tests for TrendAlertEvaluator.
 
 Verifies:
 - trend_spike trigger: trend_score > threshold → alert event inserted
@@ -11,7 +11,7 @@ Verifies:
 - Error isolation: one rule failure does NOT block other rules
 - Disabled rules (enabled=false) are skipped
 - Threshold rules (trigger_type='threshold') are skipped
-- Payload structure per R-alert-004:
+- Payload structure per
     trend_spike/trend_drop: {entity_name, trend_score, threshold, window_days}
     sentiment_shift: {entity_name, shift_value, threshold, window_days}
 - Payload normalization: JSON sorted by key, sha256 hash for dedup
@@ -201,7 +201,7 @@ def _expected_payload_hash(payload: dict) -> str:
 
 
 class TestTrendSpikeTrigger:
-    """Tests for trend_spike trigger_type (R-alert-002, R-alert-004)."""
+    """Tests for trend_spike trigger_type."""
 
     @pytest.mark.asyncio
     async def test_trend_spike_triggers_when_score_above_threshold(self) -> None:
@@ -248,7 +248,7 @@ class TestTrendSpikeTrigger:
 
     @pytest.mark.asyncio
     async def test_trend_spike_payload_structure(self) -> None:
-        """trend_spike payload must contain entity_name, trend_score, threshold, window_days (R-alert-004)."""
+        """trend_spike payload must contain entity_name, trend_score, threshold, window_days."""
         rule = _make_rule(trigger_type="trend_spike", trend_threshold=0.5, trend_window_days=7)
         trend = _make_trend(entity_name="Company A", trend_score=0.7)
         trend_result = _make_trend_result(trends=[trend])
@@ -311,7 +311,7 @@ class TestTrendSpikeTrigger:
 
 
 class TestTrendDropTrigger:
-    """Tests for trend_drop trigger_type (R-alert-002)."""
+    """Tests for trend_drop trigger_type."""
 
     @pytest.mark.asyncio
     async def test_trend_drop_triggers_when_score_below_negative_threshold(self) -> None:
@@ -368,7 +368,7 @@ class TestTrendDropTrigger:
 
 
 class TestSentimentShiftTrigger:
-    """Tests for sentiment_shift trigger_type (R-alert-002, R-alert-004)."""
+    """Tests for sentiment_shift trigger_type."""
 
     @pytest.mark.asyncio
     async def test_sentiment_shift_triggers_specific_entity(self) -> None:
@@ -420,7 +420,7 @@ class TestSentimentShiftTrigger:
 
     @pytest.mark.asyncio
     async def test_sentiment_shift_payload_structure(self) -> None:
-        """sentiment_shift payload: {entity_name, shift_value, threshold, window_days} (R-alert-004)."""
+        """sentiment_shift payload: {entity_name, shift_value, threshold, window_days}."""
         rule = _make_rule(
             trigger_type="sentiment_shift",
             entity_name="Company A",
@@ -471,7 +471,7 @@ class TestSentimentShiftTrigger:
 
 
 class TestTrendAlertDedup:
-    """Tests for 24h dedup logic (R-alert-002)."""
+    """Tests for 24h dedup logic."""
 
     @pytest.mark.asyncio
     async def test_dedup_skips_when_same_payload_hash_exists_in_24h(self) -> None:
@@ -566,7 +566,7 @@ class TestTrendAlertDedup:
 
 
 class TestTrendAlertErrorIsolation:
-    """Tests for error isolation — one rule failure does NOT block others (R-alert-002)."""
+    """Tests for error isolation — one rule failure does NOT block others."""
 
     @pytest.mark.asyncio
     async def test_detector_exception_does_not_block_other_rules(self) -> None:

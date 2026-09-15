@@ -16,7 +16,7 @@
 """
 
 from modules.processing.nlp.spacy_extractor import SpacyEntity, SpacyExtractor
-from modules.processing.pipeline.graph import Pipeline
+from modules.processing.pipeline import Pipeline
 
 __all__ = [
     "Pipeline",

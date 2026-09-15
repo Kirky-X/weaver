@@ -73,38 +73,77 @@ class EvalCompareBuffer:
     async def accumulate(self, event: LLMCompareEvent) -> None:
         """Accumulate LLMCompareEvent to Redis HASH.
 
-        Uses pipeline for batch execution. Sets TTL on first write.
-        All exceptions are caught and logged — does not block main path.
+        Uses a pipeline for batch execution of the counter increments (one
+        round-trip instead of five), matching ``LLMUsageBuffer.accumulate``
+        (#51). Sets TTL only on the first write to the hour-bucket key: an
+        unconditional ``expire`` on every event would push the TTL forward
+        indefinitely under sustained load. All exceptions are caught and
+        logged — does not block main path.
         """
         try:
             bucket_key = self._make_bucket_key(event.timestamp)
-            prefix = f"{event.call_point}::{event.primary_model}::{event.candidate_model}"
 
-            # Increment counters
-            await self._cache.hincrby(bucket_key, f"{prefix}::count", 1)
-            await self._cache.hincrby(
-                bucket_key,
-                f"{prefix}::primary_latency_sum",
-                int(event.primary_latency),
-            )
-            await self._cache.hincrby(
-                bucket_key,
-                f"{prefix}::candidate_latency_sum",
-                int(event.candidate_latency),
-            )
-            await self._cache.hincrby(
-                bucket_key,
-                f"{prefix}::primary_success",
-                1 if event.primary_success else 0,
-            )
-            await self._cache.hincrby(
-                bucket_key,
-                f"{prefix}::candidate_success",
-                1 if event.candidate_success else 0,
-            )
+            # Check before writing: after the hincrby calls below the hash is
+            # guaranteed non-empty, so a post-write check can never detect a
+            # newly-created key.
+            is_new = not await self._cache.hgetall(bucket_key)
 
-            # Set TTL
-            await self._cache.expire(bucket_key, self._ttl)
+            # Latencies are rounded instead of truncated: int() biases the
+            # cumulative sums (and hence hourly averages) downward by up to
+            # 1 ms per event (#209).
+            async with self._cache.pipeline() as pipe:
+                pipe.hincrby(
+                    bucket_key,
+                    self._make_field_name(
+                        event.call_point, event.primary_model, event.candidate_model, "count"
+                    ),
+                    1,
+                )
+                pipe.hincrby(
+                    bucket_key,
+                    self._make_field_name(
+                        event.call_point,
+                        event.primary_model,
+                        event.candidate_model,
+                        "primary_latency_sum",
+                    ),
+                    round(event.primary_latency),
+                )
+                pipe.hincrby(
+                    bucket_key,
+                    self._make_field_name(
+                        event.call_point,
+                        event.primary_model,
+                        event.candidate_model,
+                        "candidate_latency_sum",
+                    ),
+                    round(event.candidate_latency),
+                )
+                pipe.hincrby(
+                    bucket_key,
+                    self._make_field_name(
+                        event.call_point,
+                        event.primary_model,
+                        event.candidate_model,
+                        "primary_success",
+                    ),
+                    1 if event.primary_success else 0,
+                )
+                pipe.hincrby(
+                    bucket_key,
+                    self._make_field_name(
+                        event.call_point,
+                        event.primary_model,
+                        event.candidate_model,
+                        "candidate_success",
+                    ),
+                    1 if event.candidate_success else 0,
+                )
+                await pipe.execute()
+
+            # Set TTL only when this event created the bucket key
+            if is_new:
+                await self._cache.expire(bucket_key, self._ttl)
 
             log.debug(
                 "eval_comparison_buffered",

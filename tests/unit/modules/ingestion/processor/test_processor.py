@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import traceback
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -710,8 +711,11 @@ class TestDiscoveryProcessorErrorHandling:
             article_repo=mock_article_repo,
         )
 
-        # Should not raise, logs error and continues
-        await processor.on_items_discovered(mock_items, mock_source)
+        # CORR#240: the batch-hard-failure must propagate (after logging) so
+        # the scheduler's consecutive-failure counter sees it and auto-disable
+        # can trigger — swallowing here silently dropped the whole batch.
+        with pytest.raises(Exception, match="DB error"):
+            await processor.on_items_discovered(mock_items, mock_source)
 
     @pytest.mark.asyncio
     async def test_handles_pipeline_error(
@@ -777,3 +781,22 @@ class TestDiscoveryProcessorErrorHandling:
 
         # Should only insert the successful article
         mock_article_repo.bulk_insert_raw.assert_called_once()
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#176)."""
+
+    def test_traceback_imported_at_module_level(self):
+        """#176: `traceback` must not be imported inside on_items_discovered."""
+        from modules.ingestion.domain import processor as processor_module
+
+        assert processor_module.traceback is traceback
+
+    def test_traceback_not_reimported_locally(self):
+        """#176: the function body no longer shadows the module-level import."""
+        import inspect
+
+        from modules.ingestion.domain.processor import DiscoveryProcessor
+
+        source = inspect.getsource(DiscoveryProcessor.on_items_discovered)
+        assert "import traceback" not in source

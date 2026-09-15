@@ -463,7 +463,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         mock_source,
         sample_article,
     ):
-        """Test handling of insert errors."""
+        """Test insert errors are logged then propagated to the caller."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
@@ -474,12 +474,14 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             article_repo=mock_article_repo,
         )
 
-        await processor.on_items_discovered(
-            items=sample_items,
-            source=mock_source,
-        )
+        # Fail-fast (Rule 12): the error is logged but must reach the
+        # scheduler so its consecutive-failure counter can auto-disable.
+        with pytest.raises(Exception, match="DB error"):
+            await processor.on_items_discovered(
+                items=sample_items,
+                source=mock_source,
+            )
 
-        # Should not raise, just log
         mock_article_repo.bulk_insert_raw.assert_called_once()
 
     @pytest.mark.asyncio

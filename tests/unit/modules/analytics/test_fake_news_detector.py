@@ -572,3 +572,135 @@ class TestExaggerationDetection:
         # 1 word should give low score
         score = detector._calculate_exaggeration_score(1)
         assert score < 0.35
+
+
+class TestReadabilityCjkAware:
+    """Chinese text must not collapse into a single whitespace word (#204)."""
+
+    @pytest.mark.asyncio
+    async def test_chinese_body_not_maximally_complex(self, detector: FakeNewsDetector) -> None:
+        """Spaceless Chinese body must not force complex_ratio to ~1.0 (#204)."""
+        state = {
+            "cleaned": {
+                "body": "中国人民银行今日发布2026年第一季度货币政策执行报告。",
+            }
+        }
+        features = await detector.extract_features(state)
+        # Single CJK chars are never "complex" (>4 chars), so readability is
+        # driven by sentence length only — well below the old ~1.0 collapse.
+        assert features["readability"] < 0.6
+
+    @pytest.mark.asyncio
+    async def test_english_complex_words_still_count(self, detector: FakeNewsDetector) -> None:
+        """ASCII long words still raise the complex ratio (#204)."""
+        state = {
+            "cleaned": {
+                "body": (
+                    "Extraordinary circumstances necessitate comprehensive "
+                    "reconsideration of institutional responsibilities."
+                ),
+            }
+        }
+        features = await detector.extract_features(state)
+        assert features["readability"] > 0.3
+
+    def test_tokenizer_falls_back_for_other_scripts(self, detector: FakeNewsDetector) -> None:
+        """Non-ASCII/non-CJK text keeps the legacy whitespace split (#204)."""
+        from modules.analytics.fake_news_detector import _tokenize_for_readability
+
+        assert _tokenize_for_readability("مرحبا بالعالم") == ["مرحبا", "بالعالم"]
+        assert _tokenize_for_readability("hello world") == ["hello", "world"]
+
+
+class TestCrossReferenceCountSignal:
+    """cross_reference_count must use its own signal (#205)."""
+
+    @pytest.mark.asyncio
+    async def test_verified_count_drives_feature(self, detector: FakeNewsDetector) -> None:
+        """verified_by_sources=3 saturates to well-corroborated (#205)."""
+        state = {
+            "credibility": {
+                "cross_verification": 0.10,  # would be 0.9 if re-inverted
+                "verified_by_sources": 3,
+            }
+        }
+        features = await detector.extract_features(state)
+        assert features["cross_reference_count"] == 0.0
+        # ...and no longer identical to propagation_path
+        assert features["propagation_path"] == pytest.approx(0.9)
+
+    @pytest.mark.asyncio
+    async def test_single_source_partially_suspicious(self, detector: FakeNewsDetector) -> None:
+        """verified_by_sources=1 maps to 1 - 1/3 (#205)."""
+        state = {"credibility": {"verified_by_sources": 1}}
+        features = await detector.extract_features(state)
+        assert features["cross_reference_count"] == pytest.approx(2 / 3)
+
+    @pytest.mark.asyncio
+    async def test_missing_count_falls_back_to_proxy(self, detector: FakeNewsDetector) -> None:
+        """No count available: legacy cross-verification proxy kept (#205)."""
+        state = {"credibility": {"cross_verification": 0.75}}
+        features = await detector.extract_features(state)
+        assert features["cross_reference_count"] == 0.25
+
+    @pytest.mark.asyncio
+    async def test_non_numeric_count_falls_back(self, detector: FakeNewsDetector) -> None:
+        """Garbage count values degrade to the proxy, not an exception (#205)."""
+        state = {
+            "credibility": {
+                "cross_verification": 0.6,
+                "verified_by_sources": "many",
+            }
+        }
+        features = await detector.extract_features(state)
+        assert features["cross_reference_count"] == pytest.approx(0.4)
+
+
+class TestFromSettingsValidation:
+    """Inverted thresholds must fail fast instead of breaking bands (#206)."""
+
+    def test_inverted_thresholds_raise(self) -> None:
+        """confidence_suspicious >= confidence_trusted raises ValueError (#206)."""
+        from types import SimpleNamespace
+
+        from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
+
+        bad = SimpleNamespace(
+            confidence_trusted=0.4,
+            confidence_suspicious=0.6,
+            exaggeration_keywords=[],
+            model_path="",
+        )
+        with pytest.raises(ValueError, match="must be <"):
+            FakeNewsDetectorConfig.from_settings(bad)
+
+    def test_equal_thresholds_raise(self) -> None:
+        """Equal thresholds also collapse the bands (#206)."""
+        from types import SimpleNamespace
+
+        from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
+
+        bad = SimpleNamespace(
+            confidence_trusted=0.5,
+            confidence_suspicious=0.5,
+            exaggeration_keywords=[],
+            model_path="",
+        )
+        with pytest.raises(ValueError, match="must be <"):
+            FakeNewsDetectorConfig.from_settings(bad)
+
+    def test_valid_thresholds_pass(self) -> None:
+        """Sane settings build a config unchanged (#206)."""
+        from types import SimpleNamespace
+
+        from modules.analytics.fake_news_detector import FakeNewsDetectorConfig
+
+        good = SimpleNamespace(
+            confidence_trusted=0.8,
+            confidence_suspicious=0.4,
+            exaggeration_keywords=["震惊"],
+            model_path="",
+        )
+        config = FakeNewsDetectorConfig.from_settings(good)
+        assert config.trusted_threshold == 0.8
+        assert config.fake_threshold == 0.4

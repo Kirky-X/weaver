@@ -45,18 +45,28 @@ class CascadeClassifier:
 
     def classify(self, text: str) -> tuple[str, float] | None:
         """Classify text through the cascade. Returns (label, confidence) or None."""
-        # Layer 1: fastText
+        ft_label: str | None = None
+        ft_conf = 0.0
+
+        # Layer 1: fastText — predict() can return empty arrays (and some
+        # builds raise) on blank/invalid input, so guard before indexing.
         if self._ft_model:
             labels, probs = self._ft_model.predict(text, k=1)
-            ft_label = labels[0].replace("__label__", "")
-            ft_conf = float(probs[0])
-            if ft_conf >= self.FASTTEXT_THRESHOLD:
-                log.debug("cascade_fasttext_hit", label=ft_label, confidence=ft_conf)
-                return (ft_label, ft_conf)
+            if len(labels) > 0 and len(probs) > 0:
+                ft_label = labels[0].replace("__label__", "")
+                ft_conf = float(probs[0])
+                if ft_conf >= self.FASTTEXT_THRESHOLD:
+                    log.debug("cascade_fasttext_hit", label=ft_label, confidence=ft_conf)
+                    return (ft_label, ft_conf)
+            else:
+                log.debug("cascade_fasttext_empty_prediction", text_len=len(text))
 
-            # Layer 2: SetFit
-            if self._sf_model:
-                sf_probs = self._sf_model.predict_proba([text])
+        # Layer 2: SetFit — runs independently of fastText, so a
+        # SetFit-only configuration classifies instead of silently
+        # falling through to None.
+        if self._sf_model:
+            sf_probs = self._sf_model.predict_proba([text])
+            if len(sf_probs) > 0 and len(sf_probs[0]) > 0:
                 sf_conf = float(max(sf_probs[0]))
                 sf_label_idx = int(sf_probs[0].argmax())
                 if sf_conf >= self.SETFIT_THRESHOLD:
@@ -64,11 +74,19 @@ class CascadeClassifier:
                     log.debug("cascade_setfit_hit", label=label, confidence=sf_conf)
                     return (label, sf_conf)
 
-                # Layer 3: Fusion
-                fused_conf = self.FUSION_WEIGHTS[0] * ft_conf + self.FUSION_WEIGHTS[1] * sf_conf
-                if fused_conf >= self.FUSION_THRESHOLD:
-                    log.debug("cascade_fusion_hit", label=ft_label, confidence=fused_conf)
-                    return (ft_label, fused_conf)
+                # Layer 3: Fusion — only fuse when both layers agree on the
+                # label. A linear combination of confidences for *different*
+                # labels does not measure the probability of either label
+                # and can cross the threshold spuriously. Requires a fastText
+                # prediction to compare against.
+                if ft_label is not None:
+                    sf_label = self._get_setfit_label(sf_label_idx)
+                    fused_conf = self.FUSION_WEIGHTS[0] * ft_conf + self.FUSION_WEIGHTS[1] * sf_conf
+                    if sf_label == ft_label and fused_conf >= self.FUSION_THRESHOLD:
+                        log.debug("cascade_fusion_hit", label=ft_label, confidence=fused_conf)
+                        return (ft_label, fused_conf)
+            else:
+                log.debug("cascade_setfit_empty_prediction", text_len=len(text))
 
         # Fall through to LLM
         return None

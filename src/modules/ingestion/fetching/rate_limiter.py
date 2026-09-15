@@ -35,6 +35,23 @@ class BoundedLockDict:
     def __init__(self, maxsize: int = 1000) -> None:
         self._maxsize = maxsize
         self._locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        # Per-key in-flight counter (holders + waiters). ``locked()`` alone
+        # misses the window between release() and the queued waiter's
+        # resumption, where the lock reports unlocked — evicting there
+        # would split the host's critical section across two locks.
+        self._in_flight: dict[str, int] = {}
+
+    def mark_in_flight(self, key: str) -> None:
+        """Record a caller about to acquire the lock for ``key``."""
+        self._in_flight[key] = self._in_flight.get(key, 0) + 1
+
+    def mark_done(self, key: str) -> None:
+        """Record a caller finished with the lock for ``key``."""
+        remaining = self._in_flight.get(key, 0) - 1
+        if remaining > 0:
+            self._in_flight[key] = remaining
+        else:
+            self._in_flight.pop(key, None)
 
     def __getitem__(self, key: str) -> asyncio.Lock:
         """Get lock for key, creating if necessary.
@@ -52,10 +69,28 @@ class BoundedLockDict:
 
         # Create new lock
         if len(self._locks) >= self._maxsize:
-            # Evict oldest (first item)
-            oldest_key = next(iter(self._locks))
-            log.debug("lock_evicted", key=oldest_key, reason="capacity_reached")
-            del self._locks[oldest_key]
+            # Evict the oldest idle lock. Evicting a lock that is held or
+            # awaited lets a new lock be created for the same host, so two
+            # coroutines could pass the critical section simultaneously and
+            # the per-host minimum delay would collapse to ~0.
+            oldest_key: str | None = None
+            for candidate_key in self._locks:
+                if candidate_key in self._in_flight:
+                    continue
+                if not self._locks[candidate_key].locked():
+                    oldest_key = candidate_key
+                    break
+            if oldest_key is not None:
+                log.debug("lock_evicted", key=oldest_key, reason="capacity_reached")
+                del self._locks[oldest_key]
+            else:
+                # All locks are in use — temporarily exceed maxsize rather
+                # than evicting a busy lock (bounded by concurrent hosts).
+                log.debug(
+                    "lock_cache_over_capacity",
+                    size=len(self._locks),
+                    maxsize=self._maxsize,
+                )
 
         lock = asyncio.Lock()
         self._locks[key] = lock
@@ -100,24 +135,31 @@ class HostRateLimiter:
         """
         host = urlparse(url).netloc
 
-        async with self._locks[host]:
-            now = time.monotonic()
-            last = self._last_request.get(host, 0.0)
-            elapsed = now - last
+        # Mark in-flight BEFORE the (possibly evicting) lock lookup so this
+        # coroutine and any waiters that queue behind it keep the same lock
+        # alive for the whole acquire-to-release span.
+        self._locks.mark_in_flight(host)
+        try:
+            async with self._locks[host]:
+                now = time.monotonic()
+                last = self._last_request.get(host, 0.0)
+                elapsed = now - last
 
-            # 速率抖动非密码学用途
-            delay = random.uniform(self._delay_min, self._delay_max)  # nosec B311
+                # 速率抖动非密码学用途
+                delay = random.uniform(self._delay_min, self._delay_max)  # nosec B311
 
-            if last > 0 and elapsed < delay:
-                wait_time = delay - elapsed
-                log.debug(
-                    "rate_limit_wait",
-                    host=host,
-                    wait_seconds=round(wait_time, 2),
-                )
-                await asyncio.sleep(wait_time)
-                self._last_request[host] = time.monotonic()
-                return wait_time
+                if last > 0 and elapsed < delay:
+                    wait_time = delay - elapsed
+                    log.debug(
+                        "rate_limit_wait",
+                        host=host,
+                        wait_seconds=round(wait_time, 2),
+                    )
+                    await asyncio.sleep(wait_time)
+                    self._last_request[host] = time.monotonic()
+                    return wait_time
 
-            self._last_request[host] = now
-            return 0.0
+                self._last_request[host] = now
+                return 0.0
+        finally:
+            self._locks.mark_done(host)

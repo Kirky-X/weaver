@@ -768,3 +768,27 @@ class TestHttpxFetcherPost:
 
             with pytest.raises(RuntimeError, match="Unexpected error"):
                 await fetcher.post("https://api.example.com")
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#83, #14)."""
+
+    def test_retry_exhaustion_guard_is_documented_unreachable(self):
+        """#83: the misleading ``raise RuntimeError("Fetch retry exhausted")`` is gone."""
+        import inspect
+
+        from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+
+        src = inspect.getsource(HttpxFetcher.fetch)
+        assert "Fetch retry exhausted" not in src
+        assert "unreachable" in src
+
+    def test_time_imported_at_module_level(self):
+        """#14: ``time`` is imported at module scope, not inside the methods."""
+        from pathlib import Path
+
+        from modules.ingestion.fetching import httpx_fetcher as module
+
+        assert hasattr(module, "time")
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        assert "\nimport time\n" in source

@@ -57,3 +57,28 @@ async def test_scheduled_task_preserves_function_name():
         return 1
 
     assert my_named_job.__name__ == "my_named_job"
+
+
+@pytest.mark.asyncio
+async def test_timeout_records_the_real_exception():
+    """#269: the timeout branch must pass the caught TimeoutError to the span."""
+    from unittest.mock import MagicMock, patch
+
+    from modules.scheduler import wrapper as wrapper_module
+
+    span = MagicMock()
+    ctx = MagicMock()
+    ctx.__enter__ = MagicMock(return_value=span)
+    ctx.__exit__ = MagicMock(return_value=False)
+
+    @wrapper_module.scheduled_task("t008_timeout_job", timeout_seconds=0)
+    async def slow_job():
+        await asyncio.sleep(10)
+        return 99
+
+    with patch.object(wrapper_module.tracer, "start_as_current_span", return_value=ctx):
+        assert await slow_job() == -1
+
+    recorded = [c.args[0] for c in span.record_exception.call_args_list]
+    assert recorded, "record_exception must be called"
+    assert isinstance(recorded[0], TimeoutError)

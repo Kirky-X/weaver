@@ -5,6 +5,7 @@
 """Unit tests for management module."""
 
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -136,3 +137,28 @@ class TestModuleImports:
         # The module should have loaded successfully
         assert hasattr(mm, "main")
         assert hasattr(mm, "_resolve_subcommand")
+
+    def test_src_dir_on_sys_path_when_run_as_module(self):
+        """Regression (#350): `python -m src.modules.management` must put the
+        src dir on sys.path so `from modules...` imports resolve."""
+
+        import subprocess
+
+        import modules.management.__main__ as mm
+
+        project_root = Path(mm.__file__).resolve().parents[3]
+        probe = (
+            "import runpy, sys, os;"
+            "runpy.run_path(sys.argv[1], run_name='pathcheck');"
+            "sys.exit(0 if os.path.abspath('src') in sys.path else 1)"
+        )
+        result = subprocess.run(  # noqa: S603 - probe and path are test-constructed
+            [sys.executable, "-c", probe, str(Path(mm.__file__).resolve())],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"src dir not on sys.path after module bootstrap; stderr: {result.stderr}"
+        )

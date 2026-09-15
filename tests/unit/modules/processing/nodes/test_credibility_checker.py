@@ -53,7 +53,7 @@ def mock_source_auth_repo():
     repo = AsyncMock()
     mock_auth = MagicMock()
     mock_auth.authority = 0.85
-    repo.get_or_create = AsyncMock(return_value=mock_auth)
+    repo.get = AsyncMock(return_value=mock_auth)
     return repo
 
 
@@ -196,7 +196,7 @@ class TestSourceAuthorityPriority:
         }
         result = await node.execute(state)
         assert result["credibility"]["source_credibility"] == 0.95
-        mock_source_auth_repo.get_or_create.assert_not_called()
+        mock_source_auth_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_priority_2_auto_calculated(
@@ -222,7 +222,7 @@ class TestSourceAuthorityPriority:
         }
         result = await node.execute(state)
         assert result["credibility"]["source_credibility"] == 0.85
-        mock_source_auth_repo.get_or_create.assert_called_once()
+        mock_source_auth_repo.get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_priority_3_default(self, mock_llm, mock_event_bus, sample_raw):
@@ -361,9 +361,7 @@ class TestCredibilityCheckerNodeErrorHandling:
     async def test_credibility_handles_source_repo_error(
         self, mock_llm, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
-        mock_source_auth_repo.get_or_create = AsyncMock(
-            side_effect=Exception("Database connection failed")
-        )
+        mock_source_auth_repo.get = AsyncMock(side_effect=Exception("Database connection failed"))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
         node = CredibilityCheckerNode(
             event_bus=mock_event_bus,
@@ -386,7 +384,7 @@ class TestCredibilityCheckerNodeIntegration:
     async def test_credibility_weighted_aggregation_with_category(
         self, mock_llm, mock_event_bus, mock_source_auth_repo
     ):
-        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=1.0))
+        mock_source_auth_repo.get = AsyncMock(return_value=MagicMock(authority=1.0))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=1.0, flags=[]))
         node = CredibilityCheckerNode(
             event_bus=mock_event_bus,
@@ -420,7 +418,7 @@ class TestCredibilityCheckerNodeIntegration:
     async def test_credibility_economic_category_weights(
         self, mock_llm, mock_event_bus, mock_source_auth_repo
     ):
-        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
+        mock_source_auth_repo.get = AsyncMock(return_value=MagicMock(authority=0.90))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.50, flags=[]))
         node = CredibilityCheckerNode(
             event_bus=mock_event_bus,

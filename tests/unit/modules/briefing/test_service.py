@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for DailyBriefingService (T008).
+"""Tests for DailyBriefingService.
 
-Verifies R-briefing-002 (service implements DailyBriefingProtocol):
+Verifies (service implements DailyBriefingProtocol):
 - generate_briefing delegates to BriefingGenerator + maps dict → BriefingResult
 - get_briefing queries storage + maps dict → BriefingResult | None
 - list_briefings queries storage + maps list[dict] → list[BriefingResult]
-- narrative_mode is always False in T008 (T021 will implement narrative mode)
+- narrative_mode is always False in (will implement narrative mode)
 
 Service does NOT re-implement BriefingGenerator core logic — it delegates
-(Rule 8: reuse existing implementations). Templates (R-briefing-003) are
-defined in templates.py for future category-specific prompt usage (T021+
-narrative mode); T008 generate_briefing reuses BriefingGenerator's generic
+(Rule 8: reuse existing implementations). Templates are
+defined in templates.py for future category-specific prompt usage (+
+narrative mode); generate_briefing reuses BriefingGenerator's generic
 briefing.toml prompt.
 """
 
@@ -66,7 +66,7 @@ def _make_storage_briefing_dict(
 
 
 class TestDailyBriefingServiceImplementsProtocol:
-    """Verify DailyBriefingService satisfies DailyBriefingProtocol (R-briefing-002)."""
+    """Verify DailyBriefingService satisfies DailyBriefingProtocol."""
 
     def test_service_satisfies_protocol(self) -> None:
         """DailyBriefingService MUST satisfy DailyBriefingProtocol."""
@@ -86,7 +86,7 @@ class TestDailyBriefingServiceImplementsProtocol:
 
 
 class TestGenerateBriefing:
-    """Test DailyBriefingService.generate_briefing (R-briefing-002)."""
+    """Test DailyBriefingService.generate_briefing."""
 
     @pytest.mark.asyncio
     async def test_delegates_to_generator_and_maps_to_briefing_result(self) -> None:
@@ -145,10 +145,10 @@ class TestGenerateBriefing:
 
     @pytest.mark.asyncio
     async def test_narrative_mode_always_false_in_t008(self) -> None:
-        """T008 does not implement narrative mode — BriefingResult.narrative_mode is always False.
+        """does not implement narrative mode — BriefingResult.narrative_mode is always False.
 
-        Per spec R-briefing-008 + T021 (future): narrative_mode=True requires
-        NarrativeBriefingGenerator which is not implemented in T008. T008
+        Per spec + (future): narrative_mode=True requires
+        NarrativeBriefingGenerator which is not implemented in.
         generate_briefing does not accept narrative_mode parameter; the
         BriefingResult returned always has narrative_mode=False.
         """
@@ -217,7 +217,7 @@ class TestGenerateBriefing:
 
 
 class TestGetBriefing:
-    """Test DailyBriefingService.get_briefing (R-briefing-002)."""
+    """Test DailyBriefingService.get_briefing."""
 
     @pytest.mark.asyncio
     async def test_returns_none_when_storage_returns_none(self) -> None:
@@ -266,7 +266,7 @@ class TestGetBriefing:
     async def test_default_category_none_normalized_to_general(self) -> None:
         """category=None is normalized to 'general' before calling storage.
 
-        Spec R-briefing-001: category=None means 综合 (general). Service
+        Spec category=None means 综合 (general). Service
         normalizes None → 'general' before calling storage.get_briefing,
         consistent with BriefingGenerator.generate() normalization.
         """
@@ -290,7 +290,7 @@ class TestGetBriefing:
 
 
 class TestListBriefings:
-    """Test DailyBriefingService.list_briefings (R-briefing-002)."""
+    """Test DailyBriefingService.list_briefings."""
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_briefings(self) -> None:
@@ -349,7 +349,7 @@ class TestListBriefings:
 
 
 class TestGenerateBriefingAlreadyExists:
-    """Test DailyBriefingService.generate_briefing existence check (R-briefing-005 fix).
+    """Test DailyBriefingService.generate_briefing existence check (fix).
 
     修复场景：当日已有简报时，POST /api/v1/briefings/daily/generate 之前返回
     HTTP 500（DuckDB ConstraintException: Duplicate key）。现引入业务异常
@@ -402,7 +402,7 @@ class TestGenerateBriefingAlreadyExists:
 
     @pytest.mark.asyncio
     async def test_normalizes_category_none_to_general_before_existence_check(self) -> None:
-        """category=None 在存在性检查前归一化为 'general'（spec R-briefing-001）。
+        """category=None 在存在性检查前归一化为 'general'（spec ）。
 
         与 get_briefing 的归一化保持一致：避免 None 与 'general' 视为不同
         category，导致存在性检查漏判（已存在 general 简报但被当成 None 检查）。

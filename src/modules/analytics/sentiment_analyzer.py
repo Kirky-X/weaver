@@ -12,6 +12,7 @@ Performance:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,9 @@ if __name__ != "__main__":
 
 log = get_logger(__name__)
 
+# Max opening-brace candidates retried by _extract_json_from_text (#53).
+_MAX_JSON_CANDIDATES = 128
+
 
 @dataclass
 class SentimentAnalyzerConfig:
@@ -37,6 +41,10 @@ class SentimentAnalyzerConfig:
         max_input_length: Maximum input text length in tokens.
         confidence_threshold: Minimum confidence to use SKEP result directly.
         fallback_to_llm: Whether to fall back to LLM when confidence is low.
+        llm_max_input_length: Maximum input text length (characters) for the
+            LLM fallback path. Kept separate from ``max_input_length`` because
+            SKEP (token-based) and LLM providers (character/token limits)
+            have different budgets.
     """
 
     enabled: bool = True
@@ -44,6 +52,7 @@ class SentimentAnalyzerConfig:
     max_input_length: int = 512
     confidence_threshold: float = 0.6
     fallback_to_llm: bool = True
+    llm_max_input_length: int = 2000
 
 
 class SentimentAnalyzer:
@@ -146,8 +155,10 @@ class SentimentAnalyzer:
         # Truncate text to max input length
         truncated_text = text[: self._config.max_input_length]
 
-        # Run SKEP analysis
-        results = self._skep(truncated_text)
+        # Run SKEP analysis in a thread executor: the Taskflow call is
+        # CPU-bound and would otherwise stall the event loop.
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, self._skep, truncated_text)
 
         if not results:
             return self._default_result("default")
@@ -155,6 +166,17 @@ class SentimentAnalyzer:
         result = results[0]
         confidence = result.get("score", 0.0)
         label = result.get("label", "neutral")
+
+        # Type guard: a non-numeric score (None from a missing key or a
+        # string from a misbehaving model) would raise TypeError on the
+        # threshold comparison below (#222). Degrade to 0.0 so the request
+        # falls through to the LLM fallback instead of dropping the result.
+        if not isinstance(confidence, (int, float)):
+            log.warning(
+                "skep_score_not_numeric",
+                score_type=type(confidence).__name__,
+            )
+            confidence = 0.0
 
         # Check confidence threshold
         if confidence >= self._config.confidence_threshold:
@@ -200,7 +222,7 @@ class SentimentAnalyzer:
         # Call LLM for sentiment analysis
         result = await self._llm_client.call_at(
             "sentiment",
-            {"text": text[:2000]},  # Truncate for LLM
+            {"text": text[: self._config.llm_max_input_length]},
         )
 
         # call_at may return a string (raw LLM response); parse JSON if needed
@@ -213,6 +235,15 @@ class SentimentAnalyzer:
                 result = self._extract_json_from_text(result)
                 if result is None:
                     return self._default_result("llm")
+
+        # json.loads may succeed on a non-object JSON value (array, string,
+        # number) — only dicts carry the sentiment fields we need.
+        if not isinstance(result, dict):
+            log.warning(
+                "sentiment_llm_response_not_object",
+                result_type=type(result).__name__,
+            )
+            return self._default_result("llm")
 
         sentiment = result.get("sentiment", "neutral")
         sentiment_score = result.get("sentiment_score", 0.5)
@@ -229,16 +260,28 @@ class SentimentAnalyzer:
 
         return response
 
-    def _normalize_score(self, score: float) -> float:
+    def _normalize_score(self, score: Any) -> float:
         """Normalize score to [0, 1] range.
 
+        The LLM may return ``sentiment_score`` as a string (e.g. ``"0.8"``)
+        or ``null``/``None`` — coerce before clamping instead of raising
+        ``TypeError`` in ``min``/``max`` (#221).
+
         Args:
-            score: Raw score.
+            score: Raw score (numeric, numeric string, or None).
 
         Returns:
-            Normalized score.
+            Normalized score; 0.5 when the value is not numeric.
         """
-        return max(0.0, min(1.0, score))
+        try:
+            value = float(score)
+        except (TypeError, ValueError):
+            log.warning(
+                "sentiment_score_not_numeric",
+                score_type=type(score).__name__,
+            )
+            return 0.5
+        return max(0.0, min(1.0, value))
 
     def _map_label(self, label: str) -> str:
         """Map SKEP label to standard sentiment label.
@@ -267,16 +310,33 @@ class SentimentAnalyzer:
         Returns:
             Parsed dict if JSON found, None otherwise.
         """
+        # Collect opening-brace candidates, keeping only the most recent ones:
+        # each failed candidate scans to end-of-text, so unbounded retries on
+        # brace-heavy prose are O(N^2) (#53). LLM payloads are short; the cap
+        # only bounds pathological inputs.
+        starts = [i for i, ch in enumerate(text) if ch == "{"][-_MAX_JSON_CANDIDATES:]
         # Find all positions of opening braces
-        for i in range(len(text) - 1, -1, -1):
-            if text[i] != "{":
-                continue
-            # Try to parse from this position to end
+        for i in reversed(starts):
+            # Try to parse from this position to end, tracking string state so
+            # braces inside JSON string values (e.g. "note": "use {x}") do not
+            # corrupt the depth count (#53).
             depth = 0
+            in_string = False
+            escaped = False
             for j in range(i, len(text)):
-                if text[j] == "{":
+                ch = text[j]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == '"':
+                        in_string = False
+                elif ch == '"':
+                    in_string = True
+                elif ch == "{":
                     depth += 1
-                elif text[j] == "}":
+                elif ch == "}":
                     depth -= 1
                 if depth == 0:
                     try:

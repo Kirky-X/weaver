@@ -77,14 +77,21 @@ class RuleBasedCredibilityCheckerNode:
         if state.get("terminal") or state.get("is_merged"):
             return state
 
+        raw = state.get("raw")
+        if raw is None:
+            # PipelineState is total=False — an early-failure state may not
+            # carry "raw"; degrade gracefully instead of raising KeyError.
+            log.warning("credibility_check_skipped_no_raw")
+            return state
+
         category = state.get("category")
         weights = self.CATEGORY_WEIGHTS.get(category, self.DEFAULT_WEIGHTS)
 
         # Signal 1: Source authority (three-level priority)
-        s1 = await self._get_source_authority(state["raw"].source_host)
+        s1 = await self._get_source_authority(getattr(raw, "source_host", "") or "")
 
         # Signal 2: Cross-verification via body length (no LLM)
-        body = state.get("cleaned", {}).get("body", "")
+        body = (state.get("cleaned") or {}).get("body", "")
         if len(body) > 3000:
             s2 = 0.8
         elif len(body) > 1000:
@@ -94,8 +101,8 @@ class RuleBasedCredibilityCheckerNode:
 
         # Signal 3: Timeliness
         s3 = self._calc_timeliness(
-            state["cleaned"].get("publish_time"),
-            state.get("summary_info", {}).get("event_time"),
+            (state.get("cleaned") or {}).get("publish_time"),
+            (state.get("summary_info") or {}).get("event_time"),
         )
 
         # Weighted aggregation with category-adaptive weights
@@ -113,14 +120,14 @@ class RuleBasedCredibilityCheckerNode:
         if self._event_bus:
             await self._event_bus.publish(
                 CredibilityComputedEvent(
-                    url=state["raw"].url,
+                    url=getattr(raw, "url", ""),
                     score=score,
                 )
             )
 
         log.info(
             "credibility_checked",
-            url=state["raw"].url,
+            url=getattr(raw, "url", ""),
             score=round(score, 2),
             flags=[],
             category=category,
@@ -157,11 +164,13 @@ class RuleBasedCredibilityCheckerNode:
 
         if self._source_auth_repo:
             try:
-                source_auth = await self._source_auth_repo.get_or_create(
-                    host=host,
-                    auto_score=None,
-                )
-                return float(source_auth.authority)
+                # Read-only lookup: get_or_create here would pollute the
+                # authority table with unreviewed stubs for every new host
+                # seen on a read path.
+                source_auth = await self._source_auth_repo.get(host=host)
+                if source_auth is not None:
+                    return float(source_auth.authority)
+                return 0.50
             except Exception as exc:
                 log.warning(
                     "source_auth_lookup_failed",
@@ -214,7 +223,7 @@ class RuleBasedCredibilityCheckerNode:
 
         Shorter gap between publish and event time = higher credibility.
 
-        Defensively handles str/datetime/None inputs (Bug-A regression):
+        Defensively handles str/datetime/None inputs (regression):
         - cleaner.py backfills publish_time as str(date) when raw is None
         - LLM-extracted event_time may be str or datetime
         """

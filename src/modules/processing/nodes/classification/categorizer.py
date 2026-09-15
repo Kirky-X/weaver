@@ -104,6 +104,16 @@ SOURCE_HOST_REGION_MAP: dict[str, str] = {
     ".fr": "法国",
 }
 
+# Precomputed longest-suffix-first ordering. ``infer_region_from_source_host``
+# runs once per article, so the invariant sort is done once at import time
+# instead of allocating and sorting a new list on every call.
+_SUFFIXES_BY_LENGTH_DESC: tuple[str, ...] = tuple(
+    sorted(SOURCE_HOST_REGION_MAP, key=len, reverse=True)
+)
+
+# CJK detection runs on the classification hot path — compile the pattern once.
+_CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+
 
 def infer_region_from_source_host(source_host: str) -> str:
     """Infer region from source_host TLD using SOURCE_HOST_REGION_MAP.
@@ -120,8 +130,9 @@ def infer_region_from_source_host(source_host: str) -> str:
     if not source_host:
         return "国际"
     host_lower = source_host.lower()
-    # Sort by suffix length descending to match .com.cn before .cn
-    for suffix in sorted(SOURCE_HOST_REGION_MAP, key=len, reverse=True):
+    # Precomputed at module level: sorted by suffix length descending so
+    # .com.cn matches before .cn. Invariant, so no per-call sort/allocation.
+    for suffix in _SUFFIXES_BY_LENGTH_DESC:
         if host_lower.endswith(suffix):
             return SOURCE_HOST_REGION_MAP[suffix]
     return "国际"
@@ -151,7 +162,7 @@ def normalize_emotion(emo: str) -> str:
 
 def _has_chinese(text: str) -> bool:
     """Check if text contains Chinese characters."""
-    return bool(re.search(r"[\u4e00-\u9fff]", text))
+    return bool(_CHINESE_CHAR_RE.search(text))
 
 
 class CascadeCategorizerNode:
@@ -169,6 +180,24 @@ class CascadeCategorizerNode:
         self._llm = llm
         self._prompt_loader = prompt_loader
         self._cascade = cascade
+
+    def _get_prompt_version(self) -> str:
+        """Read the categorizer prompt version, degrading on lookup failure.
+
+        ``PromptLoader.get_version`` raises ``FileNotFoundError`` when the
+        prompt TOML is missing; that must not crash the pipeline node.
+        """
+        if not self._prompt_loader or not hasattr(self._prompt_loader, "get_version"):
+            return "unknown"
+        try:
+            return self._prompt_loader.get_version("categorizer")
+        except Exception as exc:
+            log.warning(
+                "categorizer_prompt_version_lookup_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+            return "unknown"
 
     async def execute(self, state: PipelineState) -> PipelineState:
         if state.get("terminal"):
@@ -221,6 +250,7 @@ class CascadeCategorizerNode:
                 log.warning(
                     "categorizer_failed_using_defaults",
                     error=str(e),
+                    exc_type=type(e).__name__,
                     url=state["raw"].url,
                 )
                 state["category"] = "社会"
@@ -239,11 +269,7 @@ class CascadeCategorizerNode:
                     }
                 )
 
-            state.setdefault("prompt_versions", {})["categorizer"] = (
-                self._prompt_loader.get_version("categorizer")
-                if self._prompt_loader and hasattr(self._prompt_loader, "get_version")
-                else "unknown"
-            )
+            state.setdefault("prompt_versions", {})["categorizer"] = self._get_prompt_version()
         else:
             state["category"] = "社会"
             # No LLM available: detect language from title instead of
@@ -260,6 +286,27 @@ class CascadeCategorizerNode:
         )
         return state
 
+    # Word-boundary patterns for short ASCII keywords. A bare substring
+    # match turns "AI" into a hit inside "said"/"maintain"/"available",
+    # producing frequent false-positive 科技 categorizations.
+    _ASCII_KW_PATTERNS: dict[str, re.Pattern[str]] = {}
+
+    @classmethod
+    def _keyword_matches(cls, kw: str, title: str, title_lower: str) -> bool:
+        """Match a keyword against the title.
+
+        ASCII alnum keywords require word boundaries; CJK keywords fall
+        back to plain substring matching (no word separators exist).
+        """
+        kw_lower = kw.lower()
+        if kw_lower.isascii() and kw_lower.isalnum():
+            pattern = cls._ASCII_KW_PATTERNS.get(kw_lower)
+            if pattern is None:
+                pattern = re.compile(rf"\b{re.escape(kw_lower)}\b")
+                cls._ASCII_KW_PATTERNS[kw_lower] = pattern
+            return pattern.search(title_lower) is not None
+        return kw in title or kw_lower in title_lower
+
     @staticmethod
     def _rule_categorize(title: str) -> str | None:
         """Categorize by rules. Returns category string if certain, None if uncertain."""
@@ -271,7 +318,7 @@ class CascadeCategorizerNode:
         for category, keywords in CATEGORY_KEYWORDS.items():
             count = 0
             for kw in keywords:
-                if kw in title or kw.lower() in title_lower:
+                if CascadeCategorizerNode._keyword_matches(kw, title, title_lower):
                     count += 1
             if count > best_count:
                 best_count = count

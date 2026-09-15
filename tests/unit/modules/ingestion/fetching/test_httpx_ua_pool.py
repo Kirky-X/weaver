@@ -1,13 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for HttpxFetcher User-Agent pool — P1-4 fix.
+"""RED test for HttpxFetcher User-Agent pool
 
 When ``user_agents`` list has multiple items, each request must carry
 a ``User-Agent`` header drawn from the pool. This defeats naive
 rate-limiter fingerprinting that blocks a single UA after N requests.
-
-See ``temp/report.md`` P1-4 (单一 User-Agent) and specmark change
-``fix-pipeline-deadcode-perf`` T026-T027.
 """
 
 from __future__ import annotations

@@ -622,7 +622,7 @@ class TestDisableDataMetricsFiltering:
 
 
 class TestModelCaching:
-    """Tests for model caching in SpacyExtractor (T001).
+    """Tests for model caching in SpacyExtractor.
 
     The extractor must load each spaCy model at most once per instance:
     wheel extraction and spacy.load are expensive (hundreds of MB), so
@@ -720,7 +720,7 @@ class TestModelCaching:
 
 
 class TestWheelExtractionPersistence:
-    """T001: wheel extraction targets a persistent directory reused across calls."""
+    """wheel extraction targets a persistent directory reused across calls."""
 
     @staticmethod
     def _make_wheel(path: Any) -> None:
@@ -766,3 +766,16 @@ class TestWheelExtractionPersistence:
 
         extractor.cleanup()
         assert Path(extracted).is_dir() and not extractor._temp_dirs
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#378)."""
+
+    def test_failed_extraction_does_not_leak_temp_dirs(self, tmp_path):
+        """#378: a failed wheel extraction must drop its dir from _temp_dirs."""
+        bogus = tmp_path / "bogus-0.0.1-py3-none-any.whl"
+        bogus.write_bytes(b"not a zip archive")
+
+        extractor = SpacyExtractor(zh_model_path=str(bogus))
+        assert extractor._extract_wheel_safely(str(bogus)) is None
+        assert extractor._temp_dirs == []

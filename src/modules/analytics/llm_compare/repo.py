@@ -39,25 +39,49 @@ class EvalCompareRepo:
         self._pool = pool
 
     async def insert_raw(self, event: LLMCompareEvent) -> None:
-        """Insert a single comparison event.
+        """Persist a single comparison event into its hourly bucket.
 
-        Args:
-            event: The LLM comparison event to persist.
+        Uses an accumulating upsert instead of a plain INSERT: the table has
+        a UNIQUE constraint on (time_bucket, call_point, primary_model,
+        candidate_model), so a second raw event in the same hour would raise
+        IntegrityError and double rows would inflate stats. On conflict the
+        existing row's counters are incremented by this event's values.
         """
+        time_bucket = event.timestamp.replace(minute=0, second=0, microsecond=0)
         async with self._pool.session() as session:
-            session.add(
-                LLMCompareHourly(
-                    time_bucket=event.timestamp.replace(minute=0, second=0, microsecond=0),
-                    call_point=event.call_point,
-                    primary_model=event.primary_model,
-                    candidate_model=event.candidate_model,
-                    comparison_count=1,
-                    primary_latency_sum=event.primary_latency,
-                    candidate_latency_sum=event.candidate_latency,
-                    primary_success_count=1 if event.primary_success else 0,
-                    candidate_success_count=1 if event.candidate_success else 0,
-                )
+            stmt = insert(LLMCompareHourly).values(
+                time_bucket=time_bucket,
+                call_point=event.call_point,
+                primary_model=event.primary_model,
+                candidate_model=event.candidate_model,
+                comparison_count=1,
+                primary_latency_sum=event.primary_latency,
+                candidate_latency_sum=event.candidate_latency,
+                primary_success_count=1 if event.primary_success else 0,
+                candidate_success_count=1 if event.candidate_success else 0,
             )
+
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_llm_compare_hourly",
+                set_={
+                    "comparison_count": LLMCompareHourly.comparison_count + 1,
+                    "primary_latency_sum": (
+                        LLMCompareHourly.primary_latency_sum + event.primary_latency
+                    ),
+                    "candidate_latency_sum": (
+                        LLMCompareHourly.candidate_latency_sum + event.candidate_latency
+                    ),
+                    "primary_success_count": (
+                        LLMCompareHourly.primary_success_count + (1 if event.primary_success else 0)
+                    ),
+                    "candidate_success_count": (
+                        LLMCompareHourly.candidate_success_count
+                        + (1 if event.candidate_success else 0)
+                    ),
+                },
+            )
+
+            await session.execute(stmt)
             await session.commit()
 
     async def upsert_hourly(

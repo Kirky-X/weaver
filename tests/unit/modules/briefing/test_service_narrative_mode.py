@@ -1,25 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for DailyBriefingService narrative_mode integration (T021 / R-briefing-008).
+"""Tests for DailyBriefingService narrative_mode integration.
 
-Verifies R-briefing-008 acceptance:
-- narrative_mode=False (default): delegates to BriefingGenerator (T004).
-- narrative_mode=True: delegates to NarrativeBriefingGenerator (T020).
+Verifies acceptance:
+- narrative_mode=False (default): delegates to BriefingGenerator.
+- narrative_mode=True: delegates to NarrativeBriefingGenerator.
 - InsufficientNarrativeError caught: degrades to BriefingGenerator + log warning.
 - BriefingResult.narrative_mode reflects actual mode used (False on degrade,
-  even if request was True — spec R-briefing-008).
+  even if request was True — spec).
 
-Constructor change (T021):
+Constructor change:
     DailyBriefingService now accepts optional narrative_generator parameter.
     None means narrative mode is unavailable — narrative_mode=True raises
     ValueError (Rule 12: fail loud rather than silently falling back).
-    The T009 endpoint constructs DailyBriefingService without narrative_generator;
-    T022 removes the 501 挡板 and updates _get_briefing_service() to inject
+    The endpoint constructs DailyBriefingService without narrative_generator;
+    removes the 501 挡板 and updates _get_briefing_service() to inject
     NarrativeBriefingGenerator.
 
 Service does NOT re-implement NarrativeBriefingGenerator logic — it delegates
 (Rule 8: reuse existing implementations). The try/except InsufficientNarrativeError
-is the explicit degradation boundary per spec R-briefing-008.
+is the explicit degradation boundary per spec.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _make_mock_storage() -> MagicMock:
 
 
 class TestNarrativeModeParameter:
-    """Verify generate_briefing accepts narrative_mode parameter (R-briefing-008)."""
+    """Verify generate_briefing accepts narrative_mode parameter."""
 
     @pytest.mark.asyncio
     async def test_narrative_mode_false_defaults_to_template_generator(self) -> None:
@@ -159,7 +159,7 @@ class TestNarrativeModeParameter:
 
     @pytest.mark.asyncio
     async def test_default_narrative_mode_is_false(self) -> None:
-        """Default narrative_mode is False (R-briefing-008)."""
+        """Default narrative_mode is False."""
         target_date = date(2026, 7, 17)
         mock_template = _make_mock_generator(
             _make_generator_return(target_date, "general", summary="template")
@@ -304,7 +304,7 @@ class TestNarrativeGeneratorUnavailable:
     async def test_narrative_mode_true_without_generator_raises_value_error(self) -> None:
         """narrative_mode=True + narrative_generator=None → ValueError (Rule 12).
 
-        Caller (T009 endpoint in T022) MUST inject NarrativeBriefingGenerator
+        Caller (endpoint in) MUST inject NarrativeBriefingGenerator
         when constructing DailyBriefingService if narrative_mode is supported.
         Requesting narrative mode without the generator is a programming error.
         """
@@ -330,7 +330,7 @@ class TestNarrativeGeneratorUnavailable:
     async def test_narrative_mode_false_without_generator_succeeds(self) -> None:
         """narrative_mode=False + narrative_generator=None → works (backward compat).
 
-        Existing T008/T009 code constructs DailyBriefingService without
+        Existing /code constructs DailyBriefingService without
         narrative_generator — this MUST continue to work for narrative_mode=False.
         """
         target_date = date(2026, 7, 17)
@@ -457,7 +457,7 @@ class TestBriefingResultNarrativeModeField:
 
     @pytest.mark.asyncio
     async def test_degradation_sets_narrative_mode_false(self) -> None:
-        """Degradation → BriefingResult.narrative_mode=False (R-briefing-008)."""
+        """Degradation → BriefingResult.narrative_mode=False."""
         target_date = date(2026, 7, 17)
         mock_narrative = MagicMock()
         mock_narrative.generate = AsyncMock(

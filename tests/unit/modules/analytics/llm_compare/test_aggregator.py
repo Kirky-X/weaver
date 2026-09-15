@@ -172,6 +172,33 @@ class TestFlushCompareBuffer:
             mock_cache.delete.assert_called()
 
 
+class TestFlushCompareBufferBadBucket:
+    """Malformed bucket keys must be cleaned up, not poison the loop (#74)."""
+
+    @staticmethod
+    def _async_key_iter(keys):
+        async def _gen():
+            for key in keys:
+                yield key
+
+        return _gen()
+
+    @pytest.mark.asyncio
+    async def test_malformed_bucket_key_is_deleted_not_errored(self):
+        """A non-%Y%m%d%H bucket is deleted and counted as processed (#74)."""
+        cache = AsyncMock()
+        cache.scan_iter = MagicMock(return_value=self._async_key_iter(["llm:compare:not_a_bucket"]))
+        cache.hgetall = AsyncMock(return_value={"k": "1"})
+        cache.delete = AsyncMock()
+        # A future-dated valid bucket never equals the current-hour key,
+        # so only the malformed key drives this test.
+        processed, errors = await flush_compare_buffer(cache, MagicMock())
+
+        assert (processed, errors) == (1, 0)
+        cache.delete.assert_called_once_with("llm:compare:not_a_bucket")
+        cache.hgetall.assert_not_called()
+
+
 class TestAggregatorIntegration:
     """Integration tests for aggregator."""
 

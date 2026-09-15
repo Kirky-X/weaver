@@ -821,6 +821,72 @@ class TestBatchMergerConflictResolution:
         assert len(primary.get("merged_source_ids", [])) == 2
 
 
+class TestBatchMergerNonePublishTime:
+    """Regression: publish_time=None must not crash the merge sort key.
+
+    The primary-selection key is (has_time, time); a None publish_time maps
+    to (False, datetime.min) so it sorts last and never compares against a
+    datetime directly.
+    """
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        loader = MagicMock()
+        loader.get_version = MagicMock(return_value="1.0.0")
+        return loader
+
+    def _make_state(self, url: str, title: str, publish_time):
+        raw = RawArticle(
+            url=url,
+            title=title,
+            body="Content",
+            source="source1",
+            source_host="example.com",
+            publish_time=publish_time,
+        )
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": title, "body": "Content"}
+        return state
+
+    @pytest.mark.asyncio
+    async def test_merge_with_none_publish_time_does_not_crash(self, mock_llm, mock_prompt_loader):
+        """A group mixing None and real publish_time must not raise TypeError."""
+        now = datetime.now(UTC)
+        state_none = self._make_state("https://example.com/no-time", "No Time", None)
+        state_timed = self._make_state("https://example.com/with-time", "With Time", now)
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(merged_title="Merged", merged_body="Merged body")
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        await node._llm_merge([state_none, state_timed])
+
+        # The timed article wins the primary election; None sorts last.
+        assert state_timed["cleaned"]["body"] == "Merged body"
+        assert state_timed["merged_source_ids"] == ["https://example.com/no-time"]
+
+    @pytest.mark.asyncio
+    async def test_merge_all_none_publish_time(self, mock_llm, mock_prompt_loader):
+        """A group where every publish_time is None must still merge."""
+        state1 = self._make_state("https://example.com/a", "A", None)
+        state2 = self._make_state("https://example.com/b", "B", None)
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(merged_title="Merged", merged_body="Merged body")
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        await node._llm_merge([state1, state2])
+
+        assert state1["cleaned"]["body"] == "Merged body"
+        assert state1["merged_source_ids"] == ["https://example.com/b"]
+
+
 class TestBatchMergerPerformance:
     """Tests for batch merger performance scenarios."""
 

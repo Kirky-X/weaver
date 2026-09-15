@@ -100,19 +100,6 @@ class LLMUsageBuffer:
         """
         return f"{REDIS_KEY_PREFIX}:{dt.strftime('%Y%m%d%H')}"
 
-    def _make_field_name(self, label: str, call_point: str, metric: str) -> str:
-        """生成 HASH field 名称。
-
-        Args:
-            label: 调用标签
-            call_point: 调用点标识
-            metric: 指标名称
-
-        Returns:
-            格式为 {label}::{call_point}::{metric} 的 field
-        """
-        return f"{label}::{call_point}::{metric}"
-
     async def accumulate(self, event: LLMUsageEvent) -> None:
         """累加 LLMUsageEvent 到缓存 HASH。
 
@@ -130,6 +117,15 @@ class LLMUsageBuffer:
 
             # 构建 field 前缀
             field_prefix = f"{event.label}::{event.call_point}"
+
+            # 仅在首次写入时设置 TTL,避免每次事件重置 TTL 导致永不过期。
+            # 必须在写入前判断:写入后 hash 必然非空,写后检查恒为非空导致
+            # TTL 从不设置 (#217)。写前检查的并发双 expire 是无害的
+            # (写入相同的 TTL 值)。
+            try:
+                is_new = not await self._cache.hgetall(bucket_key)
+            except Exception:
+                is_new = False
 
             # 使用 pipeline 原子执行所有 HINCRBY 操作
             async with self._cache.pipeline() as pipe:
@@ -153,23 +149,33 @@ class LLMUsageBuffer:
             max_key = f"{field_prefix}::latency_max"
             try:
                 current_min = await self._cache.hget(bucket_key, min_key)
+            except Exception as exc:
+                # Read failure means the current min is unknown; blindly
+                # writing could overwrite a smaller stored value.
+                log.warning(
+                    "llm_usage_latency_min_read_failed",
+                    bucket_key=bucket_key,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+            else:
                 if current_min is None or latency_val < int(current_min):
                     await self._cache.hset(bucket_key, min_key, str(latency_val))
-            except Exception:
-                await self._cache.hset(bucket_key, min_key, str(latency_val))
             try:
                 current_max = await self._cache.hget(bucket_key, max_key)
+            except Exception as exc:
+                log.warning(
+                    "llm_usage_latency_max_read_failed",
+                    bucket_key=bucket_key,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+            else:
                 if current_max is None or latency_val > int(current_max):
                     await self._cache.hset(bucket_key, max_key, str(latency_val))
-            except Exception:
-                await self._cache.hset(bucket_key, max_key, str(latency_val))
 
-            # 仅在首次写入时设置 TTL,避免重置
-            try:
-                existing = await self._cache.hgetall(bucket_key)
-            except Exception:
-                existing = {}
-            if not existing:
+            # TTL 由写入前的 is_new 检查决定(见上),此处直接应用。
+            if is_new:
                 await self._cache.expire(bucket_key, self._ttl)
 
             log.debug(

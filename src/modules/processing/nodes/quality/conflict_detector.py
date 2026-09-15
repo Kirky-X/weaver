@@ -81,6 +81,10 @@ class ConflictDetectorNode:
         if not similar:
             return state
 
+        # ArticleSearchResultView carries only ids/scores — fetch bodies so
+        # regex claim extraction has real content to work on.
+        similar = await self._enrich_with_bodies(similar)
+
         conflicts = self._detect_conflicts_from_claims(claims, similar)
         if conflicts:
             state["data_conflicts"] = conflicts
@@ -133,18 +137,34 @@ class ConflictDetectorNode:
 
     def _extract_claims_regex(self, text: str) -> list[dict[str, Any]]:
         """Regex-based claim extraction (fallback when LLM unavailable)."""
-        claims = []
+        claims: list[dict[str, Any]] = []
         for pattern, claim_type in NUM_PATTERNS:
             for match in re.finditer(pattern, text):
                 claims.append(
                     {
                         "attribute": claim_type,
                         "value": float(match.group(1)),
-                        "unit": "%",
+                        "unit": self._unit_for(claim_type, match.group(0)),
                         "text": match.group(0),
                     }
                 )
         return claims
+
+    @staticmethod
+    def _unit_for(claim_type: str, full_match: str) -> str:
+        """Extract the real unit from the matched text for a claim type.
+
+        Hardcoding "%" for every pattern misrepresents number/reach claims
+        (e.g. "3亿" has unit 亿, not %), causing cross-scale comparisons.
+        """
+        if claim_type in ("percent", "growth", "decline"):
+            return "%"
+        if claim_type in ("number_unit", "reach"):
+            for unit in ("亿", "万", "千", "百"):
+                if unit in full_match:
+                    return unit
+            return ""
+        return ""
 
     def _same_attribute(self, claim1: dict[str, Any], claim2: dict[str, Any]) -> bool:
         """Check if two claims refer to the same attribute using ATTRIBUTE_SYNONYMS.
@@ -155,8 +175,9 @@ class ConflictDetectorNode:
         attr1 = claim1.get("attribute", "")
         attr2 = claim2.get("attribute", "")
 
-        # Exact match
-        if attr1 == attr2:
+        # Exact match (non-empty — two empty/missing attributes must not
+        # be treated as the same attribute).
+        if attr1 and attr1 == attr2:
             return True
 
         # Synonym group match — check for intersection of groups
@@ -172,6 +193,11 @@ class ConflictDetectorNode:
         keywords from multiple synonym entries (e.g., "GDP增长率"
         matches both "gdp" and "growth_rate" groups).
         """
+        # Empty/missing attribute would match every group via the
+        # always-true `"" in synonym` check, producing false-positive
+        # conflicts between unrelated claims.
+        if not attribute:
+            return set()
         groups: set[str] = set()
         for group_key, synonyms in ATTRIBUTE_SYNONYMS.items():
             for synonym in synonyms:
@@ -195,10 +221,14 @@ class ConflictDetectorNode:
                 # Use pre-extracted claims if available
                 similar_claims = similar.get("_claims")
                 if similar_claims is None:
+                    similar_title = similar.get("title", "") or ""
                     similar_body = similar.get("body", "") or ""
-                    similar_claims = self._extract_claims_regex(
-                        (similar.get("title", "") or "") + "\n" + similar_body
-                    )
+                    if not similar_title and not similar_body:
+                        log.debug(
+                            "similar_article_missing_content",
+                            article_id=similar.get("article_id"),
+                        )
+                    similar_claims = self._extract_claims_regex(similar_title + "\n" + similar_body)
 
                 for sc in similar_claims:
                     if self._same_attribute(claim, sc):
@@ -252,6 +282,36 @@ class ConflictDetectorNode:
         except Exception as exc:
             log.warning("find_similar_failed", error=str(exc))
             return []
+
+    async def _enrich_with_bodies(self, similar: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Batch-fetch article bodies for similar articles.
+
+        ``ArticleSearchResultView`` carries only ids/scores; without this
+        step ``_detect_conflicts_from_claims`` would run regex extraction
+        on empty strings and never produce conflicts. Fetch failures are
+        logged and leave entries without body (detection degrades to
+        no-op for those entries rather than raising).
+        """
+        pending_ids = [s["article_id"] for s in similar if not s.get("body")]
+        if not pending_ids or not self._article_repo:
+            return similar
+        if not hasattr(self._article_repo, "fetch_bodies_by_pg_ids"):
+            return similar
+        try:
+            bodies = await self._article_repo.fetch_bodies_by_pg_ids(pending_ids)
+        except Exception as exc:
+            log.warning(
+                "fetch_similar_bodies_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                pending_count=len(pending_ids),
+            )
+            return similar
+        for s in similar:
+            body = bodies.get(s["article_id"])
+            if body:
+                s["body"] = body
+        return similar
 
     async def _get_article_embedding(self, article_id: str | None) -> list[float] | None:
         """Get embedding vector for an article from the repository."""

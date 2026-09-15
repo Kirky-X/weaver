@@ -260,7 +260,7 @@ class TestTriggerPipelineEdgeCases:
 
 
 class TestTriggerPipelineSourceDedup:
-    """Tests for per-source dedup lock on POST /pipeline/trigger (vuln-0002 fix)."""
+    """Tests for per-source dedup lock on POST /pipeline/trigger."""
 
     @pytest.mark.asyncio
     async def test_trigger_returns_409_when_source_already_locked(self):
@@ -346,6 +346,9 @@ class TestTriggerPipelineSourceDedup:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.set_nx = AsyncMock(return_value=True)
+        # Compare-and-delete release: get(key) must return our task_id for
+        # the lock to be considered owned by this task and deleted.
+        mock_cache.get = AsyncMock(return_value=str(task_uuid))
         mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()

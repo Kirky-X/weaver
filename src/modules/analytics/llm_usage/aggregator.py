@@ -79,6 +79,9 @@ async def flush_usage_buffer(
     errors = 0
 
     for key in keys_to_process:
+        # Bound before the try so the failure log can include whatever was
+        # aggregated before the error (dead-letter observability, #75).
+        aggregated: dict[tuple[str, str], dict[str, Any]] = {}
         try:
             # Parse time bucket from key (llm:usage:2024011510)
             bucket_str = key.split(":")[-1]
@@ -96,12 +99,9 @@ async def flush_usage_buffer(
 
             # For each group, upsert to hourly table
             for (label, call_point), agg in aggregated.items():
-                # Read min/max from Redis buffer
-                latency_min_val = await cache.hget(key, f"{label}::{call_point}::latency_min")
-                latency_max_val = await cache.hget(key, f"{label}::{call_point}::latency_max")
-                latency_min = float(latency_min_val) if latency_min_val else 0.0
-                latency_max = float(latency_max_val) if latency_max_val else 0.0
-
+                # Reuse the min/max from the hgetall snapshot (already
+                # aggregated per group) — separate hget calls here would race
+                # with concurrent buffer writers and diverge from count/sum.
                 await repo.upsert_hourly(
                     time_bucket=time_bucket,
                     label=label,
@@ -117,8 +117,8 @@ async def flush_usage_buffer(
                     reasoning_tokens_sum=agg["reasoning_tok"],
                     cost_usd_sum=agg["cost_cents"] / 100.0,
                     latency_sum=agg["latency_ms"],
-                    latency_min=latency_min,
-                    latency_max=latency_max,
+                    latency_min=agg["latency_min"],
+                    latency_max=agg["latency_max"],
                     success_count=agg["success"],
                     failure_count=agg["failure"],
                 )
@@ -139,6 +139,11 @@ async def flush_usage_buffer(
                 "llm_usage_aggregator_key_failed",
                 key=key,
                 error=str(e),
+                # Full snapshot for manual recovery: if the key TTL expires
+                # before the next successful flush, this log is the only
+                # remaining copy of the data (#75).
+                groups=len(aggregated),
+                aggregated=aggregated,
             )
 
     log.info(
@@ -269,16 +274,20 @@ def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str
         result[key]["provider"] = provider
         result[key]["model"] = model
 
-        # Aggregate metric using helper
+        # Aggregate metric using helper. Values are parsed via float first:
+        # buffer min/max fields are written via hset as arbitrary strings and
+        # may carry decimals ("150.5"), which int() would reject and silently
+        # drop (#214). int(float(...)) preserves integer semantics.
         try:
-            int_value = int(value)
-            _aggregate_metric(result[key], metric, int_value)
-        except ValueError:
+            int_value = int(float(value))
+        except (ValueError, TypeError, OverflowError):
             log.warning(
                 "llm_usage_aggregator_parse_failed",
                 field=field,
                 value=value,
-                error="invalid integer value",
+                error="invalid numeric value",
             )
+            continue
+        _aggregate_metric(result[key], metric, int_value)
 
     return dict(result)

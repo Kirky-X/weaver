@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for Pipeline Phase 3 independent stage skipping — D1 config-driven.
+"""RED test for Pipeline Phase 3 independent stage skipping — config-driven.
 
 Phase 3 has 5 independent stages (no downstream dependencies) that should
 respect the TOML `enabled=false` flag:
@@ -23,8 +23,6 @@ This test asserts:
 2. Independent stage without disabled flag is EXECUTED
 3. Dependency stage executes even when TOML says enabled=false
 4. Multiple independent stages can be disabled simultaneously
-
-See specmark/changes/fix-deadcode-integration T004-T005.
 """
 
 from __future__ import annotations

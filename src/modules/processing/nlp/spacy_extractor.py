@@ -124,8 +124,19 @@ class SpacyExtractor:
 
         wheel = Path(wheel_path)
 
-        # Zip bomb protection: check file size
-        wheel_size = wheel.stat().st_size
+        # Zip bomb protection: check file size. stat() can raise
+        # FileNotFoundError/OSError (deleted wheel, permissions) — return
+        # None per the method contract instead of propagating to callers.
+        try:
+            wheel_size = wheel.stat().st_size
+        except OSError as e:
+            log.warning(
+                "spacy_wheel_stat_failed",
+                wheel_path=wheel_path,
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            return None
         if wheel_size > MAX_WHEEL_SIZE:
             log.warning(
                 "spacy_wheel_size_exceeded",
@@ -150,7 +161,16 @@ class SpacyExtractor:
             return str(final_dir)
 
         # Temp dir must live on the same volume as final_dir for atomic rename
-        extract_dir = tempfile.mkdtemp(prefix="spacy_model_", dir=str(WHEEL_EXTRACT_ROOT))
+        try:
+            extract_dir = tempfile.mkdtemp(prefix="spacy_model_", dir=str(WHEEL_EXTRACT_ROOT))
+        except OSError as e:
+            log.warning(
+                "spacy_temp_dir_creation_failed",
+                wheel_path=wheel_path,
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            return None
         extract_path = Path(extract_dir)
         self._temp_dirs.append(extract_dir)
 
@@ -159,7 +179,7 @@ class SpacyExtractor:
                 # Path traversal protection: verify all members resolve within extract_dir
                 for member in zf.namelist():
                     member_path = (extract_path / member).resolve()
-                    if not str(member_path).startswith(str(extract_path.resolve())):
+                    if not member_path.is_relative_to(extract_path.resolve()):
                         log.warning(
                             "spacy_wheel_path_traversal",
                             wheel_path=wheel_path,
@@ -188,6 +208,10 @@ class SpacyExtractor:
         except (zipfile.BadZipFile, OSError) as e:
             log.warning("spacy_wheel_extract_failed", wheel_path=wheel_path, error=str(e))
             shutil.rmtree(extract_dir, ignore_errors=True)
+            # Drop the failed dir from the tracking list so repeated failed
+            # extractions do not grow it unboundedly.
+            if extract_dir in self._temp_dirs:
+                self._temp_dirs.remove(extract_dir)
             return None
 
     def _load(self, model_name: str) -> object | None:

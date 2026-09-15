@@ -325,3 +325,88 @@ class TestCascadeIntegration:
 
         assert result["is_news"] is False
         assert result["terminal"] is True
+
+
+# ── Empty-prediction guards / layer independence (T008 #381, #382) ──
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#381, #382)."""
+
+    def test_empty_fasttext_prediction_falls_through(self):
+        """#381: empty labels/probs must not raise IndexError."""
+        mock_ft = MagicMock()
+        mock_ft.predict.return_value = ((), ())
+
+        clf = CascadeClassifier()
+        clf._ft_model = mock_ft
+
+        assert clf.classify("") is None
+
+    def test_empty_fasttext_prediction_still_tries_setfit(self):
+        """#381: a blank fastText result must not block the SetFit layer."""
+        import torch
+
+        mock_ft = MagicMock()
+        mock_ft.predict.return_value = ((), ())
+
+        mock_sf = MagicMock()
+        mock_sf.predict_proba.return_value = torch.tensor([[0.05, 0.95]])
+        mock_sf.labels = ["non_news", "news"]
+
+        clf = CascadeClassifier()
+        clf._ft_model = mock_ft
+        clf._sf_model = mock_sf
+
+        result = clf.classify("")
+
+        assert result is not None
+        assert result[0] == "news"
+
+    def test_setfit_only_configuration_classifies(self):
+        """#382: SetFit must run when no fastText model is configured."""
+        import torch
+
+        mock_sf = MagicMock()
+        mock_sf.predict_proba.return_value = torch.tensor([[0.05, 0.95]])
+        mock_sf.labels = ["non_news", "news"]
+
+        clf = CascadeClassifier()
+        clf._sf_model = mock_sf
+
+        result = clf.classify("模糊标题")
+
+        assert result is not None
+        assert result[0] == "news"
+
+    def test_empty_setfit_prediction_falls_through(self):
+        """#382: a zero-length SetFit row must not raise."""
+        import torch
+
+        mock_ft = MagicMock()
+        mock_ft.predict.return_value = (("__label__news",), (0.5,))
+
+        mock_sf = MagicMock()
+        mock_sf.predict_proba.return_value = torch.empty((1, 0))
+
+        clf = CascadeClassifier()
+        clf._ft_model = mock_ft
+        clf._sf_model = mock_sf
+
+        assert clf.classify("模糊标题") is None
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#381)."""
+
+    def test_empty_fasttext_prediction_falls_through_to_llm(self):
+        """#381: empty labels/probs must not raise IndexError."""
+        from modules.processing.nodes.classification.cascade_classifier import (
+            CascadeClassifier,
+        )
+
+        cascade = CascadeClassifier()
+        cascade._ft_model = MagicMock()
+        cascade._ft_model.predict = MagicMock(return_value=([], []))
+
+        assert cascade.classify("") is None

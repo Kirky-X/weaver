@@ -212,3 +212,20 @@ class TestCheckpointCleanupNodeIntegration:
 
         # All URLs should have triggered a delete call
         assert mock_redis.client.delete.call_count == len(test_urls)
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#106)."""
+
+    @pytest.mark.asyncio
+    async def test_missing_url_skips_cleanup(self, mock_redis):
+        """#106: a raw article without a URL must skip cleanup, not log a failure."""
+        from types import SimpleNamespace
+
+        node = CheckpointCleanupNode(mock_redis)
+        state = {"raw": SimpleNamespace(url=None)}
+
+        result = await node.execute(state)
+
+        assert result is state
+        mock_redis.client.delete.assert_not_awaited()

@@ -31,7 +31,7 @@ Architecture:
       ``schedule_pipeline_background`` is sync (fire-and-forget task
       creation).
 
-DuckDB Write Lock Convention (HIGH-1):
+DuckDB Write Lock Convention:
     ``schedule_pipeline_background`` creates a SINGLE background task
     that processes URLs SEQUENTIALLY (for-loop with per-URL timeout),
     matching the project convention in
@@ -104,7 +104,7 @@ _DEFAULT_MAX_BACKGROUND_TASKS = 2
 
 
 class ScheduleResult(Enum):
-    """Outcome of ``schedule_pipeline_background`` (MEDIUM-1 fix).
+    """Outcome of ``schedule_pipeline_background`` (fix).
 
     The caller (``search_unified``) inspects this to set the
     ``metadata.background_task_throttled`` flag in the API response.
@@ -119,6 +119,28 @@ class ScheduleResult(Enum):
     SCHEDULED = "scheduled"
     THROTTLED = "throttled"
     SKIPPED_EMPTY = "skipped_empty"
+
+
+def _normalize_context_tokens(raw: Any) -> Any:
+    """Normalize ``context_tokens`` before the emptiness comparison.
+
+    ``"0" == 0`` is False, so a numeric string produced by an upstream
+    serializer would make the comparison treat the run as grounded and
+    silently suppress the Bing fallback. Coerce numeric strings to int;
+    any other unexpected type keeps the existing truthiness semantics and
+    is logged so the misclassification is diagnosable.
+    """
+    value = raw or 0
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            log.debug(
+                "fallback_context_tokens_non_numeric",
+                raw=value,
+                value_type=type(value).__name__,
+            )
+    return value
 
 
 def detect_three_tier_empty(result: Any) -> bool:
@@ -147,12 +169,12 @@ def detect_three_tier_empty(result: Any) -> bool:
     if isinstance(result, dict):
         entities = result.get("entities", []) or []
         sources = result.get("sources", []) or []
-        context_tokens = result.get("context_tokens", 0) or 0
+        context_tokens = _normalize_context_tokens(result.get("context_tokens", 0))
         answer = str(result.get("answer", "") or "").strip()
     elif hasattr(result, "entities") and hasattr(result, "sources") and hasattr(result, "answer"):
         entities = result.entities or []
         sources = result.sources or []
-        context_tokens = getattr(result, "context_tokens", 0) or 0
+        context_tokens = _normalize_context_tokens(getattr(result, "context_tokens", 0))
         answer = str(getattr(result, "answer", "") or "").strip()
     else:
         return False
@@ -245,12 +267,12 @@ def schedule_pipeline_background(
     Each ``run_full_pipeline`` performs bulk_insert_raw which holds a
     write lock on DuckDB; concurrent calls would contend on the same
     lock and trigger exponential backoff retries that are slower than
-    serializing (HIGH-1: DuckDB concurrent write conflict). Per-URL
+    serializing (DuckDB concurrent write conflict). Per-URL
     timeout (300s) still applies so one slow URL cannot block the batch.
     A total budget (``total_timeout``, default 600s) bounds the whole
-    batch — see ``_PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS`` (MEDIUM-2).
+    batch — see ``_PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS``.
 
-    MEDIUM-1 (T051-B) — concurrency cap:
+    Concurrency cap:
         Before spawning, ``len(background_tasks)`` is checked against
         ``max_concurrent``. At cap, the call drops (no task spawned),
         logs a warning, and returns ``ScheduleResult.THROTTLED``. The
@@ -274,7 +296,7 @@ def schedule_pipeline_background(
             endpoint module's ``_background_tasks: set[asyncio.Task]``).
             Mutated in-place: task added on entry, removed on completion.
         max_concurrent: Maximum number of in-flight background tasks
-            before throttling kicks in (default 8, configurable via
+            before throttling kicks in (default 2, configurable via
             ``WEAVER_SEARCH__MAX_BACKGROUND_TASKS``).
         total_timeout: Total wall-clock budget for the batch in seconds
             (default 600s, configurable via
@@ -334,7 +356,7 @@ async def _run_pipelines_sequentially(
     ``run_full_pipeline`` performs bulk_insert_raw which holds a write
     lock on DuckDB. Concurrent calls would contend on the same lock and
     trigger exponential backoff retries that are slower than serializing
-    (HIGH-1: DuckDB concurrent write conflict). Per-URL timeout still
+    (DuckDB concurrent write conflict). Per-URL timeout still
     applies so one slow URL cannot block the entire batch.
 
     Matches the convention in ``src/api/endpoints/content/pipeline.py:285``
@@ -345,7 +367,7 @@ async def _run_pipelines_sequentially(
     isolation guarantee as separate asyncio tasks, but without write-lock
     contention.
 
-    MEDIUM-2 (T051-B) — total batch timeout:
+    Total batch timeout:
         The for-loop is wrapped in ``asyncio.wait_for(total_timeout)``.
         On timeout, ``asyncio.wait_for`` cancels the inner coroutine; the
         ``CancelledError`` propagates out of the for-loop (not caught by

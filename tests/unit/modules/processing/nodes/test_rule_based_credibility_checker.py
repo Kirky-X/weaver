@@ -40,7 +40,7 @@ def mock_source_auth_repo():
     repo = AsyncMock()
     mock_auth = MagicMock()
     mock_auth.authority = 0.85
-    repo.get_or_create = AsyncMock(return_value=mock_auth)
+    repo.get = AsyncMock(return_value=mock_auth)
     return repo
 
 
@@ -219,7 +219,7 @@ class TestSourceAuthorityPriority:
         result = await node.execute(state)
 
         assert result["credibility"]["source_credibility"] == 0.95
-        mock_source_auth_repo.get_or_create.assert_not_called()
+        mock_source_auth_repo.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_priority_2_auto_calculated(
@@ -246,7 +246,7 @@ class TestSourceAuthorityPriority:
         result = await node.execute(state)
 
         assert result["credibility"]["source_credibility"] == 0.85
-        mock_source_auth_repo.get_or_create.assert_called_once()
+        mock_source_auth_repo.get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_priority_3_default(self, sample_raw, mock_event_bus):
@@ -398,9 +398,7 @@ class TestRuleBasedCredibilityEdgeCases:
     async def test_handles_source_repo_error(
         self, sample_raw, mock_event_bus, mock_source_auth_repo
     ):
-        mock_source_auth_repo.get_or_create = AsyncMock(
-            side_effect=Exception("Database connection failed")
-        )
+        mock_source_auth_repo.get = AsyncMock(side_effect=Exception("Database connection failed"))
         node = RuleBasedCredibilityCheckerNode(
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
@@ -422,7 +420,7 @@ class TestRuleBasedCredibilityHighAuthority:
     async def test_high_authority_source_high_score(
         self, sample_raw, mock_event_bus, mock_source_auth_repo
     ):
-        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
+        mock_source_auth_repo.get = AsyncMock(return_value=MagicMock(authority=0.90))
         node = RuleBasedCredibilityCheckerNode(
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,

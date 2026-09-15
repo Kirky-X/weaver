@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 # Retention period for graph Article nodes. After the Article node
-# slim-down (design.md §D2), the graph node no longer carries
+# slim-down (design.md §), the graph node no longer carries
 # ``publish_time``; the cutoff is computed in Python (UTC now minus this
 # many days) and the resulting cutoff datetime is sent as a bind param
 # to keep the query portable across PostgreSQL and DuckDB.
@@ -59,7 +59,7 @@ class MaintenanceJobs:
         self._relational_pool = relational_pool
         self._graph_writer = graph_writer
         self._pending_sync_repo = pending_sync_repo
-        # REM-001: vector_repo must be injected (constructing VectorRepo(pool)
+        # vector_repo must be injected (constructing VectorRepo(pool)
         # fails with TypeError because query_builder is a required arg).
         self._vector_repo = vector_repo
         self._llm_failure_repo = llm_failure_repo
@@ -71,11 +71,11 @@ class MaintenanceJobs:
 
         Deletes Article nodes whose ``publish_time`` is older than
         ``ARCHIVE_RETENTION_DAYS`` days. After the Article node slim-down
-        (design.md §D2), the graph node no longer carries ``publish_time``,
+        (design.md §), the graph node no longer carries ``publish_time``,
         so the cutoff pg_ids must be fetched from PostgreSQL first and
         then passed to the writer.
 
-        Streaming (LOW-1 perf fix from T050 review):
+        Streaming (perf fix from review):
             Previously this method loaded all cutoff pg_ids into memory at
             once and passed the full list to a single Cypher query. For
             large archives this can OOM. Now pg_ids are streamed in batches
@@ -88,7 +88,7 @@ class MaintenanceJobs:
             ``cleanup_orphan_entities`` runs once at the end regardless of
             per-batch outcomes.
 
-        Keyset vs OFFSET (MEDIUM-2 fix from T051 review):
+        Keyset vs OFFSET (fix from review):
             LIMIT/OFFSET scans+discards rows for high offsets (O(N²) for
             N batches) and is vulnerable to row drift when
             ``articles_core`` is mutated by concurrent ``deduplicate_articles``
@@ -220,7 +220,7 @@ class MaintenanceJobs:
         Removes entity vectors in Postgres/DuckDB that no longer have
         corresponding entities in the graph store (Neo4j/LadybugDB).
 
-        REM-001 root cause fixes:
+        root cause fixes:
         - entity_vectors.neo4j_id stores a MIX of entity names (from
           entity_extractor path) and graph internal IDs (from entity_resolver
           path). Use UNION of list_all_entity_ids() and list_all_entity_names()
@@ -238,7 +238,7 @@ class MaintenanceJobs:
             return 0
 
         try:
-            # REM-001: entity_vectors.neo4j_id stores mixed IDs (names + graph IDs).
+            # entity_vectors.neo4j_id stores mixed IDs (names + graph IDs).
             # Use union of both ID types to avoid false-positive orphan detection.
             active_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
             active_names = await self._graph_writer.entity_repo.list_all_entity_names()
@@ -253,9 +253,14 @@ class MaintenanceJobs:
             orphan_keys = pg_keys - active_keys
 
             if orphan_keys:
-                count = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
-                    list(orphan_keys)
-                )
+                # Chunked deletes keep the IN list below DB bind-parameter
+                # limits (PG 65535) and bound query-planner degradation.
+                orphan_list = list(orphan_keys)
+                count = 0
+                for i in range(0, len(orphan_list), 10_000):
+                    count += await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
+                        orphan_list[i : i + 10_000]
+                    )
                 log.info(
                     "cleanup_orphan_entity_vectors_complete",
                     count=count,
@@ -291,16 +296,26 @@ class MaintenanceJobs:
         """Clean up LLM failure records older than retention days."""
         if not self._llm_failure_repo:
             return 0
-        deleted = await self._llm_failure_repo.cleanup_older_than(
-            self._settings.llm_failure_cleanup_retention_days
-        )
-        return deleted
+        try:
+            deleted = await self._llm_failure_repo.cleanup_older_than(
+                self._settings.llm_failure_cleanup_retention_days
+            )
+            return deleted
+        except Exception as exc:
+            # Same error-isolation contract as the sibling cleanup jobs.
+            log.error("llm_failure_cleanup_failed", error=str(exc))
+            return 0
 
     @scheduled_task("llm_usage_raw_cleanup", timeout_seconds=300)
     async def llm_usage_raw_cleanup(self) -> int:
         """Clean up old raw LLM usage records."""
         from modules.analytics.llm_usage.repo import LLMUsageRepo
 
-        repo = LLMUsageRepo(self._relational_pool)
-        deleted = await repo.cleanup_raw_older_than(self._settings.llm_usage_raw_retention_days)
-        return deleted
+        try:
+            repo = LLMUsageRepo(self._relational_pool)
+            deleted = await repo.cleanup_raw_older_than(self._settings.llm_usage_raw_retention_days)
+            return deleted
+        except Exception as exc:
+            # Same error-isolation contract as the sibling cleanup jobs.
+            log.error("llm_usage_raw_cleanup_failed", error=str(exc))
+            return 0

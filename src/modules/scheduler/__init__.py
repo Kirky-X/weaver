@@ -7,7 +7,7 @@ Core scheduling functionality:
 - ConsistencyJobs: Retry, sync, and consistency jobs
 - MaintenanceJobs: Cleanup and archival jobs
 - AnalyticsJobs: Aggregation, briefing, and signal detection jobs
-- AlertJobs: Trend alert evaluation jobs (T019 / R-alert-002)
+- AlertJobs: Trend alert evaluation jobs
 
 公开 API:
 - SchedulerJobs: 任务调度器（向后兼容外观）

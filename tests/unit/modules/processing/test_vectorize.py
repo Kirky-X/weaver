@@ -230,8 +230,10 @@ class TestVectorizeNodeErrorHandling:
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
 
-        # Should raise index error or handle gracefully
-        with pytest.raises((IndexError, KeyError)):
+        # Loud failure, never a silent mis-pairing. Since #115 the guard is an
+        # explicit ValueError; IndexError/KeyError are kept for callers that
+        # index the result directly.
+        with pytest.raises((ValueError, IndexError, KeyError)):
             await node.execute(state)
 
 
@@ -300,3 +302,34 @@ class TestVectorizeNodeIntegration:
         # But embeddings may differ (different mock values)
         assert result1["vectors"]["content"] == embedding1
         assert result2["vectors"]["content"] == embedding2
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#115)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("returned", [[], [[0.1] * 8]])
+    async def test_fewer_than_two_embeddings_fails_loud(self, mock_llm, sample_raw, returned):
+        """#115: < 2 embeddings must raise ValueError, not silently mis-pair."""
+        mock_llm.embed_default = AsyncMock(return_value=returned)
+
+        node = VectorizeNode(mock_llm, model_id="test-model")
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        with pytest.raises(ValueError, match="expected >= 2"):
+            await node.execute(state)
+
+    @pytest.mark.asyncio
+    async def test_extra_embeddings_are_tolerated(self, mock_llm, sample_raw):
+        """#115: the guard is a lower bound only — extra vectors keep working."""
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 8, [0.2] * 8, [0.3] * 8])
+
+        node = VectorizeNode(mock_llm, model_id="test-model")
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["vectors"]["title"] == [0.1] * 8
+        assert result["vectors"]["content"] == [0.2] * 8

@@ -127,6 +127,107 @@ class TestHostRateLimiterAcquire:
         asyncio.run(run_test())
 
 
+class TestBoundedLockDictWaiterAwareEviction:
+    """CORR#244: eviction must not drop a lock that is held or awaited.
+
+    ``locked()`` alone misses the release→waiter-resumption window; the
+    in-flight counter covers holders and queued waiters alike.
+    """
+
+    def test_eviction_skips_in_flight_key(self):
+        """A key marked in-flight is never chosen for eviction."""
+        d = BoundedLockDict(maxsize=2)
+        lock_a = d["a"]
+        lock_b = d["b"]
+        d.mark_in_flight("a")  # holder/waiter registered before lookup
+
+        _ = d["c"]  # capacity reached — must evict b (idle), not a
+
+        assert "a" in d
+        assert "b" not in d
+        assert "c" in d
+        assert d["a"] is lock_a
+        assert lock_a.locked() is False  # untouched
+
+    def test_eviction_all_locks_in_flight_over_capacity(self):
+        """When every lock is in-flight, none is evicted (over-capacity)."""
+        d = BoundedLockDict(maxsize=2)
+        d["a"]
+        d["b"]
+        d.mark_in_flight("a")
+        d.mark_in_flight("b")
+
+        _ = d["c"]
+
+        assert len(d) == 3  # temporary over-capacity, nothing lost
+
+    def test_mark_done_allows_eviction_again(self):
+        """After the caller finishes, the lock becomes evictable."""
+        d = BoundedLockDict(maxsize=1)
+        d["a"]
+        d.mark_in_flight("a")
+        d.mark_done("a")
+
+        _ = d["b"]
+
+        assert "a" not in d
+        assert "b" in d
+
+    def test_mark_done_balances_concurrent_waiters(self):
+        """Multiple waiters on one key: lock survives until the last is done.
+
+        Note: never read ``d["a"]`` mid-test — ``__getitem__`` refreshes the
+        LRU order and would change which key is the eviction candidate.
+        """
+        d = BoundedLockDict(maxsize=2)
+        lock_a = d["a"]
+        d.mark_in_flight("a")
+        d.mark_in_flight("a")  # second waiter queued
+
+        d.mark_done("a")  # 1 waiter still pending — a stays protected
+        d["b"]
+        d["c"]  # capacity reached — evicts b (LRU), skips in-flight a
+        assert "a" in d
+        assert d._locks["a"] is lock_a
+
+        d.mark_done("a")  # last waiter done — a is now evictable
+        d["d"]  # a is the LRU head again — evicted
+        assert "a" not in d
+
+    def test_acquire_cleans_up_in_flight_on_wait_and_success(self):
+        """HostRateLimiter.acquire registers and releases the in-flight mark."""
+        limiter = HostRateLimiter(delay_min=0.01, delay_max=0.01)
+
+        async def run_test():
+            await limiter.acquire("https://example.com/page1")
+            await limiter.acquire("https://example.com/page2")  # triggers wait path
+
+            assert len(limiter._locks._in_flight) == 0
+
+        asyncio.run(run_test())
+
+    def test_acquire_in_flight_tracks_held_lock(self):
+        """While a coroutine holds the host lock, the key stays in-flight."""
+        limiter = HostRateLimiter(delay_min=0.05, delay_max=0.05)
+
+        async def run_test():
+            # First request: no wait, just seeds last_request.
+            await limiter.acquire("https://example.com/p1")
+            # Second request enters the wait path and sleeps while holding
+            # the host lock.
+            holder_task = asyncio.create_task(limiter.acquire("https://example.com/p2"))
+            while not limiter._locks["example.com"].locked() and not holder_task.done():
+                await asyncio.sleep(0)
+
+            assert limiter._locks["example.com"].locked()
+            assert limiter._locks._in_flight.get("example.com", 0) >= 1
+
+            await holder_task
+            assert len(limiter._locks._in_flight) == 0
+
+        asyncio.run(run_test())
+
+
 class TestHostRateLimiterUrlParser:
     """Test that HostRateLimiter correctly parses URLs for host extraction."""
 

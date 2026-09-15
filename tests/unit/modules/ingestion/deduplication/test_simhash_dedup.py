@@ -5,6 +5,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from loguru import logger
 
 from modules.ingestion.deduplication.simhash_dedup import SimHashDeduplicator, TitleItem
 
@@ -236,3 +237,70 @@ class TestSimHashStats:
         assert stats["total_fingerprints"] == 2
         assert stats["redis_key"] == "crawl:simhash:title"
         assert stats["threshold"] == 5
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#57, #238)."""
+
+    def test_hamming_distance_uses_bit_count(self):
+        """#57: distance equals int.bit_count of the XOR for edge values."""
+        assert SimHashDeduplicator.hamming_distance(0b1011, 0b0010) == 2
+        assert SimHashDeduplicator.hamming_distance(0, 0) == 0
+        assert SimHashDeduplicator.hamming_distance(0, (1 << 64) - 1) == 64
+
+    @pytest.mark.asyncio
+    async def test_duplicate_log_reports_url_without_timestamp(self):
+        """#238: cache value is "url|timestamp" — the log must show only the URL."""
+        records: list = []
+        sink_id = logger.add(lambda message: records.append(message.record), level="DEBUG")
+        try:
+            fingerprint = SimHashDeduplicator.generate_fingerprint("同一个标题")
+            mock_cache = MagicMock()
+            mock_cache.hgetall = AsyncMock(
+                return_value={str(fingerprint): "https://example.com/first|1700000000"}
+            )
+            mock_cache.hset = AsyncMock()
+
+            dedup = SimHashDeduplicator(cache=mock_cache)
+            items = [TitleItem(url="https://example.com/second", title="同一个标题")]
+            result = await dedup.dedup_titles(items)
+        finally:
+            logger.remove(sink_id)
+
+        assert result == []
+        duplicate_records = [
+            record for record in records if record["message"] == "simhash_duplicate_found"
+        ]
+        assert duplicate_records, "expected simhash_duplicate_found to be logged"
+        assert duplicate_records[0]["extra"]["existing_url"] == "https://example.com/first"
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#238)."""
+
+    @pytest.mark.asyncio
+    async def test_duplicate_log_reports_url_not_full_value(self):
+        """#238: the duplicate log must expose the URL, not ``url|timestamp``."""
+        cache = AsyncMock()
+        cache.hgetall = AsyncMock(return_value={"123": "https://example.com/a|1700000000"})
+        dedup = SimHashDeduplicator(cache=cache, threshold=64)
+
+        item = MagicMock()
+        item.title = "Same Title"
+        item.url = "https://example.com/b"
+
+        records: list = []
+        sink_id = logger.add(lambda m: records.append(m.record), level="DEBUG")
+        try:
+            result = await dedup.dedup_titles([item])
+        finally:
+            logger.remove(sink_id)
+
+        assert result == []
+        logged = [
+            r["extra"]["existing_url"]
+            for r in records
+            if r["extra"].get("existing_url") is not None
+        ]
+        assert logged, "expected simhash_duplicate_found to be logged"
+        assert all("|" not in value for value in logged)

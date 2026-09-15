@@ -3,7 +3,7 @@
 """Unit tests for parse_bing_html (web search HTML parser).
 
 TDD Red phase: tests fail until ``parse_bing_html`` is implemented in
-``src/modules/search/web/html_parser.py`` (T005 Green).
+``src/modules/search/web/html_parser.py`` (Green).
 
 The fixture HTML (``fixtures/bing_sample.html``) is a stripped-down Bing
 search result page covering: valid results, results missing href,
@@ -147,7 +147,7 @@ class TestParseBingHtmlEdgeCases:
 
 
 class TestParseBingHtmlMaxResults:
-    """Tests for max_results truncation (T006 will use this)."""
+    """Tests for max_results truncation (will use this)."""
 
     def test_parse_respects_max_results_argument(self) -> None:
         """When max_results is provided, returned list length must be ≤ max_results."""
@@ -188,7 +188,7 @@ class TestParseBingHtmlMaxResults:
 class TestParseBingHtmlSecurity:
     """Security hardening tests — URL scheme whitelist + DoS size cap.
 
-    These cover the MEDIUM findings from the T004-T006 security review:
+    These cover the MEDIUM findings from the security review:
     - M1: non-http(s) schemes (javascript:/data:/file:) must be rejected
     - M2: HTML exceeding _MAX_HTML_SIZE must be rejected before parsing
     """

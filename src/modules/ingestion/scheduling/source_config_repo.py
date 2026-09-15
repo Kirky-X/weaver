@@ -7,9 +7,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from urllib.parse import urlparse
+
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from core.db import SourceAuthority as SourceAuthorityRow
 from core.db import SourceConfig as SourceConfigRow
 from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
@@ -73,7 +76,13 @@ class SourceConfigRepo:
     async def get_credibility(self, host: str) -> float | None:
         """Get preset credibility for a host.
 
-        Looks up source by extracting host from stored URLs.
+        Primary lookup is the ``source_authorities`` table, which stores a
+        unique ``host`` column — an exact, index-friendly match. Falls back
+        to scanning ``source_configs`` whose URL authority equals ``host``
+        (URLs are parsed in Python; a substring ``contains`` match would
+        false-positive on hosts embedded in paths, e.g.
+        ``https://a.com/b.github.com/feed``).
+
         This is used by CredibilityCheckerNode for the priority hierarchy.
 
         Args:
@@ -83,15 +92,27 @@ class SourceConfigRepo:
             Preset credibility score if found, None otherwise.
         """
         async with self._pool.session() as session:
-            # Match sources where URL contains the host
             result = await session.execute(
-                select(SourceConfigRow).where(
-                    SourceConfigRow.url.contains(host), SourceConfigRow.credibility.is_not(None)
-                )
+                select(SourceAuthorityRow.authority).where(SourceAuthorityRow.host == host)
             )
-            source = result.scalar_one_or_none()
-            if source and source.credibility is not None:
-                return float(source.credibility)
+            authority = result.scalar_one_or_none()
+            if authority is not None:
+                return float(authority)
+
+            # Fallback: match SourceConfig rows by parsed URL authority.
+            # Order deterministically and use first() — multiple sources may
+            # carry a credibility value and scalar_one_or_none would raise.
+            rows = await session.execute(
+                select(SourceConfigRow)
+                .where(SourceConfigRow.credibility.is_not(None))
+                .order_by(SourceConfigRow.updated_at.desc())
+            )
+            for source in rows.scalars():
+                try:
+                    if urlparse(source.url or "").netloc.lower() == host.lower():
+                        return float(source.credibility) if source.credibility is not None else None
+                except ValueError:
+                    continue
             return None
 
     async def list_sources(
@@ -182,13 +203,12 @@ class SourceConfigRepo:
                     "updated_at": stmt.excluded.updated_at,
                 },
             )
-            await session.execute(stmt)
+            # RETURNING reads the row written by this very statement — a
+            # separate SELECT could race with a concurrent upsert and read
+            # a snapshot without the row (NoResultFound) or stale data.
+            stmt = stmt.returning(SourceConfigRow)
+            result = await session.execute(stmt)
             await session.commit()
-
-            # Fetch the persisted record
-            result = await session.execute(
-                select(SourceConfigRow).where(SourceConfigRow.id == config.id)
-            )
             return self._to_config(result.scalar_one())
 
     async def delete(self, source_id: str) -> bool:

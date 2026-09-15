@@ -28,7 +28,7 @@ from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser
 from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 from modules.ingestion.parsing.plugin import (
-    discover_plugins_from_directory,
+    get_plugin,
     get_registered_plugins,
     scan_and_load_external_plugins,
 )
@@ -215,28 +215,71 @@ class SourceRegistry:
     def load_plugins(self, plugin_paths: list[str] | None = None) -> list[str]:
         """Load external parser plugins.
 
+        Discovered plugins are instantiated with the registry's fetcher and
+        registered for every source type they declare in
+        ``supported_types`` (falls back to the plugin name when empty).
+        A single plugin that fails to instantiate is skipped with a
+        warning so it cannot block the others.
+
         Args:
             plugin_paths: List of directory paths to scan for plugins.
                           Defaults to paths in WEAVER_SOURCE_PLUGINS env var.
 
         Returns:
-            List of loaded plugin names.
+            Plugin names discovered and processed for registration by this
+            call (including plugins whose instantiation failed).
         """
-        # First scan entry points
-        discovered = discover_plugins_from_directory(plugin_paths[0]) if plugin_paths else []
+        # scan_and_load_external_plugins already walks every path and calls
+        # discover_plugins_from_directory internally — no separate
+        # first-path discovery pass needed here.
         scan_and_load_external_plugins(plugin_paths)
 
-        # Register discovered plugins
+        # Register discovered plugins — each registry entry carries the
+        # parser class; instantiate and register per supported source type.
         registered = get_registered_plugins()
+        processed: list[str] = []
         for plugin_name, metadata in registered.items():
-            if metadata.name not in self._parsers:
-                log.info("registering_plugin", name=plugin_name)
+            types_to_register = metadata.supported_types or [plugin_name]
+            if all(t in self._parsers for t in types_to_register):
+                continue
+            processed.append(plugin_name)
+            entry = get_plugin(plugin_name)
+            if entry is None:
+                log.warning("plugin_class_missing", name=plugin_name)
+                continue
+            parser_class, _plugin_meta = entry
+            try:
+                parser = parser_class(self._fetcher)
+            except Exception as exc:
+                log.warning(
+                    "plugin_parser_instantiation_failed",
+                    name=plugin_name,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+                continue
+            for source_type in types_to_register:
+                if source_type not in self._parsers:
+                    self.register_parser(source_type, parser, metadata)
 
-        self._plugins_discovered = list(registered.keys())
+        self._plugins_discovered = sorted(set(processed))
         return self._plugins_discovered
 
     async def close(self) -> None:
-        """Close all registered parsers."""
+        """Close all registered parsers.
+
+        Each parser is closed in isolation: a failure in one parser is
+        logged and must not prevent the remaining parsers from being
+        cleaned up.
+        """
         for parser in self._parsers.values():
             if hasattr(parser, "close"):
-                await parser.close()
+                try:
+                    await parser.close()
+                except Exception as exc:
+                    log.warning(
+                        "parser_close_failed",
+                        parser=type(parser).__name__,
+                        error=str(exc),
+                        exc_type=type(exc).__name__,
+                    )

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Article-level sentiment tracker pipeline node (T003).
+"""Article-level sentiment tracker pipeline node.
 
 Computes per-entity sentiment shifts between consecutive articles. For each
 entity mentioned in the current article, the node queries the previous
@@ -134,7 +134,12 @@ class SentimentTrackerNode:
         """
         previous = await self._shift_repo.get_last_article_shift(entity_name)
 
-        if previous is None:
+        # Treat a missing/NULL after_avg like a first-seen entity (the storage
+        # layer returns None when the column is NULL): float(None) would raise
+        # TypeError and get misattributed to a transient repository failure.
+        after_avg = previous.get("after_avg") if previous else None
+
+        if after_avg is None:
             # Seed record — first article for this entity. Use current
             # sentiment as both before_avg and after_avg so the next
             # article can compute a real shift.
@@ -142,7 +147,7 @@ class SentimentTrackerNode:
             shift_value = 0.0
             direction = "stable"
         else:
-            before_avg = float(previous["after_avg"])
+            before_avg = float(after_avg)
             shift_value = current_sentiment - before_avg
             if shift_value > 0:
                 direction = "up"

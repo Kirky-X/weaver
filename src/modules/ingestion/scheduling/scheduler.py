@@ -51,14 +51,33 @@ class SourceScheduler:
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
-        """Start scheduling all enabled sources."""
+        """Start scheduling all enabled sources.
+
+        Idempotent: a second call while already running is a no-op instead of
+        raising ``SchedulerAlreadyRunningError``.
+        """
+        if self._scheduler.running:
+            log.debug("source_scheduler_already_running")
+            return
         for source in self._registry.list_sources(enabled_only=True):
             self._schedule_source(source)
         self._scheduler.start()
         log.info("source_scheduler_started")
 
+    def register_source(self, source: Any) -> None:
+        """Register a new source with the scheduler registry (public API)."""
+        self._registry.add_source(source)
+
     def stop(self) -> None:
-        """Stop the scheduler."""
+        """Stop the scheduler.
+
+        Idempotent: stopping a scheduler that was never started (or has
+        already been stopped) is a no-op instead of raising
+        ``SchedulerNotRunningError``.
+        """
+        if not self._scheduler.running:
+            log.debug("source_scheduler_stop_skipped_not_running")
+            return
         self._scheduler.shutdown(wait=False)
         log.info("source_scheduler_stopped")
 
@@ -69,6 +88,41 @@ class SourceScheduler:
             List of SourceConfig objects for enabled sources.
         """
         return self._registry.list_sources(enabled_only=True)
+
+    def schedule_source(self, source: SourceConfig) -> None:
+        """Schedule (or reschedule) periodic crawling for one source at runtime.
+
+        Public counterpart of ``_schedule_source``: callers that create or
+        update a source after ``start()`` must invoke this so the source is
+        actually crawled on its interval. No-op when the scheduler has not
+        been started yet (``start()`` will schedule it).
+
+        Args:
+            source: Source configuration to schedule.
+        """
+        if not self._scheduler.running:
+            log.debug(
+                "source_schedule_skipped_scheduler_not_running",
+                source_id=source.id,
+            )
+            return
+        self._schedule_source(source)
+
+    def unschedule_source(self, source_id: str) -> None:
+        """Remove the periodic job for a source (e.g. on delete/disable).
+
+        Args:
+            source_id: The source identifier.
+        """
+        try:
+            self._scheduler.remove_job(f"source_{source_id}")
+        except Exception as exc:
+            # Job may never have been scheduled (created while stopped).
+            log.debug(
+                "source_unschedule_skipped",
+                source_id=source_id,
+                error=str(exc),
+            )
 
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""

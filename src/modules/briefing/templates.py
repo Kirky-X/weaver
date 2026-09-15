@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Briefing category templates (T008 / R-briefing-003).
+"""Briefing category templates.
 
 Defines 4 category-specific templates (finance/tech/ai/general), each with:
-- system_prompt: emphasizing category-specific focus per spec R-briefing-003
+- system_prompt: emphasizing category-specific focus per spec
 - user_prompt_template: containing {articles} placeholder for article injection
 
 Usage:
-    Templates are declarative data. T008 DailyBriefingService.generate_briefing
+    Templates are declarative data. DailyBriefingService.generate_briefing
     delegates to BriefingGenerator which uses the generic briefing.toml prompt
-    (T004 implementation); these category templates will be consumed by T021+
+    (implementation); these category templates will be consumed by +
     narrative mode (category-specific prompt injection).
 
-    T021 (NarrativeBriefingGenerator) will call get_template(category) to
+    (NarrativeBriefingGenerator) will call get_template(category) to
     select the appropriate system_prompt + user_prompt_template, then call
     LLM with category-specific prompts.
 """
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class BriefingTemplate:
-    """A category-specific briefing prompt template (R-briefing-003).
+    """A category-specific briefing prompt template.
 
     Attributes:
         system_prompt: LLM system prompt emphasizing category focus.

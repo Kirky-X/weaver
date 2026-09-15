@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for HttpxFetcher 429/503 Retry-After handling — P1-4 fix.
+"""RED test for HttpxFetcher 429/503 Retry-After handling
 
 When a server returns 429 (Too Many Requests) or 503 (Service
 Unavailable) with a ``Retry-After`` header, the fetcher must:
@@ -12,9 +12,6 @@ Unavailable) with a ``Retry-After`` header, the fetcher must:
    retry loop resumes with a respectful delay.
 4. Re-raise the original ``HTTPStatusError`` so the existing
    ``retry_network`` machinery handles subsequent retries.
-
-See ``temp/report.md`` P1-4 (无 Retry-After 识别) and specmark change
-``fix-pipeline-deadcode-perf`` T028-T029.
 """
 
 from __future__ import annotations

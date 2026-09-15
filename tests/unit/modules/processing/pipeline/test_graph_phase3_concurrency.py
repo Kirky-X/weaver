@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for Pipeline Phase 3 concurrent nodes — P1-3 fix.
+"""RED test for Pipeline Phase 3 concurrent nodes
 
 Phase 3 has 4 LLM-heavy nodes that are independent and can run
 concurrently but currently execute serially:
@@ -14,9 +14,6 @@ Serial cost: 4 × LLM latency. Concurrent: ~max latency.
 
 This test asserts ``asyncio.gather`` concurrency: 4 nodes × 0.2s
 delay each → total < 0.6s (serial would be ~0.8s).
-
-See ``temp/report.md`` P1-3 (Phase3 并发) and specmark change
-``fix-pipeline-deadcode-perf`` T023-T024.
 """
 
 from __future__ import annotations
@@ -113,3 +110,28 @@ async def test_phase3_parallel_nodes_concurrent() -> None:
         f"Expected concurrent Phase 3 nodes < {ceiling}s; got {elapsed:.2f}s "
         f"(serial would be ~0.8s for 4 × 0.2s nodes)"
     )
+
+
+@pytest.mark.asyncio
+async def test_entity_resolver_debug_log_tolerates_missing_raw() -> None:
+    """#409: the entity-resolver debug log must not require state["raw"].
+
+    ``_phase3_per_article`` used to read ``state["raw"].url`` with a bare
+    bracket access; a caller that omits ``raw`` would crash the debug log.
+    """
+    pipeline = _make_pipeline_with_mock_phase3_nodes()
+    resolver = MagicMock()
+    resolver.resolve_entities_batch = AsyncMock(return_value=[{"name": "X", "id": "1"}])
+    pipeline._deps.nlp.entity_resolver = resolver
+
+    state: dict[str, Any] = {
+        "terminal": True,
+        "is_merged": False,
+        "entities": [{"name": "X", "type": "ORG"}],
+    }
+
+    result = await pipeline._phase3_per_article(state, pending_updates=[])
+
+    resolver.resolve_entities_batch.assert_awaited_once()
+    assert result["resolved_entities"] == [{"name": "X", "id": "1"}]
+    assert "raw" not in result

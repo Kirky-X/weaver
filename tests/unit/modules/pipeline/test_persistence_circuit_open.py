@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T016: circuit-open graph writes are recorded into pending_sync."""
+"""circuit-open graph writes are recorded into pending_sync."""
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -79,3 +79,33 @@ async def test_circuit_open_without_repo_still_marks_failed(persistence_deps):
     pending_sync_repo.upsert.assert_not_awaited()
     article_repo.mark_failed.assert_awaited_once()
     assert failed == 1
+
+
+@pytest.mark.asyncio
+async def test_graph_batch_progress_logging_uses_set_membership(persistence_deps):
+    """#89: progress logging must test membership in a set, not a list."""
+    persistence, article_repo, _ = persistence_deps
+    article_repo.update_persist_status = AsyncMock()
+    ids = [uuid.uuid4() for _ in range(3)]
+    persistence._graph_writer.write_batch = AsyncMock(
+        return_value={
+            "article_ids": [str(ids[0]), str(ids[2])],
+            "errors": [],
+            "neo4j_ids": ["n0", "n1"],
+        }
+    )
+    states = [
+        {"article_id": str(ids[0]), "raw": MagicMock(url="https://example.com/1")},
+        {"article_id": str(ids[1]), "raw": MagicMock(url="https://example.com/2")},
+        {"article_id": str(ids[2]), "raw": MagicMock(url="https://example.com/3")},
+    ]
+
+    with patch.object(persistence, "_log_progress") as mock_progress:
+        completed, failed = await persistence._persist_to_graph_batch(
+            states, batch_total=3, batch_completed=0, batch_failed=0
+        )
+
+    assert completed == 2
+    assert failed == 0
+    # One progress log per persisted article — only the two in the success set.
+    assert mock_progress.call_count == 2

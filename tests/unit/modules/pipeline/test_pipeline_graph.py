@@ -379,7 +379,7 @@ class TestPipelineProcessBatch:
     def mock_source_auth_repo_for_batch(self):
         """Mock source authority repo for batch tests."""
         repo = MagicMock()
-        repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.8))
+        repo.get = AsyncMock(return_value=MagicMock(authority=0.8))
         return repo
 
     @pytest.fixture
@@ -616,7 +616,7 @@ class TestPipelinePhase3:
     def mock_source_auth_repo_for_phase3(self):
         """Mock source authority repo for phase3 tests."""
         repo = MagicMock()
-        repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.8))
+        repo.get = AsyncMock(return_value=MagicMock(authority=0.8))
         return repo
 
     @pytest.fixture
@@ -1133,7 +1133,7 @@ class TestPipelinePersistBatch:
     async def test_persist_batch_graph_writer_none_logs_error_not_silent(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
-        """REM-005: When graph_writer is None, persist_batch must log ERROR (not silent).
+        """When graph_writer is None, persist_batch must log ERROR (not silent).
 
         Root cause: graph_writer None was treated as "PG success counts as complete",
         silently incrementing batch_completed without writing to graph. This causes
@@ -1168,7 +1168,7 @@ class TestPipelinePersistBatch:
         with patch("modules.processing.pipeline.persistence.log") as mock_log:
             completed, failed = await pipeline._persist_batch([state], 1, 0, 0)
 
-            # REM-005: batch_completed must NOT be incremented when graph_writer is None
+            # batch_completed must NOT be incremented when graph_writer is None
             assert completed == 0
             assert failed == 0
             # Suggestion 5: log.error must be called for each article
@@ -1182,7 +1182,7 @@ class TestPipelinePersistBatch:
     async def test_persist_batch_graph_batch_error_marks_failed(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
-        """REM-005: Batch write errors must trigger mark_failed (not just log).
+        """Batch write errors must trigger mark_failed (not just log).
 
         Root cause: _persist_to_graph_batch only logged errors and incremented
         batch_failed, but did NOT call mark_failed. Articles stayed in PG_DONE
@@ -1229,7 +1229,7 @@ class TestPipelinePersistBatch:
 
         # batch_failed should be incremented
         assert failed == 1
-        # REM-005: mark_failed must be called for the failed article
+        # mark_failed must be called for the failed article
         mock_article_repo.mark_failed.assert_awaited_once()
         mark_failed_args = mock_article_repo.mark_failed.call_args
         # First positional arg should be the article UUID

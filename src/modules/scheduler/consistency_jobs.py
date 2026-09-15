@@ -18,7 +18,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-import json_repair
 from sqlalchemy import and_, select, update
 
 from config.settings import SchedulerSettings
@@ -28,6 +27,7 @@ from core.observability.metrics import metrics
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.scheduler.wrapper import scheduled_task
 from modules.storage import ArticleRepo, PendingSyncRepo, VectorRepo
+from modules.storage.ladybug.writer import LadybugWriter
 
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
@@ -166,6 +166,10 @@ class ConsistencyJobs:
                         article_id=str(article.id),
                         error=str(exc),
                     )
+                    # Reset the shared session so a failed UPDATE does not
+                    # poison subsequent iterations (session is reused across
+                    # articles within the same `async with` block).
+                    await session.rollback()
                     # Leave in pg_done state for next retry
 
             log.info("retry_neo4j_writes_complete", retry_count=retry_count)
@@ -331,11 +335,11 @@ class ConsistencyJobs:
         """Check entity count consistency between Neo4j and PostgreSQL entity_vectors.
 
         Logs warning if mismatch detected between:
-        - Neo4j entity count (union of graph IDs + canonical names, see REM-001)
+        - Neo4j entity count (union of graph IDs + canonical names, see)
         - PostgreSQL entity_vectors with valid (non-temp) neo4j_id
         """
         try:
-            # REM-001: entity_vectors.neo4j_id stores a MIX of entity names and
+            # entity_vectors.neo4j_id stores a MIX of entity names and
             # graph internal IDs. Use union of list_all_entity_ids() and
             # list_all_entity_names() to get accurate count for comparison.
             neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
@@ -410,6 +414,11 @@ class ConsistencyJobs:
             # 3. Get failed articles (eligible for retry)
             failed_articles = await self._article_repo.get_failed_articles(max_retries=3)
 
+            # Sets keep the per-article category checks below O(1) — list
+            # membership made the retry loop O(n^2) for large batches.
+            pending_set = set(pending_articles)
+            stuck_set = set(stuck_articles)
+
             articles = pending_articles + stuck_articles + failed_articles
 
             if not articles:
@@ -441,7 +450,25 @@ class ConsistencyJobs:
                         task_key = "pipeline:task_status"
                         existing = await self._cache.client.hget(task_key, str(task_id))
                         if existing:
-                            task_data = json_repair.loads(existing)
+                            # Plain json.loads: this is our own serialized
+                            # payload, so malformed data is a bug worth
+                            # surfacing rather than silently "repairing".
+                            try:
+                                task_data = json.loads(existing)
+                            except (TypeError, ValueError):
+                                log.warning(
+                                    "task_status_invalid_json",
+                                    task_id=str(task_id),
+                                    raw=str(existing)[:100],
+                                )
+                                continue
+                            if not isinstance(task_data, dict):
+                                log.warning(
+                                    "task_status_unexpected_type",
+                                    task_id=str(task_id),
+                                    value_type=type(task_data).__name__,
+                                )
+                                continue
                             if task_data.get("status") not in ("completed", "failed"):
                                 task_data["status"] = "completed"
                                 task_data["completed_at"] = datetime.now(UTC).isoformat()
@@ -483,9 +510,9 @@ class ConsistencyJobs:
                     consecutive_failures = 0
 
                     # Emit success metric based on article type
-                    if article in pending_articles:
+                    if article in pending_set:
                         metrics.pipeline_retry_success_total.labels(type="pending").inc()
-                    elif article in stuck_articles:
+                    elif article in stuck_set:
                         metrics.pipeline_retry_success_total.labels(type="stuck").inc()
                     else:
                         metrics.pipeline_retry_success_total.labels(type="failed").inc()
@@ -548,8 +575,10 @@ class ConsistencyJobs:
         """
         log.info("sync_pending_to_neo4j_start")
 
-        # Detect if using LadybugWriter (fallback mode)
-        using_ladybug = type(self._graph_writer).__name__ == "LadybugWriter"
+        # Detect if using LadybugWriter (fallback mode). isinstance is used
+        # instead of class-name comparison so subclassing/renaming cannot
+        # silently break fallback detection.
+        using_ladybug = isinstance(self._graph_writer, LadybugWriter)
         if using_ladybug:
             log.info("sync_pending_using_ladybug_fallback")
 
@@ -576,13 +605,27 @@ class ConsistencyJobs:
                     # Skip for LadybugDB as it handles entity IDs differently
                     if entity_ids and record.payload.get("entity_temp_keys") and not using_ladybug:
                         temp_key_to_entity: dict[str, str] = {}
+                        temp_key_to_entity: dict[str, str] = {}
                         entity_temp_keys = record.payload.get("entity_temp_keys", {})
-                        for temp_key, entity_name in entity_temp_keys.items():
-                            # Find matching entity_id by entity name
-                            for idx, entity in enumerate(state.get("entities", [])):
-                                if entity.get("name") == entity_name and idx < len(entity_ids):
-                                    temp_key_to_entity[temp_key] = entity_ids[idx]
-                                    break
+                        # entity_ids are positional against state["entities"].
+                        # Guard the invariant: a length mismatch (writer
+                        # reordered/deduped/filtered) would silently pair the
+                        # wrong temp key with the wrong entity ID, corrupting
+                        # entity_vectors — skip the update instead.
+                        entities = state.get("entities", [])
+                        if len(entity_ids) != len(entities):
+                            log.warning(
+                                "sync_entity_ids_length_mismatch",
+                                record_id=str(record.id),
+                                entity_ids=len(entity_ids),
+                                entities=len(entities),
+                            )
+                        else:
+                            for temp_key, entity_name in entity_temp_keys.items():
+                                for idx, entity in enumerate(entities):
+                                    if entity.get("name") == entity_name:
+                                        temp_key_to_entity[temp_key] = entity_ids[idx]
+                                        break
                         if temp_key_to_entity:
                             try:
                                 await self._vector_repo.update_entity_vectors_by_temp_keys(
@@ -593,6 +636,17 @@ class ConsistencyJobs:
                                     "sync_entity_vector_update_failed",
                                     error=str(vec_exc),
                                 )
+
+                    elif record.payload.get("entity_temp_keys") and not using_ladybug:
+                        # Temp keys are present but the writer returned no
+                        # entity ids, so the temp-key update below is skipped
+                        # and entity_vectors keeps stale temp keys. Surface it
+                        # so operators can investigate.
+                        log.warning(
+                            "sync_entity_temp_keys_without_entity_ids",
+                            record_id=str(record.id),
+                            temp_key_count=len(record.payload.get("entity_temp_keys") or {}),
+                        )
 
                     # Update article persist status
                     await self._article_repo.update_persist_status(
@@ -648,7 +702,7 @@ class ConsistencyJobs:
 
         try:
             # 1. Entity count comparison
-            # REM-001: Use union of IDs + names (entity_vectors stores mixed keys).
+            # Use union of IDs + names (entity_vectors stores mixed keys).
             neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
             neo4j_entity_names = await self._graph_writer.entity_repo.list_all_entity_names()
             neo4j_count = len(neo4j_entity_ids | neo4j_entity_names)

@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
-from core.llm.resilience.circuit_breaker import CircuitOpenError
-from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability import get_logger
@@ -108,7 +106,9 @@ class EntityExtractorNode:
         disable_data_metrics = (
             self._settings.entity.disable_data_metrics_nodes if self._settings else False
         )
-        spacy_entities = await self._extract_spacy_entities(state, body, language)
+        spacy_entities = await self._extract_spacy_entities(
+            state, body, language, disable_data_metrics
+        )
         gliner_entities = await self._extract_gliner_entities(state, body)
         entity_name_to_embedding = await self._embed_and_store_entities(
             state, spacy_entities, gliner_entities
@@ -134,19 +134,25 @@ class EntityExtractorNode:
         )
         return state
 
-    async def _extract_spacy_entities(self, state: PipelineState, body: str, language: str):
-        """Phase 1: spaCy NER (sync, run in executor)."""
-        # Phase 1: spaCy NER (sync, run in executor)
-        disable_data_metrics = (
-            self._settings.entity.disable_data_metrics_nodes if self._settings else False
-        )
+    async def _extract_spacy_entities(
+        self,
+        state: PipelineState,
+        body: str,
+        language: str,
+        disable_data_metrics: bool,
+    ):
+        """Phase 1: spaCy NER (sync, run in executor).
+
+        ``disable_data_metrics`` is owned by ``execute()`` and passed in so the
+        flag has a single source of truth.
+        """
         try:
             loop = asyncio.get_running_loop()
             spacy_entities = await loop.run_in_executor(
                 None,
                 lambda: self._spacy.extract(body, language, disable_data_metrics),
             )
-        except (OSError, RuntimeError, Exception) as e:
+        except Exception as e:
             log.warning(
                 "spacy_extraction_failed_using_empty",
                 exc_type=type(e).__name__,
@@ -232,7 +238,7 @@ class EntityExtractorNode:
                                 exc_type=type(exc).__name__,
                                 error=str(exc),
                             )
-            except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
+            except Exception as e:  # incl. AllProvidersFailedError/CircuitOpenError/ValueError
                 log.warning(
                     "entity_embedding_failed",
                     exc_type=type(e).__name__,
@@ -272,18 +278,17 @@ class EntityExtractorNode:
             state["entities"] = result.entities
             state["relations"] = result.relations
 
+            # Filter data metrics entities BEFORE relation validation so
+            # relations pointing at removed entities are dropped as dangling
+            # by _validate_and_clean_entities_relations instead of surviving.
+            if disable_data_metrics:
+                state["entities"] = [e for e in state["entities"] if e.get("type") != "数据指标"]
+
             # Normalize relation types
             await self._normalize_relation_types(state)
 
             # Post-validation: entity types + relation integrity
             self._validate_and_clean_entities_relations(state)
-
-            entity_count = len(result.entities)
-
-            # Filter data metrics entities when configured
-            if disable_data_metrics:
-                state["entities"] = [e for e in state["entities"] if e.get("type") != "数据指标"]
-                entity_count = len(state["entities"])
 
             # Attach embeddings from spaCy phase
             for entity in state["entities"]:
@@ -298,19 +303,15 @@ class EntityExtractorNode:
                 gliner_entities,
             )
 
-        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
+        except Exception as e:  # incl. AllProvidersFailedError/CircuitOpenError/ValueError
             log.warning(
                 "entity_llm_failed_using_empty",
                 exc_type=type(e).__name__,
                 error=str(e),
                 url=state["raw"].url,
             )
-            import traceback as _tb
-
-            _tb.print_exc()
             state["entities"] = []
             state["relations"] = []
-            entity_count = 0
             state.setdefault("degraded_fields", []).extend(["entities", "relations"])
             state.setdefault("degradation_reasons", {}).update(
                 {

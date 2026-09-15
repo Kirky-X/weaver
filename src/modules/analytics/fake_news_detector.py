@@ -22,6 +22,7 @@ Classification Levels:
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -37,6 +38,40 @@ if __name__ != "__main__":
         from core.llm.client import LLMClient
 
 log = get_logger(__name__)
+
+# Token pattern for readability scoring: ASCII alnum runs count as words and
+# each CJK character counts as one token. ``body.split()`` collapses spaceless
+# Chinese text into a single "word", forcing complex_ratio to ~1.0 (#204).
+_READABILITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
+
+
+def _tokenize_for_readability(body: str) -> list[str]:
+    """Split body into readability tokens (CJK-aware).
+
+    Falls back to whitespace splitting when the body contains neither ASCII
+    words nor CJK characters (e.g. other scripts, emoji-only text).
+    """
+    tokens = _READABILITY_TOKEN_RE.findall(body)
+    return tokens or body.split()
+
+
+# Canonical feature order — must match both ``extract_features`` insertion
+# order and ``FakeNewsDetectorConfig.weights``. Feature vectors for the
+# rule-based fusion and the LightGBM model are built BY NAME from this
+# tuple so a future feature addition cannot silently misalign the weights.
+FEATURE_ORDER: tuple[str, ...] = (
+    "sentiment_intensity",
+    "exaggeration",
+    "title_body_consistency",
+    "readability",
+    "source_credibility",
+    "historical_accuracy",
+    "community_isolation",
+    "propagation_path",
+    "cross_reference_count",
+    "stance_consistency",
+    "quality_score",
+)
 
 
 class FakeNewsLevel(StrEnum):
@@ -129,7 +164,17 @@ class FakeNewsDetectorConfig:
         - ``confidence_suspicious`` → ``fake_threshold``
         - ``exaggeration_keywords`` → ``exaggeration_words``
         - ``model_path`` → ``lightgbm_model_path`` (empty = rule-based)
+
+        Raises:
+            ValueError: If ``confidence_suspicious >= confidence_trusted`` —
+                the ``from_score`` bands would collapse (#206).
         """
+        if settings.confidence_suspicious >= settings.confidence_trusted:
+            raise ValueError(
+                "fake_threshold (confidence_suspicious="
+                f"{settings.confidence_suspicious}) must be < trusted_threshold "
+                f"(confidence_trusted={settings.confidence_trusted})"
+            )
         return cls(
             trusted_threshold=settings.confidence_trusted,
             fake_threshold=settings.confidence_suspicious,
@@ -335,7 +380,11 @@ class FakeNewsDetector:
                     similarity = self._cosine_similarity(embeddings[0], embeddings[1])
                     return max(0.0, 1 - similarity)
             except Exception as exc:
-                log.warning("clickbait_embedding_failed", error=str(exc))
+                log.warning(
+                    "clickbait_embedding_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
 
         return 0.5  # Default when unable to compute
 
@@ -395,8 +444,10 @@ class FakeNewsDetector:
             # Normal range: scale linearly
             length_score = 0.3 + (avg_length - 10) / 90 * 0.5
 
-        # Calculate complex word ratio (words > 4 characters)
-        words = body.split()
+        # Calculate complex word ratio (words > 4 characters).
+        # CJK-aware: body.split() treats spaceless Chinese text as one giant
+        # "word", forcing complex_ratio to ~1.0 (#204).
+        words = _tokenize_for_readability(body)
         if not words:
             return length_score
 
@@ -463,12 +514,22 @@ class FakeNewsDetector:
     def _extract_cross_reference_count(self, state: dict[str, Any]) -> float:
         """Extract cross-reference count feature.
 
-        Based on cross-verification score.
-        Higher score = more cross-references (less suspicious).
+        Uses the distinct ``verified_by_sources`` count signal (number of
+        cross-references found) instead of re-inverting ``cross_verification``
+        — previously byte-identical to ``_extract_propagation_path`` (#205).
+        Falls back to the cross-verification proxy only when no count is
+        available (the credibility checker does not always populate it).
+        Higher score = fewer cross-references (more suspicious).
         """
         credibility = state.get("credibility", {})
+        try:
+            count = float(credibility.get("verified_by_sources", 0))
+        except (TypeError, ValueError):
+            count = 0.0
+        if count > 0:
+            # 3+ verifying sources saturate to "well corroborated".
+            return max(0.0, min(1.0, 1.0 - count / 3.0))
         cross_verification = credibility.get("cross_verification", 0.5)
-
         # Direct use: high cross-verification = good cross-references
         # But we need to invert for the feature (higher = more suspicious)
         # So we return 1 - cross_verification
@@ -512,9 +573,13 @@ class FakeNewsDetector:
         # Try LightGBM model first
         if self._model is not None:
             try:
-                feature_array = np.array([list(features.values())])
-                prediction = self._model.predict(feature_array)
-                trust_score = float(prediction[0])
+                vector = self._ordered_feature_vector(features)
+                if vector is None:
+                    trust_score = self._rule_based_predict(features)
+                else:
+                    feature_array = np.array([vector])
+                    prediction = self._model.predict(feature_array)
+                    trust_score = float(prediction[0])
             except Exception as exc:
                 log.warning("lightgbm_prediction_failed", error=str(exc))
                 trust_score = self._rule_based_predict(features)
@@ -544,6 +609,25 @@ class FakeNewsDetector:
 
         return result
 
+    def _ordered_feature_vector(self, features: dict[str, float]) -> list[float] | None:
+        """Build a feature vector ordered by FEATURE_ORDER.
+
+        Args:
+            features: Feature dictionary keyed by feature name.
+
+        Returns:
+            Values in FEATURE_ORDER, or None (with a warning) when the key
+            set diverges from FEATURE_ORDER so callers can fall back.
+        """
+        if tuple(features.keys()) != FEATURE_ORDER:
+            log.warning(
+                "feature_key_set_mismatch",
+                expected=list(FEATURE_ORDER),
+                actual=list(features.keys()),
+            )
+            return None
+        return [features[name] for name in FEATURE_ORDER]
+
     def _rule_based_predict(self, features: dict[str, float]) -> float:
         """Predict using rule-based weighted fusion.
 
@@ -553,19 +637,21 @@ class FakeNewsDetector:
         Returns:
             Trustworthiness score (0-1). Higher = more trustworthy.
         """
-        feature_values = list(features.values())
+        vector = self._ordered_feature_vector(features)
+        if vector is None:
+            return 0.5
         weights = self._config.weights
 
-        if len(feature_values) != len(weights):
+        if len(vector) != len(weights):
             log.warning(
                 "feature_weight_mismatch",
-                feature_count=len(feature_values),
+                feature_count=len(vector),
                 weight_count=len(weights),
             )
             return 0.5
 
         # Weighted sum of suspicious indicators
-        suspicious_score = sum(f * w for f, w in zip(feature_values, weights))
+        suspicious_score = sum(f * w for f, w in zip(vector, weights))
 
         # Invert to get trustworthiness (higher = more trustworthy)
         trust_score = 1.0 - suspicious_score

@@ -249,3 +249,74 @@ class TestSearchAPIConflictAnnotation:
         assert conflict["attribute"] == "GDP增长率"
         assert "values" in conflict
         assert len(conflict["values"]) == 2
+
+
+class TestEnrichWithBodies:
+    """Tests for _enrich_with_bodies.
+
+    Regression: ArticleSearchResultView carries only ids/scores, so without
+    body enrichment the regex claim extraction ran on empty strings and
+    conflict detection was a permanent no-op.
+    """
+
+    @pytest.mark.asyncio
+    async def test_enrich_attaches_bodies_from_repo(self):
+        """Bodies fetched via fetch_bodies_by_pg_ids are attached per entry."""
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(
+            return_value={"art-1": "失业率上升至6.5%"}
+        )
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1", "category": "economy", "similarity": 0.9}]
+        result = await node._enrich_with_bodies(similar)
+
+        assert result[0]["body"] == "失业率上升至6.5%"
+        mock_article_repo.fetch_bodies_by_pg_ids.assert_called_once_with(["art-1"])
+
+    @pytest.mark.asyncio
+    async def test_enrich_skips_entries_with_body(self):
+        """Entries already carrying a body are not re-fetched."""
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(return_value={})
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1", "body": "existing"}]
+        result = await node._enrich_with_bodies(similar)
+
+        mock_article_repo.fetch_bodies_by_pg_ids.assert_not_called()
+        assert result[0]["body"] == "existing"
+
+    @pytest.mark.asyncio
+    async def test_enrich_degrades_when_repo_lacks_fetch_method(self):
+        """A repo without fetch_bodies_by_pg_ids returns input unchanged."""
+        mock_article_repo = MagicMock(spec=["get_by_id"])
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1"}]
+        result = await node._enrich_with_bodies(similar)
+
+        assert result == similar
+
+    @pytest.mark.asyncio
+    async def test_enrich_failure_degrades_without_raising(self):
+        """A fetch failure is logged and leaves entries without body."""
+        mock_article_repo = MagicMock()
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(side_effect=RuntimeError("db down"))
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1"}]
+        result = await node._enrich_with_bodies(similar)
+
+        assert "body" not in result[0]
+
+    @pytest.mark.asyncio
+    async def test_detect_conflicts_handles_missing_content_fields(self):
+        """Similar entries without title/body keys must not crash detection."""
+        node = ConflictDetectorNode(article_repo=MagicMock())
+        claims = [{"attribute": "percent", "value": 10.0, "unit": "%", "text": "10%"}]
+
+        similar = [{"article_id": "art-1"}]  # no title/body keys at all
+        conflicts = node._detect_conflicts_from_claims(claims, similar)
+
+        assert conflicts == []

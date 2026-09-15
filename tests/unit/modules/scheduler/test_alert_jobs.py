@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for AlertJobs scheduler integration (T019 / R-alert-002).
+"""Unit tests for AlertJobs scheduler integration.
 
 Covers:
 - AlertJobs.evaluate_trend_alerts delegates to TrendAlertEvaluator.evaluate
@@ -12,7 +12,7 @@ Covers:
 
 The cron registration test uses source inspection (``inspect.getsource``)
 because ``_setup_scheduler`` requires a full container to invoke. Source
-inspection directly verifies spec R-alert-002 (hourly cron) and acts as a
+inspection directly verifies spec (hourly cron) and acts as a
 regression guard — same pattern as test_briefing_scheduler.py.
 """
 
@@ -44,7 +44,7 @@ def _make_alert_jobs(
 
 
 class TestEvaluateTrendAlertsJob:
-    """Tests for AlertJobs.evaluate_trend_alerts (T019)."""
+    """Tests for AlertJobs.evaluate_trend_alerts."""
 
     @pytest.mark.asyncio
     async def test_delegates_to_evaluator_evaluate(self) -> None:
@@ -167,7 +167,7 @@ class TestEvaluateTrendAlertsJob:
 
 
 class TestAlertJobsCronRegistration:
-    """Tests for cron registration in lifecycle._setup_scheduler (R-alert-002).
+    """Tests for cron registration in lifecycle._setup_scheduler.
 
     Uses source inspection because _setup_scheduler requires a full container.
     The test verifies the evaluate_trend_alerts job block uses:
@@ -175,7 +175,7 @@ class TestAlertJobsCronRegistration:
     - Job id="evaluate_trend_alerts"
     - max_instances=1, coalesce=True
 
-    Spec R-alert-002: hourly execution (CRON `0 * * * *`).
+    Spec hourly execution (CRON `0 * * * *`).
 
     Block extraction uses ``split("scheduler.add_job(")`` rather than regex
     because CronTrigger args may contain nested parens. Same pattern as
@@ -223,13 +223,13 @@ class TestAlertJobsCronRegistration:
         assert 'id="evaluate_trend_alerts"' in block
 
     def test_job_uses_max_instances_1(self) -> None:
-        """Job uses max_instances=1 per spec R-alert-002."""
+        """Job uses max_instances=1 per spec."""
         block = self._find_alert_job_block()
         assert block, "evaluate_trend_alerts job block not found"
         assert "max_instances=1" in block
 
     def test_job_uses_coalesce_true(self) -> None:
-        """Job uses coalesce=True per spec R-alert-002."""
+        """Job uses coalesce=True per spec."""
         block = self._find_alert_job_block()
         assert block, "evaluate_trend_alerts job block not found"
         assert "coalesce=True" in block
@@ -242,7 +242,7 @@ class TestAlertJobsCronRegistration:
 
 
 class TestSchedulerJobsDelegation:
-    """Tests for SchedulerJobs facade delegation to AlertJobs (T019).
+    """Tests for SchedulerJobs facade delegation to AlertJobs.
 
     SchedulerJobs is a composition root — evaluate_trend_alerts on the facade
     delegates to the internal AlertJobs instance. This mirrors the existing
@@ -344,7 +344,7 @@ class TestSchedulerJobsDelegation:
 
 
 class TestSchedulerModuleExports:
-    """Tests for scheduler module __init__.py exports (T019)."""
+    """Tests for scheduler module __init__.py exports."""
 
     def test_alert_jobs_exported_from_scheduler_module(self) -> None:
         """AlertJobs is exported from the scheduler package __init__.py."""

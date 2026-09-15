@@ -159,6 +159,12 @@ class NarrativeSchemaExtractorNode:
                 url=url,
             )
             state.setdefault("degraded_fields", []).extend(["narrative", "schema"])
+            state.setdefault("degradation_reasons", {}).update(
+                {
+                    "narrative": f"LLM narrative/schema extraction failed: {exc!s}",
+                    "schema": f"LLM narrative/schema extraction failed: {exc!s}",
+                }
+            )
             return state
 
         await self._persist_all(state, result, url)
@@ -185,6 +191,9 @@ class NarrativeSchemaExtractorNode:
         if not article_id:
             log.warning("narrative_missing_article_id_degraded", url=url)
             state.setdefault("degraded_fields", []).append("narrative")
+            state.setdefault("degradation_reasons", {})["narrative"] = (
+                "article_id missing — EventNode link impossible"
+            )
         else:
             try:
                 narrative_id = await self._graph_writer.merge_narrative(
@@ -212,6 +221,9 @@ class NarrativeSchemaExtractorNode:
                     url=url,
                 )
                 state.setdefault("degraded_fields", []).append("narrative")
+                state.setdefault("degradation_reasons", {})["narrative"] = (
+                    f"narrative persist failed: {exc!s}"
+                )
 
         # --- Schema persistence (MERGEd by event_type, no article_id needed) ---
         try:
@@ -237,6 +249,9 @@ class NarrativeSchemaExtractorNode:
                 url=url,
             )
             state.setdefault("degraded_fields", []).append("schema")
+            state.setdefault("degradation_reasons", {})["schema"] = (
+                f"schema persist failed: {exc!s}"
+            )
 
         log.info(
             "narrative_schema_extracted",

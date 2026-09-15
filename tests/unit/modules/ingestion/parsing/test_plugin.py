@@ -64,7 +64,6 @@ class TestSourceParserPluginDecorator:
         from modules.ingestion.parsing import plugin
 
         plugin._plugin_registry.clear()
-        plugin._plugin_decorators.clear()
 
     def test_decorator_registers_plugin(self):
         """Test that decorator registers plugin."""
@@ -364,3 +363,13 @@ class ExternalParser:
                         scan_and_load_external_plugins()
 
                         assert mock_discover.call_count == 2
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#178)."""
+
+    def test_plugin_decorators_global_removed(self):
+        """#178: the never-read ``_plugin_decorators`` global is gone."""
+        from modules.ingestion.parsing import plugin
+
+        assert not hasattr(plugin, "_plugin_decorators")

@@ -231,3 +231,179 @@ class TestSourceRegistryClose:
         await registry.close()
 
         mock_parser.close.assert_called_once()
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#179)."""
+
+    @pytest.fixture
+    def registry(self):
+        """Create SourceRegistry instance."""
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        return SourceRegistry(fetcher=MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_close_continues_after_a_parser_fails(self, registry):
+        """#179: a raising parser must not stop the remaining parsers."""
+        failing = MagicMock()
+        failing.close = AsyncMock(side_effect=RuntimeError("close boom"))
+        healthy = MagicMock()
+        healthy.close = AsyncMock()
+
+        registry.register_parser("failing", failing)
+        registry.register_parser("healthy", healthy)
+
+        await registry.close()
+
+        failing.close.assert_awaited_once()
+        healthy.close.assert_awaited_once()
+
+
+class TestSourceRegistryLoadPlugins:
+    """Tests for load_plugins() registration path.
+
+    Regression: discovered plugins were only logged, never instantiated or
+    registered into _parsers, so plugin parsers were unusable via get_parser.
+    """
+
+    @pytest.fixture
+    def isolated_plugin_registry(self):
+        """Snapshot and clear the global plugin registry for isolation."""
+        from modules.ingestion.parsing import plugin
+
+        saved = dict(plugin._plugin_registry)
+        plugin._plugin_registry.clear()
+        yield plugin._plugin_registry
+        plugin._plugin_registry.clear()
+        plugin._plugin_registry.update(saved)
+
+    def _register_plugin_class(self, name: str, source_type: str, fail_init: bool = False):
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.plugin import PluginMetadata, source_parser_plugin
+
+        class _FakeParser(BaseSourceParser):
+            def __init__(self, fetcher):
+                if fail_init:
+                    raise RuntimeError("boom")
+                self.fetcher = fetcher
+
+            async def parse(self, config: SourceConfig, force: bool = False):
+                return []
+
+        metadata = PluginMetadata(
+            name=name,
+            version="1.0.0",
+            description="test plugin",
+            supported_types=[source_type],
+            capabilities=[],
+        )
+        # Decorator registers (class, metadata) into the global registry.
+        wrapper = source_parser_plugin(name=name, supported_types=[source_type])
+        registered_cls = wrapper(_FakeParser)
+        return registered_cls, metadata
+
+    def test_load_plugins_registers_discovered_parsers(self, tmp_path, isolated_plugin_registry):
+        """Discovered plugin classes are instantiated with the fetcher and
+        registered for every declared source type."""
+        from modules.ingestion.parsing.plugin import get_registered_plugins
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        self._register_plugin_class("test_plugin", "custom_test_type")
+        assert "test_plugin" in get_registered_plugins()
+
+        mock_fetcher = MagicMock()
+        registry = SourceRegistry(fetcher=mock_fetcher)
+        loaded = registry.load_plugins([str(tmp_path)])  # empty scan dir
+
+        assert "test_plugin" in loaded
+        parser = registry.get_parser("custom_test_type")
+        assert parser is not None
+        assert parser.fetcher is mock_fetcher
+        assert registry.get_parser_metadata("custom_test_type") is not None
+
+    def test_load_plugins_skips_failing_plugin_without_blocking(
+        self, tmp_path, isolated_plugin_registry
+    ):
+        """A plugin that fails to instantiate is skipped with a warning;
+        remaining plugins still register."""
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        self._register_plugin_class("broken_plugin", "broken_type", fail_init=True)
+        self._register_plugin_class("good_plugin", "good_type")
+
+        registry = SourceRegistry(fetcher=MagicMock())
+        loaded = registry.load_plugins([str(tmp_path)])
+
+        assert "broken_plugin" in loaded  # discovered, though not usable
+        assert registry.get_parser("broken_type") is None
+        assert registry.get_parser("good_type") is not None
+
+    def test_load_plugins_does_not_override_builtin_types(self, tmp_path, isolated_plugin_registry):
+        """A plugin declaring an already-registered source type must not
+        replace the built-in parser."""
+        from modules.ingestion.parsing.plugin import PluginMetadata
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        # Register a plugin claiming the built-in "rss" type directly in the
+        # global registry (bypassing the default-parser guard).
+        class _RssHijacker:
+            def __init__(self, fetcher):
+                self.fetcher = fetcher
+
+        from modules.ingestion.parsing import plugin as plugin_mod
+
+        plugin_mod._plugin_registry["rss_hijacker"] = (
+            _RssHijacker,
+            PluginMetadata(
+                name="rss_hijacker",
+                version="1.0.0",
+                description="tries to override rss",
+                supported_types=["rss"],
+                capabilities=[],
+            ),
+        )
+
+        registry = SourceRegistry(fetcher=MagicMock())
+        registry.load_plugins([str(tmp_path)])
+
+        # Built-in RSSParser survives
+        from modules.ingestion.parsing.rss_parser import RSSParser
+
+        assert isinstance(registry.get_parser("rss"), RSSParser)
+
+
+class TestT008LowFixes:
+    """Regression tests for T008 LOW findings (#256, #179)."""
+
+    def test_external_plugin_discovery_runs_once(self):
+        """#256: no redundant discovery pass before scan_and_load_external_plugins."""
+        from modules.ingestion.parsing import registry as registry_module
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        reg = SourceRegistry(fetcher=MagicMock())
+        with (
+            patch.object(registry_module, "scan_and_load_external_plugins") as mock_scan,
+            patch.object(registry_module, "get_registered_plugins", return_value={}),
+        ):
+            reg.load_plugins(["/tmp/plugins"])
+
+        mock_scan.assert_called_once_with(["/tmp/plugins"])
+
+    @pytest.mark.asyncio
+    async def test_close_continues_after_one_parser_fails(self):
+        """#179: one failing close() must not stop the remaining parsers."""
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        reg = SourceRegistry(fetcher=MagicMock())
+        bad = MagicMock()
+        bad.close = AsyncMock(side_effect=RuntimeError("boom"))
+        good = MagicMock()
+        good.close = AsyncMock()
+        reg.register_parser("bad", bad)
+        reg.register_parser("good", good)
+
+        await reg.close()
+
+        good.close.assert_awaited_once()

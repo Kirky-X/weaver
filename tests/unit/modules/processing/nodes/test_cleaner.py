@@ -139,7 +139,7 @@ class TestCleanerNodeBasic:
     async def test_llm_publish_time_backfill_when_raw_missing(
         self, mock_llm, mock_budget, mock_prompt_loader
     ):
-        """REM-002: When raw.publish_time is None, LLM-extracted publish_time backfills cleaned.publish_time."""
+        """When raw.publish_time is None, LLM-extracted publish_time backfills cleaned.publish_time."""
         # RawArticle is imported at module top from modules.ingestion.domain.models
         raw_no_pt = RawArticle(
             url="https://example.com/article",

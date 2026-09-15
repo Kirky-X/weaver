@@ -127,37 +127,42 @@ class TestSourceConfigRepoGetByUrl:
 
 
 class TestSourceConfigRepoGetCredibility:
-    """Tests for get_credibility method."""
+    """Tests for get_credibility method (CORR#260 two-tier lookup).
+
+    Primary path queries ``source_authorities.host`` (unique, exact match)
+    and returns a float authority. Fallback scans ``source_configs`` and
+    compares the *parsed URL authority* (not a substring match).
+    """
 
     @pytest.mark.asyncio
     async def test_get_credibility_found(self):
-        """Test get_credibility returns score when found."""
+        """Primary hit: source_authorities row returns the authority score."""
         mock_pool = MagicMock()
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        mock_source = MagicMock()
-        mock_source.credibility = 0.85
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_source
-        mock_session.execute.return_value = mock_result
+        auth_result = MagicMock()
+        auth_result.scalar_one_or_none.return_value = 0.85
+        mock_session.execute = AsyncMock(return_value=auth_result)
 
         repo = SourceConfigRepo(mock_pool)
         credibility = await repo.get_credibility("example.com")
 
         assert credibility == 0.85
+        assert mock_session.execute.await_count == 1
 
     @pytest.mark.asyncio
     async def test_get_credibility_not_found(self):
-        """Test get_credibility returns None when not found."""
+        """Miss on both tiers returns None."""
         mock_pool = MagicMock()
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.return_value = mock_result
+        auth_result = MagicMock()
+        auth_result.scalar_one_or_none.return_value = None
+        fallback_result = MagicMock()
+        fallback_result.scalars.return_value = iter([])  # no config rows
+        mock_session.execute = AsyncMock(side_effect=[auth_result, fallback_result])
 
         repo = SourceConfigRepo(mock_pool)
         credibility = await repo.get_credibility("unknown.com")
@@ -166,17 +171,21 @@ class TestSourceConfigRepoGetCredibility:
 
     @pytest.mark.asyncio
     async def test_get_credibility_null_value(self):
-        """Test get_credibility returns None when credibility is null."""
+        """Fallback row with NULL credibility is skipped (returns None)."""
         mock_pool = MagicMock()
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
+        auth_result = MagicMock()
+        auth_result.scalar_one_or_none.return_value = None
+
         mock_source = MagicMock()
+        mock_source.url = "https://example.com/feed.xml"
         mock_source.credibility = None
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_source
-        mock_session.execute.return_value = mock_result
+        fallback_result = MagicMock()
+        fallback_result.scalars.return_value = iter([mock_source])
+        mock_session.execute = AsyncMock(side_effect=[auth_result, fallback_result])
 
         repo = SourceConfigRepo(mock_pool)
         credibility = await repo.get_credibility("example.com")

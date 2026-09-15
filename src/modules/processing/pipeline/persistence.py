@@ -293,7 +293,12 @@ class PipelinePersistence:
         # All articles in batch failed due to PG error
         for state in valid_states:
             batch_failed += 1
-            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+            self._log_progress(
+                state["raw"].url if state.get("raw") else "unknown",
+                batch_total,
+                batch_completed,
+                batch_failed,
+            )
         # Log article IDs for debugging
         for state in valid_states:
             if state.get("article_id"):
@@ -397,12 +402,19 @@ class PipelinePersistence:
                                 mark_error=str(mark_exc),
                             )
                 # Success count
-                batch_completed += len(result.get("article_ids", []))
+                persisted_ids_raw = result.get("article_ids", [])
+                batch_completed += len(persisted_ids_raw)
+                # set: the membership test below runs once per state — a list
+                # would make this section O(len(valid_states) ** 2).
+                persisted_ids = set(persisted_ids_raw)
                 # Log progress for each successful article
                 for state in valid_states:
-                    if state.get("article_id") in result.get("article_ids", []):
+                    if state.get("article_id") in persisted_ids:
                         self._log_progress(
-                            state["raw"].url, batch_total, batch_completed, batch_failed
+                            state["raw"].url if state.get("raw") else "unknown",
+                            batch_total,
+                            batch_completed,
+                            batch_failed,
                         )
                 return batch_completed, batch_failed
             except Exception as exc:
@@ -441,7 +453,12 @@ class PipelinePersistence:
                     uuid.UUID(state["article_id"]), self._graph_writer.done_status
                 )
             batch_completed += 1
-            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+            self._log_progress(
+                state["raw"].url if state.get("raw") else "unknown",
+                batch_total,
+                batch_completed,
+                batch_failed,
+            )
             return batch_completed, batch_failed
         except Exception as exc:
             return await self._handle_graph_persist_failure(
@@ -514,7 +531,12 @@ class PipelinePersistence:
                 )
 
         batch_failed += 1
-        self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+        self._log_progress(
+            state["raw"].url if state.get("raw") else "unknown",
+            batch_total,
+            batch_completed,
+            batch_failed,
+        )
         return batch_completed, batch_failed
 
     def _log_progress(self, url: str, total: int, completed: int, failed: int) -> None:
