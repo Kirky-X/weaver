@@ -1059,9 +1059,9 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID                 | 触发器   | 间隔              | 说明                              |
 | ----------------------- | -------- | ----------------- | --------------------------------- |
-| `cleanup_old_synced`    | Cron     | 配置值 (默认每天) | 清理旧同步记录 (保留 7 天)        |
-| `llm_failure_cleanup`   | Interval | 24 小时           | 清理 LLM 失败记录 (保留 3 天)     |
-| `llm_usage_raw_cleanup` | Interval | 6 小时            | 清理 LLM 使用原始记录 (保留 2 天) |
+| `cleanup_old_synced`    | Cron     | 配置值 (默认每天 03:30) | 清理旧同步记录 (保留天数可配置，默认 7 天)  |
+| `llm_failure_cleanup`   | Interval | 配置值 (默认 24 小时)   | 清理 LLM 失败记录 (保留天数可配置，默认 3 天) |
+| `llm_usage_raw_cleanup` | Interval | 配置值 (默认 6 小时)    | 清理 LLM 使用原始记录 (保留天数可配置，默认 2 天) |
 
 #### 3. Pipeline 重试任务
 
@@ -1088,7 +1088,7 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID               | 触发器   | 间隔   | 说明                               |
 | --------------------- | -------- | ------ | ---------------------------------- |
-| `llm_usage_aggregate` | Interval | 5 分钟 | LLM 使用量 Redis → PostgreSQL 聚合 |
+| `llm_usage_aggregate` | Interval | 配置值 (默认 5 分钟) | LLM 使用量 Redis → PostgreSQL 聚合 |
 
 #### 7. 源评分任务 (Source Scoring)
 
@@ -1100,16 +1100,54 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID                  | 触发器   | 间隔    | 说明                   |
 | ------------------------ | -------- | ------- | ---------------------- |
-| `community_auto_check`   | Interval | 30 分钟 | 社区自动检测检查       |
-| `community_health_check` | Interval | 6 小时  | 社区健康检查和自动修复 |
+| `community_auto_check`   | Interval | 配置值 (默认 30 分钟) | 社区自动检测检查       |
+| `community_health_check` | Interval | 配置值 (默认 6 小时)  | 社区健康检查和自动修复 |
 
 #### 9. 指标更新任务 (Metrics)
 
 | 任务 ID                         | 触发器   | 间隔   | 说明                           |
 | ------------------------------- | -------- | ------ | ------------------------------ |
-| `update_persist_status_metrics` | Interval | 5 分钟 | 更新 Prometheus 持久化状态指标 |
+| `update_persist_status_metrics` | Interval | 配置值 (默认 5 分钟) | 更新 Prometheus 持久化状态指标 |
 
-#### 10. Memory Consolidation (条件性)
+#### 10. 事件分发任务 (Outbox)
+
+| 任务 ID                    | 触发器   | 间隔    | 说明                                   |
+| -------------------------- | -------- | ------- | -------------------------------------- |
+| `dispatch_outbox_events`   | Interval | 30 秒   | 事务型 Outbox 事件分发（at-least-once）  |
+
+#### 11. BM25 索引维护 (条件性)
+
+需要 `settings.bm25_rebuild_enabled = true` 才注册:
+
+| 任务 ID              | 触发器   | 间隔              | 说明                           |
+| -------------------- | -------- | ----------------- | ------------------------------ |
+| `bm25_rebuild_index` | Interval | 配置值 (默认 5 分钟) | BM25 检索索引增量重建          |
+
+#### 12. 安全与数据同步任务
+
+| 任务 ID                    | 触发器 | 间隔              | 说明                             |
+| -------------------------- | ------ | ----------------- | -------------------------------- |
+| `sync_phishtank_data`      | Interval | 配置值 (默认 6 小时) | PhishTank 钓鱼 URL 数据同步     |
+| `check_expiring_api_keys`  | Cron   | 每天 02:00        | 检查并轮换即将过期的 API 密钥    |
+
+#### 13. 分析与简报任务
+
+| 任务 ID                      | 触发器   | 间隔              | 说明                                    |
+| ---------------------------- | -------- | ----------------- | --------------------------------------- |
+| `daily_briefing_generation`  | Cron     | 每天 08:00 (上海) | 每日简报生成（4 个分类）                |
+| `shift_detection`            | Interval | 配置值 (默认 60 分钟) | 情感偏移检测                           |
+| `daily_hotness_decay`        | Cron     | 每天 03:00        | 知识缓存热度衰减                        |
+| `evaluate_trend_alerts`      | Cron     | 每小时整点        | 趋势告警规则评估（trend_spike/trend_drop/sentiment_shift） |
+
+#### 14. 因果推理任务 (条件性)
+
+需要 CausalInferenceService 初始化成功才注册:
+
+| 任务 ID            | 触发器   | 间隔   | 说明                          |
+| ------------------ | -------- | ------ | ----------------------------- |
+| `causal_inference` | Interval | 2 小时 | 从图数据库提取因果关系边      |
+
+#### 15. Memory Consolidation (条件性)
 
 需要 Memory Service 可用才注册:
 

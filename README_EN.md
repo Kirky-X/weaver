@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Weaver Logo" width="180">
 
-[![Version](https://img.shields.io/github/v/release/Kirky-X/weaver.svg)](https://github.com/Kirky-X/weaver/releases) [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE) [![FastAPI](https://img.shields.io/badge/fastapi-0.135+-teal.svg)](https://fastapi.tiangolo.com/)
+[![Version](https://img.shields.io/github/v/release/Kirky-X/weaver.svg)](https://github.com/Kirky-X/weaver/releases) [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE) [![FastAPI](https://img.shields.io/badge/fastapi-%E2%89%A50.135.1-teal.svg)](https://fastapi.tiangolo.com/)
 
 [中文](README.md) | **English**
 

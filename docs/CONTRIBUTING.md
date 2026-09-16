@@ -497,11 +497,16 @@ graph LR
 
 ### 测试结构
 
-项目包含 300+ 个测试文件,分为：
+项目包含 300+ 个测试文件，分为：
 
-- **单元测试** (`tests/unit/`) - 测试独立模块和函数
-- **集成测试** (`tests/integration/`) - 测试模块间交互
-- **端到端测试** (`tests/e2e/`) - 完整流程测试 (需要 Docker)
+- **单元测试** (`tests/unit/`) — 测试独立模块和函数
+- **集成测试** (`tests/integration/`) — 测试模块间交互
+- **端到端测试** (`tests/e2e/`) — 完整流程测试（需要 Docker）
+- **性能测试** (`tests/performance/`) — 性能基准测试（标记 `performance` / `benchmark`）
+- **架构测试** (`tests/arch/`) — 架构约束与依赖关系验证
+- **配置测试** (`tests/config/`) — 配置加载与校验
+- **脚本测试** (`tests/scripts/`) — CLI 脚本功能验证
+- **测试夹具** (`tests/fixtures/`) — 共享测试数据与 fixture
 
 ### 运行测试
 

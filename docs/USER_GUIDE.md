@@ -910,9 +910,11 @@ curl "http://localhost:8000/api/v1/search?q=test" \
 
 ```bash
 # 测试 Neo4j 连接
-# 根 /health 出于安全考虑只返回整体状态，依赖明细需调用管理员鉴权端点
+# 根 /health 出于安全考虑只返回整体状态，依赖明细需调用鉴权端点
+# 基础明细（普通 API Key）：/api/v1/health/dependencies
+# 完整明细（Admin API Key，含 LLM/spaCy/BM25）：/api/v1/system/health/dependencies
 curl "http://localhost:8000/api/v1/system/health/dependencies" \
-  -H "X-API-Key: your-api-key"
+  -H "X-API-Key: your-admin-api-key"
 # 查看响应中的 neo4j 状态
 ```
 

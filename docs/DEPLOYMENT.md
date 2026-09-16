@@ -428,7 +428,7 @@ LIMIT 10;
 
 ### `/health` 端点
 
-Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；明细请调用 `GET /api/v1/health/dependencies`（需 Admin API Key，返回 `data.dependencies`）。
+Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；基础明细请调用 `GET /api/v1/health/dependencies`（需普通 API Key），完整明细（含 LLM、spaCy、BM25）请调用 `GET /api/v1/system/health/dependencies`（需 Admin API Key）。
 
 **健康检查流程：**
 
@@ -481,7 +481,7 @@ curl http://localhost:8000/health
 | `timeout`     | 5 秒超时   | 检查服务性能和网络延迟 |
 | `unavailable` | 连接池未初始化 | 检查应用启动日志    |
 
-（以上明细状态仅出现在 `GET /api/v1/health/dependencies`（Admin Key，返回 `data.dependencies`，不存在 `/api/v1/system/health/dependencies`）返回中；公开 `/health` 仅返回整体 `healthy/unhealthy`。明细失败项仅暴露 `error_type`（异常类名），完整错误仅记服务端日志。）
+（以上明细状态出现在 `GET /api/v1/health/dependencies`（普通 API Key，返回基础 `data.checkes`）或 `GET /api/v1/system/health/dependencies`（Admin Key，返回完整 `data.dependencies` 含 LLM/spaCy/BM25）返回中；公开 `/health` 仅返回整体 `healthy/unhealthy`。明细失败项仅暴露 `error_type`（异常类名），完整错误仅记服务端日志。）
 
 #### 超时配置
 
@@ -554,7 +554,7 @@ Weaver 暴露 Prometheus 标准格式的指标端点。
 curl -H "X-API-Key: your-api-key" http://localhost:8000/metrics
 ```
 
-> `/metrics` 默认要求认证（`WEAVER_API__REQUIRE_AUTH_FOR_METRICS` 默认为 `true`）。内网监控等场景可通过设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证。
+> `/metrics` 默认要求认证（`WEAVER_API__REQUIRE_AUTH_FOR_METRICS` 默认为 `true`），请求时需携带 `X-API-Key` 请求头。内网监控等场景可通过设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证——**注意：关闭后端点完全公开，任何人均可读取系统指标，仅在可信网络内使用**。
 
 #### 响应格式
 
@@ -789,7 +789,7 @@ http://jaeger:16686
 
 **症状:** `/health` 返回的 `data.status` 为 `unhealthy`
 
-> **注意**: `/health` 端点始终返回 HTTP 200 状态码，且仅返回整体状态。需要检查响应体中的 `data.status` 字段；各依赖明细请调用需认证的 `/api/v1/health/dependencies`。
+> **注意**: `/health` 端点始终返回 HTTP 200 状态码，且仅返回整体状态。需要检查响应体中的 `data.status` 字段；基础明细请调用 `/api/v1/health/dependencies`（普通 Key），完整明细请调用 `/api/v1/system/health/dependencies`（Admin Key）。
 
 #### 诊断步骤:
 
@@ -797,8 +797,11 @@ http://jaeger:16686
 # 检查整体状态
 curl -s http://localhost:8000/health | jq '.data.status'
 
-# 检查各依赖明细（需 Admin API Key）
-curl -s http://localhost:8000/api/v1/health/dependencies -H "X-API-Key: $WEAVER_API__ADMIN_API_KEY" | jq '.data.dependencies'
+# 检查各依赖明细（普通 API Key — 基础聚合）
+curl -s http://localhost:8000/api/v1/health/dependencies -H "X-API-Key: $WEAVER_API__API_KEY" | jq '.data'
+
+# 检查各依赖明细（Admin API Key — 完整明细，含 LLM/spaCy/BM25）
+curl -s http://localhost:8000/api/v1/system/health/dependencies -H "X-API-Key: $WEAVER_API__ADMIN_API_KEY" | jq '.data.dependencies'
 
 # 检查 PostgreSQL 连接
 psql -h localhost -U postgres -d weaver -c "SELECT 1"

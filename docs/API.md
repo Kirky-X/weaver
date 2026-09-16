@@ -204,9 +204,9 @@ Host: api.weaver.example.com
 }
 ```
 
-> 需要各依赖明细请使用 `GET /api/v1/health/dependencies`（需 Admin API Key；`system_router` 无额外前缀，实际路径就是该地址，不存在 `/api/v1/system/health/dependencies`——见 `tests/integration/fast/test_monitoring_fast.py:F-M-02`）。
+> 需要各依赖明细请使用 `GET /api/v1/health/dependencies`（需普通 API Key，返回 `data.status` + `data.checkes`）或 `GET /api/v1/system/health/dependencies`（需 Admin API Key，额外返回 LLM 提供商、spaCy、BM25 等明细）。两个端点均可达，分别由 `health_router`（前缀 `/health`）和 `system_router`（无额外前缀）提供。
 > 该端点返回 `data.dependencies`（键为 `relational/graph/cache/llm`），整体状态为 `healthy`/`degraded`；失败项仅暴露 `error_type`（异常类名），完整错误文本只记服务端日志（CWE-200）。
-> 注意：`src/api/endpoints/health.py` 中另有一个同路径的 API-Key 版本，但因 `system_router` 先注册而被遮蔽，实际不可达；以 Admin 版本为准。
+> `src/api/endpoints/health.py` 提供 `GET /api/v1/health/dependencies`（普通 API Key），返回基础聚合状态；`src/api/endpoints/system.py` 提供 `GET /api/v1/system/health/dependencies`（Admin API Key），返回完整明细（含 LLM、spaCy、BM25）。两个端点路径不同，均可达。
 
 #### 检查状态说明
 
@@ -255,8 +255,12 @@ content-type: application/json
 **需 Admin Key 的明细端点示例**
 
 ```bash
-# 各依赖明细（需 Admin API Key）
+# 各依赖明细（普通 API Key — 基础聚合）
 curl -s https://api.weaver.example.com/api/v1/health/dependencies \
+  -H "X-API-Key: your-api-key" | jq '.data'
+
+# 各依赖明细（Admin API Key — 完整明细，含 LLM/spaCy/BM25）
+curl -s https://api.weaver.example.com/api/v1/system/health/dependencies \
   -H "X-API-Key: your-admin-api-key" | jq '.data'
 
 # 输出示例
@@ -285,7 +289,7 @@ async def check_health():
         if response.status_code == 200:
             data = response.json()["data"]
             print(f"服务健康: {data['status']}")
-            print("注：/health 仅返回整体状态，明细请调用 /api/v1/health/dependencies")
+            print("注：/health 仅返回整体状态，明细请调用 /api/v1/health/dependencies（普通 Key）或 /api/v1/system/health/dependencies（Admin Key）")
         else:
             print(f"服务不健康: {response.status_code}")
             print(response.json())

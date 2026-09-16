@@ -193,8 +193,8 @@ uv run scripts/tools.py check-logging --fix-hint
 | `validate`          | 验证环境服务（postgres/neo4j/redis/llm/embedding）  |
 | `seed`              | 种子知识图谱关系类型与别名到 RelationType 表        |
 | `check-logging`     | 扫描违禁 `logging` 模块用法（pre-commit hook 调用） |
-| `monitor`           | 数据库索引监控（查未使用索引）                      |
-| `regenerate-titles` | 用 LLM 重生成社区（community）标题                  |
+| `monitor`           | 数据库索引监控（查未使用索引），参数：`--check-indexes`（检查未使用索引）、`--threshold`（最小扫描次数阈值，默认 10） |
+| `regenerate-titles` | 用 LLM 重生成社区（community）标题（无额外参数）    |
 
 ---
 
