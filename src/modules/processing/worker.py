@@ -44,6 +44,8 @@ class PipelineWorker:
         self._processing_mode: Literal["fast", "deep"] = processing_mode
         # 单批 wall-clock 硬超时；None = 按批量自动计算（600s/篇 + 300s）
         self._batch_hard_timeout = batch_hard_timeout
+        # 硬超时批次已重入队过的文章：每篇仅自动重试一次
+        self._timeout_retried: set[str] = set()
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -113,12 +115,22 @@ class PipelineWorker:
                         queue_len=await self._queue.length(),
                     )
                 except TimeoutError:
-                    # requeue this batch for shutdown/reprocess; do not abort loop
-                    log.error(
-                        "batch_processing_hard_timeout",
-                        count=len(articles),
-                        mode=self._processing_mode,
-                    )
+                    # 挂死是间歇性的（上游限流/网络摆动）——首次超时的文章
+                    # 重新入队给一次重试机会；已重试过的不再入队，防止
+                    # 永久挂死的文章造成死循环。
+                    retried: list[str] = []
+                    for aid in article_ids:
+                        if aid not in self._timeout_retried:
+                            self._timeout_retried.add(aid)
+                            retried.append(aid)
+                    if retried:
+                        log.warning(
+                            "batch_hard_timeout_requeue",
+                            count=len(retried),
+                            article_ids=retried,
+                        )
+                        for aid in retried:
+                            await self._queue.enqueue(aid, task_id=task_id)
                     await asyncio.sleep(self._settings.worker_error_delay)
 
             except asyncio.CancelledError:

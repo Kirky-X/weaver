@@ -104,3 +104,49 @@ class TestWorkerHardTimeout:
         assert pipeline.process_batch_fast.await_count == 2
         # 第二批完成后队列被消费干净
         queue.length.assert_called()
+
+
+class TestTimeoutBatchRequeue:
+    @pytest.mark.asyncio
+    async def test_timed_out_batch_requeued_once(self) -> None:
+        """超时批次的文章重入队一次；重试仍挂死则不再入队（防死循环）。"""
+        queue = AsyncMock()
+        # 批1 两篇挂死；批2 是重入队批次再挂死；之后空队列
+        queue.dequeue_batch = AsyncMock(
+            side_effect=[[("id-1", None), ("id-2", None)], [("id-1", None)], []]
+        )
+        queue.enqueue = AsyncMock(return_value=True)
+        queue.length = AsyncMock(return_value=0)
+        repo = AsyncMock()
+        repo.get_by_ids = AsyncMock(side_effect=lambda ids: [MagicMock() for _ in ids])
+        pipeline = AsyncMock()
+
+        settings = _make_settings()
+        settings.worker_batch_size = 2
+        worker = PipelineWorker(
+            queue=queue,
+            pipeline=pipeline,
+            article_repo=repo,
+            pipeline_settings=settings,
+            processing_mode="fast",
+            batch_hard_timeout=0.2,
+        )
+
+        async def _hang(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        pipeline.process_batch_fast = AsyncMock(side_effect=_hang)
+
+        # 批2 之后队列为空，worker 会空转——限制重试路径验证后手动结束
+        async def _stop_after_second_timeout() -> None:
+            pass
+
+        worker._running = True
+        consume = asyncio.wait_for(worker._consume_loop(), timeout=3)
+        with pytest.raises(asyncio.TimeoutError):
+            await consume
+
+        # 两篇各重入队一次（共 2 次 enqueue），重试挂死后不再入队
+        assert queue.enqueue.await_count == 2
+        enqueued_ids = [c.args[0] for c in queue.enqueue.await_args_list]
+        assert sorted(enqueued_ids) == ["id-1", "id-2"]
