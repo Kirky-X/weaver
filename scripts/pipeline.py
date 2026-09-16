@@ -1026,6 +1026,17 @@ async def _wait_for_llm_processing(
 
         elapsed = int(time.time() - llm_start)
         print(f"    Waiting... {incomplete}/{total} articles still processing ({elapsed}s)")
+        # 每 60s 打印一次全部未完成协程的栈：faulthandler 的线程 dump 对
+        # asyncio 不可见（协程不占 OS 线程），worker 停摆时这里能看到它
+        # 卡在哪个 await 上。
+        if elapsed % 60 < 10:
+            import sys as _sys
+
+            for task in asyncio.all_tasks():
+                if task.done() or task is asyncio.current_task():
+                    continue
+                print(f"---- coroutine stack: {task.get_name()} ----")
+                task.print_stack(file=_sys.stdout)
         await asyncio.sleep(10)
 
     articles = await client.list_articles(page=1, page_size=1, is_news=True)
@@ -1178,6 +1189,16 @@ async def cmd_test(args: argparse.Namespace) -> int:
     start_time = time.time()
     server: Any = None
     server_ctx: ServerContext | None = None
+
+    # 诊断插桩：每 4 分钟把全部线程栈 dump 到文件（worker 停摆定位用）。
+    # faulthandler 为标准库，无性能影响；生产环境同样可安全保留。
+    import faulthandler
+
+    _stack_dump_path = Path("data") / "faulthandler_stacks.log"
+    # noqa(SIM115): faulthandler 需要长生命周期 file 句柄，进程退出时由
+    # dump_traceback_later 内部管理，不能用 context manager 关闭。
+    _stack_dump_file = open(_stack_dump_path, "a", encoding="utf-8")  # noqa: SIM115
+    faulthandler.dump_traceback_later(240, repeat=True, file=_stack_dump_file)
 
     try:
         # Setup server

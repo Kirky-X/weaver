@@ -35,12 +35,15 @@ class PipelineWorker:
         article_repo: ArticleRepo,
         pipeline_settings: PipelineProcessSettings,
         processing_mode: Literal["fast", "deep"] = "deep",
+        batch_hard_timeout: float | None = None,
     ) -> None:
         self._queue = queue
         self._pipeline = pipeline
         self._article_repo = article_repo
         self._settings = pipeline_settings
         self._processing_mode: Literal["fast", "deep"] = processing_mode
+        # 单批 wall-clock 硬超时；None = 按批量自动计算（600s/篇 + 300s）
+        self._batch_hard_timeout = batch_hard_timeout
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -86,24 +89,37 @@ class PipelineWorker:
 
                 # Process batch — dispatch by processing_mode (fix):
                 # fast mode skips Phase 2/3 (only Phase 1 + vectorization).
+                #
+                # Wall-clock 硬超时：stage 内部 await 上游 LLM 调用，当连接
+                # 挂死（上游既不报错也不返回数据，agnes 免费档实测出现过）
+                # 时 litellm 的 per-request timeout 不覆盖该路径，worker 会
+                # 被永久饿死。wait_for 兜底保证循环继续；本批文章由
+                # shutdown/reprocess 路径重新入队。
+                hard_timeout = self._batch_hard_timeout or len(articles) * 600 + 300
                 if self._processing_mode == "fast":
-                    await self._pipeline.process_batch_fast(
-                        articles,
-                        article_ids=article_ids,
-                        task_id=task_id,
+                    process_coro = self._pipeline.process_batch_fast(
+                        articles, article_ids=article_ids, task_id=task_id
                     )
                 else:
-                    await self._pipeline.process_batch(
-                        articles,
-                        article_ids=article_ids,
-                        task_id=task_id,
+                    process_coro = self._pipeline.process_batch(
+                        articles, article_ids=article_ids, task_id=task_id
                     )
-                log.info(
-                    "batch_processed",
-                    count=len(articles),
-                    mode=self._processing_mode,
-                    queue_len=await self._queue.length(),
-                )
+                try:
+                    await asyncio.wait_for(process_coro, timeout=hard_timeout)
+                    log.info(
+                        "batch_processed",
+                        count=len(articles),
+                        mode=self._processing_mode,
+                        queue_len=await self._queue.length(),
+                    )
+                except TimeoutError:
+                    # requeue this batch for shutdown/reprocess; do not abort loop
+                    log.error(
+                        "batch_processing_hard_timeout",
+                        count=len(articles),
+                        mode=self._processing_mode,
+                    )
+                    await asyncio.sleep(self._settings.worker_error_delay)
 
             except asyncio.CancelledError:
                 log.info("worker_cancelled")
