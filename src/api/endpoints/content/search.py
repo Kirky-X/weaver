@@ -26,9 +26,9 @@ from api.dependencies import (
     get_pipeline_service,
     get_vector_repo,
 )
+from api.endpoints.content.search_cache import get_cached_search, store_search
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from api.endpoints.content.search_cache import get_cached_search, store_search
 from core.llm import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool, PipelineService
@@ -192,7 +192,7 @@ async def search_unified(
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
-    use_explicit_mode = explicit_mode in ("local", "global")
+    use_explicit_mode = explicit_mode in ("local", "global", "hybrid")
 
     # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
@@ -212,6 +212,28 @@ async def search_unified(
         # Explicit mode: bypass intent routing, call engines directly
         if explicit_mode == "local":
             engine_result = await local_engine.search(q)
+        elif explicit_mode == "hybrid":
+            # Hybrid needs the query embedding from the caller — the engine
+            # has no LLM reference and silently skips its vector branch when
+            # embedding is None (BM25-only fallback).
+            query_emb = (await llm.embed_default([q]))[0]
+            hybrid_results = await hybrid_engine.search(q, embedding=query_emb)
+            engine_result = {
+                "answer": "",
+                "context_tokens": 0,
+                "confidence": 0.6,
+                "entities": [],
+                "sources": [
+                    {
+                        "url": f"/api/v1/articles/{r.doc_id}",
+                        "title": r.title,
+                        "snippet": (r.content or "")[:200],
+                        "score": r.score,
+                    }
+                    for r in hybrid_results
+                ],
+                "metadata": {"retrieval": "hybrid_rrf"},
+            }
         else:  # global
             engine_result = await global_engine.search(q, community_level=community_level)
         classification = IntentClassification(
@@ -859,7 +881,6 @@ async def _semantic_temporal_search(
         timeout=30.0,
     )
 
-    # Filter out legacy dirty data (event_time=0 from writer bug)
     all_events = [e for e in all_events if _is_valid_event_timestamp(e.get("timestamp"))]
 
     if not all_events:
@@ -963,7 +984,6 @@ async def search_temporal(
                 timeout=30.0,
             )
 
-        # Force filter: exclude legacy dirty data (timestamp=0 from writer bug)
         events = [e for e in events if _is_valid_event_timestamp(e.get("timestamp"))]
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization;
