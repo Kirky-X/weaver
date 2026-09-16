@@ -6,14 +6,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-
 from urllib.parse import urlparse
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from core.db import SourceAuthority as SourceAuthorityRow
-from core.db import SourceConfig as SourceConfigRow
+from core.db import SourceAuthority as SourceAuthorityRow, SourceConfig as SourceConfigRow
 from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
 

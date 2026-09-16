@@ -381,9 +381,7 @@ class RawBulkWriter:
                     # Build dependent rows now that flush has assigned core.id
                     new_objects: list[Any] = []
                     for idx, core, body_kwargs, body_source in pending_cores:
-                        new_objects.append(
-                            ArticleProcessing(article_id=core.id, task_id=task_id)
-                        )
+                        new_objects.append(ArticleProcessing(article_id=core.id, task_id=task_id))
                         new_objects.append(ArticleBody(article_id=core.id, **body_kwargs))
 
                         analysis_values: dict[str, Any] = {

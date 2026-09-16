@@ -100,7 +100,9 @@ PROCESSING_MODE_ENV = "WEAVER_PIPELINE_PROCESS__PROCESSING_MODE"
 
 # Server startup polling defaults
 SERVER_STARTUP_TIMEOUT = 5.0  # HTTP client timeout in seconds
-SERVER_STARTUP_MAX_ATTEMPTS = 30
+# 240 x 0.5s = 120s: lifespan loads spaCy/gliner models (and probes optional
+# services with slow connect timeouts on Windows) — 15s starved cold starts.
+SERVER_STARTUP_MAX_ATTEMPTS = 240
 SERVER_STARTUP_POLL_INTERVAL = 0.5  # seconds
 
 # Server shutdown delay
