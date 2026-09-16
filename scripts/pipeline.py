@@ -914,14 +914,24 @@ async def run_all_sources(
         page = 1
         page_size = 100  # API max limit
         fetched = 0
+        fast_mode = _is_fast_mode()
+        terminal_status = {"stored", "pg_done", "neo4j_done", "ladybug_done"}
         while fetched < total:
             batch = await client.list_articles(page=page, page_size=page_size, is_news=True)
             items = batch.get("items", [])
             if not items:
                 break
-            incomplete += sum(
-                1 for a in items if a.get("credibility_score") is None and a.get("body")
-            )
+            if fast_mode:
+                incomplete += sum(
+                    1
+                    for a in items
+                    if a.get("body")
+                    and str(a.get("processing_status", "")).lower() not in terminal_status
+                )
+            else:
+                incomplete += sum(
+                    1 for a in items if a.get("credibility_score") is None and a.get("body")
+                )
             fetched += len(items)
             page += 1
         if incomplete == 0:
@@ -961,11 +971,22 @@ async def run_all_sources(
     )
 
 
+def _is_fast_mode() -> bool:
+    """fast 模式（Phase1 only，无 Phase3 credibility）的等待完成标志与 deep 不同。"""
+    return os.getenv(PROCESSING_MODE_ENV, "deep").lower() == "fast"
+
+
 async def _wait_for_llm_processing(
     client: PipelineAPIClient,
     timeout: int,
 ) -> tuple[int, int]:
-    """Wait for full LLM processing. Returns (total, incomplete). incomplete=0 done, -1 timeout."""
+    """Wait for full LLM processing. Returns (total, incomplete). incomplete=0 done, -1 timeout.
+
+    deep 模式以 Phase3 的 credibility_score 作为完成标志；fast 模式该分数
+    永远为 None，等待会白挂满 timeout——改以 processing_status 终态判定。
+    """
+    terminal_status = {"stored", "pg_done", "neo4j_done", "ladybug_done"}
+    fast_mode = _is_fast_mode()
     llm_start = time.time()
     empty_since = time.time()
     while time.time() - llm_start < timeout:
@@ -986,9 +1007,17 @@ async def _wait_for_llm_processing(
             items = batch.get("items", [])
             if not items:
                 break
-            incomplete += sum(
-                1 for a in items if a.get("credibility_score") is None and a.get("body")
-            )
+            if fast_mode:
+                incomplete += sum(
+                    1
+                    for a in items
+                    if a.get("body")
+                    and str(a.get("processing_status", "")).lower() not in terminal_status
+                )
+            else:
+                incomplete += sum(
+                    1 for a in items if a.get("credibility_score") is None and a.get("body")
+                )
             fetched += len(items)
             page += 1
 
