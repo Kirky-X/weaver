@@ -504,8 +504,10 @@ class HybridSearchEngine:
         return [
             HybridSearchResult(
                 doc_id=r.get("doc_id", ""),
-                # Use rerank_score if present, else rrf_score (0.0 is valid)
-                score=(
+                # Use rerank_score if present, else rrf_score (0.0 is valid).
+                # float(): BM25/RRF produce numpy.float32, which pydantic
+                # refuses to serialize in API responses.
+                score=float(
                     r["rerank_score"]
                     if r.get("rerank_score") is not None
                     else r.get("rrf_score", 0.0)
