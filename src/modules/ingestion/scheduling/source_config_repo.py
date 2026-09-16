@@ -208,8 +208,12 @@ class SourceConfigRepo:
             # a snapshot without the row (NoResultFound) or stale data.
             stmt = stmt.returning(SourceConfigRow)
             result = await session.execute(stmt)
+            # Consume the row BEFORE commit: commit releases the underlying
+            # connection/result set, and the DuckDB driver then fails the
+            # deferred scalar_one() with "No open result set".
+            config = self._to_config(result.scalar_one())
             await session.commit()
-            return self._to_config(result.scalar_one())
+            return config
 
     async def delete(self, source_id: str) -> bool:
         """Delete a source configuration.

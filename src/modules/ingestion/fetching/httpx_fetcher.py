@@ -198,6 +198,12 @@ class HttpxFetcher(BaseFetcher):
             "http2": http2,
             "limits": limits,
             "event_hooks": ({"response": [self._redirect_handler]} if url_validator else None),
+            # 抓取器必须直连目标：trust_env 默认拾取环境变量与 Windows
+            # 注册表系统代理（urllib.getproxies），请求会经本机代理
+            # （如 127.0.0.1:10808）出站，SSRF connected-IP 反绑定检查
+            # 随即把代理地址误判为内网目标而拦截。代理出站需求应显式
+            # 注入 transport，而非隐式继承桌面代理。
+            "trust_env": False,
         }
         if transport is not None:
             client_kwargs["transport"] = transport

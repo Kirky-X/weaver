@@ -300,9 +300,9 @@ class RawBulkWriter:
                         )
 
                 # Stage 3: build new objects for URLs not in existing_map
-                new_objects: list[Any] = []
-                # Track (orig_idx, core_ref) so we can read core.id after flush
-                pending_cores: list[tuple[int, ArticleCore]] = []
+                # Track (orig_idx, core_ref, body_kwargs, body_source) so
+                # dependent rows are built after flush assigns core.id
+                pending_cores: list[tuple[int, ArticleCore, dict[str, Any], str]] = []
                 # Track in-batch content_hashes to dedup within the same batch.
                 # Maps hash → index of first occurrence (resolved to article_id after flush).
                 in_batch_first_idx: dict[str, int] = {}
@@ -346,25 +346,18 @@ class RawBulkWriter:
                     core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
                     core = ArticleCore(**core_kwargs)
                     session.add(core)
-                    pending_cores.append((idx, core))
-
-                    new_objects.append(ArticleProcessing(article_id=core.id, task_id=task_id))
-                    new_objects.append(ArticleBody(article_id=core.id, **body_kwargs))
-
-                    analysis_values: dict[str, Any] = {"article_id": core.id, "is_news": True}
-                    prompt_versions = (
-                        {"body_source": body_source} if body_source != "full" else None
-                    )
-                    if prompt_versions:
-                        analysis_values["prompt_versions"] = prompt_versions
-                    new_objects.append(ArticleAnalysis(**analysis_values))
+                    # Dependent rows are built AFTER flush assigns core.id —
+                    # constructing them earlier captures article_id=None and
+                    # the commit dies on NOT NULL article_analysis.article_id
+                    # with the whole batch rolled back.
+                    pending_cores.append((idx, core, body_kwargs, body_source))
 
                 if pending_cores:
                     # Flush to assign IDs to new ArticleCore objects
                     await session.flush()
                     # Build hash → id mapping from flushed cores
                     hash_to_id: dict[str, uuid.UUID] = {}
-                    for idx, core in pending_cores:
+                    for idx, core, _body_kwargs, _body_source in pending_cores:
                         results[idx] = core.id
                         effective_body = prepared[idx][1].body
                         if len(effective_body) < _MIN_BODY_LENGTH and prepared[idx][1].description:
@@ -384,6 +377,25 @@ class RawBulkWriter:
                                 content_hash=dup_hash,
                                 reused_article_id=str(first_id),
                             )
+
+                    # Build dependent rows now that flush has assigned core.id
+                    new_objects: list[Any] = []
+                    for idx, core, body_kwargs, body_source in pending_cores:
+                        new_objects.append(
+                            ArticleProcessing(article_id=core.id, task_id=task_id)
+                        )
+                        new_objects.append(ArticleBody(article_id=core.id, **body_kwargs))
+
+                        analysis_values: dict[str, Any] = {
+                            "article_id": core.id,
+                            "is_news": True,
+                        }
+                        prompt_versions = (
+                            {"body_source": body_source} if body_source != "full" else None
+                        )
+                        if prompt_versions:
+                            analysis_values["prompt_versions"] = prompt_versions
+                        new_objects.append(ArticleAnalysis(**analysis_values))
 
                     # add_all the dependent objects (referencing core.id)
                     session.add_all(new_objects)
