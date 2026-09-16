@@ -18,6 +18,7 @@ Design:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -28,6 +29,11 @@ log = get_logger(__name__)
 
 # Minimum seconds between health probes to the primary
 _HEALTH_PROBE_INTERVAL_SECONDS = 60
+
+# Per-operation wall-clock cap on PRIMARY calls. Redis 半开连接（对端挂死、
+# 路径 MTU 黑洞）会让 redis-py 的操作既不报错也不返回，无超时则探测与
+# 操作永久阻塞，调用方（如 ProcessingQueue 的 _op_lock）随之整体饿死。
+_PRIMARY_CALL_TIMEOUT_SECONDS = 5.0
 
 # Sentinel for getattr(): distinguishes "attribute absent" (programming
 # error in the operation name) from a legitimate None attribute value.
@@ -151,7 +157,9 @@ class FallbackCachePool:
 
         self._last_health_check = now
         try:
-            healthy = await self._primary.ping()
+            healthy = await asyncio.wait_for(
+                self._primary.ping(), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+            )
             if healthy and not self._primary_healthy:
                 self._primary_healthy = True
                 self._set_fallback_active(0)
@@ -221,7 +229,11 @@ class FallbackCachePool:
                     f"{type(self._primary).__name__} has no operation {operation!r}"
                 )
             try:
-                return await method(*args, **kwargs)
+                # wait_for 兜底：primary 挂死连接上的操作超时后按失败降级，
+                # 而不是把调用方（队列锁持有者）一起挂死。
+                return await asyncio.wait_for(
+                    method(*args, **kwargs), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+                )
             except Exception as exc:
                 self._degrade_to_fallback(operation, exc)
                 # Fall through to fallback
@@ -234,7 +246,9 @@ class FallbackCachePool:
             method = getattr(self._primary, operation, _MISSING)
             if method is not _MISSING:
                 try:
-                    return await method(*args, **kwargs)
+                    return await asyncio.wait_for(
+                        method(*args, **kwargs), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+                    )
                 except Exception as exc:
                     self._degrade_to_fallback(operation, exc)
 
