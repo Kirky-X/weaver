@@ -47,6 +47,9 @@ class HybridSearchConfig:
     graph_weight: float = 1.0
     rrf_k: int = 60
     top_k: int = 10
+    # Min cosine similarity for the vector retriever. 0.80（旧默认）对常见
+    # embedding 模型过高，会把全部命中过滤成空。
+    similarity_threshold: float = 0.3
     temporal_decay_enabled: bool = False
     temporal_decay_half_life_days: float = 30.0
 
@@ -255,7 +258,9 @@ class HybridSearchEngine:
             return []
 
         try:
-            results = await self._vector_repo.find_similar(embedding, limit=limit)
+            results = await self._vector_repo.find_similar(
+                embedding, limit=limit, threshold=self._config.similarity_threshold
+            )
             return [(r.article_id, r.similarity) for r in results]
         except Exception as exc:
             log.error("vector_search_error", error=str(exc))

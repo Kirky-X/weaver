@@ -367,6 +367,10 @@ class SearchSettings(BaseModel):
     rerank_model: str = "tiny"
     # Min cosine similarity for community-level (global) vector search
     community_similarity_threshold: float = 0.3
+    # Min cosine similarity for hybrid engine's article vector search.
+    # 0.80 旧硬编码默认对常见 embedding 模型过高(qwen3-embedding 实测
+    # top 命中 ~0.58), 会把全部结果过滤成空。
+    similarity_threshold: float = 0.3
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"

@@ -111,6 +111,7 @@ rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medi
 mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
 mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
 hybrid_enabled = true                    # Hybrid (vector+BM25 RRF) retrieval master switch
+similarity_threshold = 0.3               # Min cosine similarity for article vector search
 temporal_decay_enabled = false           # Temporal decay applied after RRF fusion
 temporal_decay_half_life_days = 30.0     # Half-life for temporal decay (days)
 

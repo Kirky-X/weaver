@@ -163,6 +163,7 @@ class ContainerSearchMixin:
                     mmr_enabled=self._settings.search.mmr_enabled,
                     mmr_lambda=self._settings.search.mmr_lambda,
                     mmr_similarity_mode=self._settings.search.mmr_similarity_mode,
+                    similarity_threshold=self._settings.search.similarity_threshold,
                     temporal_decay_enabled=self._settings.search.temporal_decay_enabled,
                     temporal_decay_half_life_days=self._settings.search.temporal_decay_half_life_days,
                 ),
