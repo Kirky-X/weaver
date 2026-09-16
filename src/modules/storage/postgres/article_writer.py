@@ -272,6 +272,19 @@ class ArticleWriter:
                                 changed_fields=changed_fields or None,
                             )
                         )
+                except AttributeError:
+                    # duckdb_engine 的异步 session 未实现 SAVEPOINT
+                    # （begin_nested 抛 AttributeError），且 DuckDB 在事务
+                    # 错误后会进入 aborted 状态——重试也无法恢复。版本快照
+                    # 是辅助审计数据，降级栈直接跳过，绝不能连累主 upsert
+                    # （否则该篇拿不到 article_id，向量持久化一并丢失）。
+                    log.warning(
+                        "version_snapshot_savepoint_unsupported",
+                        article_id=str(existing_id),
+                        version=next_ver,
+                        hint="duckdb_async_session lacks begin_nested; "
+                        "snapshot skipped, main upsert continues",
+                    )
                 except IntegrityError:
                     log.warning(
                         "version_snapshot_race_skipped",
