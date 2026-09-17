@@ -201,7 +201,7 @@ class HybridSearchEngine:
         query: str,
         embedding: list[float] | None,
         limit: int,
-    ) -> tuple[list[tuple[str, float]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Execute parallel retrieval from multiple sources.
 
         Args:
@@ -210,7 +210,7 @@ class HybridSearchEngine:
             limit: Number of results per source.
 
         Returns:
-            Tuple of (vector_results as tuples, bm25_results as dicts).
+            Tuple of (vector_results as dicts, bm25_results as dicts).
         """
         tasks = []
 
@@ -244,7 +244,7 @@ class HybridSearchEngine:
         self,
         embedding: list[float],
         limit: int,
-    ) -> list[tuple[str, float]]:
+    ) -> list[dict[str, Any]]:
         """Execute vector similarity search.
 
         Args:
@@ -252,7 +252,9 @@ class HybridSearchEngine:
             limit: Number of results.
 
         Returns:
-            List of (doc_id, score) tuples.
+            List of dicts with doc_id, score and title (from the vector
+            repo's JOIN with articles) so vector-only hits carry metadata
+            through fusion.
         """
         if not self._vector_repo:
             return []
@@ -261,7 +263,14 @@ class HybridSearchEngine:
             results = await self._vector_repo.find_similar(
                 embedding, limit=limit, threshold=self._config.similarity_threshold
             )
-            return [(r.article_id, r.similarity) for r in results]
+            return [
+                {
+                    "doc_id": r.article_id,
+                    "score": r.similarity,
+                    "title": r.title or "",
+                }
+                for r in results
+            ]
         except Exception as exc:
             log.error("vector_search_error", error=str(exc))
             return []
@@ -310,13 +319,13 @@ class HybridSearchEngine:
 
     def _fuse_results(
         self,
-        vector_results: list[tuple[str, float]],
+        vector_results: list[dict[str, Any]],
         bm25_results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Fuse results using Reciprocal Rank Fusion.
 
         Args:
-            vector_results: Vector search results as (doc_id, score) tuples.
+            vector_results: Vector search results as dicts (doc_id/score/title).
             bm25_results: BM25 search results as dicts with full info.
 
         Returns:
@@ -324,10 +333,12 @@ class HybridSearchEngine:
         """
         # Prepare results lists for RRF (need tuples)
         results_list = []
+        vector_tuples: list[tuple[str, float]] = []
         bm25_tuples: list[tuple[str, float]] = []
 
         if vector_results:
-            results_list.append(vector_results)
+            vector_tuples = [(r["doc_id"], r["score"]) for r in vector_results]
+            results_list.append(vector_tuples)
         if bm25_results:
             # Convert BM25 dicts to tuples for RRF
             bm25_tuples = [(r["doc_id"], r["score"]) for r in bm25_results]
@@ -343,10 +354,13 @@ class HybridSearchEngine:
         )
 
         # Track source ranks
-        vector_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(vector_results, 1)}
+        vector_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(vector_tuples, 1)}
         bm25_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(bm25_tuples, 1)}
 
-        # Build BM25 info map for content lookup
+        # Info maps for metadata lookup — vector-only hits carry the title
+        # (from the vector repo's JOIN with articles); BM25 hits carry
+        # title + content.
+        vector_info_map = {r["doc_id"]: r for r in vector_results}
         bm25_info_map = {r["doc_id"]: r for r in bm25_results}
 
         return [
@@ -355,8 +369,13 @@ class HybridSearchEngine:
                 "rrf_score": score,
                 "vector_rank": vector_rank_map.get(doc_id),
                 "bm25_rank": bm25_rank_map.get(doc_id),
-                # Preserve BM25 content info
-                "title": bm25_info_map.get(doc_id, {}).get("title", ""),
+                # BM25 content info wins; vector-only hits fall back to the
+                # title carried by the vector repo (content stays empty —
+                # the vector store does not index full text).
+                "title": (
+                    bm25_info_map.get(doc_id, {}).get("title")
+                    or vector_info_map.get(doc_id, {}).get("title", "")
+                ),
                 "content": bm25_info_map.get(doc_id, {}).get("content", ""),
                 "metadata": bm25_info_map.get(doc_id, {}).get("metadata", {}),
             }
@@ -551,15 +570,15 @@ class HybridSearchEngine:
 
         return [
             HybridSearchResult(
-                doc_id=doc_id,
-                score=score,
-                title="",
+                doc_id=r["doc_id"],
+                score=r["score"],
+                title=r.get("title", ""),
                 content="",
                 source="vector",
                 vector_rank=i + 1,
-                metadata={"original_score": score},
+                metadata={"original_score": r["score"]},
             )
-            for i, (doc_id, score) in enumerate(results)
+            for i, r in enumerate(results)
         ]
 
     def set_config(self, config: HybridSearchConfig) -> None:

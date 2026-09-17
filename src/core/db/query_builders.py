@@ -313,6 +313,7 @@ class PgVectorQueryBuilder:
         return f"""
             SELECT
                 a.id::text AS article_id,
+                a.title,
                 a.category,
                 {similarity_expr} AS similarity,
                 a.publish_time,
@@ -446,6 +447,7 @@ class DuckDBVectorQueryBuilder:
         return f"""
             SELECT
                 CAST(a.id AS VARCHAR) AS article_id,
+                a.title,
                 a.category,
                 {similarity_expr} AS similarity,
                 a.publish_time,

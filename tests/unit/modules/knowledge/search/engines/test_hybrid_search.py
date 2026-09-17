@@ -24,7 +24,10 @@ class TestHybridSearchEngineFuseResults:
         """Test basic result fusion with overlapping docs."""
         engine = HybridSearchEngine()
 
-        vector_results = [("doc1", 0.9), ("doc2", 0.8)]
+        vector_results = [
+            {"doc_id": "doc1", "score": 0.9, "title": "Doc One"},
+            {"doc_id": "doc2", "score": 0.8, "title": "Doc Two"},
+        ]
         bm25_results = [
             {"doc_id": "doc2", "score": 15.0, "title": "Doc 2", "content": "Content 2"},
             {"doc_id": "doc3", "score": 12.0, "title": "Doc 3", "content": "Content 3"},
@@ -48,7 +51,10 @@ class TestHybridSearchEngineFuseResults:
         """Test fusion with only vector results."""
         engine = HybridSearchEngine()
 
-        vector_results = [("doc1", 0.9), ("doc2", 0.8)]
+        vector_results = [
+            {"doc_id": "doc1", "score": 0.9, "title": "Doc One"},
+            {"doc_id": "doc2", "score": 0.8, "title": "Doc Two"},
+        ]
         fused = engine._fuse_results(vector_results, [])
 
         assert len(fused) == 2
@@ -70,7 +76,7 @@ class TestHybridSearchEngineFuseResults:
         """Test that fusion preserves vector and BM25 ranks."""
         engine = HybridSearchEngine()
 
-        vector_results = [("doc1", 0.9)]
+        vector_results = [{"doc_id": "doc1", "score": 0.9, "title": "Doc One"}]
         bm25_results = [
             {"doc_id": "doc1", "score": 15.0, "title": "Doc 1", "content": "Content 1"},
         ]
@@ -97,7 +103,7 @@ class TestHybridSearchEngineFuseResults:
         config = HybridSearchConfig(rrf_k=100)
         engine = HybridSearchEngine(config=config)
 
-        vector_results = [("doc1", 0.9)]
+        vector_results = [{"doc_id": "doc1", "score": 0.9, "title": "Doc One"}]
         bm25_results = [
             {"doc_id": "doc1", "score": 15.0, "title": "Doc 1", "content": "C1"},
         ]
@@ -553,8 +559,9 @@ class TestHybridSearchEngineVectorSearch:
         results = await engine._vector_search([0.1] * 768, limit=10)
 
         assert len(results) == 2
-        assert results[0][0] == "doc1"
-        assert results[0][1] == 0.9
+        assert results[0]["doc_id"] == "doc1"
+        assert results[0]["score"] == 0.9
+        assert results[0]["title"] == ""
 
     @pytest.mark.asyncio
     async def test_vector_search_no_repo(self):
@@ -586,7 +593,7 @@ class TestHybridSearchEngineVectorSearch:
         engine = HybridSearchEngine(vector_repo=mock_repo)
         results = await engine._vector_search([0.1] * 768, limit=10)
 
-        assert results[0][0] == "doc1"
+        assert results[0]["doc_id"] == "doc1"
 
 
 class TestHybridSearchEngineBM25Search:

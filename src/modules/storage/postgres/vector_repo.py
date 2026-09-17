@@ -262,6 +262,7 @@ class VectorRepo:
             return [
                 ArticleSearchResultView(
                     article_id=row.article_id,
+                    title=getattr(row, "title", None),
                     category=row.category,
                     similarity=row.similarity,
                     publish_time=row.publish_time,

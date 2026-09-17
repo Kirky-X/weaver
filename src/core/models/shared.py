@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArticleView(BaseModel):
-    """Article view model aligned with ADD §1.5.1.
+    """Article view model.
 
     Implements: Data Contract Layer — ArticleView
     """
@@ -43,7 +43,7 @@ class ArticleView(BaseModel):
 
 
 class EntityView(BaseModel):
-    """Entity view model aligned with ADD §1.5.1.
+    """Entity view model.
 
     Implements: Data Contract Layer — EntityView
     """
@@ -62,7 +62,7 @@ class EntityView(BaseModel):
 
 
 class EventView(BaseModel):
-    """Event view model aligned with ADD §1.5.1.
+    """Event view model.
 
     Implements: Data Contract Layer — EventView
     """
@@ -87,7 +87,7 @@ class EventView(BaseModel):
 
 
 class CommunityView(BaseModel):
-    """Community view model aligned with ADD §1.5.1.
+    """Community view model.
 
     Implements: Data Contract Layer — CommunityView
     """
@@ -114,6 +114,7 @@ class ArticleSearchResultView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     article_id: str
+    title: str | None = None
     category: str | None = None
     similarity: float
     hybrid_score: float | None = None

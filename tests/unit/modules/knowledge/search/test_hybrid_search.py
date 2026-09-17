@@ -387,7 +387,10 @@ class TestHybridSearchEngineFuseResults:
         """Test basic result fusion."""
         engine = HybridSearchEngine()
 
-        vector_results = [("doc1", 0.9), ("doc2", 0.8)]
+        vector_results = [
+            {"doc_id": "doc1", "score": 0.9, "title": "Doc One"},
+            {"doc_id": "doc2", "score": 0.8, "title": "Doc Two"},
+        ]
         bm25_results = [
             {"doc_id": "doc2", "score": 15.0, "title": "Doc 2", "content": "Content 2"},
             {"doc_id": "doc3", "score": 12.0, "title": "Doc 3", "content": "Content 3"},
@@ -411,7 +414,10 @@ class TestHybridSearchEngineFuseResults:
         """Test fusion with only one list."""
         engine = HybridSearchEngine()
 
-        vector_results = [("doc1", 0.9), ("doc2", 0.8)]
+        vector_results = [
+            {"doc_id": "doc1", "score": 0.9, "title": "Doc One"},
+            {"doc_id": "doc2", "score": 0.8, "title": "Doc Two"},
+        ]
         bm25_results = []  # Empty BM25 results
 
         fused = engine._fuse_results(vector_results, bm25_results)
