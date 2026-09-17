@@ -146,6 +146,19 @@ class ProviderCircuitBreaker:
                 self._handle_success()
             return result
 
+        except asyncio.CancelledError:
+            # wait_for 硬切挂死调用时取消以 CancelledError 传播——它继承
+            # BaseException，会被下面的 except Exception 漏掉，导致挂死
+            # 调用从不计入熔断（对慢速挂死故障完全失明）。计失败后保持
+            # 取消语义向上传播。
+            async with self._state_lock:
+                self._handle_failure()
+            log.warning(
+                "circuit_cancelled_call_counted_as_failure",
+                provider=self.name,
+                fail_counter=self._failure_counter,
+            )
+            raise
         except PyCircuitBreakerError as err:
             log.warning("circuit_open_during_call", provider=self.name)
             raise CircuitOpenError(self.name) from err

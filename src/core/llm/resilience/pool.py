@@ -43,6 +43,11 @@ class AllProvidersFailedError(Exception):
         super().__init__(message)
 
 
+# Wall-clock 硬超时的额外缓冲（秒）：覆盖连接建立与 litellm 内部重试，
+# 保证单次调用的总时长有界（见 _do_call）。
+_WALL_CLOCK_TIMEOUT_MARGIN_SECONDS = 30.0
+
+
 class ProviderPool:
     """单个Provider的资源池.
 
@@ -340,14 +345,21 @@ class ProviderPool:
         timeout: float,
     ) -> LLMResponse:
         """执行实际的LLM调用,通过熔断器保护."""
-        response = await self._circuit_breaker.call(
-            self._caller.call,
-            label=label,
-            provider_type=self.config.type,
-            api_key=self.config.api_key.get_secret_value(),
-            api_base=self.config.base_url,
-            payload=payload,
-            timeout=timeout,
+        # Wall-clock 硬超时兜底：litellm 的 timeout 是 per-read/connect 语义，
+        # 上游慢速滴流响应（免费档排队、半开连接）可绕过它无限等待。wait_for
+        # 从外层硬切整个调用（含熔断器），超时经 CancelledError 传入熔断器的
+        # except 分支按失败计数。+30s 给连接建立与内部重试留缓冲。
+        response = await asyncio.wait_for(
+            self._circuit_breaker.call(
+                self._caller.call,
+                label=label,
+                provider_type=self.config.type,
+                api_key=self.config.api_key.get_secret_value(),
+                api_base=self.config.base_url,
+                payload=payload,
+                timeout=timeout,
+            ),
+            timeout=timeout + _WALL_CLOCK_TIMEOUT_MARGIN_SECONDS,
         )
         await self._metrics.record_success(response.latency_ms)
         return response
