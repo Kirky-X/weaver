@@ -1500,10 +1500,10 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             try:
                 states = await asyncio.wait_for(
                     ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id),
-                    timeout=1800.0,
+                    timeout=3600.0,
                 )
             except TimeoutError:
-                print(f"  ERROR: Batch {batch_num} timed out after 1800s — skipped")
+                print(f"  ERROR: Batch {batch_num} timed out after 3600s — skipped")
                 total_failed += len(batch)
                 continue
 
