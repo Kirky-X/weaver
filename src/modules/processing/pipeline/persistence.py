@@ -162,7 +162,7 @@ class PipelinePersistence:
                 insert_state.pop("terminal", None)
                 # fallback values for terminal (non-news) articles
                 insert_state.setdefault("category", "其他")
-                insert_state.setdefault("language", "zh")
+                insert_state.setdefault("language", "unknown")
                 insert_state.setdefault("region", "unknown")
                 insert_state.setdefault("score", 0.0)
                 # Log-only marker distinguishing "not analyzed" from genuine

@@ -195,6 +195,6 @@ class TestBulkInsertRawFallbackValues:
         assert len(cores) == 2
         for core in cores:
             assert core.category == "其他", f"category 回退值缺失: {core.category!r}"
-            assert core.language == "zh", f"language 回退值缺失: {core.language!r}"
+            assert core.language == "unknown", f"language 回退值缺失: {core.language!r}"
             assert core.region == "unknown", f"region 回退值缺失: {core.region!r}"
             assert str(core.persist_status) in ("PersistStatus.PENDING", "pending")

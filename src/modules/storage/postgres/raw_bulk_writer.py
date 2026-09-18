@@ -69,7 +69,7 @@ def _build_core_body_values(
         # 完成后由 upsert 的 ON CONFLICT 用真实值覆盖（category 另有
         # NULL 守卫，不会回退成空）。
         "category": "其他",
-        "language": "zh",
+        "language": "unknown",
         "region": "unknown",
         "persist_status": PersistStatus.PENDING,
         "content_hash": content_hash,
