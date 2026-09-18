@@ -65,10 +65,12 @@ class LadybugPool:
         db_path: str = data_path("weaver.lbug"),
         max_db_size: int | None = None,
         buffer_pool_size: int | None = None,
+        max_concurrent_queries: int | None = None,
     ):
         self._db_path = db_path
         self._max_db_size = max_db_size or self.DEFAULT_MAX_DB_SIZE
         self._buffer_pool_size = buffer_pool_size or self.DEFAULT_BUFFER_POOL_SIZE
+        self._max_concurrent_queries = max_concurrent_queries or self.MAX_CONCURRENT_QUERIES
         self._db: ladybug.Database | None = None
         self._conn: ladybug.AsyncConnection | None = None
         # Timed-out queries whose executor threads are still running; each
@@ -86,7 +88,7 @@ class LadybugPool:
         )
         # Increase max_concurrent_queries to prevent pool exhaustion
         self._conn = ladybug.AsyncConnection(
-            self._db, max_concurrent_queries=self.MAX_CONCURRENT_QUERIES
+            self._db, max_concurrent_queries=self._max_concurrent_queries
         )
         # Set query timeout at connection level (enforced by C engine).
         # This is the primary defense against hung queries.

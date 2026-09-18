@@ -14,6 +14,11 @@
 circuit_breaker_threshold = 5       # Consecutive failures before opening circuit
 circuit_breaker_timeout = 60.0      # Cooldown period before half-open (seconds)
 default_timeout = 120.0             # Timeout for providers without an explicit `timeout`
+retry_max_attempts = 3              # LLM call retry budget (tenacity)
+retry_min_wait = 5.0                # First retry backoff (seconds)
+retry_max_wait = 60.0               # Retry backoff ceiling (seconds)
+embedding_cache_ttl = 604800        # Embedding response-cache TTL (seconds; default 7d)
+rerank_client_cap = 32              # Cached rerank clients ceiling (FIFO; safety bound)
 # request_delay_enabled = false     # Global request throttling (per-provider override supported)
 # request_delay_min = 1.0
 # request_delay_max = 2.0
@@ -126,6 +131,8 @@ analyze = 3000
 # ============================================================
 # Call Point Routing (task-specific provider selection)
 # Label format: {type}.{provider}.{model_id}
+# Optional per-point keys: max_tokens, cache_ttl (response-cache TTL in
+# seconds; omit to use the built-in per-call-point policy table)
 # ============================================================
 [call-points.classifier]
 primary = "chat.openai.gpt-4o"

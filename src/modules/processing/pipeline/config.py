@@ -116,6 +116,9 @@ class PipelineSettings(BaseSettings):
     content_hash_cache_ttl_seconds: int = 604800
     # ConflictDetectorNode similar-article similarity cutoff (recall lever).
     conflict_similarity_threshold: float = 0.7
+    # BatchMergerNode entity-merge similarity cutoff (more conservative than
+    # entity resolution on purpose: wrong merges are costly to undo).
+    merge_similarity_threshold: float = 0.8
 
     @field_validator("monte_carlo", mode="before")
     @classmethod

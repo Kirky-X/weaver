@@ -262,6 +262,9 @@ class RoutingConfig(BaseModel):
     max_tokens: int | None = None
     temperature: float | None = None
     response_format: str | None = None  # "json" for Ollama JSON mode
+    # Optional per-call-point response-cache TTL (seconds). When unset, the
+    # built-in CACHE_TTL policy table (see below) applies.
+    cache_ttl: int | None = None
 
     # Tiered routing (difficulty-based provider selection)
     tiered_routing: bool = False
@@ -361,6 +364,15 @@ class GlobalConfig(BaseModel):
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
     default_timeout: float = DEFAULT_LLM_TIMEOUT
+    # LLM call retry policy (tenacity-based retry_llm in ProviderPool)
+    retry_max_attempts: int = 3
+    retry_min_wait: float = 5.0
+    retry_max_wait: float = 60.0
+    # Embedding response-cache TTL (seconds)
+    embedding_cache_ttl: int = 7 * 24 * 60 * 60
+    # Cap on cached rerank clients per caller (FIFO eviction bounds memory
+    # under key rotation; purely a safety ceiling, not a throughput knob)
+    rerank_client_cap: int = 32
     # 请求延迟配置
     request_delay_enabled: bool = False
     request_delay_min: float = 1.0

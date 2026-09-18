@@ -196,7 +196,13 @@ class Pipeline:
         )
         self._vectorize = VectorizeNode(llm, embedding_model, text_limit=text_limit)
         self._batch_merger = BatchMergerNode(
-            llm, prompt_loader, vector_repo, saga_orchestrator=saga_orchestrator
+            llm,
+            prompt_loader,
+            vector_repo,
+            saga_orchestrator=saga_orchestrator,
+            similarity_threshold=(
+                pipeline_settings.merge_similarity_threshold if pipeline_settings else 0.80
+            ),
         )
 
         self._re_vectorize = ReVectorizeNode(llm, embedding_model, text_limit=text_limit)

@@ -27,6 +27,9 @@ content_hash_version = 3
 content_hash_cache_ttl_seconds = 604800
 # ConflictDetectorNode similar-article similarity cutoff (0-1).
 conflict_similarity_threshold = 0.7
+# BatchMergerNode entity-merge similarity cutoff (0-1; more conservative
+# than entity resolution — wrong merges are costly to undo).
+merge_similarity_threshold = 0.8
 
 # ============================================================
 # Phase 1: Initial Processing

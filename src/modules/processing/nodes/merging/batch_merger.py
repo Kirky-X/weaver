@@ -104,6 +104,7 @@ class BatchMergerNode:
         article_repo: ArticleRepository | None = None,
         graph_writer: Neo4jWriter | None = None,
         saga_orchestrator: SagaOrchestrator | None = None,
+        similarity_threshold: float = SIMILARITY_THRESHOLD,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader
@@ -111,6 +112,9 @@ class BatchMergerNode:
         self._article_repo = article_repo
         self._graph_writer = graph_writer
         self._saga_orchestrator = saga_orchestrator
+        # Instance attribute keeps self.SIMILARITY_THRESHOLD call sites unchanged
+        # while allowing pipeline.toml (merge_similarity_threshold) to tune it.
+        self.SIMILARITY_THRESHOLD = similarity_threshold
 
     async def execute_batch(
         self, states: list[PipelineState], pipeline_b_mode: bool = False

@@ -53,6 +53,14 @@ class LLMSettings(BaseSettings):
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
     default_timeout: float = DEFAULT_LLM_TIMEOUT
+    # LLM call retry policy ([global] in llm.toml)
+    retry_max_attempts: int = 3
+    retry_min_wait: float = 5.0
+    retry_max_wait: float = 60.0
+    # Embedding response-cache TTL (seconds)
+    embedding_cache_ttl: int = 7 * 24 * 60 * 60
+    # Cached rerank-client ceiling (FIFO eviction; safety bound)
+    rerank_client_cap: int = 32
     # 全局请求延迟（llm.toml [global] 映射；provider 级可覆盖）
     request_delay_enabled: bool = False
     request_delay_min: float = 1.0

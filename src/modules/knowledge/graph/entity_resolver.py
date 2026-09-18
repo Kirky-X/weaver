@@ -125,7 +125,11 @@ class EntityResolver:
         name_normalizer: NameNormalizer | None = None,
         disable_data_metrics: bool = False,
         embedding_model: str = EmbeddingModel.DEFAULT,
+        similarity_threshold: float = SIMILARITY_THRESHOLD,
     ) -> None:
+        # Instance attribute keeps self.SIMILARITY_THRESHOLD call sites unchanged
+        # while allowing settings.toml [entity].resolve_similarity_threshold.
+        self.SIMILARITY_THRESHOLD = similarity_threshold
         if entity_repo is None:
             # Fail fast: every resolution path calls entity_repo
             # unconditionally, so None would only surface later as an

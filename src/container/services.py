@@ -404,7 +404,10 @@ class ContainerServicesMixin:
                 from core.db.ladybug_pool import LadybugPool
 
                 def _create_ladybug_fallback() -> LadybugPool:
-                    return LadybugPool(db_path=self._settings.ladybug.db_path)
+                    return LadybugPool(
+                        db_path=self._settings.ladybug.db_path,
+                        max_concurrent_queries=self._settings.ladybug.max_concurrent_queries,
+                    )
 
                 fallback_pool_factory = _create_ladybug_fallback
                 fallback_query_builder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
@@ -442,6 +445,7 @@ class ContainerServicesMixin:
                 name_normalizer=name_normalizer,
                 disable_data_metrics=disable_data_metrics,
                 embedding_model=self._get_embedding_model_id(),
+                similarity_threshold=self._settings.entity.resolve_similarity_threshold,
             )
         return self._entity_resolver
 

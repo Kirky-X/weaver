@@ -230,8 +230,8 @@ class TestRerankClientCacheCap:
 
     @pytest.mark.asyncio
     async def test_cache_evicts_oldest_beyond_cap(self, monkeypatch):
-        caller = LLMCaller()
-        caller._RERANK_CLIENT_CAP = 2
+        # Cap is injected at construction (llm.toml [global].rerank_client_cap).
+        caller = LLMCaller(client_cap=2)
         created, closed = _patch_rerank_client(monkeypatch)
 
         for i in range(4):

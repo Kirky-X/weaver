@@ -124,7 +124,9 @@ def build_stable_cache_key(call_point: str, payload: dict[str, Any]) -> str:
 # embedding entry is a bare JSON list, so any overlap would raise
 # TypeError/KeyError. Keep these prefixes distinct.
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
-EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60  # 7 days
+EMBEDDING_CACHE_TTL = (
+    7 * 24 * 60 * 60
+)  # 7 days; default, overridable via llm.toml [global].embedding_cache_ttl
 
 # Input limits per call point (in characters)
 _INPUT_LIMITS: dict[str, int] = {
@@ -226,6 +228,11 @@ class LLMClient:
         # Per-call-point input truncation limits (characters); injectable so
         # deployments can tune the prompt budget without code changes.
         self._input_limits = dict(_INPUT_LIMITS)
+        # Per-call-point cache TTL overrides + embedding TTL (llm.toml [global]/[call-points])
+        self._embedding_cache_ttl = global_config.embedding_cache_ttl
+        self._call_point_ttls = {
+            k: v.cache_ttl for k, v in global_config.call_points.items() if v.cache_ttl is not None
+        }
         if input_limits:
             self._input_limits.update(input_limits)
 
@@ -361,7 +368,7 @@ class LLMClient:
         cp = self._resolve_call_point(call_point)
 
         cache_key = self._build_cache_key(cp.value, payload)
-        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
+        ttl = self._resolve_cache_ttl(cp.value)
 
         # Cache lookup (Redis → TTLCache)
         cached = await self._check_response_cache(cache_key, parsed_label, output_model)
@@ -722,7 +729,7 @@ class LLMClient:
         else:
             cp = call_point
 
-        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
+        ttl = self._resolve_cache_ttl(cp.value)
 
         # Generate cache keys for all payloads — 与单次 call() 同源，
         # 避免 batch 路径 key 格式与灰度开关脱节。
@@ -1302,7 +1309,7 @@ class LLMClient:
                         await self._redis.set(
                             cache_key,
                             json.dumps(embedding),
-                            ex=EMBEDDING_CACHE_TTL,
+                            ex=self._embedding_cache_ttl,
                         )
                     except Exception as exc:
                         log.debug("embedding_cache_write_failed", error=str(exc))
@@ -1419,6 +1426,14 @@ class LLMClient:
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:32]
         return f"{EMBEDDING_CACHE_PREFIX}{text_hash}"
 
+    def _resolve_cache_ttl(self, call_point: str) -> int:
+        """Response-cache TTL: per-call-point override from llm.toml
+        ([call-points.X].cache_ttl), else the built-in policy table."""
+        override = self._call_point_ttls.get(call_point)
+        if override is not None:
+            return override
+        return CACHE_TTL.get(call_point, CACHE_TTL["default"])
+
     def _build_cache_key(self, call_point: str, payload: dict[str, Any]) -> str:
         """Build cache key with grayscale switch for v2 stable key.
 
@@ -1485,6 +1500,11 @@ class LLMClient:
             request_delay_enabled=llm_settings.request_delay_enabled,
             request_delay_min=llm_settings.request_delay_min,
             request_delay_max=llm_settings.request_delay_max,
+            retry_max_attempts=llm_settings.retry_max_attempts,
+            retry_min_wait=llm_settings.retry_min_wait,
+            retry_max_wait=llm_settings.retry_max_wait,
+            embedding_cache_ttl=llm_settings.embedding_cache_ttl,
+            rerank_client_cap=llm_settings.rerank_client_cap,
             defaults=llm_settings.defaults,
             call_points=llm_settings.call_points,
         )

@@ -154,6 +154,8 @@ models = ["zh_core_web_lg", "en_core_web_lg"]  # Models to check/install
 # ============================================================
 
 [entity]
+# EntityResolver candidate-similarity cutoff (looser than the merge threshold).
+resolve_similarity_threshold = 0.85
 # Entity extraction and filtering settings
 disable_data_metrics_nodes = false       # Skip extracting '数据指标' (data metrics) entities
 

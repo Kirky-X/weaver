@@ -88,6 +88,9 @@ class LadybugSettings(BaseModel):
     """
 
     enabled: bool = True
+    # Max concurrent queries (connections + threads); raises the pool default
+    # of 4 to prevent exhaustion when queries hang.
+    max_concurrent_queries: int = 16
     db_path: str = data_path("weaver.lbug")
 
 
@@ -492,6 +495,9 @@ class EntitySettings(BaseModel):
     """Entity extraction and resolution configuration."""
 
     disable_data_metrics_nodes: bool = False
+    # EntityResolver candidate-similarity cutoff (looser than the merge
+    # threshold on purpose: resolution only proposes, merge commits).
+    resolve_similarity_threshold: float = 0.85
 
 
 class HealthCheckSettings(BaseModel):

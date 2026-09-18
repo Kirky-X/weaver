@@ -222,9 +222,7 @@ def _scan_balanced_end(text: str, start: int) -> int:
     return -1
 
 
-def extract_last_json_object(
-    content: str, max_candidates: int = 128
-) -> dict[str, Any] | None:
+def extract_last_json_object(content: str, max_candidates: int = 128) -> dict[str, Any] | None:
     """Extract the last valid JSON object from text that may contain
     thinking/reasoning.
 

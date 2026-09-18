@@ -79,17 +79,19 @@ class ProviderPool:
         self.name = config.name
         self._event_bus = event_bus
 
+        _g = global_config or GlobalConfig()
+
         # provider 未配置 timeout 时回落全局默认（llm.toml [global].default_timeout）
         self._effective_timeout = (
-            config.timeout
-            if config.timeout is not None
-            else (
-                global_config.default_timeout if global_config else GlobalConfig().default_timeout
-            )
+            config.timeout if config.timeout is not None else _g.default_timeout
         )
+        # 重试策略来自 llm.toml [global]（retry_max_attempts/retry_min_wait/retry_max_wait）
+        self._retry_max_attempts = _g.retry_max_attempts
+        self._retry_min_wait = _g.retry_min_wait
+        self._retry_max_wait = _g.retry_max_wait
 
         # LiteLLM调用器
-        self._caller = LiteLLMCaller()
+        self._caller = LiteLLMCaller(client_cap=_g.rerank_client_cap)
 
         # 熔断器
         self._circuit_breaker = ProviderCircuitBreaker(
@@ -309,7 +311,11 @@ class ProviderPool:
             async def _call_with_retry() -> LLMResponse:
                 """Retry loop内执行实际调用,每次重试重新获取rate limiter令牌."""
                 nonlocal attempt_number
-                async for attempt in retry_llm(max_attempts=3, min_wait=5.0, max_wait=60.0):
+                async for attempt in retry_llm(
+                    max_attempts=self._retry_max_attempts,
+                    min_wait=self._retry_min_wait,
+                    max_wait=self._retry_max_wait,
+                ):
                     with attempt:
                         try:
                             attempt_number += 1

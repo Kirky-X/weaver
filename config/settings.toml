@@ -77,6 +77,8 @@ strict_mode = true
 models = ["zh_core_web_lg", "en_core_web_lg"]
 
 [entity]
+# EntityResolver candidate-similarity cutoff (looser than the merge threshold).
+resolve_similarity_threshold = 0.85
 disable_data_metrics_nodes = false
 
 [url_security]

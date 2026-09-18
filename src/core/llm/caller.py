@@ -123,11 +123,13 @@ class LiteLLMCaller:
     提供统一的chat、embedding、rerank调用接口.
     """
 
-    # Cap on cached rerank clients (endpoint credential pairs) — FIFO
-    # eviction keeps memory and sockets bounded under key rotation.
+    # Default cap on cached rerank clients (endpoint credential pairs) —
+    # FIFO eviction keeps memory and sockets bounded under key rotation.
+    # Overridable via llm.toml [global].rerank_client_cap.
     _RERANK_CLIENT_CAP = 32
 
-    def __init__(self) -> None:
+    def __init__(self, client_cap: int = _RERANK_CLIENT_CAP) -> None:
+        self._client_cap = client_cap
         # (api_base, api_key) -> AsyncOpenAI client for custom rerank posts.
         self._rerank_clients: dict[tuple[str, str], AsyncOpenAI] = {}
         # Guards the check-then-act on _rerank_clients so concurrent first
@@ -542,7 +544,7 @@ class LiteLLMCaller:
         async with self._rerank_clients_lock:
             client = self._rerank_clients.get(cache_key)
             if client is None:
-                if len(self._rerank_clients) >= self._RERANK_CLIENT_CAP:
+                if len(self._rerank_clients) >= self._client_cap:
                     oldest_key = next(iter(self._rerank_clients))
                     evicted = self._rerank_clients.pop(oldest_key, None)
                 client = AsyncOpenAI(
