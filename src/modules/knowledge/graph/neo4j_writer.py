@@ -125,7 +125,7 @@ class Neo4jWriter:
 
         neo4j_ids: list[str] = []
 
-        # After the Article node slim-down (design.md §), the graph node
+        # After the Article node slim-down, the graph node
         # stores only {pg_id, created_at}. Title / category / publish_time /
         # score are no longer persisted on the node; callers that need them
         # batch-fetch from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids.
@@ -537,7 +537,7 @@ class Neo4jWriter:
     ) -> None:
         """Create FOLLOWED_BY relationships for merged articles using batch operation.
 
-        After the Article node slim-down (design.md §), the graph Article
+        After the Article node slim-down, the graph Article
         node no longer carries ``publish_time``, so ``time_gap_hours`` can
         no longer be computed inside the graph layer. The relation is
         created with ``time_gap_hours=0.0``; callers needing accurate time
@@ -545,7 +545,7 @@ class Neo4jWriter:
         time (consistent with LadybugWriter which reads
         ``state["related_articles"]`` for time gaps).
 
-        P4 fix: replaced the per-source ``find_article_by_id`` loop with
+        replaced the per-source ``find_article_by_id`` loop with
         a single ``find_articles_by_pg_ids`` batch query to avoid N+1
         round-trips on the pipeline write hot path. Missing sources are
         still logged as warnings so operators can spot dangling merges.
@@ -615,7 +615,7 @@ class Neo4jWriter:
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive old articles as part of data lifecycle management.
 
-        After the Article node slim-down (design.md §), the graph node no
+        After the Article node slim-down, the graph node no
         longer carries ``publish_time``, so the caller must compute the
         cutoff by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'`` and pass the

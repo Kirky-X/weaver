@@ -52,6 +52,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.constants import BRIEFING_CATEGORIES as VALID_BRIEFING_CATEGORIES
 from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
@@ -65,8 +66,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# 4 briefing categories (mirrors BriefingGenerator).
-VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
+# Briefing categories — single source in core.constants (shared with
+# BriefingGenerator).
 
 # Minimum NarrativeNode count to produce narrative briefing.
 # Below this threshold, raise InsufficientNarrativeError so the caller

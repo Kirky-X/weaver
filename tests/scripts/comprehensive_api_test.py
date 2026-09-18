@@ -313,7 +313,7 @@ class AppProcessManager:
     def _start_process(self) -> None:
         env = os.environ.copy()
 
-        # Load .env file if it exists (to get AGNES_API_KEY and other secrets)
+        # Load .env file if it exists (to get WEAVER_LLM__PROVIDERS__AGNES__API_KEY and other secrets)
         env_file = Path.cwd() / ".env"
         if env_file.exists():
             with env_file.open() as f:

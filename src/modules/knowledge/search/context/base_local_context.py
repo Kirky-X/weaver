@@ -179,7 +179,7 @@ class BaseLocalContextBuilder(ContextBuilder):
         Default behavior: try relational DB text search as fallback
         (searches both title and body via ``ArticleRepo.search_by_text``).
 
-        Cross-database divergence (intentional, see design.md §H1):
+        Cross-database divergence (intentional):
         - Neo4j ``LocalContextBuilder`` uses this default behavior directly.
         - LadybugDB ``LadybugLocalContextBuilder`` overrides to first try
           graph-based Article node search (``_get_related_articles_by_text``)

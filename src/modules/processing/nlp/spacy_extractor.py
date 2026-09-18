@@ -9,34 +9,46 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.constants import EntityType, LanguageCode
 from core.observability import get_logger
-from core.utils.paths import CACHE_DIR
+from core.utils.paths import CACHE_DIR, CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 
 log = get_logger(__name__)
 
-MODEL_MAP = {
-    # zh_core_web_lg is preferred over zh_core_web_trf because:
-    # - trf model requires spacy-transformers + PyTorch/TensorFlow
-    # - lg model provides better NER accuracy for production use
-    "zh": ["zh_core_web_lg", "zh_core_web_trf"],
-    "en": ["en_core_web_lg", "en_core_web_trf"],
+MODEL_MAP: dict[str, list[str]] = {
+    # lg model is preferred over trf: trf requires spacy-transformers +
+    # PyTorch/TensorFlow, while lg gives better production NER accuracy.
+    # Model names come from LanguageCode (single source shared with the
+    # BM25 retriever), so a new supported language only edits the enum.
+    **{code.value: list(code.spacy_models) for code in LanguageCode},
     "default": ["xx_ent_wiki_sm"],
 }
 
-SPACY_TO_ENTITY_TYPE = {
-    "PER": "人物",
-    "PERSON": "人物",
-    "ORG": "组织机构",
-    "GPE": "地点",
-    "LOC": "地点",
-    "TIME": "事件",
-    "DATE": "事件",
-    "EVENT": "事件",
-    "CARDINAL": "数据指标",
-    "PERCENT": "数据指标",
-    "MONEY": "数据指标",
-    "LAW": "法规与政策",
-}
+# spaCy label → canonical entity-type mapping is stored as data in
+# config/entity_types.toml ([spacy_to_entity_type]) instead of being hardcoded.
+ENTITY_TYPES_FILE = CONFIG_DIR / "entity_types.toml"
+
+
+def _load_spacy_to_entity_type() -> dict[str, str]:
+    """Load the spaCy label → entity-type mapping from config/entity_types.toml.
+
+    Targets are validated against ``EntityType``; unknown targets are dropped
+    with a warning so config drift can never emit an entity type that the
+    graph/DB layer would reject.
+    """
+    data = load_toml_or_warn(ENTITY_TYPES_FILE, event="entity_types_config")
+    allowed = {t.value for t in EntityType}
+    mapping: dict[str, str] = {}
+    for label, entity_type in (data.get("spacy_to_entity_type") or {}).items():
+        if entity_type not in allowed:
+            log.warning("spacy_entity_type_target_invalid", label=label, target=entity_type)
+            continue
+        mapping[str(label)] = str(entity_type)
+    return mapping
+
+
+SPACY_TO_ENTITY_TYPE = _load_spacy_to_entity_type()
 
 # Maximum wheel file size (1GB) to prevent zip bomb attacks
 MAX_WHEEL_SIZE = 1 * 1024 * 1024 * 1024
@@ -375,7 +387,7 @@ class SpacyExtractor:
         )
 
     def extract(
-        self, text: str, language: str = "zh", disable_data_metrics: bool = False
+        self, text: str, language: str = LanguageCode.ZH.value, disable_data_metrics: bool = False
     ) -> list[SpacyEntity]:
         """Extract named entities from text.
 
@@ -438,7 +450,7 @@ class SpacyExtractor:
             languages: List of language codes to preload.
                       If None, preloads default models.
         """
-        langs = languages or ["zh", "en"]
+        langs = languages or [code.value for code in LanguageCode]
         for lang in langs:
             try:
                 self._get_nlp(lang)

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, select, update
 
 from config.settings import SchedulerSettings
+from core.constants import RedisKeys
 from core.db import Article, ArticleCore, PersistStatus
 from core.observability import get_logger
 from core.observability.metrics import metrics
@@ -395,9 +396,13 @@ class ConsistencyJobs:
             if self._settings.pipeline_retry_dynamic_batch:
                 success_rate = await self._get_recent_success_rate()
                 if success_rate >= self._settings.pipeline_retry_success_rate_threshold:
-                    batch_size = min(batch_size * 2, 50)
+                    batch_size = min(
+                        batch_size * 2, self._settings.pipeline_retry_dynamic_batch_max
+                    )
                 else:
-                    batch_size = max(batch_size // 2, 5)
+                    batch_size = max(
+                        batch_size // 2, self._settings.pipeline_retry_dynamic_batch_min
+                    )
                 batch_size = max(1, batch_size)
                 log.debug(
                     "retry_pipeline_processing_batch_size",
@@ -409,10 +414,14 @@ class ConsistencyJobs:
             pending_articles = await self._article_repo.get_pending(limit=batch_size)
 
             # 2. Get stuck articles (PROCESSING beyond timeout)
-            stuck_articles = await self._article_repo.get_stuck_articles(timeout_minutes=30)
+            stuck_articles = await self._article_repo.get_stuck_articles(
+                timeout_minutes=self._settings.pipeline_retry_stuck_timeout_minutes
+            )
 
             # 3. Get failed articles (eligible for retry)
-            failed_articles = await self._article_repo.get_failed_articles(max_retries=3)
+            failed_articles = await self._article_repo.get_failed_articles(
+                max_retries=self._settings.pipeline_retry_max_retries
+            )
 
             # Sets keep the per-article category checks below O(1) — list
             # membership made the retry loop O(n^2) for large batches.
@@ -447,7 +456,7 @@ class ConsistencyJobs:
                 all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
                     try:
-                        task_key = "pipeline:task_status"
+                        task_key = RedisKeys.PIPELINE_TASK_STATUS
                         existing = await self._cache.client.hget(task_key, str(task_id))
                         if existing:
                             # Plain json.loads: this is our own serialized

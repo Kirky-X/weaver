@@ -314,8 +314,7 @@ class ArticleRepository(Protocol):
     ) -> dict[str, ArticleTitleMeta]:
         """Batch fetch article metadata by PostgreSQL IDs.
 
-        Used by graph-query callers that, after the Article node slim-down
-        (design.md §), can only read ``pg_id`` from the graph DB and must
+        Used by graph-query callers that, after the Article node slim-down, can only read ``pg_id`` from the graph DB and must
         look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
         the relational DB in a single batched query.
 
@@ -347,8 +346,7 @@ class ArticleRepository(Protocol):
         Used by ``ContextBuilder.fetch_article_bodies`` to replace the
         N+1 per-id ``repo.get`` loop with a single batched SELECT against
         ``article_bodies``. Pairs with ``fetch_titles_by_pg_ids`` to
-        rebuild full article context after the Article node slim-down
-        (design.md §).
+        rebuild full article context after the Article node slim-down.
 
         .. warning::
             Do NOT call this method inside a per-article loop — that
@@ -396,7 +394,7 @@ class SourceAuthorityRepository(Protocol):
 class GraphArticleRepository(Protocol):
     """Protocol for graph article repository implementations.
 
-    After the Article node slim-down (design.md §), the graph Article node
+    After the Article node slim-down, the graph Article node
     stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
     Business fields (title / category / publish_time / score) are no longer
     persisted on the node — callers that need them must batch-fetch from
@@ -474,7 +472,7 @@ class GraphArticleRepository(Protocol):
     ) -> dict[str, dict[str, Any]]:
         """Batch existence lookup for Article nodes by pg_id.
 
-        P4 fix: replaces the per-pg_id ``find_article_by_id`` loop in
+        replaces the per-pg_id ``find_article_by_id`` loop in
         ``Neo4jWriter._create_followed_relations`` to avoid N+1
         round-trips on the pipeline write hot path. Returns a mapping
         of ``pg_id -> article_dict`` for every pg_id that exists in
@@ -597,7 +595,7 @@ class GraphWriter(Protocol):
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive (delete) Article nodes whose pg_id is in ``cutoff_pg_ids``.
 
-        After the Article node slim-down (design.md §), the graph node no
+        After the Article node slim-down, the graph node no
         longer carries ``publish_time``, so the cutoff must be computed by
         the caller (typically by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'``) and the resulting

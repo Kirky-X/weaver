@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for cleaner error-page detection (R1 fix).
+"""Unit tests for cleaner error-page detection.
 
 Verifies that _is_error_page correctly identifies 404/login/redirect pages
 that slip past the crawler HTTP status check, preventing garbage content
@@ -15,7 +15,7 @@ from modules.processing.nodes.quality.cleaner import _is_error_page
 
 
 class TestIsErrorPage:
-    """Tests for _is_error_page function (R1 fix)."""
+    """Tests for _is_error_page function."""
 
     def test_weibo_login_page_detected(self):
         """Weibo login page (L5745-5750 data) must be detected."""

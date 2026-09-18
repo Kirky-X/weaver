@@ -17,7 +17,7 @@ log = get_logger(__name__)
 class ShiftConfig:
     """Configuration for shift detection.
 
-    Implements: ShiftConfig — ADD §3.4
+    Implements: ShiftConfig
     """
 
     def __init__(
@@ -49,7 +49,7 @@ class SentimentShiftDetector:
     PELT detects abrupt mean shifts; CUSUM detects gradual cumulative
     deviations. Results are merged with cooldown-based deduplication.
 
-    Implements: ShiftDetector — ADD §3.4
+    Implements: ShiftDetector
     """
 
     def __init__(self, config: ShiftConfig | None = None):

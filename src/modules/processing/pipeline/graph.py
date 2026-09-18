@@ -115,6 +115,9 @@ class Pipeline:
         self._batch_slot_lock = asyncio.Condition()
         self._deps = deps
         self._settings = settings
+        # Debug mode: asyncio.gather uses return_exceptions=False so exceptions
+        # propagate immediately — all `if self._debug:` branches below skip
+        # error handling / fatal-error checks accordingly.
         self._debug = debug
         self._throughput_tracker = PipelineThroughputTracker()
 
@@ -224,6 +227,9 @@ class Pipeline:
             article_repo=article_repo,
             vector_repo=vector_repo,
             llm_client=llm,
+            similarity_threshold=(
+                pipeline_settings.conflict_similarity_threshold if pipeline_settings else 0.7
+            ),
         )
         self._fake_news_node = (
             FakeNewsDetectorNode(detector=fake_news_detector)
@@ -277,6 +283,9 @@ class Pipeline:
         self._content_hash_cache = ContentHashCacheService(
             cache_client=cache_client,
             schema_version=(pipeline_settings.content_hash_version if pipeline_settings else 2),
+            ttl_seconds=(
+                pipeline_settings.content_hash_cache_ttl_seconds if pipeline_settings else 604800
+            ),
         )
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)
         self._memory_publisher = MemoryEventPublisher(
@@ -415,7 +424,6 @@ class Pipeline:
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
 
-        # Debug mode: exceptions already raised, skip error handling
         if self._debug:
             states = cache_hit_states + list(phase1_results)
         else:
@@ -478,7 +486,6 @@ class Pipeline:
             ]
             phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=not self._debug)
 
-            # Debug mode: exceptions already raised, skip error handling
             if self._debug:
                 states = cache_hit_states + list(phase3_results)
             else:
@@ -637,7 +644,6 @@ class Pipeline:
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
 
-        # Debug mode: exceptions already raised, skip error handling
         if self._debug:
             states = list(phase1_results)
         else:
@@ -779,7 +785,6 @@ class Pipeline:
             )
             categorizer_result, vectorize_result = gather_results[0], gather_results[1]
 
-            # Debug mode: exceptions already raised, use results directly
             if self._debug:
                 state.update(categorizer_result)
                 state.update(vectorize_result)
@@ -875,7 +880,6 @@ class Pipeline:
             )
             analyze_result, quality_result = gather_results[0], gather_results[1]
 
-            # Debug mode: exceptions already raised, use results directly
             if self._debug:
                 state.update(analyze_result)
                 state.update(quality_result)

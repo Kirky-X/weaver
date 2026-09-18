@@ -6,7 +6,7 @@ Revision ID: 06_vertical_split_articles
 Revises: 05_create_security_tables
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §9.1:
+Changes:
 - Create articles_core (high-frequency query columns, ~500 bytes/row)
 - Create article_bodies (large text fields, detail-page only)
 - Create article_analysis (LLM analysis results)

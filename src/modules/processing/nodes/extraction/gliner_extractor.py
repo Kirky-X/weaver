@@ -20,7 +20,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.constants import EntityType
 from core.observability import get_logger
+from core.utils.paths import CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 
 if __name__ != "__main__":
     from typing import TYPE_CHECKING
@@ -29,6 +32,43 @@ if __name__ != "__main__":
         from core.llm.client import LLMClient
 
 log = get_logger(__name__)
+
+ENTITY_TYPES_FILE = CONFIG_DIR / "entity_types.toml"
+
+
+def _gliner_config_data() -> dict[str, Any]:
+    """Load the [gliner] table from config/entity_types.toml once (cached).
+
+    Cached because GLiNERConfig labels and ``_normalize_type`` need it and the
+    file is static reference data; a plain module cache avoids re-reading the
+    TOML on every extractor call.
+    """
+    cached = getattr(_gliner_config_data, "_cache", None)
+    if cached is None:
+        cached = load_toml_or_warn(ENTITY_TYPES_FILE, event="entity_types_config").get("gliner", {})
+        _gliner_config_data._cache = cached  # type: ignore[attr-defined]
+    return cached
+
+
+def _gliner_default_labels() -> list[str]:
+    """Default GLiNER custom labels from config (validated against EntityType).
+
+    Unknown labels are dropped with a warning so a stale config cannot ask the
+    model for a type the downstream normalization does not understand.
+    """
+    allowed = {t.value for t in EntityType}
+    labels: list[str] = []
+    for label in _gliner_config_data().get("labels") or []:
+        if label not in allowed:
+            log.warning("gliner_label_not_entity_type", label=label)
+            continue
+        labels.append(str(label))
+    return labels
+
+
+def _gliner_type_map() -> dict[str, str]:
+    """Load GLiNER/spaCy label → internal code map from config (loaded once)."""
+    return {str(k): str(v) for k, v in (_gliner_config_data().get("type_map") or {}).items()}
 
 
 @dataclass
@@ -47,9 +87,7 @@ class GLiNERConfig:
     model_name: str = "urchade/gliner_multi-v2.1"
     threshold: float = 0.5
     max_input_length: int = 4096
-    labels: list[str] = field(
-        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品与技术"]
-    )
+    labels: list[str] = field(default_factory=_gliner_default_labels)
 
 
 class GLiNERExtractor:
@@ -341,17 +379,9 @@ class GLiNERExtractor:
         Returns:
             Normalized type string.
         """
-        type_map = {
-            "PERSON": "PERSON",
-            "ORG": "ORG",
-            "GPE": "GPE",
-            "LOC": "LOC",
-            "事件": "EVENT",
-            "数据指标": "METRIC",
-            "法规与政策": "POLICY",
-            "产品与技术": "PRODUCT",
-        }
-        return type_map.get(label, "OTHER")
+        # type_map is loaded once from config/entity_types.toml ([gliner.type_map])
+        # at first use and cached, instead of rebuilt on every call.
+        return _gliner_type_map().get(label, "OTHER")
 
     def _normalize_text(self, text: str | None) -> str:
         """Normalize entity text.

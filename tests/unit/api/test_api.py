@@ -750,6 +750,7 @@ class TestArticlesEndpoint:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,

@@ -94,7 +94,7 @@ REQUIRED_NEO4J_CONSTRAINTS = [
             FOR (a:Article) REQUIRE a.pg_id IS UNIQUE
         """
         ),
-        "description": "Unique constraint on Article pg_id (slim-down §)",
+        "description": "Unique constraint on Article pg_id (slim-down)",
     },
 ]
 

@@ -206,7 +206,7 @@ class SubgraphClusteringService:
         # Update metadata
         await self._updater._update_metadata(result)
 
-        # R3 fix: backfill article_count on all communities after incremental
+        # backfill article_count on all communities after incremental
         # update so that article_count reflects newly assigned entities.
         await self._update_article_counts()
 
@@ -273,7 +273,7 @@ class SubgraphClusteringService:
     async def _update_article_counts(self) -> None:
         """Backfill ``article_count`` on all Community nodes.
 
-        R3 fix: communities are detected from entity-entity co-occurrence, but
+        communities are detected from entity-entity co-occurrence, but
         article_count was never populated. This method traverses
         ``Article-[:MENTIONS]->Entity<-[:HAS_ENTITY]-Community`` to count
         distinct articles per community and persists the value on each
@@ -334,7 +334,7 @@ class SubgraphClusteringService:
         # Update metadata including entity count
         await self._updater._update_full_rebuild_metadata()
 
-        # R3 fix: backfill article_count on all communities so that report
+        # backfill article_count on all communities so that report
         # generation and PG vector sync surface the correct value.
         await self._update_article_counts()
 

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Test rate limit fail-close behavior with local token bucket fallback.
 
-Validates GAP-M06 fix: When Redis is unavailable, rate limiting switches
+Validates When Redis is unavailable, rate limiting switches
 to a local in-memory token bucket (fail-close) instead of pass-through.
 """
 

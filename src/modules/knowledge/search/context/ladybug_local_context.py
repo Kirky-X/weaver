@@ -16,6 +16,7 @@ from typing import Any
 
 from core.db.graph_query_builders import (
     EntitySearchConfig,
+    GraphDatabaseType,
     GraphQueryBuilder,
     RelatedEntitiesConfig,
     create_graph_query_builder,
@@ -62,7 +63,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
             max_relationships=max_relationships,
             max_hops=max_hops,
         )
-        self._query_builder: GraphQueryBuilder = create_graph_query_builder("ladybug")
+        self._query_builder: GraphQueryBuilder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
 
     def _should_validate_entity_names(self) -> bool:
         """LadybugDB validates entity names because data model may differ."""
@@ -78,7 +79,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         Tries graph-based Article node search first, then falls back to
         relational DB (DuckDB/PostgreSQL) text search.
 
-        Cross-database divergence (intentional, see design.md §H1):
+        Cross-database divergence (intentional):
         This override exists to exercise LadybugDB's Cypher dialect for
         Article node queries. The graph path matches title only (Python-side
         filter after PG enrichment); the relational fallback matches title
@@ -215,7 +216,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
     ) -> list[dict[str, Any]]:
         """Get articles mentioning the query entities.
 
-        After the Article node slim-down (design.md §), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id``. Title / category / publish_time /
         score are batch-fetched from PostgreSQL via
         ``enrich_articles_with_titles`` when ``self._article_repo`` is
@@ -267,7 +268,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         This is a fallback when no entities are found.
         Uses parameterized query via GraphQueryBuilder.
 
-        After the Article node slim-down (design.md §), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id`` and does NOT filter by query text
         (Article nodes no longer store titles). Titles are batch-fetched
         from PostgreSQL via ``enrich_articles_with_titles`` when

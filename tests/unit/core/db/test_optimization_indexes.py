@@ -3,8 +3,7 @@
 """Unit tests for database optimization indexes.
 
 Tests verify that the required optimization indexes exist on the
-articles_core and article_analysis tables as specified in the
-Weaver-数据库设计文档 §9.2.
+articles_core and article_analysis tables as specified in the DB design spec.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ class TestArticleCoreOptimizationIndexes:
     def test_idx_articles_sentiment_time_exists(self):
         """Test idx_articles_sentiment_time partial index exists.
 
-        Required by design doc §9.2 #1: sentiment_score + publish_time DESC
+        Required: sentiment_score + publish_time DESC
         WHERE sentiment_score IS NOT NULL
         """
         from core.db.models import ArticleCore
@@ -38,7 +37,7 @@ class TestArticleCoreOptimizationIndexes:
     def test_idx_articles_briefing_exists(self):
         """Test idx_articles_briefing partial index exists.
 
-        Required by design doc §9.2 #2: publish_time DESC + score DESC
+        Required: publish_time DESC + score DESC
         WHERE score IS NOT NULL
         """
         from core.db.models import ArticleCore
@@ -59,7 +58,7 @@ class TestArticleCoreOptimizationIndexes:
     def test_idx_articles_category_sentiment_exists(self):
         """Test idx_articles_category_sentiment partial index exists.
 
-        Required by design doc §9.2 #3: category + sentiment_score DESC
+        Required: category + sentiment_score DESC
         WHERE category IS NOT NULL AND sentiment_score IS NOT NULL
         """
         from core.db.models import ArticleCore
@@ -70,7 +69,7 @@ class TestArticleCoreOptimizationIndexes:
     def test_idx_articles_url_lookup_exists(self):
         """Test idx_articles_url_lookup covering index exists.
 
-        Required by design doc §9.2 #5: source_url INCLUDE (id, title, publish_time)
+        Required: source_url INCLUDE (id, title, publish_time)
         """
         from core.db.models import ArticleCore
 
@@ -80,7 +79,7 @@ class TestArticleCoreOptimizationIndexes:
     def test_idx_articles_retry_exists(self):
         """Test idx_articles_retry partial index exists.
 
-        Required by design doc §9.2 #6: persist_status + updated_at ASC
+        Required: persist_status + updated_at ASC
         WHERE persist_status IN ('pg_done', 'neo4j_failed', 'failed')
         """
         from core.db.models import ArticleCore
@@ -108,7 +107,7 @@ class TestArticleAnalysisIndexes:
     def test_idx_articles_is_news_exists(self):
         """Test idx_articles_is_news partial index exists on article_analysis.
 
-        Required by design doc §9.2 #4: publish_time DESC WHERE is_news = true.
+        Required: publish_time DESC WHERE is_news = true.
         Note: is_news is in article_analysis after vertical split, so this
         index must be on article_analysis, not articles_core.
         """
@@ -134,7 +133,7 @@ class TestEntityVectorIndexes:
     def test_entity_vectors_has_hnsw_index(self):
         """Test that entity_vectors has HNSW index on embedding column.
 
-        Required by design doc §8.1: both vector tables need HNSW indexes.
+        Required: both vector tables need HNSW indexes.
         """
         from core.db.models import EntityVector
 
@@ -148,7 +147,7 @@ class TestDailyBriefingItemIndexes:
     def test_briefing_items_unique_article_constraint(self):
         """Test UNIQUE(briefing_id, article_id) exists on daily_briefing_items.
 
-        Required by design doc §12.2.
+        Required.
         """
         from core.db.models import DailyBriefingItem
 
@@ -161,7 +160,7 @@ class TestDailyBriefingItemIndexes:
     def test_briefing_items_unique_rank_constraint(self):
         """Test UNIQUE(briefing_id, rank) exists on daily_briefing_items.
 
-        Required by design doc §12.2.
+        Required.
         """
         from core.db.models import DailyBriefingItem
 

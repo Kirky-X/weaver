@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from core.constants import RedisKeys
 from core.event import LLMUsageEvent
 from core.observability import get_logger
 
@@ -24,8 +25,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Redis key 前缀
-REDIS_KEY_PREFIX = "llm:usage"
+# Redis key 前缀（不带尾冒号；单一定义在 core.constants.RedisKeys）
+REDIS_KEY_PREFIX = RedisKeys.LLM_USAGE_BUFFER_PREFIX
 # 默认 TTL: 2 小时
 DEFAULT_TTL_SECONDS = 7200
 # 支持的指标列表

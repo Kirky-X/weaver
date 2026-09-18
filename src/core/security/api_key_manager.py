@@ -7,8 +7,6 @@ Provides:
 - bcrypt-hashed key storage
 - Key creation, validation, and revocation
 - Rate limit configuration per key
-
-Implements: Weaver-数据库设计文档 §1.6.3
 """
 
 from __future__ import annotations
@@ -100,8 +98,6 @@ def _prehash_key(key_value: str) -> bytes:
 
 class ApiKeyManager:
     """API Key lifecycle management with bcrypt hashing and ORM.
-
-    Implements: Weaver-数据库设计文档 §1.6.3
     """
 
     def __init__(self, pool: RelationalPool) -> None:
@@ -353,7 +349,7 @@ class ApiKeyManager:
         """
         async with self._pool.session() as session:
             # Using FOR UPDATE to align with rotate_key and prevent concurrent
-            # revoke+rotate from producing misleading OK status (MED-004 fix).
+            # revoke+rotate from producing misleading OK status.
             # DuckDB 下降级为普通 SELECT（单写者模型已保证串行）。
             fetch_result = await session.execute(self._select_key_for_update(session, key_id))
             target = fetch_result.scalar_one_or_none()

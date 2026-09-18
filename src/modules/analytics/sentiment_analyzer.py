@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from core.llm.utils.json_parser import extract_last_json_object
 from core.observability import get_logger
 
 if __name__ != "__main__":
@@ -26,9 +27,6 @@ if __name__ != "__main__":
         from core.llm.client import LLMClient
 
 log = get_logger(__name__)
-
-# Max opening-brace candidates retried by _extract_json_from_text.
-_MAX_JSON_CANDIDATES = 128
 
 
 @dataclass
@@ -300,9 +298,8 @@ class SentimentAnalyzer:
     def _extract_json_from_text(self, text: str) -> dict[str, Any] | None:
         """Extract JSON object from text that may contain thinking/reasoning.
 
-        LLMs with think mode may return reasoning text before the JSON output.
-        This method finds the last valid JSON object in the text by scanning
-        for balanced braces.
+        Delegates to the shared brace-scanning implementation in
+        ``core.llm.utils.json_parser.extract_last_json_object``.
 
         Args:
             text: Raw LLM response text.
@@ -310,41 +307,10 @@ class SentimentAnalyzer:
         Returns:
             Parsed dict if JSON found, None otherwise.
         """
-        # Collect opening-brace candidates, keeping only the most recent ones:
-        # each failed candidate scans to end-of-text, so unbounded retries on
-        # brace-heavy prose are O(N^2). LLM payloads are short; the cap
-        # only bounds pathological inputs.
-        starts = [i for i, ch in enumerate(text) if ch == "{"][-_MAX_JSON_CANDIDATES:]
-        # Find all positions of opening braces
-        for i in reversed(starts):
-            # Try to parse from this position to end, tracking string state so
-            # braces inside JSON string values (e.g. "note": "use {x}") do not
-            # corrupt the depth count.
-            depth = 0
-            in_string = False
-            escaped = False
-            for j in range(i, len(text)):
-                ch = text[j]
-                if in_string:
-                    if escaped:
-                        escaped = False
-                    elif ch == "\\":
-                        escaped = True
-                    elif ch == '"':
-                        in_string = False
-                elif ch == '"':
-                    in_string = True
-                elif ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[i : j + 1])
-                    except (json.JSONDecodeError, TypeError):
-                        break
-        log.warning("sentiment_llm_response_not_json", response_preview=text[:200])
-        return None
+        result = extract_last_json_object(text)
+        if result is None:
+            log.warning("sentiment_llm_response_not_json", response_preview=text[:200])
+        return result
 
     def _default_result(self, source: str) -> dict[str, Any]:
         """Return default sentiment result.

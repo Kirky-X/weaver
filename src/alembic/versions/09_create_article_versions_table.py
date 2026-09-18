@@ -6,7 +6,7 @@ Revision ID: 09_create_article_versions_table
 Revises: 08_create_alert_tables
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §9.11.6:
+Changes:
 - Create article_versions table with FK to articles_core
 - UNIQUE(article_id, version) constraint
 - Index on (article_id, version DESC)

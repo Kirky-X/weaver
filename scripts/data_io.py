@@ -80,37 +80,21 @@ EXPECTED_TABLES: list[str] = [
     "llm_compare_hourly",
 ]
 
-# 8 LadybugDB node labels (matches ladybug_schema.py SCHEMA_QUERIES)
-EXPECTED_NODE_LABELS: list[str] = [
-    "Entity",
-    "Article",
-    "Community",
-    "CommunityReport",
-    "EventNode",
-    "NarrativeNode",
-    "SchemaNode",
-    "_CommunityMetadata",
-]
-
-# 13 LadybugDB relationship types (matches ladybug_schema.py SCHEMA_QUERIES)
-EXPECTED_REL_TYPES: list[str] = [
-    "MENTIONS",
-    "FOLLOWED_BY",
-    "EVENT_FOLLOWED_BY",
-    "CAUSES",
-    "ENABLES",
-    "PREVENTS",
-    "RELATED_TO",
-    "HAS_ENTITY",
-    "REPORTS_ON",
-    "HAS_PARTICIPANT",
-    "HAS_SUB_EVENT",
-    "HAS_NARRATIVE",
-    "HAS_EVENT",
-]
-
 # Schema definition imports — re-exported from src for schema initialization
 # Lazy import inside functions to avoid loading full src/ when running --help.
+
+
+def _graph_vocab() -> tuple[list[str], list[str]]:
+    """Return (node labels, rel types) derived from the DDL authority.
+
+    Lazily imports ``core.db.ladybug_schema`` so the verification vocabularies
+    can never drift from the schema definitions.
+    """
+    _ensure_src_path()
+    from core.db.ladybug_schema import NODE_TABLES, REL_TABLES
+
+    return list(NODE_TABLES), list(REL_TABLES)
+
 
 # Batch size for INSERT operations
 BATCH_SIZE = 1000
@@ -762,9 +746,11 @@ async def export_neo4j_to_ladybug(
     # 2. Connect to Neo4j
     neo4j_driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
 
+    expected_nodes, expected_rels = _graph_vocab()
+
     try:
         # 3. Export nodes for each label
-        for label in EXPECTED_NODE_LABELS:
+        for label in expected_nodes:
             # Get LadybugDB columns for this label
             try:
                 col_result = ladybug_conn.execute("CALL SHOW_TABLES() RETURN *")
@@ -818,7 +804,7 @@ async def export_neo4j_to_ladybug(
                     )
 
         # 4. Export relationships for each type
-        for rel_type in EXPECTED_REL_TYPES:
+        for rel_type in expected_rels:
             # Get LadybugDB rel properties (excluding FROM/TO)
             rel_props = _get_ladybug_rel_properties(ladybug_conn, rel_type)
             # Determine FROM/TO labels for this rel type
@@ -1196,6 +1182,17 @@ _FALLBACK_REL_PROPS: dict[str, list[str]] = {
 }
 
 
+def _ladybug_inline_string(value: str) -> str:
+    """Escape and quote a string for inline Cypher map literal.
+
+    Kùzu binder misinfers vector-looking strings (e.g. ``'[]'``) as vector
+    types, so string values must be inlined as escaped Cypher literals
+    rather than passed as parameters.
+    """
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def _ladybug_create_nodes(
     ladybug_conn,
     label: str,
@@ -1249,10 +1246,7 @@ def _ladybug_create_nodes(
         for c in non_none_cols:
             v = props.get(c)
             if isinstance(v, str):
-                # Inline as escaped Cypher string literal to avoid the
-                # Kùzu binder bug on vector-looking strings like '[]'.
-                escaped = v.replace("\\", "\\\\").replace("'", "\\'")
-                map_parts.append(f"`{c}`: '{escaped}'")
+                map_parts.append(f"`{c}`: {_ladybug_inline_string(v)}")
             elif isinstance(v, bool):
                 # bool before int because bool is a subclass of int
                 map_parts.append(f"`{c}`: {str(v).lower()}")
@@ -1368,8 +1362,7 @@ def _ladybug_create_rels(
     Cypher reserved words.
     """
     # Build per-rel Cypher: properties in CREATE map literal.
-    # Same Kùzu binder bug workaround as _ladybug_create_nodes:
-    # string values are inlined as escaped Cypher string literals.
+    # String values use _ladybug_inline_string (Kùzu binder workaround).
     for rel in rels:
         # Collect non-None prop values with timestamp conversion
         non_none_props: list[tuple[str, Any]] = []
@@ -1384,8 +1377,7 @@ def _ladybug_create_rels(
         param_dict: dict[str, Any] = {"_from_id": rel["_from_id"], "_to_id": rel["_to_id"]}
         for p, v in non_none_props:
             if isinstance(v, str):
-                escaped = v.replace("\\", "\\\\").replace("'", "\\'")
-                map_parts.append(f"`{p}`: '{escaped}'")
+                map_parts.append(f"`{p}`: {_ladybug_inline_string(v)}")
             elif isinstance(v, bool):
                 map_parts.append(f"`{p}`: {str(v).lower()}")
             elif isinstance(v, (int, float)):
@@ -1996,8 +1988,9 @@ async def compare_neo4j_ladybug(
     LadybugDB FROM/TO label constraints differing from Neo4j's schemaless rels).
     """
     results: list[CheckResult] = []
+    expected_nodes, expected_rels = _graph_vocab()
 
-    for label in EXPECTED_NODE_LABELS:
+    for label in expected_nodes:
         result = CheckResult(category="neo4j_ladybug", check_type="node_label", name=label)
         try:
             neo_count = await neo.count_nodes(label)
@@ -2049,7 +2042,7 @@ async def compare_neo4j_ladybug(
         results.append(result)
         _verify_print_graph_result(result)
 
-    for rel_type in EXPECTED_REL_TYPES:
+    for rel_type in expected_rels:
         result = CheckResult(category="neo4j_ladybug", check_type="rel_type", name=rel_type)
         try:
             neo_count = await neo.count_rels(rel_type)
@@ -2160,9 +2153,10 @@ async def _verify_consistency(args: argparse.Namespace) -> int:
                 await neo.connect()
                 await lady.connect()
                 print(f"Connected: Neo4j ({args.neo4j_uri}) ↔ LadybugDB ({args.ladybug_path})")
+                expected_nodes, expected_rels = _graph_vocab()
                 print(
-                    f"Comparing {len(EXPECTED_NODE_LABELS)} node labels "
-                    f"and {len(EXPECTED_REL_TYPES)} rel types..."
+                    f"Comparing {len(expected_nodes)} node labels "
+                    f"and {len(expected_rels)} rel types..."
                 )
                 report.neo4j_ladybug = await compare_neo4j_ladybug(neo, lady)
             finally:

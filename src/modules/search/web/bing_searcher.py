@@ -86,8 +86,6 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-_BING_SEARCH_URL = "https://cn.bing.com/search"
-_BING_NEWS_SEARCH_URL = "https://cn.bing.com/news/search"
 _DEFAULT_QUERY_LOG_PREFIX = 50
 _MAX_PARALLEL_SUBSEARCHES = 8
 
@@ -150,6 +148,10 @@ class BingSearcher:
     ) -> None:
         self._fetcher = fetcher
         self._settings = settings
+        self._search_url = getattr(settings, "search_url", "https://cn.bing.com/search")
+        self._news_search_url = getattr(
+            settings, "news_search_url", "https://cn.bing.com/news/search"
+        )
         self._query_expander = query_expander
         # Cache injection point: when caller passes a cache, use it as-is
         # (tests inject a real TTLCache with a short TTL to verify expiry).
@@ -416,7 +418,7 @@ class BingSearcher:
         # Build URL: https://cn.bing.com/search?q=<quoted>&first=1[&filters=...]
         # ``first`` is 1-indexed offset (Bing convention). safe='' encodes
         # '/' to %2F to prevent path-separator interpretation in query value.
-        url = f"{_BING_SEARCH_URL}?q={quote(query, safe='')}&first=1"
+        url = f"{self._search_url}?q={quote(query, safe='')}&first=1"
         if time_filter != "none":
             # .get() (not []): effective_time_filter may come from untyped
             # settings; an unknown literal must degrade to "no filter", never
@@ -483,7 +485,7 @@ class BingSearcher:
         is already time-sorted by recency. Returns [] on HTTP error /
         non-200 / parse failure (per R-web-search-005 — never raise).
         """
-        url = f"{_BING_NEWS_SEARCH_URL}?q={quote(query, safe='')}&first=1"
+        url = f"{self._news_search_url}?q={quote(query, safe='')}&first=1"
         headers = {"User-Agent": getattr(self._settings, "user_agent", "weaver/bot")}
 
         try:

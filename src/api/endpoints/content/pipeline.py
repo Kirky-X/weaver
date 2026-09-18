@@ -27,7 +27,7 @@ from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, ResponseCode, success_response
 from config.settings import Settings
 from container import get_settings
-from core.constants import PipelineTaskStatus
+from core.constants import RedisKeys, Status
 from core.exceptions import BusinessError
 from core.observability import get_logger, metrics
 from core.protocols import CachePool, RelationalPool
@@ -76,7 +76,7 @@ class TriggerResponse(BaseModel):
     """Response model for pipeline trigger."""
 
     task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
+    status: str = Status.QUEUED.value
     queued_at: str
 
 
@@ -123,14 +123,14 @@ class ProcessUrlResponse(BaseModel):
     """Response model for single URL processing."""
 
     task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
+    status: str = Status.QUEUED.value
     queued_at: str
 
 
 # ── Constants ───────────────────────────────────────────────────
 
-TASK_QUEUE_KEY = "pipeline:task_queue"
-TASK_STATUS_KEY = "pipeline:task_status"
+TASK_QUEUE_KEY = RedisKeys.PIPELINE_TASK_QUEUE
+TASK_STATUS_KEY = RedisKeys.PIPELINE_TASK_STATUS
 QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 
 # SSE concurrency limiter (default 3 concurrent streams)
@@ -142,18 +142,24 @@ _sse_semaphore = asyncio.Semaphore(3)
 _URL_PROCESSING_CONCURRENCY = 10
 _url_processing_semaphore = asyncio.Semaphore(_URL_PROCESSING_CONCURRENCY)
 
-# Per-source timeout for background trigger (5 minutes). Keeps one slow
-# source from blocking the entire trigger batch, while still allowing the
-# background task to make progress and update task status.
-_TRIGGER_SOURCE_TIMEOUT_SECONDS = 300.0
-
-# Per-source dedup lock (CWE-362).
-# Prevents concurrent trigger_pipeline requests from scheduling the same
-# source multiple times. Lock is set in trigger_pipeline and released in
-# _execute_trigger_background's finally block. TTL matches trigger timeout
-# so a crashed task does not permanently lock the source.
+# Per-source timeout for background trigger keeps one slow source from
+# blocking the entire trigger batch; the dedup lock TTL must exceed it so a
+# crashed task never leaves the source permanently locked. Both read from
+# PipelineProcessSettings at call time (see _trigger_source_timeout()).
 _SOURCE_LOCK_KEY_PREFIX = "pipeline:source:lock:"
-_SOURCE_LOCK_TTL_SECONDS = 600  # 10 minutes (> _TRIGGER_SOURCE_TIMEOUT_SECONDS)
+
+
+def _trigger_source_timeout() -> float:
+    from config.settings import get_settings
+
+    return get_settings().pipeline_process.trigger_source_timeout_seconds
+
+
+def _source_lock_ttl() -> int:
+    from config.settings import get_settings
+
+    return get_settings().pipeline_process.source_lock_ttl_seconds
+
 
 # Strong references to fire-and-forget background tasks so they are not
 # garbage-collected before completion (asyncio.create_task GC risk).
@@ -197,7 +203,7 @@ def _build_trigger_status_payload(
 
     Args:
         task_id: Task UUID string.
-        status: ``PipelineTaskStatus`` value (queued/running/completed/failed).
+        status: ``Status`` value (queued/running/completed/failed).
         **fields: Additional fields to include in the payload (e.g.
             ``source_id``, ``queued_at``, ``error``).
 
@@ -236,7 +242,7 @@ async def _execute_trigger_background(
         await _update_trigger_status(
             cache,
             task_id,
-            PipelineTaskStatus.RUNNING,
+            Status.RUNNING,
             source_id_field,
             source_ids_field,
             queued_at,
@@ -249,7 +255,7 @@ async def _execute_trigger_background(
             await _update_trigger_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.COMPLETED,
+                Status.COMPLETED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -285,7 +291,7 @@ async def _execute_trigger_background(
             await _update_trigger_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.FAILED,
+                Status.FAILED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -304,7 +310,7 @@ async def _execute_trigger_background(
             await _update_trigger_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.COMPLETED,
+                Status.COMPLETED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -324,7 +330,7 @@ async def _execute_trigger_background(
             await _update_trigger_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.FAILED,
+                Status.FAILED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -367,7 +373,7 @@ async def _execute_sequential_triggers(
                     task_id=task_uuid,
                     force=force,
                 ),
-                timeout=_TRIGGER_SOURCE_TIMEOUT_SECONDS,
+                timeout=_trigger_source_timeout(),
             )
             results.append(None)
         except asyncio.CancelledError as exc:
@@ -402,7 +408,7 @@ def _log_trigger_results(
 async def _update_trigger_status(
     cache: CachePool,
     task_id: str,
-    status: PipelineTaskStatus,
+    status: Status,
     source_id: str | None,
     source_ids: list[str] | None,
     queued_at: str,
@@ -597,7 +603,7 @@ async def trigger_pipeline(
     if target_source_ids:
         for sid in target_source_ids:
             lock_key = f"{_SOURCE_LOCK_KEY_PREFIX}{sid}"
-            acquired = await cache.set_nx(lock_key, task_id, ex=_SOURCE_LOCK_TTL_SECONDS)
+            acquired = await cache.set_nx(lock_key, task_id, ex=_source_lock_ttl())
             if not acquired:
                 # Roll back already-acquired locks before failing so we
                 # do not leak locks for sources that we did successfully
@@ -634,7 +640,7 @@ async def trigger_pipeline(
             task_id,
             _build_trigger_status_payload(
                 task_id=task_id,
-                status=PipelineTaskStatus.QUEUED.value,
+                status=Status.QUEUED.value,
                 source_id=request.source_id,
                 source_ids=source_ids_field,
                 queued_at=now,
@@ -1017,7 +1023,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.RUNNING.value,
+                Status.RUNNING.value,
                 started_at=datetime.now(UTC).isoformat(),
             )
 
@@ -1050,7 +1056,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.COMPLETED.value,
+                Status.COMPLETED.value,
                 completed_at=datetime.now(UTC).isoformat(),
                 article_id=state.get("article_id", ""),
             )
@@ -1060,7 +1066,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.FAILED.value,
+                Status.FAILED.value,
                 error=str(exc),
                 completed_at=datetime.now(UTC).isoformat(),
             )
@@ -1106,7 +1112,7 @@ async def process_single_url(
         json.dumps(
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.QUEUED.value,
+                "status": Status.QUEUED.value,
                 "url": request.url,
                 "queued_at": now,
             }
@@ -1179,7 +1185,7 @@ async def _stream_url_processing(
         await _update_task_status(
             cache,
             task_id,
-            PipelineTaskStatus.RUNNING.value,
+            Status.RUNNING.value,
             started_at=datetime.now(UTC).isoformat(),
         )
         yield _sse_event(
@@ -1226,7 +1232,7 @@ async def _stream_url_processing(
                 await _update_task_status(
                     cache,
                     task_id,
-                    PipelineTaskStatus.COMPLETED.value,
+                    Status.COMPLETED.value,
                     completed_at=datetime.now(UTC).isoformat(),
                 )
         finally:
@@ -1258,7 +1264,7 @@ async def _stream_url_processing(
         await _update_task_status(
             cache,
             task_id,
-            PipelineTaskStatus.FAILED.value,
+            Status.FAILED.value,
             error=str(exc),
             completed_at=datetime.now(UTC).isoformat(),
         )
@@ -1313,7 +1319,7 @@ async def _do_process(
             "result",
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.COMPLETED.value,
+                "status": Status.COMPLETED.value,
                 "article_id": state.get("article_id", ""),
                 "completed_at": datetime.now(UTC).isoformat(),
             },
@@ -1398,7 +1404,7 @@ async def process_url_stream(
         json.dumps(
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.QUEUED.value,
+                "status": Status.QUEUED.value,
                 "url": request.url,
                 "queued_at": now,
             }

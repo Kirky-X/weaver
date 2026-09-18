@@ -10,6 +10,37 @@ from core.observability import get_logger
 
 log = get_logger(__name__)
 
+# Canonical graph table vocabulary. ``SCHEMA_QUERIES`` below is the DDL
+# authority (order-sensitive); scripts/data_io.py and scripts/db.py derive
+# their verification vocabularies from these two tuples, so new tables must
+# be added to both places. Guarded by
+# tests/unit/core/db/test_ladybug_schema_vocab.py.
+NODE_TABLES: tuple[str, ...] = (
+    "Entity",
+    "Article",
+    "Community",
+    "CommunityReport",
+    "EventNode",
+    "NarrativeNode",
+    "SchemaNode",
+    "_CommunityMetadata",
+)
+REL_TABLES: tuple[str, ...] = (
+    "MENTIONS",
+    "FOLLOWED_BY",
+    "EVENT_FOLLOWED_BY",
+    "CAUSES",
+    "ENABLES",
+    "PREVENTS",
+    "RELATED_TO",
+    "HAS_ENTITY",
+    "REPORTS_ON",
+    "HAS_PARTICIPANT",
+    "HAS_SUB_EVENT",
+    "HAS_NARRATIVE",
+    "HAS_EVENT",
+)
+
 # Schema queries for LadybugDB
 SCHEMA_QUERIES = [
     """
@@ -43,8 +74,7 @@ SCHEMA_QUERIES = [
     # ALTER TABLE DROP COLUMN. Wrapped in try/except by
     # initialize_ladybug_schema so already-migrated databases skip
     # silently. Title/category/publish_time/score are now batch-fetched
-    # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids
-    # (design.md §).
+    # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids.
     "ALTER TABLE Article DROP COLUMN title",
     "ALTER TABLE Article DROP COLUMN category",
     "ALTER TABLE Article DROP COLUMN publish_time",
@@ -66,7 +96,7 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # R3 fix: backfill article_count on pre-existing Community tables.
+    # backfill article_count on pre-existing Community tables.
     # New databases pick up the column from CREATE NODE TABLE above; existing
     # databases need ALTER TABLE. Wrapped in try/except by initialize_ladybug_schema.
     "ALTER TABLE Community ADD COLUMN article_count INT64",

@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from core.constants import RedisKeys
 from core.event import LLMCompareEvent
 from core.observability import get_logger
 
@@ -21,8 +22,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Redis key prefix
-REDIS_KEY_PREFIX = "llm:compare"
+# Redis key prefix（不带尾冒号；单一定义在 core.constants.RedisKeys）
+REDIS_KEY_PREFIX = RedisKeys.LLM_COMPARE_PREFIX
 # Default TTL: 24 hours
 DEFAULT_TTL_SECONDS = 86400
 # Supported metrics

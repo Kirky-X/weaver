@@ -22,6 +22,11 @@ version = "1.0"
 # 全部失效（否则 7 天 TTL 内新旧结果混杂）。本次 2→3：analyze_narrative
 # 合并 prompt 上线 + narrative payload 移除 entities。
 content_hash_version = 3
+# Content-hash snapshot TTL in seconds (default 7 days); snapshots older
+# than this are treated as misses even when the version matches.
+content_hash_cache_ttl_seconds = 604800
+# ConflictDetectorNode similar-article similarity cutoff (0-1).
+conflict_similarity_threshold = 0.7
 
 # ============================================================
 # Phase 1: Initial Processing

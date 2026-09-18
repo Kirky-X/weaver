@@ -30,8 +30,6 @@ from core.db.models.base import Base, JSONCompatible
 
 class AlertRule(Base):
     """Alert rules for entity monitoring.
-
-    Implements: Weaver-数据库设计文档 §12.4
     """
 
     __tablename__ = "alert_rules"
@@ -102,8 +100,6 @@ class AlertRule(Base):
 
 class AlertEvent(Base):
     """Alert events triggered by rules.
-
-    Implements: Weaver-数据库设计文档 §12.4
     """
 
     __tablename__ = "alert_events"

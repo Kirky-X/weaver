@@ -329,7 +329,7 @@ class TestNeo4jWriterMergeSources:
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_article = AsyncMock(return_value="article-id")
-            # P4 fix: _create_followed_relations now uses batch
+            # _create_followed_relations now uses batch
             # find_articles_by_pg_ids instead of per-source
             # find_article_by_id. Returning a dict that maps every
             # source pg_id to a slim article signals "all sources exist
@@ -400,7 +400,7 @@ class TestNeo4jWriterCleanup:
     async def test_archive_old_articles(self, writer_with_mocks):
         """Test archive_old_articles method (post-slim-down signature).
 
-        LSP alignment (H1 fix): writer.archive_old_articles no longer
+        LSP alignment: writer.archive_old_articles no longer
         invokes cleanup_orphan_entities() — that responsibility moved
         to MaintenanceJobs. Both Neo4jWriter and LadybugWriter now
         have identical side-effect contracts (delete only).
@@ -411,7 +411,7 @@ class TestNeo4jWriterCleanup:
 
         assert result == 10
         mock_article_repo.delete_old_articles.assert_called_once_with(["pg-1", "pg-2"])
-        # H1 fix: writer must NOT call cleanup_orphan_entities; caller does.
+        # writer must NOT call cleanup_orphan_entities; caller does.
         mock_entity_repo.delete_orphan_entities.assert_not_called()
 
 
@@ -632,12 +632,11 @@ class TestNeo4jWriterFollowedBy:
     async def test_followed_creates_relation_with_zero_time_gap(self, writer_with_mocks):
         """After slim-down, _create_followed_relations always uses time_gap=0.0.
 
-        The graph Article node no longer carries ``publish_time`` (design.md
-        §), so the time gap cannot be computed in the graph layer. Callers
+        The graph Article node no longer carries ``publish_time``, so the time gap cannot be computed in the graph layer. Callers
         needing accurate time gaps must compute them from PostgreSQL at
         query time. The relation is still created with ``time_gap_hours=0.0``.
 
-        P4 fix: existence check uses batch ``find_articles_by_pg_ids``.
+        existence check uses batch ``find_articles_by_pg_ids``.
         """
         writer, mock_article_repo = writer_with_mocks
 
@@ -668,7 +667,7 @@ class TestNeo4jWriterFollowedBy:
     async def test_followed_source_missing_skips_relation(self, writer_with_mocks):
         """When the source article is missing from the graph, skip the relation.
 
-        P4 fix: missing sources are simply absent from the
+        missing sources are simply absent from the
         ``find_articles_by_pg_ids`` result dict (empty dict = all missing).
         We must not create a FOLLOWED_BY relation pointing at a
         non-existent source node.

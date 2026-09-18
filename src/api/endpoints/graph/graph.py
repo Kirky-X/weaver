@@ -24,6 +24,7 @@ from api.schemas.traverse import (
     TraverseResultItem,
     TraverseStatistics,
 )
+from core.constants import EntityType
 from core.protocols import GraphPool
 from modules.storage.graph_repo import GraphRepository
 
@@ -175,7 +176,7 @@ async def list_entities(
         {
             "id": str(row.get("id") or ""),
             "name": row.get("name") or "",
-            "entity_type": row.get("entity_type") or "未知",
+            "entity_type": row.get("entity_type") or EntityType.UNKNOWN,
             "mention_count": int(row.get("mention_count") or 0),
         }
         for row in rows

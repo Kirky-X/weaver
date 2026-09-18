@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, bindparam, func, select
 
-from core.change_detector import ChangeDetector
 from core.db import (
     Article,
     ArticleBody,
@@ -27,55 +26,6 @@ if TYPE_CHECKING:
     from core.protocols.types import ArticleTitleMeta
 
 log = get_logger(__name__)
-
-# Minimum body length to consider a fetch successful (vs anti-bot error page)
-_MIN_BODY_LENGTH = 200
-
-
-def _build_core_body_values(
-    raw: Any,
-) -> tuple[dict[str, Any], dict[str, Any], str]:
-    """Build ArticleCore / ArticleBody kwargs + body_source for a RawArticle.
-
-    Shared by ``insert_raw`` and ``bulk_insert_raw`` to keep body-length
-    fallback, normalization, and content-hash logic in one place.
-
-    Args:
-        raw: RawArticle with non-empty url.
-
-    Returns:
-        Tuple of (core_kwargs, body_kwargs, body_source) where body_source
-        is "full" or "description" (the latter when raw.body < _MIN_BODY_LENGTH
-        and a description fallback is available).
-    """
-    effective_body = raw.body
-    body_source = "full"
-    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
-        effective_body = raw.description
-        body_source = "description"
-        log.info(
-            "body_too_short_using_description",
-            url=raw.url,
-            body_len=len(raw.body),
-            desc_len=len(raw.description),
-        )
-
-    normalized_url = normalize_url(raw.url)
-    content_hash = ChangeDetector.compute_hash({"title": raw.title or "", "body": effective_body})
-
-    core_kwargs: dict[str, Any] = {
-        "source_url": normalized_url,
-        "source_host": raw.source_host or "",
-        "source_id": raw.source_id,
-        "title": raw.title or "",
-        "persist_status": PersistStatus.PENDING,
-        "content_hash": content_hash,
-    }
-    if raw.publish_time:
-        core_kwargs["publish_time"] = raw.publish_time
-
-    body_kwargs: dict[str, Any] = {"body": effective_body}
-    return core_kwargs, body_kwargs, body_source
 
 
 class ArticleRepo:
@@ -347,8 +297,7 @@ class ArticleReader:
     ) -> dict[str, ArticleTitleMeta]:
         """Batch fetch article metadata by PostgreSQL IDs.
 
-        Used by graph-query callers that, after the Article node slim-down
-        (design.md §), can only read ``pg_id`` from the graph DB and must
+        Used by graph-query callers that, after the Article node slim-down, can only read ``pg_id`` from the graph DB and must
         look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
         the relational DB in a single batched query (avoids N+1).
 

@@ -126,7 +126,7 @@ class TestAnalyticsStorageGetShifts:
         API endpoint catches and returns empty list to client; storage
         layer must surface the failure so callers can distinguish
         "no data" from "DB broken". Returning [] on error masked
-        failures (H2).
+        failures.
         """
         mock_session = mock_pool.session_context.return_value.__aenter__.return_value
         mock_session.execute.side_effect = Exception("DB error")

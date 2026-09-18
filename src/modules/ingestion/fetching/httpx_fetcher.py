@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from core.constants import NEWSBOT_USER_AGENT
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.retry import retry_network
@@ -24,7 +25,7 @@ log = get_logger(__name__)
 
 # Default UA when caller does not supply ``user_agents``. Kept as a
 # module-level constant so tests and docs can reference the same value.
-_DEFAULT_USER_AGENTS: list[str] = ["Mozilla/5.0 (compatible; NewsBot/1.0)"]
+_DEFAULT_USER_AGENTS: list[str] = [NEWSBOT_USER_AGENT]
 
 
 class RedirectBlockedError(Exception):

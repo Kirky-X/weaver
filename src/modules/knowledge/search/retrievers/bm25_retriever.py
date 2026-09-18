@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 import bm25s
 import numpy as np
 
+from core.constants import LanguageCode
 from core.observability import get_logger
 from core.security.crypto.signing import (
     IntegrityError,
@@ -213,8 +214,11 @@ class BM25Retriever:
         signing_key: Optional signing key for index integrity.
     """
 
-    # Stemmer is not needed for Chinese, only for English
-    SUPPORTED_LANGUAGES = {"zh": "zh_core_web_lg", "en": "en_core_web_lg"}
+    # Stemmer is not needed for Chinese, only for English.
+    # Language → primary spaCy model map is derived from LanguageCode
+    # (single source shared with spacy_extractor), so model-name strings
+    # are defined in exactly one place.
+    SUPPORTED_LANGUAGES = {code.value: code.primary_spacy_model for code in LanguageCode}
 
     # File names
     INDEX_FILE = "bm25_index"
@@ -222,7 +226,7 @@ class BM25Retriever:
 
     def __init__(
         self,
-        language: str = "zh",
+        language: str = LanguageCode.ZH.value,
         index_dir: str | None = None,
         k1: float = 1.5,
         b: float = 0.75,
@@ -253,7 +257,7 @@ class BM25Retriever:
         self._needs_reindex: bool = False  # Flag to track if index needs rebuilding
 
         # Initialize stemmer for English
-        if language == "en" and STEMMER_AVAILABLE:
+        if language == LanguageCode.EN.value and STEMMER_AVAILABLE:
             self._stemmer = Stemmer.Stemmer("english")
 
         log.info(
@@ -548,7 +552,7 @@ class BM25Retriever:
         # Restore state from data
         self._documents = [BM25Document.from_dict(d) for d in data["documents"]]
         self._doc_id_to_idx = data["doc_id_to_idx"]
-        self._language = data.get("language", "zh")
+        self._language = data.get("language", LanguageCode.ZH.value)
         self._k1 = data.get("k1", 1.5)
         self._b = data.get("b", 0.75)
         # Rebuild the tokenized corpus from the restored documents. Without

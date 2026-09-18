@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from api.utils.client_ip import get_client_ip
+from core.constants import HEALTH_PROBE_PATHS as SKIP_PATHS
 from core.observability import get_logger
 from core.security import (
     TrafficAction,
@@ -31,8 +32,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Endpoints to skip traffic anomaly detection
-SKIP_PATHS = {"/health", "/metrics"}
+# Endpoints to skip traffic anomaly detection (single source in core.constants).
 
 __all__ = [
     "TrafficAction",

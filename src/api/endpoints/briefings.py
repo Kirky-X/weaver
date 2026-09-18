@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import BRIEFING_CATEGORIES
 from core.observability import get_logger
 from modules.briefing.service import BriefingAlreadyExistsError, NarrativeGeneratorUnavailableError
 
@@ -44,9 +45,10 @@ router = APIRouter(prefix="/briefings", tags=["briefings"])
 
 log = get_logger(__name__)
 
-# Category whitelist (finance/tech/ai/general).
+# Category whitelist derived from the shared vocabulary.
 # None means "综合" (general) and is handled by the service layer.
-_CATEGORY_PATTERN = r"^(finance|tech|ai|general)$"
+_CATEGORY_ALTS = "|".join(sorted(BRIEFING_CATEGORIES))
+_CATEGORY_PATTERN = f"^(?:{_CATEGORY_ALTS})$"
 
 # Module-level reference to date.today to avoid parameter name shadowing.
 # The spec mandates parameter name `date`, which shadows the

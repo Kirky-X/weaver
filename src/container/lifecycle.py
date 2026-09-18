@@ -499,7 +499,7 @@ class ContainerLifecycleMixin:
         )
         scheduler.add_job(
             jobs.recover_stale_sagas,
-            IntervalTrigger(minutes=10),
+            IntervalTrigger(minutes=settings.recover_stale_sagas_interval_minutes),
             id="recover_stale_sagas",
             name="Recover stale sagas",
             max_instances=1,
@@ -509,7 +509,7 @@ class ContainerLifecycleMixin:
         # Transactional outbox dispatcher: at-least-once event delivery
         scheduler.add_job(
             jobs.dispatch_outbox_events,
-            IntervalTrigger(seconds=30),
+            IntervalTrigger(seconds=settings.dispatch_outbox_interval_seconds),
             id="dispatch_outbox_events",
             name="Dispatch outbox events",
             max_instances=1,
@@ -682,7 +682,7 @@ class ContainerLifecycleMixin:
         # API Key Rotation Check
         scheduler.add_job(
             jobs.check_expiring_api_keys,
-            CronTrigger(hour=2, minute=0),
+            CronTrigger(hour=settings.api_key_rotation_check_cron_hour, minute=0),
             id="check_expiring_api_keys",
             name="Check and rotate expiring API keys",
             max_instances=1,
@@ -751,7 +751,7 @@ class ContainerLifecycleMixin:
         if self.graph_pool() is not None:
             scheduler.add_job(
                 self._community_health_check,
-                IntervalTrigger(hours=6),
+                IntervalTrigger(hours=settings.community_health_check_interval_hours),
                 id="community_health_check",
                 name="Community health check and auto repair",
                 max_instances=1,
@@ -785,7 +785,11 @@ class ContainerLifecycleMixin:
 
         scheduler.add_job(
             jobs.generate_daily_briefing,
-            CronTrigger(hour=8, minute=0, timezone=ZoneInfo("Asia/Shanghai")),
+            CronTrigger(
+                hour=settings.briefing_cron_hour,
+                minute=0,
+                timezone=ZoneInfo(settings.briefing_timezone),
+            ),
             id="daily_briefing_generation",
             name="Generate daily briefings (4 categories)",
             max_instances=1,
@@ -795,7 +799,7 @@ class ContainerLifecycleMixin:
         # Analytics - Sentiment Shift Detection
         scheduler.add_job(
             jobs.detect_sentiment_shifts,
-            IntervalTrigger(minutes=60),
+            IntervalTrigger(minutes=settings.sentiment_shift_interval_minutes),
             id="shift_detection",
             name="Detect sentiment shifts",
             max_instances=1,
@@ -805,7 +809,7 @@ class ContainerLifecycleMixin:
         # Knowledge Cache - Daily Hotness Decay (凌晨 3 点执行)
         scheduler.add_job(
             jobs.daily_hotness_decay,
-            CronTrigger(hour=3, minute=0),
+            CronTrigger(hour=settings.hotness_decay_cron_hour, minute=0),
             id="daily_hotness_decay",
             name="Daily knowledge cache hotness decay",
             max_instances=1,
@@ -818,7 +822,7 @@ class ContainerLifecycleMixin:
         # unavailable (returns 0, does not block scheduler).
         scheduler.add_job(
             jobs.evaluate_trend_alerts,
-            CronTrigger(minute=0),
+            CronTrigger(minute=settings.trend_alert_cron_minute),
             id="evaluate_trend_alerts",
             name="Evaluate trend alert rules (hourly)",
             max_instances=1,
@@ -830,7 +834,7 @@ class ContainerLifecycleMixin:
         if self._causal_inference_service is not None:
             scheduler.add_job(
                 self._causal_inference_service.infer_and_create_causal_edges,
-                IntervalTrigger(hours=2),
+                IntervalTrigger(hours=settings.causal_inference_interval_hours),
                 id="causal_inference",
                 name="Extract causal edges from graph",
                 max_instances=1,

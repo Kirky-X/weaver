@@ -47,6 +47,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
+from core.constants import SUPPORTED_WINDOW_DAYS as _SUPPORTED_WINDOW_DAYS
 
 from modules.trend.models import SentimentTrendResult
 
@@ -54,7 +55,6 @@ if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 # Constraints: only 7 and 30 days are supported.
-_SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
 # Direction thresholds.
 _UP_THRESHOLD: float = 0.1

@@ -16,6 +16,7 @@ from sqlalchemy import asc, desc, nullslast, select
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, ResponseCode, success_response
+from core.constants import LanguageCode
 from core.db import Article, CategoryType, PersistStatus
 from core.exceptions import BusinessError
 from core.observability import get_logger
@@ -87,7 +88,7 @@ class ArticleDetailResponse(BaseModel):
 def _map_processing_status(persist_status: PersistStatus | str | None) -> str:
     """Map PersistStatus enum to simplified processing_status string.
 
-    Aggregation rules (per design.md Decision 2):
+    Aggregation rules:
     - "pending"    ← PersistStatus.PENDING
     - "processing" ← PersistStatus.PROCESSING and non-terminal SAGA_* states
     - "completed"  ← PersistStatus.completed_statuses()
@@ -221,7 +222,15 @@ async def list_articles(
         if is_news is not None:
             filters.append(Article.is_news == is_news)
         if language:
-            filters.append(Article.language == language)
+            try:
+                lang = LanguageCode(language)
+                filters.append(Article.language == lang)
+            except ValueError as _exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid language '{language}'. Valid languages: "
+                    f"{[c.value for c in LanguageCode]}",
+                ) from _exc
         if min_score is not None:
             filters.append(Article.score >= min_score)
         if min_credibility is not None:
@@ -286,7 +295,7 @@ async def get_article(
     and breach detection (CWE-639).
 
     True multi-tenant isolation (tenant_id on Article + query filtering) is an
-    architecture-level change tracked separately — see fix_report.md §6.
+    architecture-level change tracked separately.
 
     Args:
         request: FastAPI request (for client IP / user agent in audit log).

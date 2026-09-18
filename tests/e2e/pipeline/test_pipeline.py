@@ -681,11 +681,11 @@ class TestDataQualityFixValidation:
 
         # Verify key data-quality fields exist in processed states
         for state in non_terminal:
-            # PersistStatus fix: article_id must be set after persist
+            # article_id must be set after persist
             assert "article_id" in state, "article_id missing after persist"
             assert state["article_id"] is not None
 
-            # Region fix: region must be set (not empty)
+            # region must be set (not empty)
             assert "region" in state, "region field missing"
             assert state["region"], "region is empty"
 

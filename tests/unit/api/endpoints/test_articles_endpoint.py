@@ -91,6 +91,56 @@ def _make_mock_pool(articles: list[MagicMock], total: int | None = None) -> Magi
     return pool
 
 
+class TestListArticlesLanguageFilter:
+    """GET /articles language filter must validate ISO 639-1 codes."""
+
+    @pytest.mark.asyncio
+    async def test_valid_language_is_accepted(self):
+        """A valid code (zh) builds a filter and returns results (no 422)."""
+        from api.endpoints.content.articles import list_articles
+
+        article = _make_mock_article(language="zh")
+        pool = _make_mock_pool([article], total=1)
+
+        result = await list_articles(
+            page=1,
+            page_size=20,
+            category=None,
+            language="zh",
+            source_host=None,
+            min_score=None,
+            min_credibility=None,
+            sort_by="publish_time",
+            sort_order="desc",
+            _="test-key",
+            pool=pool,
+        )
+        assert len(result.data.items) == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_language_returns_422(self):
+        """A non-ISO-639-1 code is rejected with 422 (mirrors category filter)."""
+        from api.endpoints.content.articles import list_articles
+
+        pool = _make_mock_pool([], total=0)
+        with pytest.raises(HTTPException) as exc_info:
+            await list_articles(
+                page=1,
+                page_size=20,
+                category=None,
+                language="fr",
+                source_host=None,
+                min_score=None,
+                min_credibility=None,
+                sort_by="publish_time",
+                sort_order="desc",
+                _="test-key",
+                pool=pool,
+            )
+        assert exc_info.value.status_code == 422
+        assert "fr" in str(exc_info.value.detail)
+
+
 class TestListArticlesPagination:
     """Tests for pagination in GET /articles."""
 
@@ -106,6 +156,7 @@ class TestListArticlesPagination:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -128,6 +179,7 @@ class TestListArticlesPagination:
             page=3,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -151,6 +203,7 @@ class TestListArticlesPagination:
             page=1,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -175,6 +228,7 @@ class TestListArticlesPagination:
             page=100,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -202,6 +256,7 @@ class TestListArticlesFiltering:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host="news.example.com",
             min_score=None,
             min_credibility=None,
@@ -225,6 +280,7 @@ class TestListArticlesFiltering:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=0.8,
             min_credibility=None,
@@ -247,6 +303,7 @@ class TestListArticlesFiltering:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host="tech.example.com",
             min_score=0.8,
             min_credibility=None,
@@ -273,6 +330,7 @@ class TestListArticlesSorting:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -296,6 +354,7 @@ class TestListArticlesSorting:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -321,6 +380,7 @@ class TestListArticlesEmptyResults:
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,

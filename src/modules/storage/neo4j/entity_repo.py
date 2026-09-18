@@ -35,7 +35,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
         pool: Graph database pool (Neo4j or LadybugDB).
     """
 
-    MAX_MERGE_RETRIES = 3
     DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:

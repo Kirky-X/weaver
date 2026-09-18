@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import igraph as ig
 import leidenalg
 
+from core.constants import EntityType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
@@ -203,7 +204,7 @@ class CommunityDetector:
         # Persist to Neo4j
         await self._persist_communities(result.communities)
 
-        # R3 fix: backfill article_count on all communities. Community
+        # backfill article_count on all communities. Community
         # detection builds entity-entity co-occurrence graph but never
         # populates article_count. This Cypher traverses
         # Article-[:MENTIONS]->Entity<-[:HAS_ENTITY]-Community to count
@@ -657,7 +658,7 @@ class CommunityDetector:
                         {
                             "community_id": community.id,
                             "entity_name": name,
-                            "entity_type": entity_types_map.get(name, "未知"),
+                            "entity_type": entity_types_map.get(name, EntityType.UNKNOWN.value),
                         }
                         for name in community.entity_ids
                     ]
@@ -699,4 +700,4 @@ class CommunityDetector:
             RETURN e.canonical_name AS name, e.type AS type
             """
         results = await self._pool.execute_query(query, {"names": entity_names})
-        return {r.get("name", ""): r.get("type", "未知") for r in results}
+        return {r.get("name", ""): r.get("type", EntityType.UNKNOWN.value) for r in results}

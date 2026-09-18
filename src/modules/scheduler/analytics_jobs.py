@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, select
 
 from config.settings import SchedulerSettings
+from core.constants import BRIEFING_CATEGORIES
 from core.db import Article
 from core.observability import get_logger
 from modules.scheduler.wrapper import scheduled_task
@@ -183,7 +184,7 @@ class AnalyticsJobs:
                 "categories_total": 4,
             }
 
-        categories = ("general", "finance", "tech", "ai")
+        categories = tuple(sorted(BRIEFING_CATEGORIES))
         today = _date.today()
         results: dict[str, dict[str, Any]] = {}
         succeeded = 0

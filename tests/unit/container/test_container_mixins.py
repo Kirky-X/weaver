@@ -81,6 +81,10 @@ def _make_settings(**overrides):
     # Scheduler
     settings.scheduler = MagicMock()
     settings.scheduler.enabled = False
+    # The briefing cron trigger builds ZoneInfo(scheduler.briefing_timezone),
+    # which requires a real tz string rather than a MagicMock attribute.
+    settings.scheduler.briefing_timezone = "Asia/Shanghai"
+    settings.scheduler.briefing_cron_hour = 8
 
     # Pipeline
     settings.pipeline = MagicMock()

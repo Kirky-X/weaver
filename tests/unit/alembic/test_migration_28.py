@@ -250,7 +250,7 @@ def test_duckdb_schema_has_new_alert_rules_columns() -> None:
     # Default value
     assert "threshold" in alert_rules_stmt
 
-    # DuckDB must have CHECK constraint on trigger_type (Security H1 fix)
+    # DuckDB must have CHECK constraint on trigger_type
     assert "CHECK" in alert_rules_stmt.upper(), (
         "DuckDB alert_rules missing CHECK constraint — project convention "
         "requires VARCHAR+CHECK for DuckDB (no ENUM support)"

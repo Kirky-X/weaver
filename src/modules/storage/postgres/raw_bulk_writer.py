@@ -15,70 +15,16 @@ from core.db import (
     ArticleBody,
     ArticleCore,
     ArticleProcessing,
-    PersistStatus,
 )
 from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.url_utils import normalize_url
+from modules.storage.postgres.article_values import (
+    build_core_body_values,
+    resolve_effective_body,
+)
 
 log = get_logger(__name__)
-
-# Minimum body length to consider a fetch successful (vs anti-bot error page)
-_MIN_BODY_LENGTH = 200
-
-
-def _build_core_body_values(
-    raw: Any,
-) -> tuple[dict[str, Any], dict[str, Any], str]:
-    """Build ArticleCore / ArticleBody kwargs + body_source for a RawArticle.
-
-    Shared by ``insert_raw`` and ``bulk_insert_raw`` to keep body-length
-    fallback, normalization, and content-hash logic in one place.
-
-    Args:
-        raw: RawArticle with non-empty url.
-
-    Returns:
-        Tuple of (core_kwargs, body_kwargs, body_source) where body_source
-        is "full" or "description" (the latter when raw.body < _MIN_BODY_LENGTH
-        and a description fallback is available).
-    """
-    effective_body = raw.body
-    body_source = "full"
-    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
-        effective_body = raw.description
-        body_source = "description"
-        log.info(
-            "body_too_short_using_description",
-            url=raw.url,
-            body_len=len(raw.body),
-            desc_len=len(raw.description),
-        )
-
-    normalized_url = normalize_url(raw.url)
-    content_hash = ChangeDetector.compute_hash({"title": raw.title or "", "body": effective_body})
-
-    core_kwargs: dict[str, Any] = {
-        "source_url": normalized_url,
-        "source_host": raw.source_host or "",
-        "source_id": raw.source_id,
-        "title": raw.title or "",
-        # 入库即写回退值（与 persistence._persist_articles_to_pg 的
-        # setdefault 一致）：ingestion 层不产分类/语言/地区，若不在此
-        # 兜底，worker 中断后这些列将停留 NULL。categorizer/analyze
-        # 完成后由 upsert 的 ON CONFLICT 用真实值覆盖（category 另有
-        # NULL 守卫，不会回退成空）。
-        "category": "其他",
-        "language": "unknown",
-        "region": "unknown",
-        "persist_status": PersistStatus.PENDING,
-        "content_hash": content_hash,
-    }
-    if raw.publish_time:
-        core_kwargs["publish_time"] = raw.publish_time
-
-    body_kwargs: dict[str, Any] = {"body": effective_body}
-    return core_kwargs, body_kwargs, body_source
 
 
 class RawBulkWriter:
@@ -139,7 +85,7 @@ class RawBulkWriter:
         # Body fallback + normalization + content hash live in the shared
         # helper — no inline copy that can drift from
         # bulk_insert_raw's path.
-        core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
+        core_kwargs, body_kwargs, body_source = build_core_body_values(raw)
         normalized_url = core_kwargs["source_url"]
 
         async with self._pool.session() as session:
@@ -278,9 +224,7 @@ class RawBulkWriter:
                 for idx, raw, norm_url in prepared:
                     if existing_map.get(norm_url) is not None:
                         continue
-                    effective_body = raw.body
-                    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
-                        effective_body = raw.description
+                    effective_body, _ = resolve_effective_body(raw.body, raw.description)
                     ch = ChangeDetector.compute_hash(
                         {"title": raw.title or "", "body": effective_body}
                     )
@@ -325,9 +269,7 @@ class RawBulkWriter:
                         continue
 
                     # Skip if content_hash already exists in DB
-                    effective_body = raw.body
-                    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
-                        effective_body = raw.description
+                    effective_body, _ = resolve_effective_body(raw.body, raw.description)
                     ch = ChangeDetector.compute_hash(
                         {"title": raw.title or "", "body": effective_body}
                     )
@@ -351,7 +293,7 @@ class RawBulkWriter:
                         continue
 
                     in_batch_first_idx[ch] = idx
-                    core_kwargs, body_kwargs, body_source = _build_core_body_values(raw)
+                    core_kwargs, body_kwargs, body_source = build_core_body_values(raw)
                     core = ArticleCore(**core_kwargs)
                     session.add(core)
                     # Dependent rows are built AFTER flush assigns core.id —
@@ -367,9 +309,9 @@ class RawBulkWriter:
                     hash_to_id: dict[str, uuid.UUID] = {}
                     for idx, core, _body_kwargs, _body_source in pending_cores:
                         results[idx] = core.id
-                        effective_body = prepared[idx][1].body
-                        if len(effective_body) < _MIN_BODY_LENGTH and prepared[idx][1].description:
-                            effective_body = prepared[idx][1].description
+                        effective_body, _ = resolve_effective_body(
+                            prepared[idx][1].body, prepared[idx][1].description
+                        )
                         ch = ChangeDetector.compute_hash(
                             {"title": prepared[idx][1].title or "", "body": effective_body}
                         )

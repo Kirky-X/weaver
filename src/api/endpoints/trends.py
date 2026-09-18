@@ -46,6 +46,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
+from core.constants import SUPPORTED_WINDOW_DAYS as _SUPPORTED_WINDOW_DAYS
 
 if TYPE_CHECKING:
     from modules.trend.models import SentimentTrendResult, TrendDetectionResult
@@ -56,7 +57,6 @@ log = get_logger(__name__)
 
 # Constraints: only 7 and 30 days are supported.
 # Window param is a string like '7d' / '30d'.
-_SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 _WINDOW_PATTERN = re.compile(r"^(\d+)d$")
 
 

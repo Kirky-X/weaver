@@ -2,8 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Briefing generator — produce per-category daily briefings.
 
-BriefingGenerator is an independent class (not a pipeline node — see design.md
-decision on integration path) that:
+BriefingGenerator is an independent class (not a pipeline node) that:
 
 1. Fetches articles for a given date filtered by category
    (finance→经济, tech→科技, ai→keyword match, general→no filter).
@@ -40,6 +39,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.constants import BRIEFING_CATEGORIES as VALID_BRIEFING_CATEGORIES
 from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
@@ -53,10 +53,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Daily briefing category namespace.
-# Maps to {finance, tech, ai, general} — distinct from articles_core.category
-# which uses CategoryType enum (政治/经济/科技/...).
-VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
+# Daily briefing category namespace — single source in core.constants.
+# Distinct from articles_core.category which uses CategoryType enum
+# (政治/经济/科技/...).
 
 # daily_briefing_items.rank CHECK constraint is [1, 10] (misc.py).
 # Cap items at 10 to fit the constraint; sort by score desc to keep top-10.

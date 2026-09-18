@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+#
+# 实体类型词表：与 EntityType 相关的归一化/映射数据（集中一个文件便于运维）。
+#
+# - 标准类型唯一真源是 core.constants.EntityType，本文件所有出现的类型值必须是
+#   其成员，否则加载时会被丢弃并记录 *_target_invalid 告警。
+# - [aliases]：LLM 偶发返回的简写/近义词 → 标准名称。
+# - 加载方：modules/processing/nodes/extraction/entity_extractor.py
+#   （在模块导入时读取一次）。
+# - 定位：仅防御性 fallback。prompt（config/prompts/entity_extractor.toml）已统一
+#   要求 LLM 输出标准名称，这里只兜住偶发的简写/近义写法。
+# - 键含中文，必须加引号（TOML bare key 只允许 ASCII）。
+
+[aliases]
+"产品" = "产品与技术"
+"技术" = "产品与技术"
+"概念" = "产品与技术"
+"组织" = "组织机构"
+"机构" = "组织机构"
+"公司" = "组织机构"
+"企业" = "组织机构"
+"政策" = "法规与政策"
+"法规" = "法规与政策"
+"法律" = "法规与政策"
+"指标" = "数据指标"
+
+# ── spaCy NER 标签 → 标准实体类型 ─────────────────────────────
+# 加载方：modules/processing/nlp/spacy_extractor.py。value 必须是 EntityType 成员。
+[spacy_to_entity_type]
+PER = "人物"
+PERSON = "人物"
+ORG = "组织机构"
+GPE = "地点"
+LOC = "地点"
+TIME = "事件"
+DATE = "事件"
+EVENT = "事件"
+CARDINAL = "数据指标"
+PERCENT = "数据指标"
+MONEY = "数据指标"
+LAW = "法规与政策"
+
+# ── GLiNER zero-shot 抽取配置 ───────────────────────────────
+# 加载方：modules/processing/nodes/extraction/gliner_extractor.py。
+# - labels：自定义抽取标签，必须是 EntityType 子集。
+# - type_map：GLiNER/spaCy 标签 → 内部英文码（OTHER 为兑底，不入表）。
+[gliner]
+labels = ["事件", "数据指标", "法规与政策", "产品与技术"]
+type_map = { PERSON = "PERSON", ORG = "ORG", GPE = "GPE", LOC = "LOC", "事件" = "EVENT", "数据指标" = "METRIC", "法规与政策" = "POLICY", "产品与技术" = "PRODUCT" }

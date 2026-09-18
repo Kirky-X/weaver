@@ -1327,7 +1327,7 @@ class TestSearchUnifiedWebSearchFallback:
         assert result.data.sources[1]["url"] == "https://example.com/article-2"
         # Confidence is set to 0.5 for web-search fallback
         assert result.data.confidence == 0.5
-        # M1 fix: context_tokens updated to reflect new answer length
+        # context_tokens updated to reflect new answer length
         assert result.data.context_tokens > 0
         assert result.data.context_tokens >= len(result.data.answer) // 4
         # entities stay empty (no graph entities yet)

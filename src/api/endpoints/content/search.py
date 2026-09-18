@@ -31,6 +31,7 @@ from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
 from core.observability import get_logger
+from core.utils.vector_math import cosine_similarity
 from core.protocols import GraphPool, PipelineService
 from modules.knowledge.search import (
     GlobalSearchEngine,
@@ -304,7 +305,7 @@ async def search_unified(
             # (correctly low) confidence.
             if result_sources:
                 result_confidence = 0.5  # web-search fallback confidence
-            # M1 fix: update context_tokens to reflect the new answer
+            # update context_tokens to reflect the new answer
             # length (rough estimate: 1 token ≈ 4 chars for English/CJK
             # mixed text). Without this, context_tokens would stay at 0
             # (from the empty engine_result), creating an inconsistent
@@ -711,9 +712,11 @@ async def search_causal(
         )
 
         # Execute search (with timeout protection)
+        from container import get_settings
+
         results = await asyncio.wait_for(
             engine.search(query=body.query, intent=IntentType.WHY),
-            timeout=60.0,
+            timeout=get_settings().search.causal_search_timeout,
         )
 
         # Pull traversal metadata from engine.last_metadata
@@ -792,18 +795,6 @@ async def search_causal(
         ) from exc
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 _TIME_RANGE_RE = re.compile(r"^(\d+)([dhm])$")
 
 
@@ -876,9 +867,16 @@ async def _semantic_temporal_search(
     """
     query_embedding = await embedding_service.embed(query)
 
+    from container import get_settings
+
+    search_settings = get_settings().search
     all_events = await asyncio.wait_for(
-        temporal_repo.get_events_by_timerange(start_time=start_time, end_time=end_time, limit=500),
-        timeout=30.0,
+        temporal_repo.get_events_by_timerange(
+            start_time=start_time,
+            end_time=end_time,
+            limit=search_settings.temporal_window_fetch_limit,
+        ),
+        timeout=search_settings.temporal_search_timeout,
     )
 
     all_events = [e for e in all_events if _is_valid_event_timestamp(e.get("timestamp"))]
@@ -891,7 +889,7 @@ async def _semantic_temporal_search(
 
     scored: list[tuple[float, dict[str, Any]]] = []
     for event, emb in zip(all_events, event_embeddings, strict=True):
-        sim = _cosine_similarity(query_embedding, emb)
+        sim = cosine_similarity(query_embedding, emb)
         attr = event.get("attributes")
         if isinstance(attr, str):
             with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -933,6 +931,7 @@ async def search_temporal(
         Ordered list of events with temporal metadata.
 
     """
+    from container import get_settings
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
     log = get_logger(__name__)
@@ -971,7 +970,7 @@ async def search_temporal(
                         start_time=start_time,
                         end_time=end_time,
                     ),
-                    timeout=30.0,
+                    timeout=get_settings().search.temporal_search_timeout,
                 )
         else:
             events = await asyncio.wait_for(
@@ -981,7 +980,7 @@ async def search_temporal(
                     start_time=start_time,
                     end_time=end_time,
                 ),
-                timeout=30.0,
+                timeout=get_settings().search.temporal_search_timeout,
             )
 
         events = [e for e in events if _is_valid_event_timestamp(e.get("timestamp"))]

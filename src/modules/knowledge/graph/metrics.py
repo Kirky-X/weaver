@@ -25,7 +25,7 @@ log = get_logger(__name__)
 
 # Relationship types counted in ``total_relationships``. Kept narrow
 # (core structural edges only) so the metric stays stable when new
-# semantic relation types are added. See design.md §M2 for the
+# semantic relation types are added. See the
 # distinction between ``total_relationships`` and the broader
 # ``relationship_type_distribution`` which counts ALL types.
 _COUNTED_RELATION_TYPES: tuple[str, ...] = ("RELATED_TO", "MENTIONS", "HAS_ENTITY")
@@ -41,7 +41,7 @@ class GraphMetrics:
     # HAS_ENTITY, see ``_COUNTED_RELATION_TYPES``). Broader per-type counts
     # (including CAUSES/ENABLES/PREVENTS/…) are in
     # ``relationship_type_distribution``. The two fields are intentionally
-    # scoped differently — see design.md §M2.
+    # scoped differently.
     total_relationships: int = 0
     total_mentions: int = 0
     connected_components: int = 0
@@ -209,7 +209,7 @@ class GraphQualityMetrics:
         # (see ``_COUNTED_RELATION_TYPES``). LadybugDB uses Kùzu's
         # ``:TYPE1|TYPE2|TYPE3`` multi-type syntax (see graph_query_builders.py
         # line 1340 for prior art). Neo4j uses ``type(r) IN [...]`` filtering
-        # to stay consistent with the codebase convention (see design.md §L1).
+        # to stay consistent with the codebase convention.
         types_pattern = "|".join(_COUNTED_RELATION_TYPES)
         types_list = ", ".join(f"'{t}'" for t in _COUNTED_RELATION_TYPES)
         if self._db_type == DatabaseType.LADYBUG.value:
@@ -311,7 +311,7 @@ class GraphQualityMetrics:
         if not include_high_degree:
             return
 
-        # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
+        # Degree counts Entity-to-Entity only (see _calculate_degree_metrics above).
         # LadybugDB doesn't support `WHERE other:Entity` syntax
         if self._db_type == DatabaseType.LADYBUG.value:
             degree_query = """

@@ -55,6 +55,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from core.constants import SUPPORTED_WINDOW_DAYS as _SUPPORTED_WINDOW_DAYS
 from modules.trend.models import TrendDetectionResult
 
 if TYPE_CHECKING:
@@ -64,7 +65,6 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 # Only 7 and 30 days are supported.
-_SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
 # Minimum EventNode count to produce trends.
 _MIN_EVENT_COUNT: int = 50

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from core.constants import DatabaseType as _CanonicalDatabaseType
 from core.db.models import VectorType
 
 if TYPE_CHECKING:
@@ -20,10 +21,15 @@ if TYPE_CHECKING:
 
 
 class DatabaseType(str, Enum):
-    """Supported database types for vector operations."""
+    """Supported database types for vector operations.
 
-    POSTGRES = "postgres"
-    DUCKDB = "duckdb"
+    Relational-backend axis. Values are sourced from the canonical
+    :class:`core.constants.DatabaseType` so each backend identifier string
+    is defined in exactly one place (no cross-file literal drift).
+    """
+
+    POSTGRES = _CanonicalDatabaseType.POSTGRES.value
+    DUCKDB = _CanonicalDatabaseType.DUCKDB.value
 
 
 def validate_limit(limit: int) -> int:
@@ -122,6 +128,38 @@ class EntitySimilarityQuery:
 
     threshold: float = 0.85
     limit: int = 5
+
+
+def _find_similar_entities_query_sql(config: EntitySimilarityQuery, similarity_expr: str) -> str:
+    """ANSI-SQL entity similarity search, shared verbatim by both builders.
+
+    Only the similarity expression is dialect-specific and is passed in.
+    """
+    limit = validate_limit(config.limit)
+    threshold = validate_threshold(config.threshold)
+    return f"""
+        SELECT
+            neo4j_id,
+            {similarity_expr} AS similarity
+        FROM entity_vectors
+        WHERE {similarity_expr} >= {threshold}
+        ORDER BY {similarity_expr} DESC
+        LIMIT {limit}
+    """
+
+
+def _articles_similarity_conditions(similarity_expr: str, config: SimilarityQuery) -> list[str]:
+    """WHERE-condition list for the articles similarity search (both builders)."""
+    conditions = ["av.vector_type = :vector_type"]
+
+    if config.filter_by_category:
+        conditions.append(f"a.category = {validate_param_placeholder(config.category_param)}")
+
+    if config.filter_by_model_id:
+        conditions.append(f"av.model_id = {validate_param_placeholder(config.model_id_param)}")
+
+    conditions.append(f"{similarity_expr} >= :threshold")
+    return conditions
 
 
 @runtime_checkable
@@ -296,19 +334,7 @@ class PgVectorQueryBuilder:
         VectorType(config.vector_type)  # Validate against enum
 
         similarity_expr = self.build_similarity_expression("av.embedding")
-
-        # Build WHERE conditions based on filter flags
-        conditions = ["av.vector_type = :vector_type"]
-
-        if config.filter_by_category:
-            conditions.append(f"a.category = {validate_param_placeholder(config.category_param)}")
-
-        if config.filter_by_model_id:
-            conditions.append(f"av.model_id = {validate_param_placeholder(config.model_id_param)}")
-
-        conditions.append(f"{similarity_expr} >= :threshold")
-
-        where_clause = " AND ".join(conditions)
+        where_clause = " AND ".join(_articles_similarity_conditions(similarity_expr, config))
 
         return f"""
             SELECT
@@ -327,20 +353,9 @@ class PgVectorQueryBuilder:
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build pgvector entity similarity search."""
-        # Validate inputs for security
-        limit = validate_limit(config.limit)
-        threshold = validate_threshold(config.threshold)
-
-        similarity_expr = self.build_similarity_expression("embedding")
-        return f"""
-            SELECT
-                neo4j_id,
-                {similarity_expr} AS similarity
-            FROM entity_vectors
-            WHERE {similarity_expr} >= {threshold}
-            ORDER BY {similarity_expr} DESC
-            LIMIT {limit}
-        """
+        return _find_similar_entities_query_sql(
+            config, self.build_similarity_expression("embedding")
+        )
 
     def build_array_contains_expression(self, column: str, param: str) -> str:
         """PostgreSQL ANY expression for array containment."""
@@ -430,19 +445,7 @@ class DuckDBVectorQueryBuilder:
         VectorType(config.vector_type)  # Validate against enum
 
         similarity_expr = self.build_similarity_expression("av.embedding")
-
-        # Build WHERE conditions based on filter flags
-        conditions = ["av.vector_type = :vector_type"]
-
-        if config.filter_by_category:
-            conditions.append(f"a.category = {validate_param_placeholder(config.category_param)}")
-
-        if config.filter_by_model_id:
-            conditions.append(f"av.model_id = {validate_param_placeholder(config.model_id_param)}")
-
-        conditions.append(f"{similarity_expr} >= :threshold")
-
-        where_clause = " AND ".join(conditions)
+        where_clause = " AND ".join(_articles_similarity_conditions(similarity_expr, config))
 
         return f"""
             SELECT
@@ -461,20 +464,9 @@ class DuckDBVectorQueryBuilder:
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build DuckDB entity similarity search."""
-        # Validate inputs for security
-        limit = validate_limit(config.limit)
-        threshold = validate_threshold(config.threshold)
-
-        similarity_expr = self.build_similarity_expression("embedding")
-        return f"""
-            SELECT
-                neo4j_id,
-                {similarity_expr} AS similarity
-            FROM entity_vectors
-            WHERE {similarity_expr} >= {threshold}
-            ORDER BY {similarity_expr} DESC
-            LIMIT {limit}
-        """
+        return _find_similar_entities_query_sql(
+            config, self.build_similarity_expression("embedding")
+        )
 
     def build_array_contains_expression(self, column: str, param: str) -> str:
         """DuckDB unnest expression for array containment."""

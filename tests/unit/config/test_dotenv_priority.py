@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Test that system environment variables take priority over .env file values.
 
-Validates GAP-H03 fix: load_dotenv(override=False) ensures system env vars
+Validates load_dotenv(override=False) ensures system env vars
 are not overwritten by .env file values.
 """
 

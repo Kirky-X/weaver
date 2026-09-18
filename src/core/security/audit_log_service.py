@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Audit log service for writing security events to database.
-
-Implements: Weaver-数据库设计文档 §12.3
 """
 
 from __future__ import annotations
@@ -20,8 +18,6 @@ log = get_logger(__name__)
 
 class AuditLogService:
     """Service for persisting audit log events to the database.
-
-    Implements: Weaver-数据库设计文档 §12.3
     """
 
     def __init__(self, pool: RelationalPool) -> None:

@@ -123,7 +123,7 @@ async def test_health_dependencies_returns_pg_ladybug(phase3_container):
 async def test_article_graph_node_only_stores_pg_id(phase3_container):
     """Graph Article node stores only pg_id; title lives in PG.
 
-    After Article node slim-down (design.md §), LadybugDB Article node
+    After Article node slim-down, LadybugDB Article node
     stores only {id, pg_id}; title/score live in PG and are batch-fetched
     by GraphArticleReader on read.
     """
@@ -171,7 +171,7 @@ async def test_search_returns_results_with_pg_title_enrichment(phase3_container)
 async def test_graph_repo_get_article_enriches_title_from_pg(phase3_container):
     """GraphRepository.get_article returns pg_id and enriches title from PG.
 
-    This is the core contract of design.md §graph nodes are slim,
+    This is the core contract: graph nodes are slim,
     business fields come from PG via fetch_titles_by_pg_ids.
     """
     pg_id = str(uuid.uuid4())

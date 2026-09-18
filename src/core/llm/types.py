@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, SecretStr, field_validator
 
+from core.constants import CircuitState as CircuitState
+
 # LLM 调用超时的单一默认值来源（GlobalConfig / LLMSettings / 调用方默认参数共用）
 DEFAULT_LLM_TIMEOUT: float = 120.0
 
@@ -79,12 +81,8 @@ TYPE_TO_CAPABILITY: dict[LLMType, Capability] = {
 }
 
 
-class CircuitState(str, Enum):
-    """熔断器状态."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
+# CircuitState（熔断器状态）单一定义在 core.constants，此处冗余别名导入
+# 保持 ``core.llm.types.CircuitState`` 导入路径兼容。
 
 
 @dataclass(frozen=True, slots=True)

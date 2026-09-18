@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Update audit_log table to match design doc §12.3.
+"""Update audit_log table to match the DB design.
 
 Revision ID: 11_update_audit_log
 Revises: 10_simplify_prompt_templates
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §12.3:
+Changes:
 - Add user_agent TEXT column
 - Change key_id VARCHAR(100) → VARCHAR(64)
 - Change action VARCHAR(50) → VARCHAR(64)

@@ -2,8 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """RED: ArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
 
-When the graph DB Article node is slimmed down to only ``id`` + ``pg_id``
-(see design.md §), any caller that previously read ``title`` /
+When the graph DB Article node is slimmed down to only ``id`` + ``pg_id``, any caller that previously read ``title`` /
 ``category`` / ``publish_time`` / ``score`` from the graph node must now
 batch-fetch those fields from the relational DB (PostgreSQL or DuckDB)
 via ``pg_id``. This test asserts the contract of that batch lookup.

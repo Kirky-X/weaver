@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Tests for new ORM models: ApiKey, AlertRule, AlertEvent, ArticleVersion, PromptTemplate.
 
-Design doc references:
-- Weaver-数据库设计文档 §1.6.3 (api_keys)
-- Weaver-数据库设计文档 §12.4 (alert_rules, alert_events)
-- Weaver-数据库设计文档 §9.11.6 (article_versions)
-- Migration 01_initial (prompt_templates table without ORM model)
+Tables under test:
+- api_keys
+- alert_rules, alert_events
+- article_versions
+- prompt_templates (migration 01_initial, no ORM model)
 """
 
 from __future__ import annotations

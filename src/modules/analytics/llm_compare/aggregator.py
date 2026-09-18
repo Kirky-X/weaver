@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from core.constants import REDIS_SCAN_BATCH_SIZE, RedisKeys
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -20,11 +21,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Redis key prefix for LLM comparison buffer
-REDIS_KEY_PREFIX = "llm:compare"
-
-# Batch size for Redis SCAN operations
-REDIS_SCAN_BATCH_SIZE = 100
+# Redis key prefix for LLM comparison buffer (without trailing colon)
+REDIS_KEY_PREFIX = RedisKeys.LLM_COMPARE_PREFIX
 
 
 async def flush_compare_buffer(

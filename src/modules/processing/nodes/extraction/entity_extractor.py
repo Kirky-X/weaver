@@ -5,15 +5,18 @@
 from __future__ import annotations
 
 import asyncio
+import tomllib
 from typing import TYPE_CHECKING, Any
 
+from core.db.relation_type_seeds import RELATION_TYPE_SEEDS
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability import get_logger
-from core.constants import EmbeddingModel
+from core.constants import EmbeddingModel, EntityType, LanguageCode
 from core.prompt.loader import PromptLoader
+from core.utils.paths import CONFIG_DIR
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.extraction.gliner_extractor import GLiNERExtractor
 from modules.processing.pipeline.state import PipelineState
@@ -24,46 +27,58 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Default relation types when normalizer is not available
-_DEFAULT_RELATION_TYPES = """
-任职于: 某人在某组织担任职务
-隶属于: 某组织隶属于另一组织
-位于: 某实体位于某地理位置
-参与: 某实体参与某事件或活动
-发布: 某实体发布某内容或产品
-签署: 某实体签署某协议或文件
-收购: 某实体收购另一实体
-合作: 实体之间的合作关系
-监管: 某实体监管另一实体
-竞争: 实体之间的竞争关系
-""".strip()
+# Prompt fallback block used when the DB-backed RelationTypeNormalizer is
+# unavailable. Generated from the canonical seed list (core.db.
+# relation_type_seeds) so this fallback can never drift from what the
+# relation_types table is actually seeded with.
+_DEFAULT_RELATION_TYPES = "\n".join(
+    f"{rt['name']}: {rt['description']}" for rt in RELATION_TYPE_SEEDS if rt.get("name")
+)
 
-ALLOWED_ENTITY_TYPES = {
-    "人物",
-    "组织机构",
-    "地点",
-    "产品与技术",
-    "事件",
-    "数据指标",
-    "法规与政策",
-    "未知",
-}
+# Canonical entity-type set, derived from the single-source EntityType enum
+# (core.constants). Adding/renaming a type now only edits EntityType.
+ALLOWED_ENTITY_TYPES = {entity_type.value for entity_type in EntityType}
 
-# LLM 偶尔返回简写或近义类型，映射到 ALLOWED_ENTITY_TYPES 标准名称。
-# 防御性 fallback，prompt 已统一为标准名称（规则8 惯例优先）。
-_ENTITY_TYPE_ALIASES: dict[str, str] = {
-    "产品": "产品与技术",
-    "技术": "产品与技术",
-    "概念": "产品与技术",
-    "组织": "组织机构",
-    "机构": "组织机构",
-    "公司": "组织机构",
-    "企业": "组织机构",
-    "政策": "法规与政策",
-    "法规": "法规与政策",
-    "法律": "法规与政策",
-    "指标": "数据指标",
-}
+# Entity-type aliases (LLM 简写/近义词 → 标准名称) are stored as data in
+# config/entity_types.toml instead of being hardcoded here. They remain a
+# defensive post-processing step (the prompt already asks for standard names).
+_ENTITY_TYPE_ALIASES_FILE = CONFIG_DIR / "entity_types.toml"
+
+
+def _load_entity_type_aliases() -> dict[str, str]:
+    """Load entity-type aliases from config/entity_types.toml.
+
+    The TOML file is the single source of truth for the synonym mappings.
+    Returns an empty dict (with a warning) if the file is missing or malformed:
+    aliases are defensive, so a missing file only disables synonym mapping and
+    unmatched types still fall back to EntityType.UNKNOWN downstream.
+    Alias targets outside ALLOWED_ENTITY_TYPES are dropped with a warning so a
+    stale config entry can never introduce an unknown canonical type.
+    """
+    try:
+        with open(_ENTITY_TYPE_ALIASES_FILE, "rb") as f:
+            data = tomllib.load(f)
+    except FileNotFoundError:
+        log.warning("entity_type_aliases_file_missing", path=str(_ENTITY_TYPE_ALIASES_FILE))
+        return {}
+    except tomllib.TOMLDecodeError as exc:
+        log.warning(
+            "entity_type_aliases_parse_failed",
+            error=str(exc),
+            path=str(_ENTITY_TYPE_ALIASES_FILE),
+        )
+        return {}
+
+    aliases: dict[str, str] = {}
+    for raw_type, target in (data.get("aliases") or {}).items():
+        if target not in ALLOWED_ENTITY_TYPES:
+            log.warning("entity_type_alias_target_invalid", alias=raw_type, target=target)
+            continue
+        aliases[str(raw_type)] = str(target)
+    return aliases
+
+
+_ENTITY_TYPE_ALIASES: dict[str, str] = _load_entity_type_aliases()
 
 
 class EntityExtractorNode:
@@ -101,7 +116,7 @@ class EntityExtractorNode:
             return state
 
         body = state["cleaned"]["body"]
-        language = state.get("language", "zh")
+        language = state.get("language", LanguageCode.ZH.value)
 
         disable_data_metrics = (
             self._settings.entity.disable_data_metrics_nodes if self._settings else False
@@ -371,7 +386,7 @@ class EntityExtractorNode:
     def _validate_and_clean_entities_relations(state: PipelineState) -> None:
         """Validate entity types (alias + allowed set) and drop orphan relations."""
         for entity in state["entities"]:
-            entity_type = entity.get("type", "未知")
+            entity_type = entity.get("type", EntityType.UNKNOWN.value)
             if entity_type in _ENTITY_TYPE_ALIASES:
                 log.debug(
                     "entity_type_alias_mapped",
@@ -385,9 +400,9 @@ class EntityExtractorNode:
                     "entity_type_not_allowed",
                     entity_name=entity.get("name", ""),
                     original_type=entity.get("type", ""),
-                    mapped_type="未知",
+                    mapped_type=EntityType.UNKNOWN.value,
                 )
-                entity_type = "未知"
+                entity_type = EntityType.UNKNOWN.value
             entity["type"] = entity_type
 
         entity_names = {e.get("name") for e in state["entities"]}
@@ -421,7 +436,8 @@ class EntityExtractorNode:
             if entities_need_embedding:
                 try:
                     entity_texts = [
-                        f"{e['name']}（{e.get('type', '未知')}）" for e in entities_need_embedding
+                        f"{e['name']}（{e.get('type', EntityType.UNKNOWN.value)}）"
+                        for e in entities_need_embedding
                     ]
                     entity_embeds = await self._llm.embed_default(
                         entity_texts,

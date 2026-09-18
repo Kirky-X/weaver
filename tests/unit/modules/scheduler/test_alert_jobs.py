@@ -212,8 +212,13 @@ class TestAlertJobsCronRegistration:
         """CronTrigger for evaluate_trend_alerts uses minute=0 (top of every hour)."""
         block = self._find_alert_job_block()
         assert block, "evaluate_trend_alerts job block not found"
-        assert "minute=0" in block, (
-            f"CronTrigger must use minute=0 for hourly execution. Block: {block[:200]}"
+        assert "minute=settings.trend_alert_cron_minute" in block, (
+            f"CronTrigger must read trend_alert_cron_minute from settings. Block: {block[:200]}"
+        )
+        from config.subconfigs import SchedulerSettings
+
+        assert SchedulerSettings().trend_alert_cron_minute == 0, (
+            "trend_alert_cron_minute default must be 0 (top of every hour)"
         )
 
     def test_job_id_is_evaluate_trend_alerts(self) -> None:

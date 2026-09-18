@@ -18,7 +18,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from core.constants import EmbeddingModel, EntityType
+from core.constants import DEFAULT_ENTITY_MERGE_RETRIES, EmbeddingModel, EntityType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger
@@ -111,7 +111,7 @@ class EntityResolver:
     """
 
     SIMILARITY_THRESHOLD = 0.85
-    MAX_MERGE_RETRIES = 3
+    MAX_MERGE_RETRIES = DEFAULT_ENTITY_MERGE_RETRIES
     HIGH_CONFIDENCE_THRESHOLD = 0.9
     RESOLUTION_CANDIDATE_LIMIT = 10
     MAX_BATCH_LLM_ENTITIES = 20
@@ -796,7 +796,7 @@ class EntityResolver:
         if llm_pending:
             decisions = await self._decide_pending(llm_pending)
             for (idx, info), decision in zip(llm_pending, decisions, strict=True):
-                # H3 校验：target_neo4j_id 必须来自该实体的候选集，防幻觉 id 写悬空向量。
+                # 校验：target_neo4j_id 必须来自该实体的候选集，防幻觉 id 写悬空向量。
                 # 排除空/缺失 id，避免 None 候选与 LLM 返回的空值互相匹配。
                 valid_ids = {c["neo4j_id"] for c in info["candidates"] if c.get("neo4j_id")}
                 merge_ok = (

@@ -1581,32 +1581,52 @@ async def cmd_null_fields(args: argparse.Namespace) -> None:
 # Data Quality Check (from _dq_check.py)
 # ---------------------------------------------------------------------------
 
-ALLOWED_ENTITY_TYPES = {"人物", "组织机构", "地点", "事件", "数据指标", "法规与政策", "未知"}
 
-KNOWN_NODE_TABLES = [
-    "Entity",
-    "Article",
-    "Community",
-    "CommunityReport",
-    "EventNode",
-    "NarrativeNode",
-    "SchemaNode",
-]
-KNOWN_REL_TABLES = [
-    "MENTIONS",
-    "FOLLOWED_BY",
-    "EVENT_FOLLOWED_BY",
-    "CAUSES",
-    "ENABLES",
-    "PREVENTS",
-    "RELATED_TO",
-    "HAS_ENTITY",
-    "REPORTS_ON",
-    "HAS_PARTICIPANT",
-    "HAS_SUB_EVENT",
-    "HAS_NARRATIVE",
-    "HAS_EVENT",
-]
+def _dq_check_vocab() -> tuple[set[str], list[str], list[str]]:
+    """Derive validation vocabularies from the authoritative src definitions.
+
+    Lazy import keeps ``--help`` fast. The vocabularies must never be
+    re-declared here, so the quality checks cannot drift from the pipeline's
+    own enums (``EntityType``, ``core.db.ladybug_schema``).
+    """
+    from core.constants import EntityType
+    from core.db.ladybug_schema import NODE_TABLES, REL_TABLES
+
+    return (
+        {member.value for member in EntityType},
+        list(NODE_TABLES),
+        list(REL_TABLES),
+    )
+
+
+def _enum_values() -> dict[str, tuple[str, str, set[str]]]:
+    """Derive enum validation vocabularies from the authoritative src enums.
+
+    Lazy import keeps ``--help`` fast. Single source of truth:
+    - persist_status: ``core.protocols.types.PersistStatus``
+    - category: ``core.db.models.base.CategoryType``
+    - document_type: ``core.constants.DOCUMENT_TYPES`` (same set the
+      SQLAlchemy CHECK constraint is generated from)
+    """
+    from core.constants import DOCUMENT_TYPES
+    from core.db.models.base import CategoryType
+    from core.protocols.types import PersistStatus
+
+    return {
+        # (table, column, allowed_values)
+        "persist_status": (
+            "articles_core",
+            "persist_status",
+            {member.value for member in PersistStatus},
+        ),
+        "category": (
+            "articles_core",
+            "category",
+            {member.value for member in CategoryType},
+        ),
+        "document_type": ("articles_core", "document_type", set(DOCUMENT_TYPES)),
+        "vector_type": ("article_vectors", "vector_type", {"title", "content"}),
+    }
 
 
 async def cmd_dq_check(args: argparse.Namespace) -> None:
@@ -1625,12 +1645,14 @@ async def cmd_dq_check(args: argparse.Namespace) -> None:
 
     issues: list[str] = []
 
+    allowed_entity_types, known_node_tables, known_rel_tables = _dq_check_vocab()
+
     try:
         # ── 1. 节点统计 ──
         print("\n── 1. 节点统计 ──")
         node_counts: dict[str, int] = {}
         existing_tables: list[str] = []
-        for table in KNOWN_NODE_TABLES:
+        for table in known_node_tables:
             try:
                 rows = await pool.execute_query(f"MATCH (n:{table}) RETURN count(n) AS cnt")
                 cnt = rows[0]["cnt"] if rows else 0
@@ -1708,7 +1730,7 @@ async def cmd_dq_check(args: argparse.Namespace) -> None:
         # ── 3. 关系统计 ──
         print("\n── 3. 关系统计 ──")
         existing_rels: dict[str, int] = {}
-        for rel_table in KNOWN_REL_TABLES:
+        for rel_table in known_rel_tables:
             try:
                 rows = await pool.execute_query(
                     f"MATCH ()-[r:{rel_table}]->() RETURN count(r) AS cnt"
@@ -1749,9 +1771,9 @@ async def cmd_dq_check(args: argparse.Namespace) -> None:
                     for row in type_rows:
                         etype = row.get("type", "NULL")
                         cnt = row.get("cnt", 0)
-                        marker = "" if etype in ALLOWED_ENTITY_TYPES else " ⚠ 不在允许列表"
+                        marker = "" if etype in allowed_entity_types else " ⚠ 不在允许列表"
                         print(f"    {etype}: {cnt}{marker}")
-                        if etype not in ALLOWED_ENTITY_TYPES and etype != "NULL":
+                        if etype not in allowed_entity_types and etype != "NULL":
                             unknown_types.append(etype)
                     if unknown_types:
                         issues.append(f"Entity 存在未知类型: {unknown_types}")
@@ -1825,10 +1847,10 @@ async def cmd_dq_check(args: argparse.Namespace) -> None:
         print(f"\n{'=' * 70}")
         print("  检查摘要")
         print(f"{'=' * 70}")
-        missing_tables = [t for t in KNOWN_NODE_TABLES if node_counts.get(t, -1) == -1]
+        missing_tables = [t for t in known_node_tables if node_counts.get(t, -1) == -1]
         if missing_tables:
             issues.append(f"缺少节点表: {missing_tables}")
-        missing_rels = [r for r in KNOWN_REL_TABLES if r not in existing_rels]
+        missing_rels = [r for r in known_rel_tables if r not in existing_rels]
         if missing_rels:
             issues.append(f"缺少关系表: {missing_rels}")
 
@@ -2106,59 +2128,6 @@ FOREIGN_KEYS: list[tuple[str, str, str, str]] = [
     ("llm_failure_records", "article_id", "articles_core", "id"),
 ]
 
-# Enum value sets for validation
-ENUM_VALUES: dict[str, tuple[str, str, set[str]]] = {
-    # (table, column, allowed_values)
-    "persist_status": (
-        "articles_core",
-        "persist_status",
-        {
-            "pending",
-            "processing",
-            "pg_done",
-            "neo4j_done",
-            "ladybug_done",
-            "neo4j_failed",
-            "failed",
-            "saga_started",
-            "saga_pg_done",
-            "saga_graph_done",
-            "saga_indexed",
-            "saga_completed",
-            "saga_failed",
-        },
-    ),
-    "category": (
-        "articles_core",
-        "category",
-        {
-            "政治",
-            "军事",
-            "经济",
-            "科技",
-            "社会",
-            "文化",
-            "体育",
-            "国际",
-        },
-    ),
-    "document_type": (
-        "articles_core",
-        "document_type",
-        {
-            "news",
-            "blog",
-            "report",
-            "press_release",
-            "social_media",
-            "academic",
-            "official",
-            "other",
-        },
-    ),
-    "vector_type": ("article_vectors", "vector_type", {"title", "content"}),
-}
-
 
 def safe_execute(con, sql: str) -> list[tuple]:
     """Execute SQL, return empty list on error."""
@@ -2386,7 +2355,7 @@ def phase_1d_enum_and_rule_checks(con) -> list[dict]:
     findings = []
 
     # Enum value checks
-    for _enum_name, (table, column, allowed) in ENUM_VALUES.items():
+    for _enum_name, (table, column, allowed) in _enum_values().items():
         exists = safe_execute(
             con,
             f"""

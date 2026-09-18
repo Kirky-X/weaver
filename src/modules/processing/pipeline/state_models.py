@@ -20,6 +20,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from core.constants import LanguageCode
 from core.types.ingestion_models import RawArticle
 
 
@@ -102,7 +103,7 @@ class ValidatedPipelineState(BaseModel):
 
     # Categorizer
     category: str = "unknown"
-    language: str = "zh"
+    language: str = LanguageCode.ZH.value
     region: str = "unknown"
 
     # Vectorize

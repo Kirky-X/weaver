@@ -30,7 +30,7 @@ class TestInMemoryTaskRegistry:
         await registry.register("task-1", sample_task(), {"type": "test"})
 
         status = await registry.get_status("task-1")
-        assert status["status"] in ("running", "done")
+        assert status["status"] in ("running", "completed")
         assert status["metadata"] == {"type": "test"}
 
     async def test_get_status_not_found(self, registry: InMemoryTaskRegistry) -> None:
@@ -53,7 +53,7 @@ class TestInMemoryTaskRegistry:
         await asyncio.sleep(0.1)
 
         status = await registry.get_status("quick-task")
-        assert status["status"] == "done"
+        assert status["status"] == "completed"
         assert status["result"] == "done"
 
     async def test_task_failure(self, registry: InMemoryTaskRegistry) -> None:
@@ -139,7 +139,7 @@ class TestInMemoryTaskRegistry:
 
         await asyncio.sleep(0.2)  # Wait for completion
 
-        done_tasks = await registry.list_tasks(status="done")
+        done_tasks = await registry.list_tasks(status="completed")
         assert len(done_tasks) == 1
         assert done_tasks[0]["task_id"] == "done-task"
 

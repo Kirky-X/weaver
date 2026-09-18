@@ -23,50 +23,21 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # ── Memory System Diagnostics ─────────────────────────────────────
 
+# The diagnostics implementation and its response model live once in
+# api.endpoints.monitoring.memory; the admin path registers the same
+# handler (identical admin-key auth, identical payload).
+from api.endpoints.monitoring.memory import (  # noqa: E402
+    MemoryDiagnosticResponse,
+    memory_diagnostics,
+)
 
-class MemoryDiagnosticResponse(BaseModel):
-    """Response model for memory system diagnostics."""
-
-    memory_service_initialized: bool
-    temporal_event_count: int
-    causal_link_count: int
-    pending_consolidation: int
-    slow_path_enabled: bool
-    scheduler_job_registered: bool
-
-
-@router.get("/memory/diagnostics", response_model=APIResponse[MemoryDiagnosticResponse])
-async def memory_diagnostics(
-    request: Request,
-    _: str = Depends(verify_admin_api_key),
-    container: Any = Depends(_get_container),
-) -> APIResponse[MemoryDiagnosticResponse]:
-    """Diagnostic endpoint for memory system health.
-
-    Returns status of memory service initialization, event counts,
-    and scheduler registration for troubleshooting.
-
-    Args:
-        _: Verified API key.
-        container: Application container.
-
-    Returns:
-        Memory system diagnostic data.
-
-    """
-    diagnostics = await container.memory_diagnostics()
-    scheduler_registered = container.is_job_registered("memory_consolidation")
-
-    return success_response(
-        MemoryDiagnosticResponse(
-            memory_service_initialized=diagnostics["service_initialized"],
-            temporal_event_count=diagnostics["temporal_event_count"],
-            causal_link_count=diagnostics["causal_link_count"],
-            pending_consolidation=diagnostics["pending_consolidation"],
-            slow_path_enabled=diagnostics["slow_path_enabled"],
-            scheduler_job_registered=scheduler_registered,
-        )
-    )
+router.add_api_route(
+    "/memory/diagnostics",
+    memory_diagnostics,
+    methods=["GET"],
+    response_model=APIResponse[MemoryDiagnosticResponse],
+    name="admin_memory_diagnostics",
+)
 
 
 class ConsolidationResult(BaseModel):

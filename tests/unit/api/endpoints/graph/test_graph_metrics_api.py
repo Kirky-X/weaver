@@ -88,7 +88,7 @@ class TestGraphMetricsEndpoint:
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
+        with patch("api.endpoints._graph_metrics_shared.GraphQualityMetrics") as mock_metrics_class:
             mock_metrics = AsyncMock()
             mock_metrics.get_health_summary = AsyncMock(
                 return_value={
@@ -118,7 +118,7 @@ class TestGraphMetricsEndpoint:
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
+        with patch("api.endpoints._graph_metrics_shared.GraphQualityMetrics") as mock_metrics_class:
             from datetime import UTC, datetime
 
             mock_metrics = AsyncMock()

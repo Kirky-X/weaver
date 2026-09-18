@@ -243,7 +243,7 @@ class TestNeo4jWriterWrite:
     async def test_write_with_merged_sources(self, writer):
         """Test write creates FOLLOWED_BY relations for merged articles.
 
-        P4 fix: existence check uses batch ``find_articles_by_pg_ids``
+        existence check uses batch ``find_articles_by_pg_ids``
         instead of per-source ``find_article_by_id``.
         """
         article_id = str(uuid.uuid4())
@@ -390,7 +390,7 @@ class TestNeo4jWriterCreateFollowedRelations:
         After the Article node slim-down, ``_create_followed_relations``
         no longer accepts ``publish_time``; ``time_gap_hours`` is always 0.0.
 
-        P4 fix: existence check now uses batch ``find_articles_by_pg_ids``
+        existence check now uses batch ``find_articles_by_pg_ids``
         instead of per-source ``find_article_by_id``.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(
@@ -416,7 +416,7 @@ class TestNeo4jWriterCreateFollowedRelations:
         (previously it was created with time_gap=0.0; now we skip to avoid
         creating a relation pointing at a non-existent node).
 
-        P4 fix: missing sources are simply absent from the
+        missing sources are simply absent from the
         ``find_articles_by_pg_ids`` result dict.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(return_value={})
@@ -445,7 +445,7 @@ class TestNeo4jWriterCreateFollowedRelations:
     async def test_create_followed_relations_multiple_sources(self, writer):
         """Test create FOLLOWED_BY for multiple sources.
 
-        P4 fix: a single ``find_articles_by_pg_ids`` call replaces N
+        a single ``find_articles_by_pg_ids`` call replaces N
         per-source ``find_article_by_id`` round-trips.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(
@@ -511,7 +511,7 @@ class TestNeo4jWriterArchiveOldArticles:
     async def test_archive_old_articles_empty_list_skips_cleanup(self, writer):
         """Empty cutoff_pg_ids short-circuits at the repo layer.
 
-        LSP alignment (H1 fix): the writer no longer calls
+        LSP alignment: the writer no longer calls
         cleanup_orphan_entities() — that responsibility moved to the
         caller (MaintenanceJobs). So even for non-empty input,
         cleanup_orphan_entities must NOT be invoked here.
@@ -527,7 +527,7 @@ class TestNeo4jWriterArchiveOldArticles:
 
     @pytest.mark.asyncio
     async def test_archive_old_articles_does_not_cleanup_orphans(self, writer):
-        """LSP alignment (H1 fix): writer does not call cleanup_orphan_entities.
+        """LSP alignment: writer does not call cleanup_orphan_entities.
 
         Previously Neo4jWriter.archive_old_articles invoked
         cleanup_orphan_entities() when cutoff_pg_ids was non-empty, but

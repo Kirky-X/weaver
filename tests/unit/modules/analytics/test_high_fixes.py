@@ -440,10 +440,14 @@ class TestAggregatorSnapshotMinMax:
 
 class TestAggDelimiter:
     def test_pg_and_duckdb_share_delimiter(self):
-        from modules.analytics.llm_usage.repo import AGG_DELIMITER
-        from modules.storage.duckdb.llm_usage_repo import AGG_DELIMITER as DUCK
+        from core.constants import AGG_DELIMITER
+        from modules.analytics.llm_usage.repo import AGG_DELIMITER as PG, LLMUsageRepo
+        from modules.storage.duckdb.llm_usage_repo import DuckDBLLMUsageRepo
 
-        assert AGG_DELIMITER == DUCK == "\x1f"
+        # Single source in core.constants; the DuckDB repo subclasses the PG
+        # repo, so both write paths share this delimiter.
+        assert PG is AGG_DELIMITER == "\x1f"
+        assert issubclass(DuckDBLLMUsageRepo, LLMUsageRepo)
 
     def test_label_with_comma_survives_roundtrip(self):
         from modules.analytics.llm_usage.repo import AGG_DELIMITER

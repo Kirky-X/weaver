@@ -14,10 +14,17 @@ All real resource fixtures are in tests/integration/conftest.py
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
+
+# Disable bytecode caching for the whole test session: pytest imports all
+# src/test modules only after this conftest is loaded, so no __pycache__ is
+# written (bytecode is a pure optimization). PYTHONDONTWRITEBYTECODE covers
+# other entry points.
+sys.dont_write_bytecode = True
 
 # ────────────────────────────────────────────────────────────
 # Memory limit: 8 GB physical RSS (per user requirement)

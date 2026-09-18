@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED: LadybugArticleRepo Article node slim-down (design.md §).
+"""RED: LadybugArticleRepo Article node slim-down.
 
 After the graph Article node is slimmed to only ``{id, pg_id}``, the
 LadybugArticleRepo methods must:
@@ -61,7 +61,7 @@ class TestLadybugArticleRepoCreateArticle:
 
     @pytest.mark.asyncio
     async def test_create_article_failure_raises_runtime_error(self):
-        """LSP alignment (H2 fix): CREATE returning empty must raise RuntimeError.
+        """LSP alignment: CREATE returning empty must raise RuntimeError.
 
         Previously this method returned a fabricated ``uuid.uuid4()``
         string when the CREATE query returned no rows, while the Neo4j
@@ -134,7 +134,7 @@ class TestLadybugArticleRepoCreateArticlesBatch:
     async def test_create_articles_batch_uses_only_pg_id(self):
         """Batch create must only write id and pg_id (no title/category/etc.).
 
-        P6 fix: implementation now uses a single OPTIONAL MATCH batch
+        implementation now uses a single OPTIONAL MATCH batch
         query (round 1) followed by a single UNWIND CREATE for missing
         articles (round 2). Previously it issued N find_article_by_id
         calls (one per article); the mock side_effect must match the

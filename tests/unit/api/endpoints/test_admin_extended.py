@@ -795,7 +795,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=False)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -821,7 +820,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=True)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -851,7 +849,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=False)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )

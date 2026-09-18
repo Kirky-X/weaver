@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from core.constants import DatabaseType
+from core.constants import DatabaseType, EntityType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
@@ -371,7 +371,7 @@ class CommunityReportGenerator:
         return [
             {
                 "name": r.get("name", ""),
-                "type": r.get("type", "未知"),
+                "type": r.get("type", EntityType.UNKNOWN),
                 "description": r.get("description", "")[:200] if r.get("description") else "",
             }
             for r in results

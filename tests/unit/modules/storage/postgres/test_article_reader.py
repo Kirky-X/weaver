@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.db import PersistStatus
-from modules.storage.postgres.article_reader import ArticleReader, _build_core_body_values
+from modules.storage.postgres.article_reader import ArticleReader
+from modules.storage.postgres.article_values import build_core_body_values
 
 
 def _make_mock_pool(session_rows=None):
@@ -59,7 +60,7 @@ class TestBuildCoreBodyValues:
     def test_full_body_uses_body(self):
         """Body >= 200 chars uses raw.body as-is."""
         raw = _make_raw_article(body="X" * 300)
-        core_kw, body_kw, source = _build_core_body_values(raw)
+        core_kw, body_kw, source = build_core_body_values(raw)
 
         assert body_kw["body"] == "X" * 300
         assert source == "full"
@@ -67,7 +68,7 @@ class TestBuildCoreBodyValues:
     def test_short_body_uses_description(self):
         """Body < 200 chars with description falls back to description."""
         raw = _make_raw_article(body="Short body", description="A" * 300)
-        core_kw, body_kw, source = _build_core_body_values(raw)
+        core_kw, body_kw, source = build_core_body_values(raw)
 
         assert body_kw["body"] == "A" * 300
         assert source == "description"
@@ -75,7 +76,7 @@ class TestBuildCoreBodyValues:
     def test_short_body_no_description_uses_body(self):
         """Body < 200 chars without description keeps body."""
         raw = _make_raw_article(body="Short body", description=None)
-        core_kw, body_kw, source = _build_core_body_values(raw)
+        core_kw, body_kw, source = build_core_body_values(raw)
 
         assert body_kw["body"] == "Short body"
         assert source == "full"
@@ -83,7 +84,7 @@ class TestBuildCoreBodyValues:
     def test_content_hash_computed(self):
         """Content hash is computed from title + body."""
         raw = _make_raw_article(title="Title", body="B" * 300)
-        core_kw, _, _ = _build_core_body_values(raw)
+        core_kw, _, _ = build_core_body_values(raw)
 
         assert "content_hash" in core_kw
         assert len(core_kw["content_hash"]) > 0
@@ -92,21 +93,21 @@ class TestBuildCoreBodyValues:
         """publish_time is included in core kwargs when raw has it."""
         dt = datetime(2026, 1, 15, tzinfo=UTC)
         raw = _make_raw_article(publish_time=dt)
-        core_kw, _, _ = _build_core_body_values(raw)
+        core_kw, _, _ = build_core_body_values(raw)
 
         assert core_kw["publish_time"] == dt
 
     def test_publish_time_omitted_when_none(self):
         """publish_time is omitted when raw.publish_time is None."""
         raw = _make_raw_article(publish_time=None)
-        core_kw, _, _ = _build_core_body_values(raw)
+        core_kw, _, _ = build_core_body_values(raw)
 
         assert "publish_time" not in core_kw
 
     def test_persist_status_is_pending(self):
         """Core kwargs set persist_status to PENDING."""
         raw = _make_raw_article()
-        core_kw, _, _ = _build_core_body_values(raw)
+        core_kw, _, _ = build_core_body_values(raw)
 
         assert core_kw["persist_status"] == PersistStatus.PENDING
 

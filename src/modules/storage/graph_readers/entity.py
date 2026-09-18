@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.constants import EntityType
 from core.observability import get_logger
 from core.utils.time_utils import convert_timestamp
 from modules.storage.graph_readers.base import GraphReaderBase
@@ -52,7 +53,7 @@ class GraphEntityReader(GraphReaderBase):
             return {
                 "id": record.get("id") or "",
                 "canonical_name": record.get("canonical_name") or "",
-                "type": record.get("type") or "未知",
+                "type": record.get("type") or EntityType.UNKNOWN,
                 "aliases": record.get("aliases"),
                 "description": record.get("description"),
                 "updated_at": updated_at,
@@ -113,7 +114,7 @@ class GraphEntityReader(GraphReaderBase):
                 {
                     "id": row.get("id") or "",
                     "canonical_name": row.get("canonical_name") or "",
-                    "type": row.get("type") or "未知",
+                    "type": row.get("type") or EntityType.UNKNOWN,
                     "aliases": row.get("aliases"),
                     "description": row.get("description"),
                     "created_at": created_at,

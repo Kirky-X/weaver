@@ -137,7 +137,7 @@ class TaskRegistryService(Protocol):
 
         Args:
             status: Filter by status (running, done, cancelled, failed).
-                ``pending`` 不是合法取值——TaskStatus 未定义 PENDING。
+                ``pending`` 不是合法取值——Status 不产出 PENDING。
             limit: Maximum number of tasks to return.
 
         Returns:

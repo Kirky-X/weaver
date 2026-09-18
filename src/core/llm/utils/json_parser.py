@@ -188,3 +188,65 @@ def extract_json_from_text(content: str) -> str:
             if depth == 0:
                 return content[start : i + 1]
     return ""
+
+
+def _scan_balanced_end(text: str, start: int) -> int:
+    """Scan ``text`` from ``start`` (an opening ``{``) to the matching close.
+
+    Tracks double-quote string state so braces inside JSON string values do
+    not corrupt the depth count.
+
+    Returns:
+        Index of the matching closing ``}`` (inclusive), or -1 if unbalanced.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    for j in range(start, len(text)):
+        ch = text[j]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def extract_last_json_object(
+    content: str, max_candidates: int = 128
+) -> dict[str, Any] | None:
+    """Extract the last valid JSON object from text that may contain
+    thinking/reasoning.
+
+    LLMs with think mode may return reasoning text before (and JSON payloads
+    after) prose, so candidates are tried from the last opening brace
+    backwards. Each failed candidate scans to its matching close only, and
+    the candidate list is capped to bound pathological brace-heavy inputs.
+
+    Args:
+        content: Raw LLM response text.
+        max_candidates: Maximum opening-brace candidates to try.
+
+    Returns:
+        Parsed dict if a balanced JSON object is found, None otherwise.
+    """
+    starts = [i for i, ch in enumerate(content) if ch == "{"][-max_candidates:]
+    for i in reversed(starts):
+        end = _scan_balanced_end(content, i)
+        if end == -1:
+            continue
+        try:
+            return json.loads(content[i : end + 1])
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None

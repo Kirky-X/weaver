@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+from core.constants import DatabaseType as _CanonicalDatabaseType
 from core.db.safe_query import (
     validate_edge_type,
     validate_hop_pattern,
@@ -21,10 +22,15 @@ from core.db.safe_query import (
 
 
 class GraphDatabaseType(str, Enum):
-    """Supported graph database types."""
+    """Supported graph database types.
 
-    NEO4J = "neo4j"
-    LADYBUG = "ladybug"
+    Graph-backend axis. Values are sourced from the canonical
+    :class:`core.constants.DatabaseType` so each backend identifier string
+    is defined in exactly one place (no cross-file literal drift).
+    """
+
+    NEO4J = _CanonicalDatabaseType.NEO4J.value
+    LADYBUG = _CanonicalDatabaseType.LADYBUG.value
 
 
 # === Search Config Dataclasses (migrated from graph_query.py) ===
@@ -541,7 +547,7 @@ class Neo4jQueryBuilder:
         MENTIONS edge direction is (Article)-[:MENTIONS]->(Entity), so we
         traverse from Entity back to Article via incoming MENTIONS edges.
 
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         available on the node — callers batch-fetch title / category /
         publish_time / score from PostgreSQL via
         ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -558,7 +564,7 @@ class Neo4jQueryBuilder:
     def build_get_article_graph_query(self) -> str:
         """Build Neo4j query to get article node.
 
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -593,7 +599,7 @@ class Neo4jQueryBuilder:
         """Build Neo4j query to get related articles via shared entities.
 
         Finds articles that mention the same entities, ranked by overlap count.
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -1146,7 +1152,7 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §), Article nodes only
+        # After the Article node slim-down, Article nodes only
         # store {pg_id, created_at}. We match Article-Entity via MENTIONS edges
         # for entity-centric ranking and return ``a.pg_id`` so callers can
         # batch-fetch title / score from PostgreSQL.
@@ -1196,7 +1202,7 @@ class Neo4jQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §), Article nodes no
+        # After the Article node slim-down, Article nodes no
         # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
         # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """
@@ -1336,7 +1342,7 @@ class LadybugQueryBuilder:
         Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
         the reverse direction.
 
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         available on the node — callers batch-fetch title / category /
         publish_time / score from PostgreSQL via
         ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -1353,7 +1359,7 @@ class LadybugQueryBuilder:
     def build_get_article_graph_query(self) -> str:
         """Build LadybugDB query to get article node.
 
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -1399,7 +1405,7 @@ class LadybugQueryBuilder:
         Only FOLLOWED_BY connects Article to Article (MENTIONS is Article->Entity).
         DISTINCT causes "variable not in scope" errors in LadybugDB.
 
-        After the Article node slim-down (design.md §), only ``pg_id`` is
+        After the Article node slim-down, only ``pg_id`` is
         returned — callers batch-fetch business fields from PostgreSQL.
         """
         return """
@@ -1922,7 +1928,7 @@ class LadybugQueryBuilder:
         if limit < 1:
             raise ValueError(f"limit must be positive, got {limit}")
 
-        # After the Article node slim-down (design.md §), Article nodes no
+        # After the Article node slim-down, Article nodes no
         # longer store ``title`` / ``summary`` / ``url`` / ``score``. The graph
         # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """

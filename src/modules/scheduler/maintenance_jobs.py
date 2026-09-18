@@ -26,11 +26,10 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 # Retention period for graph Article nodes. After the Article node
-# slim-down (design.md §), the graph node no longer carries
+# slim-down, the graph node no longer carries
 # ``publish_time``; the cutoff is computed in Python (UTC now minus this
 # many days) and the resulting cutoff datetime is sent as a bind param
 # to keep the query portable across PostgreSQL and DuckDB.
-ARCHIVE_RETENTION_DAYS = 90
 
 # Page size for streaming cutoff pg_ids out of PostgreSQL. Loading all
 # stale article IDs into memory at once can OOM on large archives
@@ -70,8 +69,7 @@ class MaintenanceJobs:
         """Archive old Neo4j article nodes.
 
         Deletes Article nodes whose ``publish_time`` is older than
-        ``ARCHIVE_RETENTION_DAYS`` days. After the Article node slim-down
-        (design.md §), the graph node no longer carries ``publish_time``,
+        ``archive_old_neo4j_days`` settings days. After the Article node slim-down, the graph node no longer carries ``publish_time``,
         so the cutoff pg_ids must be fetched from PostgreSQL first and
         then passed to the writer.
 
@@ -112,7 +110,7 @@ class MaintenanceJobs:
             # INTERVAL literal syntaxes). Use UTC for consistent behaviour
             # regardless of host timezone (articles_core.publish_time is
             # stored timezone-aware UTC).
-            cutoff = datetime.now(UTC) - timedelta(days=ARCHIVE_RETENTION_DAYS)
+            cutoff = datetime.now(UTC) - timedelta(days=self._settings.archive_old_neo4j_days)
 
             total_archived = 0
             total_seen = 0
@@ -284,7 +282,9 @@ class MaintenanceJobs:
         log.info("cleanup_old_synced_start")
 
         try:
-            deleted = await self._pending_sync_repo.cleanup_old_synced(days=7)
+            deleted = await self._pending_sync_repo.cleanup_old_synced(
+                days=self._settings.cleanup_old_synced_days
+            )
             log.info("cleanup_old_synced_complete", deleted=deleted)
             return deleted
         except Exception as exc:

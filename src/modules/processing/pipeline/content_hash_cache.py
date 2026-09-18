@@ -35,7 +35,8 @@ _DEFAULT_SCHEMA_VERSION = 2
 # leading-underscore rule below.
 _UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
 
-# Cached snapshots expire after 7 days
+# Cached snapshots expire after 7 days (overridable via
+# pipeline.toml ``content_hash_cache_ttl_seconds``).
 _CACHE_TTL_SECONDS = 604800
 
 
@@ -59,9 +60,11 @@ class ContentHashCacheService:
         *,
         cache_client: CachePool | None,
         schema_version: int = _DEFAULT_SCHEMA_VERSION,
+        ttl_seconds: int = _CACHE_TTL_SECONDS,
     ) -> None:
         self._cache_client = cache_client
         self._schema_version = schema_version
+        self._ttl_seconds = ttl_seconds
 
     async def check(self, articles: list[RawArticle]) -> list[dict[str, Any] | None]:
         """Check content hash cache for a batch of articles.
@@ -171,7 +174,7 @@ class ContentHashCacheService:
             await self._cache_client.set(
                 cache_key,
                 payload,
-                ex=_CACHE_TTL_SECONDS,
+                ex=self._ttl_seconds,
             )
         except Exception as exc:
             log.warning("content_hash_cache_write_failed", error=str(exc))
@@ -201,7 +204,7 @@ class ContentHashCacheService:
             )
             async with self._cache_client.pipeline() as pipe:
                 for key, payload in serialized:
-                    pipe.set(key, payload, ex=_CACHE_TTL_SECONDS)
+                    pipe.set(key, payload, ex=self._ttl_seconds)
                 await pipe.execute()
         except Exception as exc:
             log.warning("content_hash_cache_write_failed", error=str(exc))

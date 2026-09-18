@@ -23,7 +23,7 @@ log = get_logger(__name__)
 # Cleaner 节点最大重试次数 (包含首次调用)
 _MAX_CLEANER_ATTEMPTS = 2
 
-# 错误页/登录页特征词 — 命中 2 个以上且 body < 500 字符视为垃圾内容 (R1 fix)
+# 错误页/登录页特征词 — 命中 2 个以上且 body < 500 字符视为垃圾内容
 _ERROR_PAGE_MARKERS: tuple[str, ...] = (
     "404",
     "not found",
@@ -298,7 +298,7 @@ class CleanerNode:
         if state.get("terminal"):
             return state
 
-        # R1 fix: reject error pages (404/login/redirect) that slipped past
+        # reject error pages (404/login/redirect) that slipped past
         # crawler status check. Mark terminal to stop pipeline — garbage in
         # garbage out, no point in extracting entities from a login page.
         raw = state["raw"]

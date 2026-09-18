@@ -112,6 +112,10 @@ class PipelineSettings(BaseSettings):
     # WEAVER_PIPELINE__CONTENT_HASH_VERSION 覆盖），旧快照即刻全部失效，
     # 避免 7 天 TTL 内新旧结果混杂污染 A/B 对比。
     content_hash_version: int = 2
+    # Cached content-hash snapshots expire after this many seconds (7 days).
+    content_hash_cache_ttl_seconds: int = 604800
+    # ConflictDetectorNode similar-article similarity cutoff (recall lever).
+    conflict_similarity_threshold: float = 0.7
 
     @field_validator("monte_carlo", mode="before")
     @classmethod

@@ -175,7 +175,7 @@ class TestIntegration:
 
 
 class TestTemporalAwareRetriever:
-    """Tests for TemporalAwareRetriever class per ADD §3.6."""
+    """Tests for TemporalAwareRetriever class."""
 
     def test_instantiation_with_defaults(self):
         """TemporalAwareRetriever can be instantiated with default params."""

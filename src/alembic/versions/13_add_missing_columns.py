@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Add missing columns per design doc §4.1, §8.6, §12.1, §12.2.
+"""Add missing columns.
 
 Revision ID: 13_add_missing_columns
 Revises: 12_add_optimization_indexes
@@ -28,7 +28,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Add missing columns to align with design document specifications."""
-    # ── community_vectors (design doc §8.6) ──
+    # ── community_vectors ──
     op.add_column("community_vectors", sa.Column("title", sa.String(200), nullable=True))
     op.add_column("community_vectors", sa.Column("summary", sa.Text, nullable=True))
     op.add_column(
@@ -41,7 +41,7 @@ def upgrade() -> None:
     )
     op.add_column("community_vectors", sa.Column("rank", sa.Numeric(3, 2), nullable=True))
 
-    # ── daily_briefings (design doc §12.2) ──
+    # ── daily_briefings ──
     op.add_column("daily_briefings", sa.Column("title", sa.String(200), nullable=True))
     op.add_column("daily_briefings", sa.Column("summary", sa.Text, nullable=True))
     op.add_column(
@@ -95,7 +95,7 @@ def upgrade() -> None:
         postgresql_using="briefing_date::date",
     )
 
-    # ── daily_briefing_items (design doc §12.2) ──
+    # ── daily_briefing_items ──
     op.add_column(
         "daily_briefing_items",
         sa.Column("score", sa.Numeric(5, 3), nullable=False, server_default="0"),
@@ -105,7 +105,7 @@ def upgrade() -> None:
         sa.Column("score_breakdown", postgresql.JSONB(), nullable=True),
     )
 
-    # ── sentiment_shifts (design doc §12.1) ──
+    # ── sentiment_shifts ──
     op.add_column("sentiment_shifts", sa.Column("community_title", sa.String(200), nullable=True))
     op.add_column(
         "sentiment_shifts",
@@ -126,7 +126,7 @@ def upgrade() -> None:
         ),
     )
 
-    # ── source_authorities (design doc §4.1) ──
+    # ── source_authorities ──
     op.add_column("source_authorities", sa.Column("manual_score", sa.Numeric(3, 2), nullable=True))
     op.add_column("source_authorities", sa.Column("final_score", sa.Numeric(3, 2), nullable=True))
     op.add_column(

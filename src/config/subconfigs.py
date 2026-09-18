@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from core.constants import CHROME_USER_AGENT
+from core.constants import CHROME_USER_AGENT, NEWSBOT_USER_AGENT, PHISHTANK_DATA_URL
 from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
 
@@ -281,8 +281,25 @@ class SchedulerSettings(BaseModel):
     retry_flush_interval_seconds: int = 30
     pipeline_retry_interval_minutes: int = 15
     pipeline_retry_batch_size: int = 20
+    # Resilience jobs
+    recover_stale_sagas_interval_minutes: int = 10
+    dispatch_outbox_interval_seconds: int = 30
+    # Security job: API key rotation check (cron hour, daily)
+    api_key_rotation_check_cron_hour: int = 2
+    # Analytics jobs
+    sentiment_shift_interval_minutes: int = 60
+    hotness_decay_cron_hour: int = 3
+    trend_alert_cron_minute: int = 0
+    causal_inference_interval_hours: int = 2
+    community_health_check_interval_hours: int = 6
+    # Daily briefing publish time (deployment decision: hour + tz)
+    briefing_cron_hour: int = 8
+    briefing_timezone: str = "Asia/Shanghai"
+
     pipeline_retry_dynamic_batch: bool = False
     pipeline_retry_success_rate_threshold: float = 0.8
+    pipeline_retry_dynamic_batch_max: int = 50
+    pipeline_retry_dynamic_batch_min: int = 5
     pipeline_retry_stuck_timeout_minutes: int = 30
     pipeline_retry_max_retries: int = 3
 
@@ -336,7 +353,7 @@ class FetcherSettings(BaseModel):
 
     default_per_host_concurrency: int = 2
     httpx_timeout: float = 15.0
-    user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
+    user_agent: str = NEWSBOT_USER_AGENT
     # User-Agent rotation pool (fix). Each request draws a random
     # UA from this list (plus the base ``user_agent``) to defeat naive
     # rate-limiter fingerprinting. Empty by default → single-UA behavior.
@@ -377,6 +394,10 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
+    # Causal/temporal endpoint protections (API layer wait_for timeouts)
+    causal_search_timeout: float = 60.0
+    temporal_search_timeout: float = 30.0
+    temporal_window_fetch_limit: int = 500
     # 时序衰减(RRF 融合后、MMR 前应用;接线到 HybridSearchConfig)
     temporal_decay_enabled: bool = False
     temporal_decay_half_life_days: float = 30.0
@@ -446,8 +467,9 @@ class URLSecuritySettings(BaseModel):
     enabled: bool = True
     urlhaus_api_key: str = ""
     urlhaus_api_timeout: float = 5.0
+    urlhaus_api_url: str = "https://urlhaus-api.abuse.ch/v1/url/"
     phishtank_enabled: bool = True
-    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
+    phishtank_data_url: str = PHISHTANK_DATA_URL
     heuristic_enabled: bool = True
     ssl_verify_enabled: bool = True
     cache_enabled: bool = True
@@ -497,6 +519,11 @@ class PipelineProcessSettings(BaseModel):
     """Pipeline processing configuration."""
 
     causal_llm_timeout: float = 30.0  # 因果推理 LLM 调用超时(秒)
+    # Background trigger (POST /pipeline/trigger): per-source wall-clock cap
+    # and the matching dedup lock TTL (must exceed the timeout so a crashed
+    # task never leaves the source permanently locked).
+    trigger_source_timeout_seconds: float = 300.0
+    source_lock_ttl_seconds: int = 600
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
@@ -625,6 +652,7 @@ class BingSettings(BaseModel):
     WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT,
     WEAVER_BING__CACHE_TTL_SECONDS, WEAVER_BING__NEWS_ENABLED,
     WEAVER_BING__NEWS_MAX_RESULTS, WEAVER_BING__TIME_FILTER,
+    WEAVER_BING__SEARCH_URL, WEAVER_BING__NEWS_SEARCH_URL,
     WEAVER_BING__QUERY_EXPANSION_ENABLED,
     WEAVER_BING__QUERY_EXPANSION_MAX_TERMS,
     WEAVER_BING__QUERY_EXPANSION_TIMEOUT
@@ -663,6 +691,8 @@ class BingSettings(BaseModel):
     timeout: int = 15  # seconds (passed to asyncio.wait_for in BingSearcher)
     cache_ttl_seconds: int = 1800  # 30 minutes; 0 disables caching
     user_agent: str = CHROME_USER_AGENT
+    search_url: str = "https://cn.bing.com/search"
+    news_search_url: str = "https://cn.bing.com/news/search"
 
     # News vertical search (cn.bing.com/news/search). Parallel to general
     # search; results merged + deduplicated.

@@ -18,12 +18,12 @@ where:
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from core.observability import get_logger
+from core.utils.vector_math import cosine_similarity
 
 log = get_logger(__name__)
 
@@ -100,25 +100,10 @@ class MMRReranker:
         """Current similarity computation mode."""
         return self._similarity_mode
 
-    @staticmethod
-    def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-        """Compute cosine similarity between two vectors.
-
-        Args:
-            vec1: First vector.
-            vec2: Second vector.
-
-        Returns:
-            Cosine similarity in range [-1, 1], or 0.0 for zero vectors.
-        """
-        dot = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = math.sqrt(sum(a * a for a in vec1))
-        norm2 = math.sqrt(sum(b * b for b in vec2))
-
-        if norm1 == 0.0 or norm2 == 0.0:
-            return 0.0
-
-        return dot / (norm1 * norm2)
+    # Shared implementation; exposed as a staticmethod so instance/class
+    # call sites and tests keep working. Unlike the previous inlined copy,
+    # it rejects mismatched vector lengths instead of silently truncating.
+    cosine_similarity = staticmethod(cosine_similarity)
 
     def _jaccard_similarity(self, text1: str, text2: str) -> float:
         """Calculate Jaccard similarity between two texts.

@@ -209,12 +209,16 @@ class TestBriefingSchedulerCronRegistration:
         assert block, "daily_briefing_generation job not found in lifecycle._setup_scheduler"
 
     def test_cron_trigger_uses_hour_8(self) -> None:
-        """CronTrigger for daily_briefing_generation uses hour=8 (not hour=7)."""
+        """CronTrigger reads briefing_cron_hour; the settings default is 8."""
+        from config.subconfigs import SchedulerSettings
+
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert "hour=8" in block, f"CronTrigger must use hour=8 per spec. Block: {block[:200]}"
-        assert "hour=7" not in block, (
-            "CronTrigger must NOT use hour=7 (old value, spec requires hour=8)"
+        assert "briefing_cron_hour" in block, (
+            f"CronTrigger must read briefing_cron_hour from settings. Block: {block[:200]}"
+        )
+        assert SchedulerSettings().briefing_cron_hour == 8, (
+            "briefing_cron_hour default must be 8 per spec"
         )
 
     def test_cron_trigger_uses_minute_0(self) -> None:
@@ -224,12 +228,15 @@ class TestBriefingSchedulerCronRegistration:
         assert "minute=0" in block
 
     def test_cron_trigger_uses_asia_shanghai_timezone(self) -> None:
-        """CronTrigger uses Asia/Shanghai timezone per spec."""
+        """CronTrigger reads briefing_timezone; the settings default is Asia/Shanghai."""
+        from config.subconfigs import SchedulerSettings
+
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert "Asia/Shanghai" in block, (
-            f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
-        )
+        assert "briefing_timezone" in block, "CronTrigger must read briefing_timezone from settings"
+        assert (
+            "Asia/Shanghai" in block or SchedulerSettings().briefing_timezone == "Asia/Shanghai"
+        ), f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
 
     def test_job_name_mentions_4_categories(self) -> None:
         """Job name mentions '4 categories' to reflect the 4-briefing generation."""

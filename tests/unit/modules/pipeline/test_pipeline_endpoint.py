@@ -300,8 +300,8 @@ class TestTriggerPipelineSourceDedup:
     async def test_trigger_sets_source_lock_when_not_locked(self):
         """If source is not locked, trigger acquires the lock atomically via set_nx."""
         from api.endpoints.content.pipeline import (
-            _SOURCE_LOCK_TTL_SECONDS,
             TriggerRequest,
+            _source_lock_ttl,
             trigger_pipeline,
         )
 
@@ -335,7 +335,7 @@ class TestTriggerPipelineSourceDedup:
         mock_cache.set_nx.assert_called()
         nx_call = mock_cache.set_nx.call_args
         assert "pipeline:source:lock:test-source" in nx_call.args[0]
-        assert nx_call.kwargs.get("ex") == _SOURCE_LOCK_TTL_SECONDS
+        assert nx_call.kwargs.get("ex") == _source_lock_ttl()
 
     @pytest.mark.asyncio
     async def test_background_task_releases_lock_on_completion(self):

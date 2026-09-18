@@ -11,6 +11,7 @@ import json
 import time
 from typing import Any
 
+from core.constants import EntityType
 from core.db import PersistStatus
 from core.db.ladybug_pool import ladybug_write_lock as _write_lock
 from core.observability import get_logger
@@ -103,7 +104,7 @@ class LadybugWriter:
         publish_time = int(raw_publish_time.timestamp()) if raw_publish_time else None
         score = state.get("score")
 
-        # After the Article node slim-down (design.md §), the Article
+        # After the Article node slim-down, the Article
         # node stores only {id, pg_id}. Title / category / publish_time /
         # score are no longer persisted on the node; the EventNode below
         # still carries them (EventNode is the business-data carrier).
@@ -157,7 +158,7 @@ class LadybugWriter:
         if entities:
             for entity in entities:
                 entity_name = entity.get("canonical_name") or entity.get("name", "")
-                entity_type = entity.get("type", "未知")
+                entity_type = entity.get("type", EntityType.UNKNOWN.value)
                 description = entity.get("description")
                 tier = entity.get("tier", 2)
                 role = entity.get("role")
@@ -243,7 +244,7 @@ class LadybugWriter:
                             # Entity not found - create it (ensure existence for relation)
                             source_id = await self.entity_repo.merge_entity(
                                 canonical_name=source_name,
-                                entity_type="未知",  # Default type for inferred entities
+                                entity_type=EntityType.UNKNOWN.value,  # Default type for inferred entities
                                 description=None,
                                 tier=3,  # Lower tier for auto-created entities
                             )
@@ -264,7 +265,7 @@ class LadybugWriter:
                             # Entity not found - create it (ensure existence for relation)
                             target_id = await self.entity_repo.merge_entity(
                                 canonical_name=target_name,
-                                entity_type="未知",  # Default type for inferred entities
+                                entity_type=EntityType.UNKNOWN.value,  # Default type for inferred entities
                                 description=None,
                                 tier=3,  # Lower tier for auto-created entities
                             )
@@ -373,7 +374,7 @@ class LadybugWriter:
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive/delete articles whose pg_id is in ``cutoff_pg_ids``.
 
-        After the Article node slim-down (design.md §), the graph node
+        After the Article node slim-down, the graph node
         no longer carries ``publish_time``, so the caller must compute the
         cutoff by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'`` and pass the

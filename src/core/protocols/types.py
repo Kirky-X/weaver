@@ -173,8 +173,7 @@ class PersistStatus(str, enum.Enum):
 class ArticleTitleMeta(TypedDict):
     """Article metadata returned by ``ArticleRepository.fetch_titles_by_pg_ids``.
 
-    Used by graph-query callers that, after the Article node slim-down
-    (design.md §), can only read ``pg_id`` from the graph DB and must
+    Used by graph-query callers that, after the Article node slim-down, can only read ``pg_id`` from the graph DB and must
     look up the business fields from the relational DB in a batch.
     """
 

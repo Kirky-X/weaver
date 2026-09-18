@@ -344,7 +344,7 @@ class TestArchiveOldNeo4jNodes:
         result is appended so the streaming loop sees a terminal empty
         batch (signals end of stream).
 
-        After the Article node slim-down (design.md §), the cutoff is
+        After the Article node slim-down, the cutoff is
         computed by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$ARCHIVE_RETENTION_DAYS days'``
         and the resulting pg_ids are passed to ``archive_old_articles``.
@@ -384,7 +384,7 @@ class TestArchiveOldNeo4jNodes:
     async def test_archive_old_nodes_success(self, scheduler_jobs_service):
         """Test successful archiving of old nodes (with cutoff pg_ids).
 
-        M5 fix: maintenance_jobs invokes the writer's public
+        maintenance_jobs invokes the writer's public
         cleanup_orphan_entities() (Law of Demeter) rather than reaching
         through to entity_repo.delete_orphan_entities().
         """
@@ -397,7 +397,7 @@ class TestArchiveOldNeo4jNodes:
         scheduler_jobs_service._graph_writer.archive_old_articles.assert_awaited_once_with(
             ["pg-old-1", "pg-old-2"]
         )
-        # M5: caller orchestrates orphan cleanup via the writer's public method
+        # caller orchestrates orphan cleanup via the writer's public method
         scheduler_jobs_service._graph_writer.cleanup_orphan_entities.assert_awaited_once()
 
     @pytest.mark.asyncio

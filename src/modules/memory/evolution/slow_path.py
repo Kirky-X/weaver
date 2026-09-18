@@ -453,7 +453,7 @@ EVENT_DATA>>>
         for event in events:
             event_type = event.get("event_type", "unknown")
             participants = event.get("participants", [])
-            # Extract entity_id from dict participants (GAP-W03: list[dict] not list[str])
+            # Extract entity_id from dict participants (list[dict] not list[str])
             participant_ids = sorted(
                 p["entity_id"] if isinstance(p, dict) else str(p) for p in participants
             )

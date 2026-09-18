@@ -5,7 +5,7 @@
 LadybugDB-adapted version of Neo4jArticleRepo.
 Uses id property instead of elementId(), and timestamp integers instead of datetime().
 
-After the Article node slim-down (design.md §), the graph Article node
+After the Article node slim-down, the graph Article node
 stores only ``{id, pg_id}``. Business fields (title / category /
 publish_time / score) are batch-fetched from PostgreSQL via
 ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -39,13 +39,13 @@ class LadybugArticleRepo:
     ) -> str:
         """Create or update an article node.
 
-        After the Article node slim-down (design.md §), the graph node
+        After the Article node slim-down, the graph node
         stores only ``{id, pg_id}``. Title / category / publish_time /
         score are no longer persisted on the node — callers that need
         them must batch-fetch from PostgreSQL via
         ``ArticleRepository.fetch_titles_by_pg_ids``.
 
-        P5 fix: replaced the find+CREATE two-round-trip pattern with a
+        replaced the find+CREATE two-round-trip pattern with a
         single MERGE. LadybugDB (Kùzu) does not support ``ON CREATE
         SET``, so ``CASE WHEN ... IS NULL`` replicates the semantics:
         the client-generated ``id`` is only written when the node is
@@ -95,7 +95,7 @@ class LadybugArticleRepo:
         dict; other keys (title/category/publish_time/score) are
         silently ignored.
 
-        P6 fix: replaced the per-article ``find_article_by_id`` loop
+        replaced the per-article ``find_article_by_id`` loop
         (N round-trips) with a single OPTIONAL MATCH that returns the
         existence map. New articles are then CREATEd in one UNWIND.
         Reduces N+1 round-trips to 2 round-trips total. Requires the
@@ -187,7 +187,7 @@ class LadybugArticleRepo:
         self,
         pg_ids: list[str],
     ) -> dict[str, dict[str, Any]]:
-        """Batch lookup of Article nodes by pg_id (P4 fix for N+1).
+        """Batch lookup of Article nodes by pg_id (avoids N+1 query).
 
         Uses a single UNWIND + MATCH query to fetch all existing
         articles in one round-trip. Missing pg_ids are absent from

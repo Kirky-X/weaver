@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Audit logging middleware for admin and write endpoints.
-
-Implements: Weaver-数据库设计文档 §12.3
-"""
+"""Audit logging middleware for admin and write endpoints."""
 
 from __future__ import annotations
 
@@ -81,8 +78,6 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
     Logs requests to admin endpoints (all methods) and write operations
     (POST/PUT/DELETE/PATCH) on configured paths to the audit_log table
     for security monitoring and compliance.
-
-    Implements: Weaver-数据库设计文档 §12.3
 
     Args:
         app: ASGI application.

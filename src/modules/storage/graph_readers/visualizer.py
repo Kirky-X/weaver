@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.constants import EntityType
 from modules.storage.graph_readers.base import GraphReaderBase
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class GraphVisualizer(GraphReaderBase):
                 {
                     "id": row.get("id") or "",
                     "label": row.get("label") or "",
-                    "type": row.get("type") or "未知",
+                    "type": row.get("type") or EntityType.UNKNOWN,
                     "description": row.get("description"),
                     "degree": row.get("degree", 0),
                 }
@@ -111,7 +112,7 @@ class GraphVisualizer(GraphReaderBase):
         )
         nodes = []
         for row in result:
-            entity_type = row.get("type") or "未知"
+            entity_type = row.get("type") or EntityType.UNKNOWN
             if exclude_types and entity_type in exclude_types:
                 continue
             nodes.append(

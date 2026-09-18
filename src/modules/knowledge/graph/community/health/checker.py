@@ -410,7 +410,8 @@ class CommunityHealthChecker:
 
         return max(0.0, min(100.0, score))
 
-    def _determine_status(self, score: float) -> CommunityHealthStatus:
+    @staticmethod
+    def _determine_status(score: float) -> CommunityHealthStatus:
         """Determine health status from score.
 
         Args:
@@ -426,3 +427,46 @@ class CommunityHealthChecker:
         if score >= 40:
             return CommunityHealthStatus.DEGRADED
         return CommunityHealthStatus.CRITICAL
+
+
+def score_health_overview(metrics: dict[str, Any]) -> tuple[CommunityHealthStatus, float]:
+    """Derive (status, score) from ``CommunityHealthChecker.get_overall_metrics`` output.
+
+    Single source for the admin (``/admin/communities/health``) and monitoring
+    (``/monitoring/communities/health``) overview endpoints, which previously
+    each maintained their own copy of this scoring heuristic.
+
+    Penalties: empty_ratio >10% → -30, >5% → -15; report_ratio <70% → -10;
+    any stale reports → -5. Status bands: ≥80 healthy, ≥60 moderate,
+    ≥40 degraded, else critical. Zero communities → critical / 0.0.
+
+    Args:
+        metrics: Overall metrics dict (total_communities, empty_community_count,
+            communities_with_reports, stale_report_count).
+
+    Returns:
+        Tuple of (health status, score clamped to [0, 100]).
+    """
+    total = metrics.get("total_communities", 0)
+    empty = metrics.get("empty_community_count", 0)
+    with_reports = metrics.get("communities_with_reports", 0)
+    stale = metrics.get("stale_report_count", 0)
+
+    if total == 0:
+        return CommunityHealthStatus.CRITICAL, 0.0
+
+    score = 100.0
+    empty_ratio = empty / total
+    report_ratio = with_reports / total
+
+    if empty_ratio > 0.10:
+        score -= 30
+    elif empty_ratio > 0.05:
+        score -= 15
+    if report_ratio < 0.7:
+        score -= 10
+    if stale > 0:
+        score -= 5
+
+    score = max(0.0, min(100.0, score))
+    return CommunityHealthChecker._determine_status(score), score

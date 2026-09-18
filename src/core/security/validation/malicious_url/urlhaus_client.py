@@ -65,10 +65,21 @@ class URLhausClient:
         _fetcher: HttpxFetcher for making requests.
     """
 
-    API_URL = "https://urlhaus-api.abuse.ch/v1/url/"
-
-    def __init__(self, api_key: str, fetcher: Any, timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        fetcher: Any,
+        timeout: float = 5.0,
+        api_url: str = "https://urlhaus-api.abuse.ch/v1/url/",
+    ) -> None:
         """Initialize URLhaus client.
+
+        Args:
+            api_key: URLhaus auth key.
+            fetcher: HTTP fetcher implementation.
+            timeout: Request timeout in seconds.
+            api_url: API endpoint (configurable; keep the abuse.ch default
+                unless self-hosting a mirror).
 
         Args:
             api_key: URLhaus API key.
@@ -77,6 +88,7 @@ class URLhausClient:
         """
         self._api_key = api_key
         self._fetcher = fetcher
+        self._api_url = api_url
         self._timeout = timeout
 
     async def check(self, url: str) -> URLhausResponse:
@@ -100,7 +112,7 @@ class URLhausClient:
             # URLhaus API would stall the validation pipeline indefinitely.
             status_code, response_text, _ = await asyncio.wait_for(
                 self._fetcher.post(
-                    self.API_URL,
+                    self._api_url,
                     data={"url": url},
                     headers={"Auth-Key": self._api_key},
                 ),

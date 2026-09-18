@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from config.settings import URLSecuritySettings
+from core.constants import PHISHTANK_DATA_URL
 from core.observability import get_logger
 from core.security.cache import URLSecurityCache
 from core.security.models import CheckResult, CheckSource, URLRisk, ValidationResult
@@ -40,8 +41,9 @@ class URLValidatorConfig:
     enabled: bool = True
     urlhaus_api_key: str = ""
     urlhaus_api_timeout: float = 5.0
+    urlhaus_api_url: str = "https://urlhaus-api.abuse.ch/v1/url/"
     phishtank_enabled: bool = True
-    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
+    phishtank_data_url: str = PHISHTANK_DATA_URL
     heuristic_enabled: bool = True
     ssl_verify_enabled: bool = True
     cache_enabled: bool = True
@@ -62,6 +64,7 @@ class URLValidatorConfig:
             enabled=settings.enabled,
             urlhaus_api_key=settings.urlhaus_api_key,
             urlhaus_api_timeout=settings.urlhaus_api_timeout,
+            urlhaus_api_url=settings.urlhaus_api_url,
             phishtank_enabled=settings.phishtank_enabled,
             phishtank_data_url=settings.phishtank_data_url,
             heuristic_enabled=settings.heuristic_enabled,
@@ -127,6 +130,7 @@ class URLValidator:
                 api_key=config.urlhaus_api_key,
                 fetcher=fetcher,
                 timeout=config.urlhaus_api_timeout,
+                api_url=config.urlhaus_api_url,
             )
 
         # Initialize PhishTank sync
@@ -214,9 +218,7 @@ class URLValidator:
         if should_run_local:
             # PhishTank
             if self._phishtank:
-                pt_result = self._run_local_check(
-                    url, CheckSource.PHISHTANK, self._phishtank.check
-                )
+                pt_result = self._run_local_check(url, CheckSource.PHISHTANK, self._phishtank.check)
                 checks.append(pt_result)
                 if pt_result.risk == URLRisk.BLOCKED:
                     return self._build_result(url, checks)

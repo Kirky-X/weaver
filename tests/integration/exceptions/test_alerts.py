@@ -224,7 +224,7 @@ async def test_al03_update_alert_rule(async_client):
 async def test_al04_delete_rule_cascade_cleanup(async_client):
     """DELETE rule triggers cascade cleanup of alert_events.
 
-    Verifies F2 transactional cascade cleanup (alert_service.py:183-237):
+    Verifies transactional cascade cleanup (alert_service.py:183-237):
     1. Trigger an event on the shared rule (so there's data to cascade-delete).
     2. DELETE /rules/{rule_id} → 200.
     3. GET /rules/{rule_id} → 404 (rule gone).
@@ -233,7 +233,7 @@ async def test_al04_delete_rule_cascade_cleanup(async_client):
     The cascade works because ``delete_rule`` explicitly executes
     ``DELETE FROM alert_events WHERE rule_id=...`` before
     ``DELETE FROM alert_rules WHERE id=...`` in a single
-    ``session_context`` transaction (F2 fix for PG NO ACTION FK).
+    ``session_context`` transaction (fix for PG NO ACTION FK).
 
     If the create test did not run, this test skips. The session-scoped cleanup
     fixture handles any leftover rules.

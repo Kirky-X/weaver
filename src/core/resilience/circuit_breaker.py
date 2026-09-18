@@ -17,22 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import time
-from enum import Enum
 
 from pybreaker import CircuitBreaker as PyBreaker
 
+from core.constants import CircuitState as CBState
 from core.observability import get_logger
 from core.observability.metrics import metrics
 
 log = get_logger(__name__)
-
-
-class CBState(Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
 
 
 class CircuitBreaker:

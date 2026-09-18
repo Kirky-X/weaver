@@ -56,7 +56,7 @@ class GraphRepository:
         article_repo: Optional ``ArticleRepository``-compatible instance
             used by ``GraphArticleReader`` to batch-fetch article business
             fields (title/category/publish_time/score) from PostgreSQL
-            after the Article node slim-down (design.md §). ``None``
+            after the Article node slim-down. ``None``
             triggers degraded mode (pg_id only).
     """
 

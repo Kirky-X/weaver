@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+from core.utils.vector_math import cosine_similarity as cosine_similarity
+
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import INTENT_EDGE_WEIGHTS, EdgeType, IntentType
 
@@ -48,28 +50,5 @@ def calculate_transition_score(
     return math.exp(lambda_structure * structural_score + lambda_semantic * semantic_score)
 
 
-def cosine_similarity(a: list[float] | None, b: list[float]) -> float:
-    """Compute cosine similarity between two vectors.
-
-    Args:
-        a: First vector (can be None).
-        b: Second vector.
-
-    Returns:
-        Cosine similarity in range [-1, 1], or 0 if a is None.
-        Negative values occur when vectors point in opposite directions.
-    """
-    if a is None or not a or not b:
-        return 0.0
-
-    if len(a) != len(b):
-        return 0.0
-
-    dot_product = sum(x * y for x, y in zip(a, b, strict=True))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-
-    return dot_product / (norm_a * norm_b)
+# cosine_similarity is re-exported from the shared implementation in
+# core.utils.vector_math (imported below).

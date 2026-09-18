@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Add optimization indexes per design doc §9.2.
+"""Add optimization indexes.
 
 Revision ID: 12_add_optimization_indexes
 Revises: 11_update_audit_log
 Create Date: 2026-06-11
 
-Changes per Weaver-数据库设计文档 §9.2:
+Changes:
 - idx_articles_sentiment_time: partial index on articles_core
 - idx_articles_briefing: partial index on articles_core
 - idx_articles_category_sentiment: partial index on articles_core
@@ -31,7 +31,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Create optimization indexes using CONCURRENTLY to avoid lock contention."""
     # CONCURRENTLY cannot run inside a transaction block; use autocommit_block.
-    # ── articles_core optimization indexes (design doc §9.2) ──
+    # ── articles_core optimization indexes ──
     with op.get_context().autocommit_block():
         op.execute(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_sentiment_time "
@@ -66,7 +66,7 @@ def upgrade() -> None:
             "WHERE is_news = true"
         )
 
-    # ── entity_vectors HNSW index (design doc §8.1) ──
+    # ── entity_vectors HNSW index ──
     with op.get_context().autocommit_block():
         op.execute(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_vectors_hnsw "
@@ -74,7 +74,7 @@ def upgrade() -> None:
             "WITH (m = 16, ef_construction = 200)"
         )
 
-    # ── daily_briefing_items unique constraints (design doc §12.2) ──
+    # ── daily_briefing_items unique constraints ──
     op.create_unique_constraint(
         "uq_briefing_item_article",
         "daily_briefing_items",

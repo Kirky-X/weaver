@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Weaver Contributors
 """Neo4j article repository for article graph operations.
 
-After the Article node slim-down (design.md §), the graph Article node
+After the Article node slim-down, the graph Article node
 stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
 Business fields (title / category / publish_time / score) are batch-fetched
 from PostgreSQL via ``ArticleRepository.fetch_titles_by_pg_ids``.
@@ -37,7 +37,7 @@ class Neo4jArticleRepo:
     ) -> str:
         """Create an Article node in Neo4j.
 
-        After the Article node slim-down (design.md §), the graph node
+        After the Article node slim-down, the graph node
         stores only ``pg_id`` (and ``created_at`` for audit). Title /
         category / publish_time / score are no longer persisted on the
         node — callers that need them must batch-fetch from PostgreSQL
@@ -140,7 +140,7 @@ class Neo4jArticleRepo:
         self,
         pg_ids: list[str],
     ) -> dict[str, dict[str, Any]]:
-        """Batch lookup of Article nodes by pg_id (P4 fix for N+1).
+        """Batch lookup of Article nodes by pg_id (avoids N+1 query).
 
         Uses a single UNWIND + OPTIONAL MATCH query to fetch all
         existing articles in one round-trip. Missing pg_ids are
@@ -328,7 +328,7 @@ class Neo4jArticleRepo:
         if not cutoff_pg_ids:
             return 0
 
-        # P7 fix: chunk to bound transaction size. 500 nodes x ~5 rels
+        # chunk to bound transaction size. 500 nodes x ~5 rels
         # each = ~2500 rels per transaction, well within Neo4j's
         # transaction state budget. Tuned for the 90-day retention
         # archive job which can pass tens of thousands of pg_ids.

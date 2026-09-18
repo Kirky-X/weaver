@@ -49,9 +49,9 @@ class ConflictDetectorNode:
 
     Uses VectorRepo for similar article search, LLM for numerical claim
     extraction, ATTRIBUTE_SYNONYMS for attribute matching, and 15%
-    conflict threshold per PRD §8.2.
+    conflict threshold.
 
-    Implements: PipelineNode (convention-based) — ADD §3.5
+    Implements: PipelineNode (convention-based)
     """
 
     def __init__(
@@ -59,10 +59,14 @@ class ConflictDetectorNode:
         article_repo: ArticleRepository,
         vector_repo: VectorRepository | None = None,
         llm_client: Any | None = None,
+        similarity_threshold: float = 0.7,
+        similar_limit: int = 10,
     ) -> None:
         self._article_repo = article_repo
         self._vector_repo = vector_repo
         self._llm_client = llm_client
+        self._similarity_threshold = similarity_threshold
+        self._similar_limit = similar_limit
 
     async def execute(self, state: PipelineState) -> PipelineState:
         if state.get("terminal") or state.get("is_merged"):
@@ -212,7 +216,7 @@ class ConflictDetectorNode:
     ) -> list[dict[str, Any]]:
         """Detect conflicts between claims and similar articles' claims.
 
-        Uses 15% threshold per PRD §8.2 and ATTRIBUTE_SYNONYMS for
+        Uses 15% threshold and ATTRIBUTE_SYNONYMS for
         attribute matching.
         """
         conflicts = []
@@ -270,8 +274,8 @@ class ConflictDetectorNode:
             results = await self._vector_repo.find_similar(
                 embedding=embedding,
                 category=category,
-                threshold=0.7,
-                limit=10,
+                threshold=self._similarity_threshold,
+                limit=self._similar_limit,
             )
             # Convert ArticleSearchResultView to dict for compatibility
             # with downstream code that accesses body/title fields

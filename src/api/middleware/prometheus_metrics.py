@@ -12,13 +12,7 @@ Tracks:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from prometheus_client import Counter, Histogram, generate_latest
-from starlette.responses import Response
-
-if TYPE_CHECKING:
-    from starlette.requests import Request
+from prometheus_client import Counter, Histogram
 
 # Prometheus metrics
 HTTP_REQUEST_DURATION = Histogram(
@@ -46,22 +40,6 @@ SLOW_QUERIES_TOTAL = Counter(
     "Total slow database queries",
     labelnames=["threshold_ms"],
 )
-
-
-async def metrics_endpoint(request: Request) -> Response:
-    """Expose Prometheus metrics.
-
-    Args:
-        request: HTTP request.
-
-    Returns:
-        Prometheus metrics in text format.
-
-    """
-    return Response(
-        content=generate_latest(),
-        media_type="text/plain; version=0.0.4; charset=utf-8",
-    )
 
 
 def record_http_request(method: str, path: str, status: int, duration_seconds: float) -> None:

@@ -102,7 +102,7 @@ class Crawler:
         Returns (html, status_code). html is None when status >= 400 (error
         pages like 404/403 are not valid article content). This prevents
         error pages and login redirects from being persisted as articles
-        (R1 fix — previously status_code was discarded with ``_``).
+        (previously status_code was discarded with ``_``).
 
         Contract: on fetch exception or status >= 400, enqueues the URL
         to ``RetryQueue`` (if wired) for dead-letter retry, THEN

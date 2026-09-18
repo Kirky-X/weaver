@@ -33,7 +33,9 @@ from core.llm.types import (
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.observability.metrics import metrics
+from core.utils.paths import CONFIG_DIR
 from core.utils.time_utils import get_current_date, get_current_time_with_timezone
+from core.utils.toml_loader import load_toml_or_warn
 
 if TYPE_CHECKING:
     from core.event import EventBus
@@ -60,12 +62,26 @@ _PROVIDER_FAILED = _ProviderFailed(None)
 
 # 结构化输出（output_model 存在）时追加到 system_prompt 最末尾的格式约束。
 # 利用弱模型 recency bias（对末尾指令记忆最强），强制 JSON-only 输出。
-# 集中在 client.py 而非每个 prompt 文件，确保所有结构化 CallPoint 统一兜底（DRY）。
-_JSON_FORMAT_TAIL = """
+# 文本存于 config/llm_output.toml（数据外置），加载失败降级为空串并告警。
+_LLM_OUTPUT_FILE = CONFIG_DIR / "llm_output.toml"
 
-【输出格式·强制】
-仅输出一个 JSON 对象：首字符必须是 "{"，末字符必须是 "}"。
-禁止 ```代码块``` 围栏、禁止任何解释/前言/结语、禁止 JSON 以外任何文字。"""
+
+def _load_json_format_tail() -> str:
+    """Load the JSON-only output guard from config/llm_output.toml.
+
+    This guard is appended to every structured-output system prompt (see
+    ``call_at``). A missing/empty value is surfaced as a loud WARNING rather
+    than dropped silently: without it structured calls may emit code fences,
+    which the retry/parse-hardening path then has to recover from.
+    """
+    tail = load_toml_or_warn(_LLM_OUTPUT_FILE, event="llm_output_config").get("json_format_tail")
+    if not tail:
+        log.warning("json_format_tail_missing", path=str(_LLM_OUTPUT_FILE))
+        return ""
+    return str(tail)
+
+
+_JSON_FORMAT_TAIL = _load_json_format_tail()
 
 # Fields that do not affect LLM output semantics.
 # Changes to these fields should NOT invalidate the cache.

@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from core.db.graph_query_builders import create_graph_query_builder
+from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool
@@ -65,7 +65,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
             fallback_enabled=fallback_enabled,
             similarity_threshold=similarity_threshold,
         )
-        self._query_builder = create_graph_query_builder("ladybug")
+        self._query_builder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
 
     def _should_skip_supplementary(self, used_fallback: bool) -> bool:
         """LadybugDB skips supplementary queries for fallback results.

@@ -33,7 +33,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     - MENTIONS edges for article-entity linking
     - Direction indicators in relationship display
 
-    Cross-database divergence (intentional, see design.md §H1):
+    Cross-database divergence (intentional):
     This class does NOT override ``_handle_no_entities`` and uses the base
     behavior (relational DB text search, matching title + body) directly.
     LadybugDB ``LadybugLocalContextBuilder`` overrides it to add a graph
@@ -188,7 +188,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     ) -> list[dict[str, Any]]:
         """Get articles mentioning the query entities via MENTIONS edges.
 
-        After the Article node slim-down (design.md §), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id``. Title / publish_time are
         batch-fetched from PostgreSQL via ``enrich_articles_with_titles``
         when ``self._article_repo`` is available; article bodies are

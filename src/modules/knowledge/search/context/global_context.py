@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.db.graph_query_builders import create_graph_query_builder
+from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder
@@ -57,7 +57,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             fallback_enabled=fallback_enabled,
             similarity_threshold=similarity_threshold,
         )
-        self._query_builder = create_graph_query_builder("neo4j")
+        self._query_builder = create_graph_query_builder(GraphDatabaseType.NEO4J)
         self._article_repo = article_repo
 
     def _should_skip_supplementary(self, used_fallback: bool) -> bool:
@@ -149,7 +149,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         Queries Article-Entity relationships via MENTIONS edges.
         Returns article-based results with entity context.
 
-        After the Article node slim-down (design.md §), the graph query
+        After the Article node slim-down, the graph query
         returns only ``article_id`` (= ``a.pg_id``) plus entity fields.
         When ``self._article_repo`` is available, title and score are
         batch-fetched from PostgreSQL; otherwise the result falls back

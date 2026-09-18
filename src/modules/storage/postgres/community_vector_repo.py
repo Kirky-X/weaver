@@ -17,6 +17,7 @@ from core.db.query_builders import (
 )
 from core.mappers.community_search_result_mapper import CommunitySearchResultMapper
 from core.models.shared import CommunitySearchResultView
+from core.constants import DEFAULT_EMBEDDING_MODEL_ID
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
@@ -126,7 +127,7 @@ class CommunityVectorRepo:
         entity_count: int = 0,
         article_count: int = 0,
         rank: float | None = None,
-        model_id: str = "text-embedding-3-large",
+        model_id: str = DEFAULT_EMBEDDING_MODEL_ID,
     ) -> None:
         """Insert or update a community vector in community_vectors table.
 

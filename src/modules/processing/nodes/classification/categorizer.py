@@ -7,7 +7,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from core.constants import LanguageCode
+from core.db import CategoryType, EmotionType
 from core.observability import get_logger
+from core.utils.paths import CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -16,43 +20,50 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-CATEGORY_MAP = {
-    "technology": "科技",
-    "tech": "科技",
-    "politics": "政治",
-    "political": "政治",
-    "military": "军事",
-    "army": "军事",
-    "economy": "经济",
-    "economic": "经济",
-    "business": "经济",
-    "society": "社会",
-    "social": "社会",
-    "culture": "文化",
-    "cultural": "文化",
-    "sports": "体育",
-    "sport": "体育",
-    "international": "国际",
-    "world": "国际",
-    "global": "国际",
-}
+# Category / emotion normalization vocabularies are stored as data in
+# config/categorization.toml instead of being hardcoded here.
+_CATEGORIZATION_FILE = CONFIG_DIR / "categorization.toml"
 
-EMOTION_MAP = {
-    "optimistic": "乐观",
-    "hope": "期待",
-    "excited": "振奋",
-    "calm": "平静",
-    "neutral": "客观",
-    "objective": "客观",
-    "worried": "担忧",
-    "concern": "担忧",
-    "pessimistic": "悲观",
-    "sad": "悲观",
-    "angry": "愤怒",
-    "anger": "愤怒",
-    "panic": "恐慌",
-    "fear": "恐慌",
-}
+
+def _load_categorization_data() -> tuple[dict[str, str], dict[str, str], set[str]]:
+    """Load category/emotion vocabularies from config/categorization.toml.
+
+    Targets are validated against the canonical ``CategoryType`` / ``EmotionType``
+    enums (the DB column source of truth); any entry pointing at an unknown
+    canonical value is dropped with a warning so a stale config file can never
+    cause an invalid enum write downstream. A missing/malformed file degrades to
+    empty mappings, in which case ``normalize_category``/``normalize_emotion``
+    pass input through or fall back to their defaults.
+    """
+    data = load_toml_or_warn(_CATEGORIZATION_FILE, event="categorization_config")
+    category_values = {c.value for c in CategoryType}
+    emotion_values = {e.value for e in EmotionType}
+
+    category_map: dict[str, str] = {}
+    for src, target in (data.get("category_aliases") or {}).items():
+        if target not in category_values:
+            log.warning("category_alias_target_invalid", alias=src, target=target)
+            continue
+        category_map[str(src).lower()] = str(target)
+
+    emotion_map: dict[str, str] = {}
+    for src, target in (data.get("emotion_aliases") or {}).items():
+        if target not in emotion_values:
+            log.warning("emotion_alias_target_invalid", alias=src, target=target)
+            continue
+        emotion_map[str(src).lower()] = str(target)
+
+    valid_categories: set[str] = set()
+    for cat in data.get("valid_categories") or []:
+        if cat not in category_values:
+            log.warning("valid_category_not_in_enum", category=cat)
+            continue
+        valid_categories.add(str(cat))
+
+    return category_map, emotion_map, valid_categories
+
+
+CATEGORY_MAP, EMOTION_MAP, VALID_CATEGORIES = _load_categorization_data()
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "经济": ["股市", "GDP", "央行", "货币", "财政", "贸易", "关税", "通胀", "通缩", "降息", "加息"],
@@ -87,8 +98,6 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "文化": ["文化", "艺术", "展览", "演出", "电影", "音乐", "文学", "非遗", "传统"],
     "国际": ["国际", "全球", "联合国", "WTO", "北约", "欧盟", "峰会", "制裁", "大使"],
 }
-
-VALID_CATEGORIES = {"政治", "军事", "经济", "科技", "社会", "文化", "体育", "国际"}
 
 SOURCE_HOST_REGION_MAP: dict[str, str] = {
     ".cn": "中国",
@@ -210,10 +219,9 @@ class CascadeCategorizerNode:
 
         if rule_category is not None:
             state["category"] = rule_category
-            if _has_chinese(title):
-                state["language"] = "zh"
-            else:
-                state["language"] = "en"
+            state["language"] = (
+                LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+            )
             source_host = getattr(state["raw"], "source_host", "") or ""
             state["region"] = infer_region_from_source_host(source_host)
             log.info("cascade_rule_match", title=title, category=rule_category)
@@ -257,7 +265,9 @@ class CascadeCategorizerNode:
                 # Fallback language: detect from title instead of hard-coding
                 # "en". chinanews and most RSS sources are Chinese; only fall
                 # back to "en" when title has no CJK characters.
-                state["language"] = "zh" if _has_chinese(title) else "en"
+                state["language"] = (
+                    LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+                )
                 source_host = getattr(state["raw"], "source_host", "") or ""
                 state["region"] = infer_region_from_source_host(source_host)
                 state.setdefault("degraded_fields", []).extend(["category", "language", "region"])
@@ -274,7 +284,9 @@ class CascadeCategorizerNode:
             state["category"] = "社会"
             # No LLM available: detect language from title instead of
             # hard-coding "en" (which mislabels Chinese articles).
-            state["language"] = "zh" if _has_chinese(title) else "en"
+            state["language"] = (
+                LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+            )
             source_host = getattr(state["raw"], "source_host", "") or ""
             state["region"] = infer_region_from_source_host(source_host)
 

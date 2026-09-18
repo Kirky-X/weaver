@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from core.models.shared import EntityView
     from core.protocols import GraphPool
 
+from core.constants import DEFAULT_ENTITY_MERGE_RETRIES
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -37,7 +38,7 @@ class BaseEntityRepo(ABC):
         pool: Graph database pool (Neo4j or LadybugDB).
     """
 
-    MAX_MERGE_RETRIES = 3
+    MAX_MERGE_RETRIES = DEFAULT_ENTITY_MERGE_RETRIES
     DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:

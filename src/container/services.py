@@ -392,7 +392,7 @@ class ContainerServicesMixin:
             if graph_pool is None or self._strategy is None:
                 raise RuntimeError("Graph database not available")
 
-            from core.db.graph_query_builders import create_graph_query_builder
+            from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
             from modules.storage.graph_repo import GraphRepository
 
             query_builder = create_graph_query_builder(self._strategy.graph_type)
@@ -407,7 +407,7 @@ class ContainerServicesMixin:
                     return LadybugPool(db_path=self._settings.ladybug.db_path)
 
                 fallback_pool_factory = _create_ladybug_fallback
-                fallback_query_builder = create_graph_query_builder("ladybug")
+                fallback_query_builder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
 
             self._graph_repo = GraphRepository(
                 graph_pool,

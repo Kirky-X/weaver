@@ -33,6 +33,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from core.constants import DEFAULT_EMBEDDING_MODEL_ID
 from core.db.models.base import Base, JSONCompatible
 
 
@@ -45,7 +46,7 @@ class EntityVector(Base):
     neo4j_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
     model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="text-embedding-3-large"
+        String(64), nullable=False, default=DEFAULT_EMBEDDING_MODEL_ID
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -77,7 +78,7 @@ class SourceAuthority(Base):
     description: Mapped[str | None] = mapped_column(Text)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
-    # Design doc §4.1: manual scoring and computed final score
+    # manual scoring and computed final score
     manual_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
     final_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
     article_count: Mapped[int] = mapped_column(
@@ -230,14 +231,14 @@ class SentimentShift(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     community_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    # Design doc §12.1: denormalized community name
+    # denormalized community name
     community_title: Mapped[str | None] = mapped_column(String(200))
     shift_type: Mapped[str] = mapped_column(String(20), nullable=False)
     direction: Mapped[str] = mapped_column(String(20), nullable=False)
     magnitude: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Design doc §12.1: detection time window
+    # detection time window
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     before_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
@@ -284,7 +285,7 @@ class DailyBriefing(Base):
     # per day (finance/tech/ai/general). Composite UNIQUE(briefing_date,
     # category) replaces it — see __table_args__ below.
     briefing_date: Mapped[datetime] = mapped_column(Date, nullable=False)
-    # Design doc §12.2: briefing metadata
+    # briefing metadata
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
@@ -335,7 +336,7 @@ class DailyBriefingItem(Base):
         UUID(as_uuid=True), ForeignKey("articles_core.id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Design doc §12.2: scoring fields
+    # scoring fields
     score: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False)
     score_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
     category: Mapped[str | None] = mapped_column(String(20))
@@ -354,10 +355,7 @@ class DailyBriefingItem(Base):
 
 
 class AuditLog(Base):
-    """Audit log for security monitoring and compliance.
-
-    Implements: Weaver-数据库设计文档 §12.3
-    """
+    """Audit log for security monitoring and compliance."""
 
     __tablename__ = "audit_log"
 
@@ -390,9 +388,9 @@ class CommunityVector(Base):
     community_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
     model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="text-embedding-3-large"
+        String(64), nullable=False, default=DEFAULT_EMBEDDING_MODEL_ID
     )
-    # Design doc §8.6: metadata for text fallback search
+    # metadata for text fallback search
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     entity_count: Mapped[int] = mapped_column(
@@ -416,7 +414,7 @@ class CommunityVector(Base):
             postgresql_with={"m": 16, "ef_construction": 200},
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
-        # GIN index for text search on title (design doc §8.6)
+        # GIN index for text search on title
         Index(
             "idx_community_vectors_title_gin",
             "title",
@@ -430,10 +428,7 @@ class CommunityVector(Base):
 
 
 class ApiKey(Base):
-    """API key management with scopes, expiry, and rate limits.
-
-    Implements: Weaver-数据库设计文档 §1.6.3
-    """
+    """API key management with scopes, expiry, and rate limits."""
 
     __tablename__ = "api_keys"
 
@@ -451,7 +446,7 @@ class ApiKey(Base):
     is_revoked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
-    # Design doc §1.6.3: key rotation tracking
+    # key rotation tracking
     rotated_to: Mapped[str | None] = mapped_column(String(64))
     created_by: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(

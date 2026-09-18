@@ -11,10 +11,10 @@ from api.dependencies import get_graph_pool
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat
-from core.constants import GraphHealthStatus
 from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph import CommunityHealthChecker
+from modules.knowledge.graph.community.health import score_health_overview
 
 log = get_logger(__name__)
 
@@ -63,47 +63,20 @@ async def get_health_overview(
         # Quick metrics check
         metrics = await checker.get_overall_metrics()
 
-        # Determine basic status from metrics
+        # Shared scoring heuristic (single source, also used by the admin
+        # /admin/communities/health endpoint).
+        status, score = score_health_overview(metrics)
         total = metrics.get("total_communities", 0)
         empty = metrics.get("empty_community_count", 0)
         with_reports = metrics.get("communities_with_reports", 0)
         stale = metrics.get("stale_report_count", 0)
-
-        if total == 0:
-            status = GraphHealthStatus.CRITICAL.value
-            score = 0.0
-        else:
-            empty_ratio = empty / total
-            report_ratio = with_reports / total
-
-            # Quick score calculation
-            score = 100.0
-            if empty_ratio > 0.10:
-                score -= 30
-            elif empty_ratio > 0.05:
-                score -= 15
-            if report_ratio < 0.7:
-                score -= 10
-            if stale > 0:
-                score -= 5
-
-            score = max(0.0, min(100.0, score))
-
-            if score >= 80:
-                status = GraphHealthStatus.HEALTHY.value
-            elif score >= 60:
-                status = GraphHealthStatus.MODERATE.value
-            elif score >= 40:
-                status = GraphHealthStatus.DEGRADED.value
-            else:
-                status = GraphHealthStatus.CRITICAL.value
 
         # Get hierarchy breaks count
         hierarchy_breaks = await checker.find_hierarchy_breaks()
 
         return success_response(
             HealthOverviewResponse(
-                status=status,
+                status=status.value,
                 score=score,
                 total_communities=total,
                 communities_with_reports=with_reports,

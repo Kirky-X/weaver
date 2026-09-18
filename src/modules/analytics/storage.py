@@ -8,6 +8,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from core.constants import BRIEFING_CATEGORIES
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -79,7 +80,7 @@ class AnalyticsStorage:
                 caller; SentimentTrackerNode._track_single_entity catches
                 and marks ``sentiment_shift`` in degraded_fields. Returning
                 None on error would be misread as "no previous article"
-                and trigger an incorrect seed record (H2).
+                and trigger an incorrect seed record.
         """
         async with self._pool.session_context() as session:
             from sqlalchemy import select
@@ -267,8 +268,7 @@ class AnalyticsStorage:
         - ai → title OR body contains any AI_KEYWORDS (case-insensitive)
         - general → no category filter (all articles on that date)
 
-        Body is fetched via LEFT JOIN to article_bodies (vertical split per
-        Weaver-数据库设计文档 §9.1). Required by spec — LLM
+        Body is fetched via LEFT JOIN to article_bodies (vertical split). Required by spec — LLM
         summary needs article body, not just title (Rule 24 — no simplified
         implementation).
 
@@ -288,7 +288,7 @@ class AnalyticsStorage:
             Exception: On DB error (Rule 12). BriefingGenerator propagates
                 to caller.
         """
-        if category not in {"finance", "tech", "ai", "general"}:
+        if category not in BRIEFING_CATEGORIES:
             raise ValueError(
                 f"Invalid briefing category '{category}'. Valid: finance/tech/ai/general"
             )
@@ -307,7 +307,7 @@ class AnalyticsStorage:
             end_dt = dt(briefing_date.year, briefing_date.month, briefing_date.day, 23, 59, 59)
 
             # LEFT JOIN article_bodies to fetch body in the same query
-            # (vertical split per §9.1). Body serves the AI-category keyword
+            # (vertical split). Body serves the AI-category keyword
             # filter below; ArticleBody.summary (written by analyze) is the
             # primary LLM input for briefing generation — supersedes
             # full-body input (token optimization).

@@ -20,7 +20,7 @@ from core.db.models import (
 
 
 class TestCommunityVectorFields:
-    """Tests for CommunityVector missing fields per ADD §12.3."""
+    """Tests for CommunityVector missing fields."""
 
     @pytest.mark.parametrize(
         "column", ["title", "summary", "entity_count", "article_count", "rank"]
@@ -35,7 +35,7 @@ class TestCommunityVectorFields:
 
 
 class TestDailyBriefingFields:
-    """Tests for DailyBriefing missing fields per ADD §12.2."""
+    """Tests for DailyBriefing missing fields."""
 
     @pytest.mark.parametrize("column", ["title", "summary", "status"])
     def test_has_column(self, column):
@@ -54,7 +54,7 @@ class TestDailyBriefingFields:
 
 
 class TestDailyBriefingItemFields:
-    """Tests for DailyBriefingItem missing fields per ADD §12.2."""
+    """Tests for DailyBriefingItem missing fields."""
 
     @pytest.mark.parametrize("column", ["score", "score_breakdown"])
     def test_has_column(self, column):
@@ -67,7 +67,7 @@ class TestDailyBriefingItemFields:
 
 
 class TestSentimentShiftFields:
-    """Tests for SentimentShift missing fields per ADD §12.1."""
+    """Tests for SentimentShift missing fields."""
 
     @pytest.mark.parametrize("column", ["community_title", "window_start", "window_end"])
     def test_has_column(self, column):
@@ -80,7 +80,7 @@ class TestSentimentShiftFields:
 
 
 class TestSourceAuthorityFields:
-    """Tests for SourceAuthority missing fields per ADD §12.4."""
+    """Tests for SourceAuthority missing fields."""
 
     @pytest.mark.parametrize(
         "column", ["manual_score", "final_score", "article_count", "last_crawled_at"]

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
+from core.constants import AGG_DELIMITER
 from core.db import LLMUsageHourly, LLMUsageRaw
 from core.event import LLMUsageEvent
 from core.observability import get_logger
@@ -20,10 +21,10 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Delimiter for string_agg dimension columns. Uses the ASCII unit separator
-# (0x1F) instead of a comma: labels/providers/models may legitimately contain
-# commas, which would silently split into fake entries on parsing.
-AGG_DELIMITER = "\x1f"
+# Delimiter for string_agg dimension columns (ASCII unit separator 0x1F,
+# not a comma): labels/providers/models may legitimately contain commas,
+# which would silently split into fake entries on parsing. Single source
+# in core.constants; the DuckDB repo must stay in sync with it.
 
 
 class LLMUsageRepo:

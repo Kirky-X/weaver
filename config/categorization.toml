@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+#
+# 分类/情绪归一化词表（英文/近义 → 中文标准名 + 合法分类集合）。
+#
+# - canonical 真源：core.db.models.base.CategoryType / EmotionType（DB 列即此枚举）。
+#   加载方 modules/processing/nodes/classification/categorizer.py 会校验：任何不在
+#   枚举内的条目都会被丢弃并告警，因此本文件只能是枚举的子集，不能引入新值。
+# - valid_categories 是 LLM 输出可接受的分类白名单；故意不含 CategoryType.OTHER
+#   （"其他" 是兜底值，由 normalize_category 在无法判定时赋 "社会"，故不列入白名单）。
+# - category_aliases / emotion_aliases 的 key 一律小写（normalize_* 先 lower() 再查表）。
+
+valid_categories = ["政治", "军事", "经济", "科技", "社会", "文化", "体育", "国际"]
+
+[category_aliases]
+technology = "科技"
+tech = "科技"
+politics = "政治"
+political = "政治"
+military = "军事"
+army = "军事"
+economy = "经济"
+economic = "经济"
+business = "经济"
+society = "社会"
+social = "社会"
+culture = "文化"
+cultural = "文化"
+sports = "体育"
+sport = "体育"
+international = "国际"
+world = "国际"
+global = "国际"
+
+[emotion_aliases]
+optimistic = "乐观"
+hope = "期待"
+excited = "振奋"
+calm = "平静"
+neutral = "客观"
+objective = "客观"
+worried = "担忧"
+concern = "担忧"
+pessimistic = "悲观"
+sad = "悲观"
+angry = "愤怒"
+anger = "愤怒"
+panic = "恐慌"
+fear = "恐慌"

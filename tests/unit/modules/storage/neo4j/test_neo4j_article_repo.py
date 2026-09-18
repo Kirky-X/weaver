@@ -4,7 +4,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Unit tests for Neo4jArticleRepo.
 
-After the Article node slim-down (design.md §), the graph Article node
+After the Article node slim-down, the graph Article node
 stores only ``{pg_id, created_at}`` (Neo4j). Business fields
 (title / category / publish_time / score) are no longer persisted on the
 node — callers that need them must batch-fetch from PostgreSQL via
@@ -380,7 +380,7 @@ class TestDeleteOldArticles:
     async def test_delete_old_articles_accepts_pg_ids_list(self):
         """delete_old_articles accepts cutoff_pg_ids list (not days int).
 
-        P2/P7 fix: Cypher now uses ``collect`` + ``size`` to compute the
+        Cypher now uses ``collect`` + ``size`` to compute the
         deleted count *before* DETACH DELETE, and returns it as ``deleted``
         (not ``total``). Implementation also chunks into batches of 500
         pg_ids per call to bound transaction size. With 3 input pg_ids
@@ -464,7 +464,7 @@ class TestUpdateArticleScoreRemoved:
         """
         assert not hasattr(Neo4jArticleRepo, "update_article_score"), (
             "Neo4jArticleRepo.update_article_score must be removed after "
-            "the Article node slim-down (design.md §)."
+            "the Article node slim-down."
         )
 
 

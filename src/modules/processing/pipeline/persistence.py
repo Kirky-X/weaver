@@ -15,6 +15,7 @@ import traceback
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from core.db import CategoryType
 from core.observability import get_logger
 from modules.knowledge.graph.neo4j_writer import Neo4jWriteCircuitOpen
 from modules.processing.pipeline.state import PipelineState
@@ -161,7 +162,7 @@ class PipelinePersistence:
                 insert_state = dict(state)
                 insert_state.pop("terminal", None)
                 # fallback values for terminal (non-news) articles
-                insert_state.setdefault("category", "其他")
+                insert_state.setdefault("category", CategoryType.OTHER)
                 insert_state.setdefault("language", "unknown")
                 insert_state.setdefault("region", "unknown")
                 insert_state.setdefault("score", 0.0)

@@ -9,7 +9,7 @@ drop below 60% of their base score.
 Formula: score = base_score * (0.6 + 0.4 * time_decay)
 Where time_decay = exp(-λ * age_in_days), λ = ln(2) / half_life_days
 
-Implements: TemporalAwareRetriever — ADD §3.6
+Implements: TemporalAwareRetriever
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class TemporalAwareRetriever:
 
     When enabled=False, returns base_score unchanged.
 
-    Implements: TemporalAwareRetriever — ADD §3.6
+    Implements: TemporalAwareRetriever
     """
 
     def __init__(
