@@ -10,7 +10,7 @@ import json
 from typing import Any, TypeVar
 
 from json_repair import repair_json
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 
