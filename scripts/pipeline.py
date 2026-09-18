@@ -1494,7 +1494,18 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             print(f"\nBatch {batch_num}/{len(batches)}: processing {len(batch)} articles...")
 
             task_id = uuid.uuid4()
-            states = await ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id)
+            # 批次级 wall-clock 超时：GLiNER/HF 模型下载在网络摆动下会挂死
+            # （连接超时+内部重试可远超 15 分钟），不加超时整轮 reprocess
+            # 停摆。超时的批次跳过并计数，可重复执行续跑。
+            try:
+                states = await asyncio.wait_for(
+                    ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id),
+                    timeout=1800.0,
+                )
+            except TimeoutError:
+                print(f"  ERROR: Batch {batch_num} timed out after 1800s — skipped")
+                total_failed += len(batch)
+                continue
 
             completed = sum(1 for s in states if not s.get("terminal"))
             failed = sum(1 for s in states if s.get("terminal"))
