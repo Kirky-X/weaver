@@ -512,6 +512,8 @@ class ContainerServicesMixin:
 
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
+                max_connections=settings.httpx_max_connections,
+                max_keepalive=settings.httpx_max_keepalive_connections,
                 # fix: pass [base_ua, *pool] so each request rotates UA.
                 user_agents=[settings.user_agent, *settings.user_agent_pool],
                 url_validator=url_validator,
@@ -530,6 +532,7 @@ class ContainerServicesMixin:
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
                 circuit_breaker_timeout=settings.circuit_breaker_timeout,
                 url_validator=url_validator,
+                min_content_length=settings.min_content_length,
             )
             log.info(
                 "smart_fetcher_initialized",
@@ -704,6 +707,9 @@ class ContainerServicesMixin:
                 smart_fetcher=self._smart_fetcher,
                 default_per_host=self._settings.fetcher.default_per_host_concurrency,
                 retry_queue=self.retry_queue(),
+                max_concurrency=self._settings.fetcher.crawl_max_concurrency,
+                min_article_length=self._settings.fetcher.min_article_length,
+                max_batch_time=self._settings.fetcher.max_crawl_batch_time,
             )
         return self._crawler
 

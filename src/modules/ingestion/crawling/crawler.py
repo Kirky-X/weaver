@@ -91,10 +91,16 @@ class Crawler:
         smart_fetcher: BaseFetcher,
         default_per_host: int = 2,
         retry_queue: RetryQueue | None = None,
+        max_concurrency: int = GLOBAL_MAX_CONCURRENCY,
+        min_article_length: int = MIN_ARTICLE_LENGTH,
+        max_batch_time: float = MAX_CRAWL_BATCH_TIME,
     ) -> None:
         self._fetcher = smart_fetcher
         self._default_per_host = default_per_host
         self._retry_queue = retry_queue
+        self._max_concurrency = max_concurrency
+        self._min_article_length = min_article_length
+        self._max_batch_time = max_batch_time
 
     async def _fetch_html(self, url: str, force_browser: bool = False) -> tuple[str | None, int]:
         """Fetch HTML with HTTP status validation.
@@ -174,7 +180,7 @@ class Crawler:
 
         # Global concurrency = min(cpu, host_count, MAX)
         host_count = len({urlparse(i.url).netloc for i in items})
-        global_limit = min(os.cpu_count() or 1, host_count, GLOBAL_MAX_CONCURRENCY)
+        global_limit = min(os.cpu_count() or 1, host_count, self._max_concurrency)
         global_sem = asyncio.Semaphore(global_limit)
 
         # Per-host semaphores
@@ -195,7 +201,7 @@ class Crawler:
                 # Check if it's already plain text (no HTML tags) or HTML content.
                 # RSSParser._strip_html_tags produces plain text, so we should
                 # validate length directly instead of using trafilatura.extract().
-                if len(item.body) >= MIN_ARTICLE_LENGTH:
+                if len(item.body) >= self._min_article_length:
                     # Already sufficient plain text content
                     body = item.body
                 else:
@@ -205,7 +211,7 @@ class Crawler:
                     extracted = await asyncio.to_thread(
                         trafilatura.extract, item.body, include_comments=False
                     )
-                    if extracted and len(extracted) >= MIN_ARTICLE_LENGTH:
+                    if extracted and len(extracted) >= self._min_article_length:
                         body = extracted
                     else:
                         log.debug(
@@ -238,7 +244,7 @@ class Crawler:
                             or ""
                         )
 
-                if len(body) < MIN_ARTICLE_LENGTH:
+                if len(body) < self._min_article_length:
                     log.debug(
                         "first_fetch_insufficient",
                         url=item.url,
@@ -303,7 +309,7 @@ class Crawler:
         tasks = {asyncio.create_task(crawl_one(i)): i for i in items}
         if not tasks:
             return wrapped_results
-        done, pending = await asyncio.wait(tasks, timeout=MAX_CRAWL_BATCH_TIME)
+        done, pending = await asyncio.wait(tasks, timeout=self._max_batch_time)
 
         if pending:
             elapsed = time.monotonic() - start_time

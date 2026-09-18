@@ -98,6 +98,7 @@ class SmartFetcher(BaseFetcher):
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
         url_validator: URLValidator | None = None,
+        min_content_length: int = MIN_CONTENT_LENGTH,
     ) -> None:
         self._httpx = httpx_fetcher
         self._crawl4ai = crawl4ai_fetcher
@@ -106,6 +107,7 @@ class SmartFetcher(BaseFetcher):
         self._circuit_breaker_threshold = circuit_breaker_threshold
         self._circuit_breaker_timeout = circuit_breaker_timeout
         self._url_validator = url_validator
+        self._min_content_length = min_content_length
         self._breakers: dict[str, CircuitBreaker] = {}
         self._BREAKER_CAP = 10_000
 
@@ -227,7 +229,7 @@ class SmartFetcher(BaseFetcher):
                     return await self._crawl4ai.fetch(url, headers)
 
                 # Check content length - if insufficient, fall back to crawl4ai
-                if len(content) < MIN_CONTENT_LENGTH:
+                if len(content) < self._min_content_length:
                     log.debug(
                         "smart_fetch_httpx_insufficient",
                         url=url,

@@ -282,6 +282,22 @@ class GraphHealthStatus(str, enum.Enum):
             ) from _exc
 
 
+# ── Pipeline Processing Mode ────────────────────────────────────
+
+
+class ProcessingMode(str, enum.Enum):
+    """Pipeline processing mode (single source; scripts/pipeline.py imports this).
+
+    FAST: Phase 1 only (classifier, cleaner, categorizer, vectorize) —
+        no entity extraction / deep analysis; suitable for quick ingestion.
+    DEEP: Full 4-phase processing including Phase 3 deep analysis
+        (entities, quality, credibility).
+    """
+
+    FAST = "fast"
+    DEEP = "deep"
+
+
 # ── Circuit Breaker State Constants ─────────────────────────────
 
 

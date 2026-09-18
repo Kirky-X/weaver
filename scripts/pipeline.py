@@ -45,7 +45,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import enum
 import os
 import sys
 import time
@@ -67,22 +66,8 @@ sys.path.insert(0, _project_root)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class ProcessingMode(enum.StrEnum):
-    """Pipeline processing mode.
-
-    FAST: Phase 1 only (classifier, cleaner, categorizer, vectorize)
-          - 1-2 minutes per batch
-          - No entity extraction, no quality scoring
-          - Suitable for quick ingestion
-
-    DEEP: Full 4-phase processing
-          - 5-10 minutes per batch
-          - Includes Phase 3 deep analysis (entities, quality, credibility)
-          - Suitable for complete analysis
-    """
-
-    FAST = "fast"
-    DEEP = "deep"
+# Single source lives in core.constants; imported below via sys.path setup.
+from core.constants import ProcessingMode  # noqa: E402
 
 
 # Bridge CLI --processing-mode to the backend worker.
@@ -1490,6 +1475,21 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             article_ids[i : i + batch_size] for i in range(0, len(article_ids), batch_size)
         ]
 
+        # 协程栈自诊断：批次卡死时每 60s 打印全部未完成协程的栈
+        # （faulthandler 的线程 dump 对 asyncio 协程不可见）。
+        async def _dump_coroutine_stacks() -> None:
+            import sys as _sys
+
+            while True:
+                await asyncio.sleep(60)
+                for task in asyncio.all_tasks():
+                    if task.done() or task is asyncio.current_task():
+                        continue
+                    print(f"---- coroutine stack: {task.get_name()} ----")
+                    task.print_stack(file=_sys.stdout)
+
+        stack_dumper = asyncio.create_task(_dump_coroutine_stacks())
+
         for batch_num, (batch, id_batch) in enumerate(zip(batches, id_batches, strict=True), 1):
             print(f"\nBatch {batch_num}/{len(batches)}: processing {len(batch)} articles...")
 
@@ -1551,6 +1551,9 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
         return 1
 
     finally:
+        stack_dumper.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stack_dumper
         await ctx.container.shutdown()
 
 
@@ -1682,7 +1685,7 @@ Examples:
     test_parser.add_argument(
         "--processing-mode",
         dest="processing_mode",
-        choices=["fast", "deep"],
+        choices=[m.value for m in ProcessingMode],
         default="deep",
         help=(
             "Processing mode: 'fast' (1-2min, Phase 1 only - classifier, cleaner, "

@@ -352,6 +352,17 @@ class FetcherSettings(BaseModel):
     """Fetcher settings."""
 
     default_per_host_concurrency: int = 2
+    # Global concurrency cap for the batch crawler (min(cpu, hosts, this))
+    crawl_max_concurrency: int = 32
+    # Body length below which fetched content is treated as invalid
+    min_article_length: int = 100
+    # Wall-clock cap for a single crawl_batch call (seconds)
+    max_crawl_batch_time: float = 300.0
+    # Minimum content length for SmartFetcher to consider a page valid
+    min_content_length: int = 500
+    # httpx connection pool limits
+    httpx_max_connections: int = 100
+    httpx_max_keepalive_connections: int = 20
     httpx_timeout: float = 15.0
     user_agent: str = NEWSBOT_USER_AGENT
     # User-Agent rotation pool (fix). Each request draws a random

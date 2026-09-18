@@ -385,3 +385,21 @@ class TestDatabaseTypeSingleSource:
         assert RelationalDatabaseType.DUCKDB.value == Canonical.DUCKDB.value
         assert GraphDatabaseType.NEO4J.value == Canonical.NEO4J.value
         assert GraphDatabaseType.LADYBUG.value == Canonical.LADYBUG.value
+
+
+class TestProcessingMode:
+    """ProcessingMode is the single source for the fast/deep vocabulary."""
+
+    def test_values(self) -> None:
+        from core.constants import ProcessingMode
+
+        assert {m.value for m in ProcessingMode} == {"fast", "deep"}
+        # str-subclass equality with the literal is preserved
+        assert ProcessingMode.FAST == "fast"
+
+    def test_settings_default_is_a_valid_mode(self) -> None:
+        from config.subconfigs import PipelineProcessSettings
+        from core.constants import ProcessingMode
+
+        default = PipelineProcessSettings().processing_mode
+        assert default in {m.value for m in ProcessingMode}
