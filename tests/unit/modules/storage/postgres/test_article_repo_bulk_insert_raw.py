@@ -167,3 +167,34 @@ async def test_bulk_insert_raw_batch_inserts_articles() -> None:
     assert existing_url not in inserted_urls, "Existing URL must be deduped (not re-inserted)"
     assert "https://example.com/new1" in inserted_urls
     assert "https://example.com/new2" in inserted_urls
+
+
+class TestBulkInsertRawFallbackValues:
+    """入库即写回退值：ingestion 层无分类/语言/地区，初始 INSERT 若不
+    兜底，worker 中断后这些列停留 NULL（实测“男子拆毁假监控”篇）。
+    回退值与 persistence._persist_articles_to_pg 的 setdefault 一致，
+    categorizer/analyze 完成后由 upsert 的 ON CONFLICT 用真实值覆盖。
+    """
+
+    async def test_new_articles_carry_fallback_values(self) -> None:
+        from modules.storage.postgres.article_repo import ArticleRepo
+
+        fake_session = _FakeSession(existing_urls={})
+        repo = ArticleRepo(pool=_FakePool(fake_session))
+
+        articles = [
+            _make_raw("https://example.com/fallback-1", title="Fallback One"),
+            _make_raw("https://example.com/fallback-2", title="Fallback Two"),
+        ]
+        result = await repo.bulk_insert_raw(articles)
+
+        assert len(result) == 2
+        from core.db import ArticleCore
+
+        cores = [obj for obj in fake_session.added_objects if isinstance(obj, ArticleCore)]
+        assert len(cores) == 2
+        for core in cores:
+            assert core.category == "其他", f"category 回退值缺失: {core.category!r}"
+            assert core.language == "zh", f"language 回退值缺失: {core.language!r}"
+            assert core.region == "unknown", f"region 回退值缺失: {core.region!r}"
+            assert str(core.persist_status) in ("PersistStatus.PENDING", "pending")

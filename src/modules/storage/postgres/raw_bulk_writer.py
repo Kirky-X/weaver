@@ -63,6 +63,14 @@ def _build_core_body_values(
         "source_host": raw.source_host or "",
         "source_id": raw.source_id,
         "title": raw.title or "",
+        # 入库即写回退值（与 persistence._persist_articles_to_pg 的
+        # setdefault 一致）：ingestion 层不产分类/语言/地区，若不在此
+        # 兜底，worker 中断后这些列将停留 NULL。categorizer/analyze
+        # 完成后由 upsert 的 ON CONFLICT 用真实值覆盖（category 另有
+        # NULL 守卫，不会回退成空）。
+        "category": "其他",
+        "language": "zh",
+        "region": "unknown",
         "persist_status": PersistStatus.PENDING,
         "content_hash": content_hash,
     }
