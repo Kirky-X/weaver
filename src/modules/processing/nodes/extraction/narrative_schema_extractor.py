@@ -29,6 +29,8 @@ Exception handling policy (aligned with the merged predecessors):
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import TYPE_CHECKING
 
 from core.llm.resilience.circuit_breaker import CircuitOpenError
@@ -45,6 +47,11 @@ if TYPE_CHECKING:
     from core.protocols import GraphWriter
 
 log = get_logger(__name__)
+
+
+# 图写入 wall-clock 上限：LadybugDB 写锁被历史进程残留污染时写入会
+# 永久阻塞——限时降级（degraded_fields 记录），不拖垮整个批次。
+_GRAPH_WRITE_TIMEOUT_SECONDS = 120.0
 
 
 class NarrativeSchemaExtractorNode:
@@ -196,12 +203,17 @@ class NarrativeSchemaExtractorNode:
             )
         else:
             try:
-                narrative_id = await self._graph_writer.merge_narrative(
-                    article_id=str(article_id),
-                    source_bias=result.source_bias,
-                    frame=result.frame,
-                    tone=result.tone,
-                    emphasis=result.emphasis,
+                # wait_for 兜底：LadybugDB 写锁被历史强杀进程残留污染时，
+                # 图写入会永久阻塞（无异常无返回）——限时降级而非阻塞批次。
+                narrative_id = await asyncio.wait_for(
+                    self._graph_writer.merge_narrative(
+                        article_id=str(article_id),
+                        source_bias=result.source_bias,
+                        frame=result.frame,
+                        tone=result.tone,
+                        emphasis=result.emphasis,
+                    ),
+                    timeout=_GRAPH_WRITE_TIMEOUT_SECONDS,
                 )
                 state["narrative"] = {
                     "source_bias": result.source_bias,
@@ -227,10 +239,13 @@ class NarrativeSchemaExtractorNode:
 
         # --- Schema persistence (MERGEd by event_type, no article_id needed) ---
         try:
-            schema_id = await self._graph_writer.merge_schema(
-                event_type=result.event_type,
-                pattern=result.pattern,
-                confidence=result.confidence,
+            schema_id = await asyncio.wait_for(
+                self._graph_writer.merge_schema(
+                    event_type=result.event_type,
+                    pattern=result.pattern,
+                    confidence=result.confidence,
+                ),
+                timeout=_GRAPH_WRITE_TIMEOUT_SECONDS,
             )
             state["schema"] = {
                 "event_type": result.event_type,
