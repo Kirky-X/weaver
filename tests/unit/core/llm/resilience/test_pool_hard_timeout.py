@@ -76,6 +76,7 @@ class TestWallClockHardTimeout:
         payload = {
             "messages": [{"role": "user", "content": "hi"}],
             "temperature": 0.0,
+            "max_tokens": 20,  # 生成预算 20/20=1s，测试快速切断
         }
         from core.llm.resilience.pool import AllProvidersFailedError
 

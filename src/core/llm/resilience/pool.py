@@ -48,6 +48,19 @@ class AllProvidersFailedError(Exception):
 _WALL_CLOCK_TIMEOUT_MARGIN_SECONDS = 30.0
 
 
+# Wall-clock 硬超时的额外缓冲（秒）：覆盖连接建立与 litellm 内部重试，
+# 保证单次调用的总时长有界（见 _do_call）。
+_WALL_CLOCK_TIMEOUT_MARGIN_SECONDS = 30.0
+
+# 流式生成吞吐的保守下限（tokens/s）：wall-clock 余量按
+# max_tokens / 此值 折算，确保满 max_tokens 的流式生成不被误切。
+# 实测参考：agnes-3.0-flash 免费档 55-83 tok/s；20 为保守下限。
+# 生成预算封顶 240s（8192 tokens @ 34 tok/s 已覆盖）——防止超大
+# max_tokens 配置把 wall-clock 上限推到不可用的时长。
+_MIN_STREAM_TOKENS_PER_SEC = 20.0
+_MAX_GENERATION_BUDGET_SECONDS = 240.0
+
+
 class ProviderPool:
     """单个Provider的资源池.
 
@@ -354,7 +367,14 @@ class ProviderPool:
         # Wall-clock 硬超时兜底：litellm 的 timeout 是 per-read/connect 语义，
         # 上游慢速滴流响应（免费档排队、半开连接）可绕过它无限等待。wait_for
         # 从外层硬切整个调用（含熔断器），超时经 CancelledError 传入熔断器的
-        # except 分支按失败计数。+30s 给连接建立与内部重试留缓冲。
+        # except 分支按失败计数。
+        #
+        # 余量必须覆盖「满 max_tokens 流式生成」的时间：read timeout 只管
+        # 数据间隔，长输出生成期间数据持续到达不会触发——固定 +30s 会在
+        # analyze_narrative（8192 tokens，实测 ~149s）场景误切 healthy 调用。
+        # 按 20 tok/s 保守下限折算生成时间，加 30s 连接/重试缓冲。
+        max_tokens = int(payload.get("max_tokens") or 4096)
+        generation_budget = min(max_tokens / _MIN_STREAM_TOKENS_PER_SEC, _MAX_GENERATION_BUDGET_SECONDS)
         response = await asyncio.wait_for(
             self._circuit_breaker.call(
                 self._caller.call,
@@ -365,7 +385,7 @@ class ProviderPool:
                 payload=payload,
                 timeout=timeout,
             ),
-            timeout=timeout + _WALL_CLOCK_TIMEOUT_MARGIN_SECONDS,
+            timeout=timeout + _WALL_CLOCK_TIMEOUT_MARGIN_SECONDS + generation_budget,
         )
         await self._metrics.record_success(response.latency_ms)
         return response
