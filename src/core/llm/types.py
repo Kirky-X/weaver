@@ -358,6 +358,12 @@ class ProviderConfig(BaseModel):
         return self.models.get(model_name)
 
 
+# Embedding response-cache TTL default (7 days); overridable via
+# llm.toml [global].embedding_cache_ttl. Single definition — client.py
+# imports this instead of duplicating the literal.
+EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60
+
+
 class GlobalConfig(BaseModel):
     """全局配置 - pydantic BaseModel for TOML loading."""
 
@@ -369,7 +375,7 @@ class GlobalConfig(BaseModel):
     retry_min_wait: float = 5.0
     retry_max_wait: float = 60.0
     # Embedding response-cache TTL (seconds)
-    embedding_cache_ttl: int = 7 * 24 * 60 * 60
+    embedding_cache_ttl: int = EMBEDDING_CACHE_TTL
     # Cap on cached rerank clients per caller (FIFO eviction bounds memory
     # under key rotation; purely a safety ceiling, not a throughput knob)
     rerank_client_cap: int = 32

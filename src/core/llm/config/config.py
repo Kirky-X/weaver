@@ -214,6 +214,12 @@ class LLMSettings(BaseSettings):
             if "call-points" in toml_data and "call_points" not in data:
                 data["call_points"] = toml_data["call-points"]
 
+            # Map [eval] section → eval_config (same TOML-source limitation
+            # as [global]: without this, the documented [eval] table is a
+            # zombie config that never loads).
+            if "eval" in toml_data and "eval_config" not in data:
+                data["eval_config"] = toml_data["eval"]
+
             # extra="ignore" would silently drop any other hyphenated
             # top-level section; surface it so config typos are visible.
             known_hyphenated = {"call-points"}
@@ -226,7 +232,8 @@ class LLMSettings(BaseSettings):
 
             # Map [global] section → top-level fields. pydantic-settings 的
             # TOML source 只映射顶层键，[global] 表会被静默丢弃（僵尸配置）：
-            # 改 [global] 永不生效。显式映射使熔断阈值/超时/请求延迟可配置。
+            # 改 [global] 永不生效。显式映射使熔断阈值/超时/请求延迟/重试/
+            # 缓存 TTL/rerank 上限可配置。
             global_cfg = toml_data.get("global", {})
             if isinstance(global_cfg, dict):
                 for key in (
@@ -236,6 +243,11 @@ class LLMSettings(BaseSettings):
                     "request_delay_enabled",
                     "request_delay_min",
                     "request_delay_max",
+                    "retry_max_attempts",
+                    "retry_min_wait",
+                    "retry_max_wait",
+                    "embedding_cache_ttl",
+                    "rerank_client_cap",
                 ):
                     if key in global_cfg and key not in data:
                         data[key] = global_cfg[key]

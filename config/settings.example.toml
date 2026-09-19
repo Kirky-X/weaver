@@ -48,6 +48,12 @@ db = 0                                 # Redis database number (0-15)
 [fetcher]
 # HTTP fetcher and crawler settings
 default_per_host_concurrency = 2         # Max concurrent requests per host
+crawl_max_concurrency = 32               # Batch crawler global concurrency cap (min(cpu, hosts, this))
+min_article_length = 100                 # Body length below which content is treated as invalid
+max_crawl_batch_time = 300.0             # Wall-clock cap for a single crawl batch (seconds)
+min_content_length = 500                 # Min content length for SmartFetcher to accept a page
+httpx_max_connections = 100              # httpx connection pool size
+httpx_max_keepalive_connections = 20     # httpx keepalive pool size
 httpx_timeout = 15.0                  # HTTP request timeout (seconds)
 user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
 
@@ -100,6 +106,28 @@ crawl_interval_minutes = 30            # Interval between automatic crawl runs (
 neo4j_retry_interval_minutes = 10      # Retry interval for failed Neo4j operations (minutes)
 retry_flush_interval_seconds = 30      # Interval between retry queue flushes (seconds)
 
+# Resilience / outbox jobs
+recover_stale_sagas_interval_minutes = 10   # Stale-saga recovery sweep (minutes)
+dispatch_outbox_interval_seconds = 30       # Transactional outbox dispatch (seconds)
+
+# Security job
+api_key_rotation_check_cron_hour = 2        # Daily API-key rotation check (cron hour)
+
+# Analytics jobs
+sentiment_shift_interval_minutes = 60       # Sentiment shift detection (minutes)
+hotness_decay_cron_hour = 3                 # Knowledge-cache hotness decay (cron hour)
+trend_alert_cron_minute = 0                 # Trend alert evaluation (top of every hour)
+causal_inference_interval_hours = 2         # Causal edge extraction (hours)
+community_health_check_interval_hours = 6   # Community health check & auto repair (hours)
+
+# Daily briefing publish time (deployment decision)
+briefing_cron_hour = 8                      # Publish hour
+briefing_timezone = "Asia/Shanghai"         # IANA timezone for the cron trigger
+
+# Pipeline retry (batch sizing adapts to recent success rate)
+pipeline_retry_dynamic_batch_max = 50       # Upper bound when scaling up
+pipeline_retry_dynamic_batch_min = 5        # Lower bound when scaling down
+
 # ============================================================
 # Search Configuration
 # ============================================================
@@ -110,6 +138,9 @@ rerank_enabled = true                  # Enable cross-encoder reranking
 rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
 mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
 mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
+causal_search_timeout = 60.0          # Causal search endpoint wait_for timeout (seconds)
+temporal_search_timeout = 30.0        # Temporal search endpoint wait_for timeout (seconds)
+temporal_window_fetch_limit = 500     # Temporal semantic-search window fetch limit
 hybrid_enabled = true                    # Hybrid (vector+BM25 RRF) retrieval master switch
 similarity_threshold = 0.3               # Min cosine similarity for article vector search
 temporal_decay_enabled = false           # Temporal decay applied after RRF fusion
@@ -171,6 +202,7 @@ enabled = true                           # Enable URL security checking
 # URLhaus API (real-time malicious URL lookup)
 # urlhaus_api_key: Set via WEAVER_URL_SECURITY__URLHAUS_API_KEY environment variable
 urlhaus_api_timeout = 5.0                # URLhaus API request timeout (seconds)
+urlhaus_api_url = "https://urlhaus-api.abuse.ch/v1/url/"  # URLhaus endpoint (keep abuse.ch default unless self-hosting a mirror)
 
 # PhishTank offline blacklist
 phishtank_enabled = true                  # Enable PhishTank phishing URL database
@@ -200,3 +232,11 @@ enabled = false                           # Enable PgBouncer routing
 host = "localhost"                        # PgBouncer proxy hostname
 port = 6432                               # PgBouncer proxy port
 pool_mode = "transaction"                 # Pooling mode: session / transaction / statement
+
+# ============================================================
+# Pipeline Process (worker + background trigger)
+# ============================================================
+[pipeline_process]
+processing_mode = "deep"                      # "deep" = full Phase 1+2+3; "fast" = Phase 1 only
+trigger_source_timeout_seconds = 300.0        # Per-source wall-clock cap for POST /pipeline/trigger
+source_lock_ttl_seconds = 600                 # Per-source dedup lock TTL (must exceed trigger timeout)

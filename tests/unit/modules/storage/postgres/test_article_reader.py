@@ -51,11 +51,11 @@ def _make_raw_article(**overrides):
     return raw
 
 
-# ── _build_core_body_values ──────────────────────────────────────
+# ── build_core_body_values ──────────────────────────────────────
 
 
 class TestBuildCoreBodyValues:
-    """Tests for the _build_core_body_values helper."""
+    """Tests for the build_core_body_values helper."""
 
     def test_full_body_uses_body(self):
         """Body >= 200 chars uses raw.body as-is."""

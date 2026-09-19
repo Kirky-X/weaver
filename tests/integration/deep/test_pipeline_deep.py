@@ -29,7 +29,7 @@ import asyncio
 import pytest
 
 # ── 轮询参数 ────────────────────────────────────────────────────
-# 单源 trigger 超时 300s（对齐 _TRIGGER_SOURCE_TIMEOUT_SECONDS），
+# 单源 trigger 超时 300s（对齐 [pipeline_process].trigger_source_timeout_seconds），
 # 轮询间隔 5s（对齐 conftest real_entity_name fixture 的轮询节奏）。
 _TASK_POLL_TIMEOUT_SECONDS = 300.0
 _TASK_POLL_INTERVAL_SECONDS = 5.0
@@ -104,7 +104,7 @@ async def test_dp_02_trigger_with_force(async_client, real_source_id):
 async def test_dp_03_poll_task_until_completed(async_client, real_source_id):
     """D-P-03: 触发任务后轮询 GET /pipeline/tasks/{task_id} 直到 status=COMPLETED。
 
-    超时 300s（对齐 _TRIGGER_SOURCE_TIMEOUT_SECONDS）。若任务 FAILED 则跳过
+    超时 300s（对齐 [pipeline_process].trigger_source_timeout_seconds）。若任务 FAILED 则跳过
     （环境问题，如 LLM 不可用，不计为测试失败）。
 
     冲突说明（规则4 暴露冲突）：与 D-P-02 同理，源级互斥锁（pipeline.py:582-612）

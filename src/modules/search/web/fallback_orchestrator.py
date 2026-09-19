@@ -75,7 +75,7 @@ log = get_logger(__name__)
 # Per-URL timeout for background pipeline execution (5 minutes). Keeps one
 # slow URL (e.g., slow source site, hung fetcher) from blocking the entire
 # batch, while still allowing the background task to make progress.
-# Matches _TRIGGER_SOURCE_TIMEOUT_SECONDS in src/api/endpoints/content/pipeline.py.
+# Matches [pipeline_process].trigger_source_timeout_seconds (see subconfigs.py).
 _PIPELINE_URL_TIMEOUT_SECONDS = 300.0
 
 # Total wall-clock budget for a single background task
