@@ -28,10 +28,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Delimiter for string_agg dimension columns (ASCII unit separator 0x1F,
-# not a comma): labels/providers/models may legitimately contain commas,
-# which would silently split into fake entries on parsing. Must match the
-# PG repo — single source in core.constants.
+# The string_agg dimension delimiter (AGG_DELIMITER, ASCII unit separator)
+# is inherited from the PG repo, whose single source is core.constants.
 
 
 class DuckDBLLMUsageRepo(LLMUsageRepo):
