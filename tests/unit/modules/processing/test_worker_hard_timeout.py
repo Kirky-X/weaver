@@ -150,3 +150,49 @@ class TestTimeoutBatchRequeue:
         assert queue.enqueue.await_count == 2
         enqueued_ids = [c.args[0] for c in queue.enqueue.await_args_list]
         assert sorted(enqueued_ids) == ["id-1", "id-2"]
+
+
+class TestGLiNERTimeoutDefense:
+    """GLiNER 专用单线程被挂死占用后，超时禁用防 deep 批次饿死。"""
+
+    @pytest.mark.asyncio
+    async def test_gliner_hang_times_out_and_disables(self) -> None:
+        from modules.processing.nodes.extraction.entity_extractor import (
+            EntityExtractorNode as EntityExtractor,
+        )
+        from modules.processing.nodes.extraction.gliner_extractor import (
+            GLiNERConfig,
+            GLiNERExtractor,
+        )
+
+        gliner = GLiNERExtractor(config=GLiNERConfig(enabled=True))
+        gliner._config.enabled = True
+
+        async def _hang(text):
+            await asyncio.Event().wait()
+
+        gliner.extract_entities = AsyncMock(side_effect=_hang)
+
+        extractor = EntityExtractor(
+            llm=MagicMock(),
+            budget=MagicMock(),
+            prompt_loader=MagicMock(),
+            spacy=MagicMock(),
+            settings=None,
+            vector_repo=None,
+            relation_type_normalizer=None,
+            gliner_extractor=gliner,
+            gliner_timeout=0.2,
+        )
+        state = {"raw": MagicMock(url="https://x/1"), "cleaned": {"body": "x" * 100}}
+
+        import time as _t
+
+        t0 = _t.monotonic()
+        await extractor._extract_gliner_entities(state, "body text")
+        assert _t.monotonic() - t0 < 3  # 超时切断而非永久挂起
+        # 超时后 GLiNER 被禁用，后续调用直接跳过
+        assert gliner._config.enabled is False
+        t1 = _t.monotonic()
+        await extractor._extract_gliner_entities(state, "body text")
+        assert _t.monotonic() - t1 < 0.5  # 禁用后立即返回

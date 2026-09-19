@@ -100,6 +100,7 @@ class EntityExtractorNode:
         vector_repo: Any = None,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
         gliner_extractor: GLiNERExtractor | None = None,
+        gliner_timeout: float = 300.0,
     ) -> None:
         self._llm = llm
         self._budget = budget
@@ -109,6 +110,7 @@ class EntityExtractorNode:
         self._vector_repo = vector_repo
         self._relation_type_normalizer = relation_type_normalizer
         self._gliner_extractor = gliner_extractor
+        self._gliner_timeout = gliner_timeout
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Extract entities and relations."""
@@ -183,11 +185,27 @@ class EntityExtractorNode:
         gliner_entities = []
         if self._gliner_extractor and self._gliner_extractor._config.enabled:
             try:
-                gliner_entities = await self._gliner_extractor.extract_entities(body)
+                # Wall-clock 超时：GLiNER 专用单线程池被 HF 下载挂死/长推理
+                # 占用后，后续调用会在死线程后永久排队——超时即禁用 GLiNER
+                # （spaCy/LLM 实体继续），防止 deep 批次被拖到超时。
+                gliner_entities = await asyncio.wait_for(
+                    self._gliner_extractor.extract_entities(body),
+                    timeout=self._gliner_timeout,
+                )
                 log.debug(
                     "gliner_extraction_completed",
                     entity_count=len(gliner_entities),
                     url=state["raw"].url,
+                )
+            except TimeoutError:
+                self._gliner_extractor._config.enabled = False
+                log.warning(
+                    "gliner_extraction_timeout_disabled",
+                    timeout=self._gliner_timeout,
+                    url=state["raw"].url,
+                    hint="GLiNER worker hung (HF download/model load); "
+                    "disabled for the rest of this process — spaCy/LLM "
+                    "entities continue",
                 )
             except Exception as e:
                 log.warning(
