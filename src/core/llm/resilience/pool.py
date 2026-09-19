@@ -374,7 +374,9 @@ class ProviderPool:
         # analyze_narrative（8192 tokens，实测 ~149s）场景误切 healthy 调用。
         # 按 20 tok/s 保守下限折算生成时间，加 30s 连接/重试缓冲。
         max_tokens = int(payload.get("max_tokens") or 4096)
-        generation_budget = min(max_tokens / _MIN_STREAM_TOKENS_PER_SEC, _MAX_GENERATION_BUDGET_SECONDS)
+        generation_budget = min(
+            max_tokens / _MIN_STREAM_TOKENS_PER_SEC, _MAX_GENERATION_BUDGET_SECONDS
+        )
         response = await asyncio.wait_for(
             self._circuit_breaker.call(
                 self._caller.call,
