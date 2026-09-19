@@ -16,7 +16,8 @@ from pydantic_settings import (
 )
 
 from core.llm.config.cost import CostConfig
-from core.llm.types import (
+from core.llm.types import (    EMBEDDING_CACHE_TTL,
+
     DEFAULT_LLM_TIMEOUT,
     EvalConfig,
     ModelConfig,
@@ -58,7 +59,7 @@ class LLMSettings(BaseSettings):
     retry_min_wait: float = 5.0
     retry_max_wait: float = 60.0
     # Embedding response-cache TTL (seconds)
-    embedding_cache_ttl: int = 7 * 24 * 60 * 60
+    embedding_cache_ttl: int = EMBEDDING_CACHE_TTL
     # Cached rerank-client ceiling (FIFO eviction; safety bound)
     rerank_client_cap: int = 32
     # 全局请求延迟（llm.toml [global] 映射；provider 级可覆盖）
@@ -201,6 +202,10 @@ class LLMSettings(BaseSettings):
         """Initialize with TOML data, handling hyphenated keys.
 
         toml_path 仅供测试注入临时配置文件；默认读项目 config/llm.toml。
+        注意：以 ``**toml_dict`` 形式注入时，dict 里的嵌套 ``[global]``/``[eval]``
+        表不会被消费（extra="ignore" 丢弃）——顶层映射只针对本方法读到的
+        config_path 文件。热重载路径（live_config）传入的正是同一项目文件，
+        因此值一致；不要用 **data 形式注入外来嵌套配置。
         """
         # Load TOML manually to handle hyphenated keys
         import tomllib

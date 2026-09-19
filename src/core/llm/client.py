@@ -124,7 +124,7 @@ def build_stable_cache_key(call_point: str, payload: dict[str, Any]) -> str:
 # embedding entry is a bare JSON list, so any overlap would raise
 # TypeError/KeyError. Keep these prefixes distinct.
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
-# EMBEDDING_CACHE_TTL is single-sourced in core.llm.types (imported above);
+# EMBEDDING_CACHE_TTL is single-sourced in core.llm.types;
 # overridable at runtime via llm.toml [global].embedding_cache_ttl.
 
 # Input limits per call point (in characters)
