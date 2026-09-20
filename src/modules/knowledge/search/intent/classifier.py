@@ -43,13 +43,16 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个查询意图分类器。分析用�
 class IntentClassifier:
     """LLM-based intent classifier following MAGMA intent taxonomy."""
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(self, llm: LLMClient, timeout: float = 20.0) -> None:
         """Initialize intent classifier.
 
         Args:
             llm: LLM client for classification.
         """
         self._llm = llm
+        # 意图分类是低价值辅助调用：上游挂死时快速超时，
+        # 让 search 降级到 fallback_mode（local）而非拖住整个请求。
+        self._timeout = timeout
 
     async def classify(self, query: str) -> IntentClassification:
         """Classify query intent with confidence and extract signals.
@@ -74,6 +77,7 @@ class IntentClassifier:
                     "system_prompt": "You are a query intent classifier. Return valid JSON only.",
                     "user_content": user_content,
                 },
+                timeout=self._timeout,
             )
 
             # Parse LLM JSON response — robust extraction
