@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM module type definitions."""
 
 from __future__ import annotations
@@ -41,6 +41,10 @@ class CallPoint(str, Enum):
     QUALITY_SCORER = "quality_scorer"
     ENTITY_EXTRACTOR = "entity_extractor"
     ENTITY_RESOLVER = "entity_resolver"
+    # GLiNER 实体精炼（LLM refine）后处理。此前 gliner_extractor 用裸字符串
+    # "entity_refine" 调用，不在本枚举内 → _resolve_call_point 回退 CLASSIFIER，
+    # 误用其 token 预算与路由；现补为正式 call point。
+    ENTITY_REFINE = "entity_refine"
     EMBEDDING = "embedding"
     RERANK = "rerank"
     SEARCH_LOCAL = "search_local"

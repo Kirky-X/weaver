@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Conflict detector node — cross-source numerical conflict detection.
 
 Uses PELT + CUSUM dual-layer detection for sentiment shifts.
@@ -13,6 +13,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+from core.llm.types import CallPoint
 from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
@@ -110,7 +111,7 @@ class ConflictDetectorNode:
         if self._llm_client is not None:
             try:
                 result = await self._llm_client.call_at(
-                    "claim_extraction",
+                    CallPoint.CLAIM_EXTRACTION,
                     {"text": text[:4000]},
                 )
                 # call_at may return a string (raw LLM response); parse JSON if needed

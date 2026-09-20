@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Narrative Synthesizer for MAGMA multi-graph memory.
 
 Synthesizes retrieved context into coherent narratives using LLM.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.llm.types import CallPoint
 from core.observability import get_logger
 from modules.memory.core.graph_types import OutputMode, SynthesisResult
 
@@ -243,7 +244,7 @@ class NarrativeSynthesizer:
         fallback = False
         try:
             response = await self._llm.call_at(
-                call_point="narrative_synthesis",
+                call_point=CallPoint.NARRATIVE_SYNTHESIS,
                 payload={
                     "query": query,
                     "context": context_str,

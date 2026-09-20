@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entity Aggregator for MAGMA multi-graph memory.
 
 Aggregates entity neighborhood information to support entity-centric queries.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from core.llm.types import CallPoint
 from core.observability import get_logger
 from modules.memory.core.graph_types import (
     AggregationResult,
@@ -151,7 +152,7 @@ class EntityAggregator:
         try:
             # Use LLM to extract facts
             response = await self._llm.call_at(
-                call_point="ENTITY_FACTS",
+                call_point=CallPoint.ENTITY_FACTS,
                 payload={
                     "entity_name": resolved_name,
                     "context": context,

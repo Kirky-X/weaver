@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """GLiNER zero-shot entity extractor.
 
 Uses spaCy + GLiNER dual engine for entity extraction:
@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.constants import EntityType
+from core.llm.types import CallPoint
 from core.observability import get_logger
 from core.utils.paths import CONFIG_DIR
 from core.utils.toml_loader import load_toml_or_warn
@@ -346,7 +347,7 @@ class GLiNERExtractor:
             return entity
 
         result = await self._llm_client.call_at(
-            "entity_refine",
+            CallPoint.ENTITY_REFINE,
             {
                 "entity": entity["text"],
                 "type": entity["type"],

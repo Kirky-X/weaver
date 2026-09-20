@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Token budget management with tiktoken truncation."""
@@ -31,6 +31,8 @@ LIMITS: dict[CallPoint, int] = {
     # entity-resolver-batch-select: 文档性额度（该 call_point 无 truncate 消费点）。
     # 批量 payload 体量由 MAX_BATCH_LLM_ENTITIES(20) x 候选数(<=5) 约束。
     CallPoint.ENTITY_RESOLVER: 3000,
+    # GLiNER refine：单实体小 payload，对齐 COMMUNITY_TITLE 量级。
+    CallPoint.ENTITY_REFINE: 1000,
     # Embedding & reranking
     CallPoint.EMBEDDING: 500,
     CallPoint.RERANK: 500,

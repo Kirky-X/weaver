@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """PaddleNLP SKEP sentiment analyzer.
 
 Uses PaddleNLP SKEP Chinese sentiment model for high-precision sentiment analysis.
@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from core.llm.types import CallPoint
 from core.llm.utils.json_parser import extract_last_json_object
 from core.observability import get_logger
 
@@ -219,7 +220,7 @@ class SentimentAnalyzer:
 
         # Call LLM for sentiment analysis
         result = await self._llm_client.call_at(
-            "sentiment",
+            CallPoint.SENTIMENT,
             {"text": text[: self._config.llm_max_input_length]},
         )
 
