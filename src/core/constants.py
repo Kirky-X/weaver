@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Centralized string constants and enums for the weaver application.
 
 This module provides type-safe constants for:
@@ -133,7 +133,26 @@ class ResponseStatus(str, enum.Enum):
 
 
 class SourceType(str, enum.Enum):
-    """Supported data source types."""
+    """Data source type identifiers.
+
+    Membership here means "the string is a recognized identifier", NOT "a
+    parser exists". Parseability is determined solely by
+    ``SourceRegistry.get_parser()``, which is an exact lookup against the
+    registered parsers. ``REGISTERED_TYPES`` below is the authoritative
+    intersection, and the create/update source API rejects anything outside
+    it with a 422 rather than persisting a source that would be silently
+    skipped on every crawl.
+
+    The unregistered members are kept deliberately: ``twitter`` and
+    ``telegram`` are planned integrations, and the values may already exist in
+    the ``source_configs`` table. Removing an enum member would break
+    ``from_str`` for those stored rows.
+
+    ``wechat`` IS supported, but has no dedicated member: WeChat article
+    ingestion goes through RSS (anyfeeder / Sogou feeds), so those sources are
+    stored as ``rss`` and handled by ``RSSParser``.
+
+    """
 
     RSS = "rss"
     ATOM = "atom"
@@ -155,6 +174,24 @@ class SourceType(str, enum.Enum):
             raise ValueError(
                 f"Invalid source type '{value}'. Valid values: {valid_values}"
             ) from _exc
+
+
+# Source types that have a registered parser in SourceRegistry, and can
+# therefore actually be crawled. Kept in sync with the registry by
+# tests/unit/modules/ingestion/parsing/test_registry.py, which asserts each
+# member below resolves to a parser. Types absent from this set (twitter,
+# telegram, api) are declared-but-unimplemented and are rejected by the source
+# API at creation time. wechat is intentionally absent because WeChat sources
+# are stored as rss.
+REGISTERED_TYPES: frozenset[str] = frozenset(
+    {
+        SourceType.RSS.value,
+        SourceType.ATOM.value,
+        SourceType.HTML.value,
+        SourceType.JSON.value,
+        SourceType.PDF.value,
+    }
+)
 
 
 # ── Processing Status Constants ────────────────────────────────
