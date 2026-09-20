@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SourceScheduler."""
 
 from datetime import UTC, datetime
@@ -147,6 +147,39 @@ class TestSourceSchedulerCrawlSource:
 
         mock_parser.parse.assert_called_once_with(mock_source, force=False)
         scheduler._on_items.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_atom_source_is_actually_crawled(self):
+        """An 'atom' source must resolve to a parser against a real registry.
+
+        Regression guard: get_parser() is an exact dict lookup, so when only
+        the "rss" key was registered every atom source hit no_parser_for_type
+        and was silently skipped on every scheduled run.
+        """
+        from modules.ingestion.domain.models import NewsItem, SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        registry = SourceRegistry(fetcher=MagicMock())
+        config = SourceConfig(
+            id="atom-src",
+            name="Atom Source",
+            url="https://example.com/feed.atom",
+            source_type="atom",
+        )
+        registry.add_source(config)
+
+        on_items = AsyncMock()
+        scheduler = SourceScheduler(registry=registry, on_items_discovered=on_items)
+
+        expected = [MagicMock(spec=NewsItem)]
+        with patch.object(
+            registry.get_parser("atom"), "parse", new=AsyncMock(return_value=expected)
+        ):
+            await scheduler._crawl_source("atom-src")
+
+        on_items.assert_called_once()
+        assert on_items.call_args[0][0] == expected
 
     @pytest.mark.asyncio
     async def test_crawl_source_handles_exception(self, scheduler):

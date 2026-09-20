@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Source registry for managing multiple news sources.
 
 This module provides a registry for managing source configurations and their
@@ -26,6 +26,11 @@ from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser
+from modules.ingestion.parsing.document_parsers import (
+    HTMLIndexParser,
+    JSONApiParser,
+    PDFDocumentParser,
+)
 from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 from modules.ingestion.parsing.plugin import (
     get_plugin,
@@ -62,18 +67,34 @@ class SourceRegistry:
         self._register_default_parsers()
 
     def _register_default_parsers(self) -> None:
-        """Register built-in source parsers."""
+        """Register built-in source parsers.
+
+        Keys here are the single source of truth for "can this source type
+        actually be crawled". ``core.constants.REGISTERED_TYPES`` mirrors this
+        set for API-side validation, and
+        ``tests/unit/modules/ingestion/parsing/test_registry.py`` asserts the
+        two stay in sync — a divergence means a source type that is either
+        rejected despite working, or accepted but silently never crawled.
+        """
         from modules.ingestion.parsing.plugin import PluginMetadata
 
-        # RSS Parser
-        self._parsers["rss"] = RSSParser(self._fetcher)
-        self._parser_metadata["rss"] = PluginMetadata(
+        # RSS Parser — registered under both "rss" and "atom". Both keys must
+        # exist: get_parser() does an exact dict lookup, so an "atom" source
+        # would otherwise be rejected as "no_parser_for_type" even though the
+        # metadata advertises Atom support (RSSParser handles Atom natively
+        # via feedparser). Both keys share one instance — the parser is
+        # stateless apart from the fetcher.
+        rss_parser = RSSParser(self._fetcher)
+        rss_metadata = PluginMetadata(
             name="builtin_rss",
             version="1.0.0",
             description="Standard RSS/Atom feed parser",
             supported_types=["rss", "atom"],
             capabilities=["incremental", "etag", "last_modified"],
         )
+        for source_type in ("rss", "atom"):
+            self._parsers[source_type] = rss_parser
+            self._parser_metadata[source_type] = rss_metadata
 
         # NewsNow Parser
         self._parsers["newsnow"] = NewsNowParser(self._fetcher)
@@ -84,6 +105,26 @@ class SourceRegistry:
             supported_types=["newsnow"],
             capabilities=["incremental"],
         )
+
+        # Document parsers — HTML index pages, JSON APIs, PDF documents.
+        # Declared in core.constants.SourceType and accepted by the
+        # create-source API, these were previously never registered here;
+        # get_parser() is an exact dict lookup, so such sources hit
+        # no_parser_for_type at crawl time and were silently never crawled.
+        document_parsers: tuple[tuple[str, type[BaseSourceParser], str], ...] = (
+            ("html", HTMLIndexParser, "HTML index page link extractor"),
+            ("json", JSONApiParser, "Generic JSON list endpoint parser"),
+            ("pdf", PDFDocumentParser, "PDF document text extractor"),
+        )
+        for source_type, parser_class, description in document_parsers:
+            self._parsers[source_type] = parser_class(self._fetcher)
+            self._parser_metadata[source_type] = PluginMetadata(
+                name=f"builtin_{source_type}",
+                version="1.0.0",
+                description=description,
+                supported_types=[source_type],
+                capabilities=[],
+            )
 
     def register_parser(
         self,

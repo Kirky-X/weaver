@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SourceRegistry."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,6 +19,88 @@ class TestSourceRegistryInit:
 
         assert "rss" in registry.list_registered_types()
         assert "newsnow" in registry.list_registered_types()
+
+    def test_atom_type_resolves_to_rss_parser(self):
+        """The declared 'atom' source type must resolve to a parser.
+
+        The metadata advertises Atom support, but get_parser() is an exact
+        dict lookup — registering only the "rss" key made every atom source
+        fail with no_parser_for_type at crawl time.
+        """
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        registry = SourceRegistry(fetcher=MagicMock())
+
+        assert "atom" in registry.list_registered_types()
+        assert registry.get_parser("atom") is not None
+        assert registry.get_parser("atom") is registry.get_parser("rss")
+
+    def test_every_registered_parser_type_is_reachable(self):
+        """Every type in list_registered_types() must return a parser."""
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        registry = SourceRegistry(fetcher=MagicMock())
+
+        for source_type in registry.list_registered_types():
+            assert registry.get_parser(source_type) is not None, source_type
+
+
+class TestRegisteredTypesConstant:
+    """Tests pinning core.constants.REGISTERED_TYPES to the registry.
+
+    REGISTERED_TYPES is the API-side declaration of what can be crawled; the
+    registry is the runtime truth. If they drift, a source type is either
+    rejected despite working, or accepted and then silently never crawled.
+    """
+
+    def test_registered_types_constant_matches_registry(self):
+        """REGISTERED_TYPES must equal the built-in parser keys, exactly."""
+        from core.constants import REGISTERED_TYPES
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        registry = SourceRegistry(fetcher=MagicMock())
+        builtin = set(registry.list_registered_types())
+
+        # newsnow is a registry-level extension not exposed as a SourceType,
+        # so compare on the SourceType-defined subset only.
+        from core.constants import SourceType
+
+        source_type_values = {member.value for member in SourceType}
+        builtin_source_types = builtin & source_type_values
+
+        assert builtin_source_types == set(REGISTERED_TYPES), (
+            "REGISTERED_TYPES is out of sync with SourceRegistry. "
+            f"declared={sorted(REGISTERED_TYPES)} "
+            f"registered={sorted(builtin_source_types)}"
+        )
+
+    def test_every_registered_type_has_a_parser(self):
+        """Each REGISTERED_TYPES member must resolve to an actual parser."""
+        from core.constants import REGISTERED_TYPES
+        from modules.ingestion.parsing.registry import SourceRegistry
+
+        registry = SourceRegistry(fetcher=MagicMock())
+
+        for source_type in REGISTERED_TYPES:
+            assert registry.get_parser(source_type) is not None, source_type
+
+    def test_unimplemented_types_are_not_declared_registered(self):
+        """twitter/telegram/api have no parser and must not be advertised.
+
+        They stay in SourceType for forward compatibility (and because stored
+        rows may reference them), but they must not appear in
+        REGISTERED_TYPES — that set is what the source API accepts.
+        """
+        from core.constants import REGISTERED_TYPES
+
+        for unimplemented in ("twitter", "telegram", "api"):
+            assert unimplemented not in REGISTERED_TYPES
+
+    def test_wechat_is_absent_because_it_is_served_by_rss(self):
+        """wechat has no dedicated parser; WeChat ingestion goes through RSS."""
+        from core.constants import REGISTERED_TYPES
+
+        assert "wechat" not in REGISTERED_TYPES
 
 
 class TestSourceRegistryRegisterParser:
