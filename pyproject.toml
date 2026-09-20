@@ -85,6 +85,16 @@ cache-fallback = [
 search-enhancement = [
     "flashrank>=0.2.10",
 ]
+# NOTE: SourceType.PDF sources require a text extractor. pypdf is the primary,
+# pure-python path (no compiled deps); pdfplumber is the fallback used when
+# pypdf yields nothing (layout-heavy PDFs). Neither is a core dependency
+# because PDF sources are an opt-in source type — without the extra the PDF
+# parser still fetches byte-exactly and degrades to a clean no-op
+# (pdf_text_extraction_failed) instead of failing the crawl batch.
+pdf-extraction = [
+    "pypdf>=5.1.0",
+    "pdfplumber>=0.11.4",
+]
 # NOTE: PaddleNLP SKEP sentiment analysis (paddlenlp>=2.7.0) is NOT declared
 # as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.40.0
 # via protobuf version pin (paddlenlp→protobuf==3.20.2 vs otel→protobuf>=5.0,<7.0).
@@ -473,6 +483,9 @@ module = [
     "pgvector.*",
     "opentelemetry.*",
     "loguru.*",
+    "pypdf.*",
+    "pdfplumber.*",
+    "pdfminer.*",
     # ── 已忽略的模块 ─────────────────────────────────────
     "numpy.*", # 类型覆盖率低
     "_pytest.*",
