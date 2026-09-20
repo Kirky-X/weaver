@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for HttpxFetcher."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -774,12 +774,17 @@ class TestT008LowFixes:
     """Regression tests for LOW findings."""
 
     def test_retry_exhaustion_guard_is_documented_unreachable(self):
-        """#83: the misleading ``raise RuntimeError("Fetch retry exhausted")`` is gone."""
+        """#83: the misleading ``raise RuntimeError("Fetch retry exhausted")`` is gone.
+
+        The retry loop and its guard live in ``_fetch_raw`` (``fetch`` and
+        ``fetch_bytes`` both delegate to it and differ only in return type),
+        so inspect the method that actually owns the guard.
+        """
         import inspect
 
         from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
 
-        src = inspect.getsource(HttpxFetcher.fetch)
+        src = inspect.getsource(HttpxFetcher._fetch_raw)
         assert "Fetch retry exhausted" not in src
         assert "unreachable" in src
 

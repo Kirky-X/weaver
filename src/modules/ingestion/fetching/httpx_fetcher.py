@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """httpx-based fetcher for standard HTTP requests."""
 
 from __future__ import annotations
 
 import asyncio
+import codecs
 import random
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +28,81 @@ log = get_logger(__name__)
 # Default UA when caller does not supply ``user_agents``. Kept as a
 # module-level constant so tests and docs can reference the same value.
 _DEFAULT_USER_AGENTS: list[str] = [NEWSBOT_USER_AGENT]
+
+# Fallback charset and error policy for turning a raw body back into ``str``
+# in ``fetch()``. Matches httpx's own TextDecoder default (utf-8 with
+# replacement) so text callers keep the exact behaviour they had when this
+# method delegated to ``response.text``.
+_TEXT_CHARSET = "utf-8"
+_TEXT_ERRORS = "replace"
+
+# Charset parameter in a Content-Type header, e.g. "text/html; charset=gbk".
+_CHARSET_RE = re.compile(r"charset\s*=\s*([^;\s]+)", re.IGNORECASE)
+
+
+def _response_body_bytes(response: Any) -> bytes:
+    """Return the raw body of an httpx response as bytes.
+
+    Prefers ``response.content`` (the undecoded body). Falls back to
+    UTF-8-encoding ``response.text`` for response-like objects that only
+    expose the decoded form — httpx always provides both, but test doubles
+    commonly set just one.
+
+    Args:
+        response: An httpx Response (or compatible stand-in).
+
+    Returns:
+        The response body as bytes.
+    """
+    content = getattr(response, "content", None)
+    if isinstance(content, (bytes, bytearray)):
+        return bytes(content)
+
+    text = getattr(response, "text", "")
+    if isinstance(text, str):
+        return text.encode(_TEXT_CHARSET, errors=_TEXT_ERRORS)
+    return b""
+
+
+def decode_response_text(body: bytes, resp_headers: dict[str, str]) -> str:
+    """Decode a response body to ``str``, honouring any declared charset.
+
+    httpx's ``response.text`` resolves the charset from the Content-Type
+    header and falls back to UTF-8; ``fetch()`` used to return
+    ``response.text`` directly. Once the wire path started returning raw
+    bytes (to support binary payloads), this helper reproduces that
+    resolution so text callers are unaffected — notably for pages that
+    declare a non-UTF-8 charset such as GBK.
+
+    Args:
+        body: Raw response body bytes.
+        resp_headers: Response headers (case-insensitive lookup).
+
+    Returns:
+        Decoded response text, with undecodable bytes replaced rather than
+        raising.
+    """
+    charset = _TEXT_CHARSET
+    content_type = ""
+    for key, value in resp_headers.items():
+        if key.lower() == "content-type":
+            content_type = value
+            break
+
+    if content_type:
+        match = _CHARSET_RE.search(content_type)
+        if match:
+            declared = match.group(1).strip("\"'").strip()
+            if declared:
+                try:
+                    # Validate before use: an unknown charset name must fall
+                    # back to the default rather than raising LookupError.
+                    codecs.lookup(declared)
+                    charset = declared
+                except LookupError:
+                    log.debug("response_charset_unknown", charset=declared)
+
+    return body.decode(charset, errors=_TEXT_ERRORS)
 
 
 class RedirectBlockedError(Exception):
@@ -252,6 +329,61 @@ class HttpxFetcher(BaseFetcher):
             SSRFError: If URL is blocked for SSRF protection.
             RedirectBlockedError: If a redirect is blocked for security.
         """
+        status, body, resp_headers = await self._fetch_raw(url, headers, pre_validated)
+        return status, decode_response_text(body, resp_headers), resp_headers
+
+    async def fetch_bytes(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        pre_validated: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL and return the response body as raw bytes.
+
+        The ``fetch`` method returns a decoded ``str``, which is lossy for
+        binary payloads: httpx cannot infer an encoding for
+        ``application/pdf`` (or any non-text media type) and falls back to
+        UTF-8, corrupting bytes that are not valid UTF-8. Callers that must
+        preserve binary content (PDF text extraction) use this method
+        instead so no decode happens on the wire path.
+
+        Shares validation, redirect inspection, retry and metrics with
+        ``fetch`` via ``_fetch_raw`` — only the return type differs.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            pre_validated: If True, skip url_validator.validate.
+
+        Returns:
+            Tuple of (status_code, response_bytes, response_headers).
+
+        Raises:
+            SSRFError: If URL is blocked for SSRF protection.
+            RedirectBlockedError: If a redirect is blocked for security.
+        """
+        return await self._fetch_raw(url, headers, pre_validated)
+
+    async def _fetch_raw(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        pre_validated: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL, returning the undecoded response body and headers.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            pre_validated: If True, skip url_validator.validate.
+
+        Returns:
+            Tuple of (status_code, response_bytes, response_headers).
+
+        Raises:
+            SSRFError: If URL is blocked for SSRF protection.
+            RedirectBlockedError: If a redirect is blocked for security.
+        """
         start = time.monotonic()
 
         # Security validation - do NOT retry if this fails.
@@ -296,7 +428,11 @@ class HttpxFetcher(BaseFetcher):
                         http_version=response.http_version,
                         redirects=len(response.history),
                     )
-                    return response.status_code, response.text, dict(response.headers)
+                    return (
+                        response.status_code,
+                        _response_body_bytes(response),
+                        dict(response.headers),
+                    )
 
                 except RedirectBlockedError:
                     # Security errors - do not retry, propagate immediately

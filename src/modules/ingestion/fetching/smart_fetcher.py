@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Smart fetcher that chooses between httpx and crawl4ai based on response."""
 
 from __future__ import annotations
@@ -245,6 +245,68 @@ class SmartFetcher(BaseFetcher):
 
         log.debug("smart_fetch_fallback_crawl4ai", url=url)
         return await self._crawl4ai.fetch(url, headers)
+
+    async def fetch_bytes(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        force_browser: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL and return the undecoded body bytes.
+
+        Used for binary payloads (PDFs) where ``fetch``'s str decoding would
+        corrupt the content. Byte-exactness matters more than the SPA /
+        short-content fallbacks here, so this path always goes through the
+        httpx fetcher and never delegates to crawl4ai (which renders HTML).
+
+        Circuit-breaker accounting, rate limiting and SSRF validation are
+        applied identically to ``fetch`` because they live in the shared
+        prologue.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            force_browser: If True, use crawl4ai and encode its rendered HTML
+                as UTF-8 bytes (no raw binary path available).
+
+        Returns:
+            Tuple of (status_code, content bytes, response_headers).
+
+        Raises:
+            CircuitOpenError: If circuit breaker is open for the host.
+            SSRFError: If URL is blocked for security reasons.
+        """
+        # Validate URL for SSRF protection
+        if self._url_validator:
+            await self._url_validator.validate(url)
+
+        host = urlparse(url).netloc
+
+        # Check circuit breaker first
+        if self._circuit_breaker_enabled:
+            breaker = self._get_breaker(host)
+            if await breaker.is_open():
+                log.warning("circuit_breaker_open", url=url, host=host)
+                raise CircuitOpenError(host)
+
+        # Rate limiting
+        if self._rate_limiter:
+            await self._rate_limiter.acquire(url)
+
+        try:
+            if force_browser:
+                # crawl4ai returns rendered HTML text; no byte-exact path.
+                status, text, resp_headers = await self._crawl4ai.fetch(url, headers)
+                result = (status, text.encode("utf-8", errors="replace"), resp_headers)
+            else:
+                result = await self._httpx.fetch_bytes(url, headers, pre_validated=True)
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_success()
+            return result
+        except Exception:
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_failure()
+            raise
 
     async def close(self) -> None:
         """Close underlying fetchers."""
