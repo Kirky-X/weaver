@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for BM25Retriever."""
 
 from __future__ import annotations
@@ -405,3 +405,38 @@ class TestStemmerInitialization:
         retriever = BM25Retriever(language="zh")
 
         assert retriever._stemmer is None
+
+
+class TestCJKFallbackTokenization:
+    """The no-spaCy fallback must not collapse CJK text into single tokens.
+
+    ``text.lower().split()`` yields one giant token per CJK sentence (Chinese
+    has no spaces), so BM25 recall collapsed to ~zero whenever the zh model
+    was unavailable. Character bigrams restore usable recall.
+    """
+
+    def test_fallback_tokenizes_cjk_as_bigrams(self) -> None:
+        retriever = BM25Retriever(language="zh")
+        # Simulate a missing zh model without importing spacy at all.
+        retriever._nlp = None
+        retriever._spacy_load_attempted = True
+
+        tokens = retriever._tokenize("华为芯片战略 发布")
+
+        assert "华为" in tokens
+        assert "芯片" in tokens
+        assert tokens and all(len(t) <= 2 or not _contains_cjk(t) for t in tokens)
+
+    def test_fallback_keeps_ascii_words(self) -> None:
+        retriever = BM25Retriever(language="zh")
+        retriever._nlp = None
+        retriever._spacy_load_attempted = True
+
+        tokens = retriever._tokenize("iPhone 17 发布会")
+
+        assert "iphone" in tokens
+        assert "17" in tokens
+
+
+def _contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)

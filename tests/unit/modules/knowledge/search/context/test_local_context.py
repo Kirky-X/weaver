@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for LocalContextBuilder - comprehensive coverage."""
 
 from __future__ import annotations
@@ -779,3 +779,36 @@ class TestRelatedArticleOrdering:
 
         cypher = pool.execute_query.call_args.args[0]
         assert "ORDER BY a.pg_id" in cypher
+
+
+class TestFindQueryEntitiesBidirectional:
+    """Entity linking must match both directions for CJK queries.
+
+    The legacy single-direction ``entity CONTAINS $query`` required the
+    entity name to contain the whole sentence — "华为的芯片战略" never
+    matched the entity 华为, so local-mode recall for natural-language
+    Chinese queries was ≈0.
+    """
+
+    @pytest.mark.asyncio
+    async def test_query_contains_entity_direction_present(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._find_query_entities("华为的芯片战略是什么")
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "$query CONTAINS toLower(e.canonical_name)" in cypher
+
+    @pytest.mark.asyncio
+    async def test_entity_contains_query_direction_kept(self) -> None:
+        """Short queries like the entity name itself must still match."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._find_query_entities("华为")
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "toLower(e.canonical_name) CONTAINS $query" in cypher

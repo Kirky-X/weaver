@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Neo4j local context builder for entity-based neighborhood search.
 
 Builds context by:
@@ -49,13 +49,20 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         return True
 
     async def _find_query_entities(self, query: str) -> list[str]:
-        """Find entities mentioned in the query using alias search."""
+        """Find entities mentioned in the query using alias search.
+
+        Bidirectional CONTAINS: natural-language queries contain entity
+        names ("华为的芯片战略" ⊃ 华为), while short queries equal to the
+        entity name itself rely on the legacy direction.
+        """
         query_lower = query.lower()
 
         cypher = """
         MATCH (e:Entity)
         WHERE toLower(e.canonical_name) CONTAINS $query
-           OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query)
+           OR $query CONTAINS toLower(e.canonical_name)
+           OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query
+                                    OR $query CONTAINS toLower(alias))
         RETURN e.canonical_name AS name
         LIMIT $limit
         """

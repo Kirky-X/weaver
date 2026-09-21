@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Database-agnostic query builders for graph database operations.
 
 Provides a QueryBuilder pattern that abstracts database-specific graph query syntax,
@@ -898,17 +898,23 @@ class Neo4jQueryBuilder:
     # === Search & Community Query Methods (migrated from graph_query.py) ===
 
     def build_entity_search_query(self, config: EntitySearchConfig) -> str:
+        # Bidirectional CONTAINS: CJK natural-language queries contain entity
+        # names ("华为的芯片战略" ⊃ 华为) — the single legacy direction gave
+        # Chinese queries ≈0 recall.
         if config.use_aliases:
             return """
             MATCH (e:Entity)
             WHERE toLower(e.canonical_name) CONTAINS $query
-               OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query)
+               OR $query CONTAINS toLower(e.canonical_name)
+               OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query
+                                        OR $query CONTAINS toLower(alias))
             RETURN e.canonical_name AS name
             LIMIT $limit
             """
         return """
         MATCH (e:Entity)
         WHERE toLower(e.canonical_name) CONTAINS $query
+           OR $query CONTAINS toLower(e.canonical_name)
         RETURN e.canonical_name AS name
         LIMIT $limit
         """

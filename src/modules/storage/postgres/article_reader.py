@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Article repository for PostgreSQL CRUD operations."""
 
 from __future__ import annotations
@@ -26,6 +26,59 @@ if TYPE_CHECKING:
     from core.protocols.types import ArticleTitleMeta
 
 log = get_logger(__name__)
+
+# Lazy spaCy handle for CJK query tokenization (loaded on first use, never at
+# import time). Without it a Chinese query would be one indivisible LIKE term.
+_nlp_cache: dict[str, Any] = {}
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _split_query_terms(query: str) -> list[str]:
+    """Split a search query into AND-combinable LIKE terms.
+
+    ASCII words pass through as-is. CJK runs longer than two characters are
+    segmented with the spaCy zh model when available — an unsegmented Chinese
+    sentence as a single ``CONTAINS`` term matches essentially nothing. When
+    the model is unavailable the run stays whole, which degrades to the
+    legacy behaviour instead of failing.
+    """
+    terms: list[str] = []
+    for raw in query.split():
+        if not raw:
+            continue
+        if not _has_cjk(raw) or len(raw) <= 2:
+            terms.append(raw.lower())
+            continue
+
+        segmented = _segment_cjk(raw)
+        terms.extend(t.lower() for t in segmented if t.strip())
+
+    # De-duplicate while preserving order
+    seen: set[str] = set()
+    return [t for t in terms if not (t in seen or seen.add(t))]
+
+
+def _segment_cjk(text: str) -> list[str]:
+    """Segment a CJK run with spaCy zh, falling back to the whole run."""
+    nlp = _nlp_cache.get("zh")
+    if nlp is None and not _nlp_cache:
+        try:
+            import spacy as _spacy
+
+            nlp = _spacy.load("zh_core_web_lg", disable=["ner", "parser", "lemmatizer"])
+            _nlp_cache["zh"] = nlp
+        except Exception as exc:
+            log.debug("cjk_query_segmentation_model_unavailable", error=str(exc))
+            _nlp_cache["unavailable"] = True
+            return [text]
+    elif nlp is None:
+        return [text]
+
+    doc = nlp(text)
+    return [token.text for token in doc if not token.is_space and not token.is_punct] or [text]
 
 
 class ArticleRepo:
@@ -524,11 +577,15 @@ class ArticleReader:
         query: str,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Search articles by title or body containing the query text.
+        """Search articles whose title or body contains the query terms.
 
         This is a fallback search when graph-based entity search returns
-        no results. Uses `func.lower().contains()` for case-insensitive
-        matching (DuckDB compatible; ILIKE may not work in DuckDB).
+        no results. Terms are combined with AND; CJK runs are segmented
+        via the spaCy zh model (lazy) so natural-language Chinese queries
+        match — an unsegmented sentence as a single ``contains()`` term
+        matches essentially nothing. Uses ``func.lower().contains()`` for
+        case-insensitive matching (DuckDB compatible; ILIKE may not work
+        in DuckDB).
 
         Args:
             query: Search query string.
@@ -541,11 +598,17 @@ class ArticleReader:
         if not query or not query.strip():
             return []
 
-        query_lower = query.strip().lower()
+        query_terms = _split_query_terms(query.strip())
+        if not query_terms:
+            return []
 
         async with self._pool.session() as session:
             # Search by title first (higher priority), then by body.
             # Use func.lower().contains() for DuckDB compatibility.
+            term_predicates = [
+                func.lower(Article.title).contains(term) | func.lower(Article.body).contains(term)
+                for term in query_terms
+            ]
             stmt = (
                 select(
                     Article.id,
@@ -556,10 +619,7 @@ class ArticleReader:
                     Article.summary,
                     Article.publish_time,
                 )
-                .where(
-                    func.lower(Article.title).contains(query_lower)
-                    | func.lower(Article.body).contains(query_lower)
-                )
+                .where(and_(*term_predicates))
                 .order_by(Article.publish_time.desc())
                 .limit(limit)
             )
@@ -574,8 +634,13 @@ class ArticleReader:
             articles: list[dict[str, Any]] = []
             for row in rows:
                 body_text = row.body or ""
-                # Extract a relevant excerpt from the body
-                excerpt = self._extract_excerpt(body_text, query_lower, max_chars=300)
+                # Excerpt around the first matching term (whole-sentence
+                # positions rarely exist in segmented CJK queries).
+                excerpt = ""
+                for term in query_terms:
+                    excerpt = self._extract_excerpt(body_text, term, max_chars=300)
+                    if excerpt:
+                        break
                 articles.append(
                     {
                         "id": str(row.id),

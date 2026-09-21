@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """BM25 retriever for lexical search using bm25s library.
 
 This module provides high-performance BM25 text retrieval with:
@@ -152,6 +152,39 @@ def _compute_file_hash(path: Path) -> str:
 
 log = get_logger(__name__)
 
+
+def _contains_cjk_runs(text: str) -> bool:
+    """Whether ``text`` contains at least one CJK ideograph run."""
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _cjk_bigram_tokens(text: str) -> list[str]:
+    """Cut ``text`` into tokens: ASCII/other runs stay whole, CJK runs are
+    split into sliding character bigrams (last odd character kept whole).
+    """
+    tokens: list[str] = []
+    run: list[str] = []
+
+    def flush_cjk_run() -> None:
+        if not run:
+            return
+        if len(run) == 1:
+            tokens.append(run[0])
+        else:
+            tokens.extend("".join(run[i : i + 2]) for i in range(len(run) - 1))
+        run.clear()
+
+    for ch in text:
+        if "\u4e00" <= ch <= "\u9fff":
+            run.append(ch)
+        else:
+            flush_cjk_run()
+            if not ch.isspace():
+                tokens.append(ch)
+    flush_cjk_run()
+    return tokens
+
+
 # Optional stemmer for English text
 try:
     import Stemmer  # type: ignore[import-untyped]
@@ -291,7 +324,7 @@ class BM25Retriever:
             log.warning("spacy_model_not_found", model=model_name, fallback="simple_tokenizer")
 
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize text using spacy or simple whitespace tokenization.
+        """Tokenize text using spacy or a CJK-aware fallback.
 
         Args:
             text: Text to tokenize.
@@ -308,8 +341,16 @@ class BM25Retriever:
                 token.text.lower() for token in doc if not token.is_space and not token.is_punct
             ]
         else:
-            # Fallback: simple whitespace tokenization
-            tokens = text.lower().split()
+            # Fallback without spaCy. Whitespace splitting alone collapses
+            # each CJK sentence into a single token (Chinese has no spaces),
+            # so contiguous CJK runs are cut into character bigrams — the
+            # standard fallback for Chinese IR without a segmenter.
+            tokens = []
+            for chunk in text.lower().split():
+                if _contains_cjk_runs(chunk):
+                    tokens.extend(_cjk_bigram_tokens(chunk))
+                else:
+                    tokens.append(chunk)
 
         # Apply stemming for English
         if self._stemmer is not None and tokens:

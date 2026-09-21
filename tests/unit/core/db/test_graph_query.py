@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for GraphQueryBuilder pattern."""
 
 import pytest
@@ -1126,3 +1126,26 @@ class TestSubgraphHopPatternValidation:
         qb = create_graph_query_builder(db_type)
         query = qb.build_subgraph_nodes_query("*1..2", False)
         assert "MATCH path" in query
+
+
+class TestEntitySearchQueryBidirectional:
+    """Entity search must match queries that CONTAIN the entity name.
+
+    CJK natural-language queries ("华为的芯片战略") contain entity names
+    (华为) — the reverse of the legacy single CONTAINS direction — and
+    without that direction local search recall for Chinese was ≈0.
+    """
+
+    def builder(self) -> Neo4jQueryBuilder:
+        return Neo4jQueryBuilder()
+
+    def test_alias_branch_bidirectional(self) -> None:
+        config = EntitySearchConfig(query="test", limit=10, use_aliases=True)
+        result = self.builder().build_entity_search_query(config)
+        assert "$query CONTAINS toLower(e.canonical_name)" in result
+        assert "$query CONTAINS toLower(alias)" in result
+
+    def test_plain_branch_bidirectional(self) -> None:
+        config = EntitySearchConfig(query="test", limit=10, use_aliases=False)
+        result = self.builder().build_entity_search_query(config)
+        assert "$query CONTAINS toLower(e.canonical_name)" in result
