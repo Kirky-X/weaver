@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Mapper for extracting ORM field dicts from PipelineState.
 
 Extracted from ArticleRepo to reduce _upsert_single complexity

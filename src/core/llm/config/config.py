@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM configuration using pydantic-settings for TOML loading."""
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from pydantic_settings import (
 )
 
 from core.llm.config.cost import CostConfig
-from core.llm.types import (    EMBEDDING_CACHE_TTL,
-
+from core.llm.types import (
+    EMBEDDING_CACHE_TTL,
     DEFAULT_LLM_TIMEOUT,
     EvalConfig,
     ModelConfig,

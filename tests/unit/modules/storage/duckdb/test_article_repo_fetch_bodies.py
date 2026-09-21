@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED: DuckDBArticleRepo.fetch_bodies_by_pg_ids batch body lookup.
 
 ``DuckDBArticleRepo`` is currently an alias for ``ArticleRepo`` (see

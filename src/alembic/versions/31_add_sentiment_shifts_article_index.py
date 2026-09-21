@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Add covering index for article-level sentiment_shifts queries.
 
 Revision ID: 31_add_sentiment_shifts_article_index

@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Tests for PrefixHashTracker integration into LLMClient."""
 
 import json
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
+
 import pytest
+
 
 from core.llm.types import (
     GlobalConfig,
@@ -17,6 +22,7 @@ from core.llm.types import (
 
 
 def _make_label(provider: str = "openai", model: str = "gpt-4o") -> Label:
+
     return Label(
         llm_type=LLMType.CHAT,
         provider=provider,
@@ -25,6 +31,7 @@ def _make_label(provider: str = "openai", model: str = "gpt-4o") -> Label:
 
 
 def _make_client():
+
     from core.llm.client import LLMClient
 
     providers = [
@@ -41,12 +48,15 @@ def _make_client():
             models={},
         )
     ]
+
     global_config = GlobalConfig(
         circuit_breaker_threshold=5,
         circuit_breaker_timeout=60.0,
         default_timeout=120.0,
     )
+
     event_bus = MagicMock()
+
     event_bus.publish = AsyncMock()
 
     return LLMClient(
@@ -57,13 +67,21 @@ def _make_client():
 
 
 def _make_mock_response() -> MagicMock:
+
     resp = MagicMock()
+
     resp.content = "test response content"
+
     resp.token_usage = TokenUsage(input_tokens=10, output_tokens=20)
+
     resp.label = _make_label()
+
     resp.latency_ms = 100.0
+
     resp.model = "gpt-4o"
+
     resp.cache_usage = None
+
     return resp
 
 
@@ -72,8 +90,11 @@ class TestPrefixHashTrackerIntegration:
 
     def test_client_has_prefix_tracker(self):
         """LLMClient 初始化时创建 PrefixHashTracker."""
+
         client = _make_client()
+
         assert hasattr(client, "_prefix_tracker")
+
         from core.llm.prefix_shape import PrefixHashTracker
 
         assert isinstance(client._prefix_tracker, PrefixHashTracker)
@@ -81,10 +102,15 @@ class TestPrefixHashTrackerIntegration:
     @pytest.mark.asyncio
     async def test_first_call_no_diagnostic_log(self):
         """首次调用不记录 llm_cache_miss_diagnosed 日志（无变化）."""
+
         client = _make_client()
+
         mock_redis = MagicMock()
+
         mock_redis.get = AsyncMock(return_value=None)
+
         mock_redis.set = AsyncMock(return_value=True)
+
         client._redis = mock_redis
 
         payload = {
@@ -103,18 +129,25 @@ class TestPrefixHashTrackerIntegration:
                 await client.call("chat.openai.gpt-4o", payload, call_point="classifier")
 
         # 首次调用不应有 llm_cache_miss_diagnosed 日志
+
         diagnosed_calls = [
             c for c in mock_log.info.call_args_list if c.args[0] == "llm_cache_miss_diagnosed"
         ]
+
         assert len(diagnosed_calls) == 0
 
     @pytest.mark.asyncio
     async def test_system_prompt_change_logs_diagnosed(self):
         """system prompt 变化时记录 llm_cache_miss_diagnosed 日志."""
+
         client = _make_client()
+
         mock_redis = MagicMock()
+
         mock_redis.get = AsyncMock(return_value=None)
+
         mock_redis.set = AsyncMock(return_value=True)
+
         client._redis = mock_redis
 
         payload1 = {
@@ -123,6 +156,7 @@ class TestPrefixHashTrackerIntegration:
                 {"role": "user", "content": "test"},
             ]
         }
+
         payload2 = {
             "messages": [
                 {"role": "system", "content": "You are an entity extractor"},
@@ -137,33 +171,48 @@ class TestPrefixHashTrackerIntegration:
                 new=AsyncMock(return_value=_make_mock_response()),
             ):
                 # First call - no history
+
                 await client.call("chat.openai.gpt-4o", payload1, call_point="classifier")
+
                 # Second call - system prompt changed
+
                 await client.call("chat.openai.gpt-4o", payload2, call_point="classifier")
 
         # Should have llm_cache_miss_diagnosed log with "system" in change_reasons
+
         diagnosed_calls = [
             c for c in mock_log.info.call_args_list if c.args[0] == "llm_cache_miss_diagnosed"
         ]
+
         assert len(diagnosed_calls) >= 1
+
         # Verify change_reasons contains "system"
+
         last_diagnosed = diagnosed_calls[-1]
+
         change_reasons = last_diagnosed.kwargs.get("change_reasons", [])
+
         assert "system" in change_reasons
 
     @pytest.mark.asyncio
     async def test_does_not_affect_cache_logic(self):
         """诊断模块不影响缓存逻辑（cache hit 仍正常工作）."""
+
         client = _make_client()
+
         cached_data = json.dumps(
             {
                 "content": "cached response",
                 "token_usage": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
             }
         )
+
         mock_redis = MagicMock()
+
         mock_redis.get = AsyncMock(return_value=cached_data)
+
         mock_redis.set = AsyncMock(return_value=True)
+
         client._redis = mock_redis
 
         payload = {
@@ -177,6 +226,9 @@ class TestPrefixHashTrackerIntegration:
             result = await client.call("chat.openai.gpt-4o", payload, call_point="classifier")
 
         # Cache hit should work - no execute call
+
         assert result == "cached response"
+
         mock_execute.assert_not_called()
+
         assert client._cache_hits == 1

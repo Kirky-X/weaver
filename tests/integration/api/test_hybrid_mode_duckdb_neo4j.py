@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Phase 4 hybrid integration tests: DuckDB + Neo4j.
 
 Validates that Weaver works correctly when Neo4j is the graph primary

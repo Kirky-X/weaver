@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Extend sentiment_shifts table for article-level tracking.
 
 Revision ID: 30_extend_sentiment_shifts_for_article_tracking

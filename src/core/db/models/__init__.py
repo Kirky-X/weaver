@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SQLAlchemy 2.0 ORM models for the weaver system.
 
 This package splits the original monolithic ``models.py`` into focused

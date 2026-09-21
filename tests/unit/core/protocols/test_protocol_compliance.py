@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Protocol compliance tests for all classes claiming to implement a Protocol.
 
 Verifies that every class with an "Implements:" docstring declaration

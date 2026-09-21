@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for HttpxFetcher User-Agent pool
 
 When ``user_agents`` list has multiple items, each request must carry

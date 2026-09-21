@@ -1,32 +1,49 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Graph visualization API endpoints for knowledge graph exploration.
 
 Provides API endpoints for:
+
 - Graph topology visualization (snapshot)
+
 - Interactive subgraph exploration
+
 """
 
 from __future__ import annotations
 
+
 from typing import TYPE_CHECKING, Any
 
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+
 from pydantic import BaseModel, Field
 
+
 from api.dependencies import get_graph_repo
+
 from api.middleware.auth import verify_api_key
+
 from api.schemas.response import APIResponse, success_response
+
 from core.observability import get_logger
 
+
 log = get_logger(__name__)
+
 
 if TYPE_CHECKING:
     from modules.storage.graph_repo import GraphRepository
 
+
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
 
+
 # Whitelist for hop patterns to prevent Cypher injection
+
 _HOPS_PATTERNS = {
     1: "*1..1",
     2: "*1..2",
@@ -42,8 +59,11 @@ class NodeResponse(BaseModel):
     """Graph node response."""
 
     id: str
+
     label: str
+
     type: str
+
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -51,9 +71,13 @@ class EdgeResponse(BaseModel):
     """Graph edge response."""
 
     source: str
+
     target: str
+
     relation_type: str
+
     weight: float | None = None
+
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -61,7 +85,9 @@ class GraphSnapshotResponse(BaseModel):
     """Graph snapshot for visualization."""
 
     nodes: list[NodeResponse]
+
     edges: list[EdgeResponse]
+
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -69,8 +95,11 @@ class SubgraphRequest(BaseModel):
     """Subgraph extraction request."""
 
     center_entity: str
+
     max_hops: int = Field(2, ge=1, le=4)
+
     include_types: list[str] | None = None
+
     exclude_types: list[str] | None = None
 
 
@@ -86,14 +115,21 @@ async def get_graph_visualization(
     """Get a snapshot of the knowledge graph for visualization.
 
     Returns a subset of nodes and edges for initial visualization.
+
     Layout computation should be done on the client side using
+
     libraries like d3-force or cytoscape.js.
 
+
+
     **Migration:**
+
     - `/graph/visualization/snapshot` → `/graph/visualization`
+
     """
     try:
         nodes_data = await graph_repo.get_visualization_nodes(limit)
+
     except Exception as exc:
         return success_response(
             GraphSnapshotResponse(
@@ -107,6 +143,7 @@ async def get_graph_visualization(
         )
 
     nodes = []
+
     node_ids = set()
 
     for node in nodes_data:
@@ -121,6 +158,7 @@ async def get_graph_visualization(
                 },
             )
         )
+
         node_ids.add(node["id"])
 
     if not node_ids:
@@ -129,10 +167,13 @@ async def get_graph_visualization(
         )
 
     edge_limit = limit * 3
+
     try:
         edges_data = await graph_repo.get_visualization_edges(list(node_ids), edge_limit)
+
     except Exception:
         log.warning("visualization_edges_query_failed", exc_info=True)
+
         return success_response(
             GraphSnapshotResponse(
                 nodes=nodes,
@@ -173,16 +214,24 @@ async def get_subgraph(
     """Extract a subgraph around a center entity.
 
     Extracts nodes and edges within N hops of the center entity,
+
     with optional type filtering.
+
+
 
     Args:
         request: Subgraph extraction parameters.
 
+
+
     Returns:
         Subgraph with nodes and edges within N hops.
 
+
+
     """
     # Validate max_hops to prevent Cypher injection
+
     if not 1 <= request.max_hops <= 4:
         raise HTTPException(
             status_code=400,
@@ -190,6 +239,7 @@ async def get_subgraph(
         )
 
     max_hops = int(request.max_hops)
+
     hop_pattern = _HOPS_PATTERNS.get(max_hops, "*1..2")  # Default to 2 hops
 
     try:
@@ -199,11 +249,16 @@ async def get_subgraph(
             include_types=request.include_types,
             exclude_types=request.exclude_types,
         )
+
     except Exception as exc:
         # Distinguish "entity not found" (404) from "query error".
+
         # Previously all exceptions were converted to 404, masking real errors
+
         # like database connectivity issues. Now return empty graph with error
+
         # metadata (consistent with GET /graph/visualization behavior).
+
         return success_response(
             GraphSnapshotResponse(
                 nodes=[],
@@ -219,6 +274,7 @@ async def get_subgraph(
         )
 
     nodes = []
+
     node_ids = set()
 
     for node in nodes_data:
@@ -230,12 +286,16 @@ async def get_subgraph(
                 properties={"description": node.get("description")},
             )
         )
+
         node_ids.add(node["id"])
 
     if not node_ids:
         # Entity exists in graph but has no neighbors within max_hops.
+
         # Return 200 OK with empty graph (consistent with exception path above
+
         # and GET /graph/visualization behavior), rather than 404.
+
         return success_response(
             GraphSnapshotResponse(
                 nodes=[],
@@ -252,8 +312,10 @@ async def get_subgraph(
 
     try:
         edges_data = await graph_repo.get_subgraph_edges(list(node_ids))
+
     except Exception as exc:
         log.error("subgraph_edges_query_failed", error=str(exc), exc_type=type(exc).__name__)
+
         raise HTTPException(status_code=500, detail="Failed to fetch subgraph edges") from exc
 
     edges = [

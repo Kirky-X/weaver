@@ -1,54 +1,99 @@
 #!/usr/bin/env python
+
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Comprehensive API test script covering all endpoints and parameter combinations.
 
+
+
 Starts the Weaver app automatically, polls health endpoint until ready, then runs
+
 parameterized test cases against every API endpoint. Tests cover:
+
   - Normal parameter values
+
   - Boundary values (empty, min, max)
+
   - Invalid parameters (wrong type, missing required)
+
   - Authentication scenarios (no auth, wrong auth, regular key on admin endpoints)
 
+
+
 All requests and responses are recorded to ``temp/api_responses/`` grouped by
+
 endpoint category, plus a ``summary.json`` report.
 
+
+
 Usage:
+
     uv run python tests/scripts/comprehensive_api_test.py
+
     uv run python tests/scripts/comprehensive_api_test.py --no-start
+
     uv run python tests/scripts/comprehensive_api_test.py --url http://localhost:8001
+
 """
 
 from __future__ import annotations
 
+
 import argparse
+
 import asyncio
+
 import json
+
 import os
+
 import signal
+
 import subprocess
+
 import sys
+
 import time
+
 from datetime import UTC, datetime, timedelta
+
 from pathlib import Path
+
 from typing import Any
+
 
 import httpx
 
+
 BASE_URL = "http://127.0.0.1:18012"
+
 DEFAULT_API_KEY = "dev_api_key_1234567890123456789012345678"
+
 DEFAULT_ADMIN_KEY = "dev_admin_key_1234567890123456789012345"
+
 OUTPUT_DIR = Path("temp/api_responses")
+
 STARTUP_TIMEOUT_SECONDS = 120
+
 HEALTH_POLL_INTERVAL_SECONDS = 1.5
+
 REQUEST_TIMEOUT_SECONDS = 60.0
+
 LLM_HEAVY_REQUEST_TIMEOUT_SECONDS = 120.0
+
 APP_STARTUP_GRACE_SECONDS = 2
+
 INTER_TEST_DELAY_SECONDS = 0.5
+
 LLM_HEAVY_INTER_TEST_DELAY_SECONDS = 2.0
 
+
 # Real search queries based on database content (replaces generic "test").
+
 # Populated from PG articles_core.title (2026-07-19 snapshot, 210 articles).
+
 REAL_SEARCH_QUERIES: list[str] = [
     "九识智能",
     "图灵奖",
@@ -62,7 +107,9 @@ REAL_SEARCH_QUERIES: list[str] = [
     "滴滴",
 ]
 
+
 # Real entity names from Neo4j Entity.canonical_name (16 entities).
+
 REAL_ENTITY_NAMES: list[str] = [
     "睡眠专家",
     "共和党",
@@ -73,10 +120,14 @@ REAL_ENTITY_NAMES: list[str] = [
     "美国",
     "埃博拉疫情",
 ]
+
 # Backwards-compat single value used by older test cases.
+
 REAL_ENTITY_NAME = "美国"
 
+
 # Real article UUIDs from PG articles_core (selected from 210 rows).
+
 REAL_ARTICLE_IDS: list[str] = [
     "037699d8-63b7-4f7f-8b2c-0092c0769b2c",  # 九识智能
     "7a0eca51-8065-464b-84ce-03c5f29a1e20",  # 图灵奖得主
@@ -86,10 +137,14 @@ REAL_ARTICLE_IDS: list[str] = [
     "b5b59384-3aad-4a63-b4a2-48f47c3dff43",  # 北京鼓励举报
     "59540dff-5f77-49d9-b654-cc337aff1b5d",  # 魅族售后
 ]
+
 # Backwards-compat single value (populated at runtime if None).
+
 REAL_ARTICLE_ID: str | None = REAL_ARTICLE_IDS[0]
 
+
 # Real community IDs from Neo4j Community nodes (4 communities).
+
 REAL_COMMUNITY_IDS: list[str] = [
     "89300079-474b-40c8-91be-5cd25a77330d",  # 科技巨头与AI治理
     "a6bcd524-f9e2-4690-b20d-acd4d76a39d0",  # 科技与社会热点事件
@@ -97,63 +152,90 @@ REAL_COMMUNITY_IDS: list[str] = [
     "8b493c8e-02b4-4bd2-b534-e5cb1e4f9196",  # Orphan Entities
 ]
 
+
 # Real entity UUIDs from Neo4j (for graph traversal tests).
+
 REAL_ENTITY_IDS: list[str] = [
     "347e626d-9b12-4bd2-8a37-6c0e80a1eccb",  # 睡眠专家
     "61218e57-2650-4db7-b30f-25d9a9786f81",  # 共和党
     "5083ce0c-b264-47ee-bfc8-b2890eb85eb2",  # 美国
 ]
 
+
 # Real source IDs from PG articles_core (4 distinct sources).
+
 REAL_SOURCE_IDS: list[str] = [
     "rss-solidot",
     "newsnow-36kr",
     "newsnow-solidot",
     "newsnow-hupu",
 ]
+
 REAL_SOURCE_ID = REAL_SOURCE_IDS[0]
 
+
 # Abnormal strings for security/robustness testing.
+
 ABNORMAL_SQL_INJECTION = "'; DROP TABLE articles; --"
+
 ABNORMAL_XSS = "<script>alert('xss')</script>"
+
 ABNORMAL_CYPHER_INJECTION = "MATCH (n) DELETE n"
+
 ABNORMAL_LONG_STRING = "a" * 1000
 
+
 PASS = "\u2713"
+
 FAIL = "\u2717"
+
 SKIP = "\u2928"
+
 WARN = "\u26a0"
 
 
 class Colors:
     RED = "\033[0;31m"
+
     GREEN = "\033[0;32m"
+
     YELLOW = "\033[1;33m"
+
     BLUE = "\033[0;34m"
+
     CYAN = "\033[0;36m"
+
     MAGENTA = "\033[0;35m"
+
     NC = "\033[0m"
 
 
 def log_info(msg: str) -> None:
+
     print(f"{Colors.GREEN}[INFO]{Colors.NC} {msg}")
 
 
 def log_warn(msg: str) -> None:
+
     print(f"{Colors.YELLOW}[WARN]{Colors.NC} {msg}")
 
 
 def log_error(msg: str) -> None:
+
     print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
 
 
 def log_step(step: str, msg: str) -> None:
+
     print(f"{Colors.BLUE}[{step}]{Colors.NC} {msg}")
 
 
 def log_group(name: str) -> None:
+
     print(f"\n{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
+
     print(f"{Colors.MAGENTA}  {name}{Colors.NC}")
+
     print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
 
 
@@ -163,9 +245,13 @@ class ResponseRecorder:
     SENSITIVE_HEADERS = {"authorization", "x-api-key", "cookie", "x-csrf-token"}
 
     def __init__(self, output_dir: Path) -> None:
+
         self.output_dir = output_dir
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
         self.records: list[dict[str, Any]] = []
+
         self._counter = 0
 
     def record(
@@ -183,8 +269,11 @@ class ResponseRecorder:
         duration_ms: float,
         validation: dict[str, Any] | None = None,
     ) -> Path:
+
         self._counter += 1
+
         timestamp = datetime.now(UTC).isoformat()
+
         record = {
             "metadata": {
                 "timestamp": timestamp,
@@ -206,36 +295,57 @@ class ResponseRecorder:
                 "body": response_body,
             },
         }
+
         if validation:
             record["validation"] = validation
 
         self.records.append(record)
 
         endpoint_dir = self.output_dir / endpoint_group
+
         endpoint_dir.mkdir(parents=True, exist_ok=True)
+
         safe_name = self._safe_filename(test_case)
+
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
+
         filename = f"{self._counter:03d}_{safe_name}_{ts}.json"
+
         filepath = endpoint_dir / filename
-        filepath.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+
+        filepath.write_text(
+            json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+        )
+
         return filepath
 
     def export_summary(self) -> dict[str, Any]:
+
         by_endpoint: dict[str, int] = {}
+
         by_status: dict[str, int] = {}
+
         by_validation: dict[str, int] = {"pass": 0, "fail": 0, "skip": 0}
+
         total_duration = 0.0
 
         for record in self.records:
             endpoint = record["metadata"]["endpoint"]
+
             status = str(record["response"]["status_code"])
+
             duration = record["metadata"]["duration_ms"]
+
             validation = record.get("validation", {})
+
             v_status = validation.get("status", "skip") if validation else "skip"
 
             by_endpoint[endpoint] = by_endpoint.get(endpoint, 0) + 1
+
             by_status[status] = by_status.get(status, 0) + 1
+
             by_validation[v_status] = by_validation.get(v_status, 0) + 1
+
             total_duration += duration
 
         summary = {
@@ -247,23 +357,33 @@ class ResponseRecorder:
             "total_duration_ms": round(total_duration, 2),
             "avg_duration_ms": round(total_duration / max(len(self.records), 1), 2),
         }
+
         filepath = self.output_dir / "summary.json"
+
         filepath.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+
         return summary
 
     def _sanitize_headers(self, headers: dict[str, str]) -> dict[str, str]:
+
         sanitized: dict[str, str] = {}
+
         for key, value in headers.items():
             if key.lower() in self.SENSITIVE_HEADERS:
                 sanitized[key] = value[:8] + "..." if len(value) > 8 else "***"
+
             else:
                 sanitized[key] = value
+
         return sanitized
 
     @staticmethod
     def _safe_filename(name: str) -> str:
+
         safe = name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+
         safe = "".join(c for c in safe if c.isalnum() or c in "_-")
+
         return safe[:80] if len(safe) > 80 else safe
 
 
@@ -277,73 +397,112 @@ class AppProcessManager:
         admin_key: str,
         auto_start: bool = True,
     ) -> None:
+
         self.base_url = base_url.rstrip("/")
+
         self.api_key = api_key
+
         self.admin_key = admin_key
+
         self.auto_start = auto_start
+
         self._process: subprocess.Popen | None = None
+
         # Extract port from base_url for explicit port setting
+
         # base_url format: http://127.0.0.1:PORT
+
         try:
             self._port = int(self.base_url.rsplit(":", 1)[1])
+
         except (IndexError, ValueError):
             self._port = 8010
 
     async def ensure_running(self) -> bool:
+
         if await self._is_healthy():
             log_info("App already running, reusing existing instance")
+
             return True
 
         if not self.auto_start:
             log_error(f"App not responding at {self.base_url} and --no-start specified")
+
             return False
 
         log_step("STARTUP", "Starting Weaver app via subprocess...")
+
         self._start_process()
+
         return await self._wait_for_health()
 
     async def _is_healthy(self) -> bool:
+
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{self.base_url}/health")
+
                 return resp.status_code == 200
+
         except Exception:
             return False
 
     def _start_process(self) -> None:
+
         env = os.environ.copy()
 
         # Load .env file if it exists (to get WEAVER_LLM__PROVIDERS__AGNES__API_KEY and other secrets)
+
         env_file = Path.cwd() / ".env"
+
         if env_file.exists():
             with env_file.open() as f:
                 for line in f:
                     line = line.strip()
+
                     if not line or line.startswith("#"):
                         continue
+
                     if "=" in line:
                         key, _, value = line.partition("=")
+
                         key = key.strip()
+
                         value = value.strip()
+
                         if key and key not in env:
                             env[key] = value
+
             log_info(f"Loaded .env file: {env_file}")
 
         env["ENVIRONMENT"] = "development"
+
         env["WEAVER_API__API_KEY"] = self.api_key
+
         env["WEAVER_API__ADMIN_API_KEY"] = self.admin_key
+
         env["WEAVER_API__PORT"] = str(self._port)
+
         env["WEAVER_POSTGRES__DSN"] = ""
+
         env["NEO4J_PASSWORD"] = ""
+
         env["WEAVER_API__REQUIRE_AUTH_FOR_METRICS"] = "false"
+
         env["WEAVER_API__PORT_AUTO_DETECT"] = "false"
+
         # Use separate DB paths to avoid file lock conflicts with previous instances
+
         env["WEAVER_DUCKDB__DB_PATH"] = "data/api_test.duckdb"
+
         env["WEAVER_LADYBUG__DB_PATH"] = "data/api_test.lbug"
 
         cmd = ["uv", "run", "python", "-m", "src.main"]
+
         log_info(f"Command: {' '.join(cmd)}")
+
         log_info(f"API key: {self.api_key[:8]}... (len={len(self.api_key)})")
+
         log_info(f"Admin key: {self.admin_key[:8]}... (len={len(self.admin_key)})")
 
         self._process = subprocess.Popen(
@@ -354,82 +513,113 @@ class AppProcessManager:
             cwd=str(Path.cwd()),
             preexec_fn=os.setsid,
         )
+
         log_info(f"App subprocess started (PID={self._process.pid})")
 
     async def _wait_for_health(self) -> bool:
+
         if self._process is None:
             return False
 
         deadline = time.time() + STARTUP_TIMEOUT_SECONDS
+
         last_output_check = 0.0
 
         while time.time() < deadline:
             if self._process.poll() is not None:
                 log_error(f"App process exited early with code {self._process.returncode}")
+
                 self._dump_recent_output()
+
                 return False
 
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.get(f"{self.base_url}/health")
+
                     if resp.status_code == 200:
                         log_info("App is healthy and ready")
+
                         await asyncio.sleep(APP_STARTUP_GRACE_SECONDS)
+
                         return True
+
             except Exception:
                 pass
 
             if time.time() - last_output_check > 10:
                 self._dump_recent_output()
+
                 last_output_check = time.time()
 
             await asyncio.sleep(HEALTH_POLL_INTERVAL_SECONDS)
 
         log_error(f"App did not become healthy within {STARTUP_TIMEOUT_SECONDS}s")
+
         self._dump_recent_output()
+
         return False
 
     def _dump_recent_output(self) -> None:
+
         if self._process is None or self._process.stdout is None:
             return
+
         import select
 
         try:
             while select.select([self._process.stdout], [], [], 0)[0]:
                 line = self._process.stdout.readline()
+
                 if not line:
                     break
+
                 decoded = line.decode("utf-8", errors="replace").rstrip()
+
                 if decoded:
                     print(f"  {Colors.CYAN}[app]{Colors.NC} {decoded}")
+
         except Exception:
             pass
 
     async def stop(self) -> None:
+
         if self._process is None:
             return
+
         log_step("SHUTDOWN", "Stopping Weaver app subprocess...")
+
         try:
             os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
+
         except ProcessLookupError:
             return
+
         except Exception as e:
             log_warn(f"Failed to send SIGTERM: {e}, trying SIGKILL")
+
             try:
                 os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+
             except Exception:
                 pass
+
             return
 
         try:
             self._process.wait(timeout=10)
+
             log_info("App subprocess stopped")
+
         except subprocess.TimeoutExpired:
             log_warn("App did not stop within 10s, sending SIGKILL")
+
             try:
                 os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+
             except Exception:
                 pass
+
         finally:
             self._process = None
 
@@ -444,92 +634,136 @@ class ComprehensiveAPITester:
         admin_key: str,
         recorder: ResponseRecorder,
     ) -> None:
+
         self.base_url = base_url.rstrip("/")
+
         self.api_key = api_key
+
         self.admin_key = admin_key
+
         self.recorder = recorder
+
         self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS)
+
         self._llm_heavy_client = httpx.AsyncClient(timeout=LLM_HEAVY_REQUEST_TIMEOUT_SECONDS)
+
         self._results: list[dict[str, Any]] = []
+
         self._created_source_ids: list[str] = []
+
         self._created_api_key_ids: list[str] = []
+
         self._created_alert_rule_ids: list[str] = []
 
     async def close(self) -> None:
+
         await self._client.aclose()
+
         await self._llm_heavy_client.aclose()
 
     async def _fetch_real_data(self) -> None:
         """Fetch real articles, entities, and source IDs from the API.
 
+
+
         Populates module-level constants (REAL_ARTICLE_ID, REAL_ENTITY_NAME,
+
         REAL_SOURCE_ID, REAL_SEARCH_QUERIES) so that subsequent tests use
+
         database-backed values instead of the generic placeholder "test".
+
         """
+
         global REAL_ARTICLE_ID, REAL_ENTITY_NAME, REAL_SOURCE_ID, REAL_SEARCH_QUERIES
 
         headers = self._headers("normal")
 
         # 1. Fetch real articles — use titles as search queries
+
         try:
             resp = await self._client.get(
                 f"{self.base_url}/api/v1/articles",
                 headers=headers,
                 params={"page": 1, "page_size": 20},
             )
+
             if resp.status_code == 200:
                 body = resp.json()
+
                 data = body.get("data") or {}
+
                 items = data.get("items") or []
+
                 if items:
                     # Use first article ID for article-specific tests
+
                     REAL_ARTICLE_ID = items[0].get("id")
+
                     # Collect real titles/subjects as search queries
+
                     queries: list[str] = []
+
                     for item in items[:5]:
                         title = item.get("title", "")
+
                         if title:
                             queries.append(title[:30])
+
                         for subj in (item.get("subjects") or [])[:3]:
                             if subj and subj not in queries:
                                 queries.append(subj)
+
                     if queries:
                         REAL_SEARCH_QUERIES = queries[:8]
+
         except Exception as exc:
             log_warn(f"Failed to fetch real articles: {exc}")
 
         # 2. Fetch real entities — use first entity name for graph tests
+
         try:
             resp = await self._client.get(
                 f"{self.base_url}/api/v1/graph/entities",
                 headers=headers,
                 params={"limit": 20},
             )
+
             if resp.status_code == 200:
                 body = resp.json()
+
                 data = body.get("data") or []
+
                 if isinstance(data, list) and data:
                     name = data[0].get("canonical_name") or data[0].get("name")
+
                     if name:
                         REAL_ENTITY_NAME = name
+
                         if name not in REAL_SEARCH_QUERIES:
                             REAL_SEARCH_QUERIES.insert(0, name)
+
         except Exception as exc:
             log_warn(f"Failed to fetch real entities: {exc}")
 
         # 3. Fetch real source IDs
+
         try:
             resp = await self._client.get(
                 f"{self.base_url}/api/v1/sources",
                 headers=headers,
             )
+
             if resp.status_code == 200:
                 body = resp.json()
+
                 data = body.get("data") or []
+
                 if isinstance(data, list) and data:
                     src_id = data[0].get("id")
+
                     if src_id:
                         REAL_SOURCE_ID = src_id
+
         except Exception as exc:
             log_warn(f"Failed to fetch real sources: {exc}")
 
@@ -540,13 +774,18 @@ class ComprehensiveAPITester:
         )
 
     def _headers(self, auth_mode: str = "normal") -> dict[str, str]:
+
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
         if auth_mode == "normal":
             headers["X-API-Key"] = self.api_key
+
         elif auth_mode == "admin":
             headers["X-API-Key"] = self.admin_key
+
         elif auth_mode == "wrong":
             headers["X-API-Key"] = "invalid-key-that-should-fail-1234567890"
+
         return headers
 
     async def request(
@@ -563,11 +802,17 @@ class ComprehensiveAPITester:
         allow_server_error: bool = False,
         llm_heavy: bool = False,
     ) -> tuple[int | None, Any, float, dict[str, str]]:
+
         url = f"{self.base_url}{path}"
+
         headers = self._headers(auth_mode)
+
         start = time.monotonic()
+
         status_code: int | None = None
+
         response_body: Any = None
+
         response_headers: dict[str, str] = {}
 
         client = self._llm_heavy_client if llm_heavy else self._client
@@ -575,38 +820,50 @@ class ComprehensiveAPITester:
         try:
             if method == "GET":
                 resp = await client.get(url, headers=headers, params=params)
+
             elif method == "POST":
                 resp = await client.post(url, headers=headers, params=params, json=body)
+
             elif method == "PUT":
                 resp = await client.put(url, headers=headers, params=params, json=body)
+
             elif method == "PATCH":
                 resp = await client.patch(url, headers=headers, params=params, json=body)
+
             elif method == "DELETE":
                 resp = await client.delete(url, headers=headers, params=params)
+
             else:
                 log_error(f"Unsupported method: {method}")
+
                 return None, None, 0.0, {}
 
             duration_ms = (time.monotonic() - start) * 1000
+
             status_code = resp.status_code
+
             response_headers = dict(resp.headers)
 
             try:
                 response_body = resp.json()
+
             except Exception:
                 response_body = {"_raw_text": resp.text[:2000]}
 
             validation = self._validate(status_code, expected_status, allow_server_error)
 
             # 响应体内容校验：检测隐性失败（HTTP 200 但响应体含错误）
+
             if validation.get("status") == "pass" and isinstance(response_body, dict):
                 body_str = str(response_body)
+
                 if (
                     "Search failed" in body_str
                     or "Circuit breaker" in body_str
                     or "All providers failed" in body_str
                 ):
                     validation["warning"] = "response body contains error indicator"
+
                 elif (
                     isinstance(response_body.get("data"), dict)
                     and response_body["data"].get("confidence") == 0.0
@@ -631,15 +888,20 @@ class ComprehensiveAPITester:
             )
 
             self._track_result(endpoint_group, method, path, test_case, status_code, validation)
+
             await asyncio.sleep(
                 LLM_HEAVY_INTER_TEST_DELAY_SECONDS if llm_heavy else INTER_TEST_DELAY_SECONDS
             )
+
             return status_code, response_body, duration_ms, response_headers
 
         except httpx.ConnectError as e:
             duration_ms = (time.monotonic() - start) * 1000
+
             response_body = {"error": f"ConnectError: {e}"}
+
             validation = self._validate(0, expected_status, allow_server_error)
+
             self.recorder.record(
                 endpoint_group=endpoint_group,
                 method=method,
@@ -654,15 +916,22 @@ class ComprehensiveAPITester:
                 duration_ms=duration_ms,
                 validation=validation,
             )
+
             self._track_result(endpoint_group, method, path, test_case, 0, validation)
+
             await asyncio.sleep(
                 LLM_HEAVY_INTER_TEST_DELAY_SECONDS if llm_heavy else INTER_TEST_DELAY_SECONDS
             )
+
             return None, response_body, duration_ms, {}
+
         except Exception as e:
             duration_ms = (time.monotonic() - start) * 1000
+
             response_body = {"error": f"{type(e).__name__}: {e}"}
+
             validation = self._validate(0, expected_status, allow_server_error)
+
             self.recorder.record(
                 endpoint_group=endpoint_group,
                 method=method,
@@ -677,10 +946,13 @@ class ComprehensiveAPITester:
                 duration_ms=duration_ms,
                 validation=validation,
             )
+
             self._track_result(endpoint_group, method, path, test_case, 0, validation)
+
             await asyncio.sleep(
                 LLM_HEAVY_INTER_TEST_DELAY_SECONDS if llm_heavy else INTER_TEST_DELAY_SECONDS
             )
+
             return None, response_body, duration_ms, {}
 
     def _validate(
@@ -689,28 +961,37 @@ class ComprehensiveAPITester:
         expected_status: int | list[int] | None,
         allow_server_error: bool,
     ) -> dict[str, Any]:
+
         # status_code=0 or None means timeout or connection error.
+
         # When allow_server_error=True, treat as pass (graph-heavy endpoints
+
         # may timeout due to LadybugDB single-writer lock contention during
+
         # concurrent pipeline processing).
+
         if status_code is None or status_code == 0:
             if allow_server_error:
                 return {
                     "status": "pass",
                     "reason": "timeout/connection error (allowed)",
                 }
+
             return {"status": "fail", "reason": "no response (timeout/connection error)"}
 
         if expected_status is None:
             if 200 <= status_code < 400:
                 return {"status": "pass", "reason": "success status"}
+
             if 400 <= status_code < 500:
                 return {"status": "pass", "reason": f"client error {status_code}"}
+
             if allow_server_error:
                 return {
                     "status": "pass",
                     "reason": f"server error {status_code} (allowed)",
                 }
+
             return {
                 "status": "fail",
                 "reason": f"unexpected server error {status_code}",
@@ -718,16 +999,19 @@ class ComprehensiveAPITester:
 
         if isinstance(expected_status, int):
             expected = [expected_status]
+
         else:
             expected = list(expected_status)
 
         if status_code in expected:
             return {"status": "pass", "reason": f"matched expected {status_code}"}
+
         if allow_server_error and status_code >= 500:
             return {
                 "status": "pass",
                 "reason": f"server error {status_code} (allowed)",
             }
+
         return {
             "status": "fail",
             "reason": f"expected {expected}, got {status_code}",
@@ -742,12 +1026,19 @@ class ComprehensiveAPITester:
         status_code: int | None,
         validation: dict[str, Any],
     ) -> None:
+
         v_status = validation.get("status", "skip")
+
         mark = PASS if v_status == "pass" else FAIL if v_status == "fail" else SKIP
+
         code_str = f"[{status_code}]" if status_code is not None else "[ERR]"
+
         warning = validation.get("warning")
+
         warn_str = f" {WARN} {warning}" if warning else ""
+
         print(f"  {mark} {method:6} {path:55} {code_str:6} {test_case[:50]}{warn_str}")
+
         self._results.append(
             {
                 "endpoint_group": endpoint_group,
@@ -772,69 +1063,109 @@ class ComprehensiveAPITester:
     ) -> dict[str, Any]:
         """Test SSE streaming endpoint by reading events in real-time.
 
+
+
         Opens a streaming POST to /api/v1/pipeline/url/stream, parses SSE
+
         events (``event: <type>\\ndata: <json>\\n\\n``), and validates the
+
         received event types. Stops after a terminal event (``result`` or
+
         ``error``) or when ``timeout_seconds`` elapses.
 
+
+
         Args:
+
             test_case: Test case name for recording.
+
             url: URL to process via pipeline.
+
             expected_events: Event types that must be present.
+
             forbidden_events: Event types that must NOT appear.
+
             timeout_seconds: Max time to wait for the stream.
+
         """
+
         path = "/api/v1/pipeline/url/stream"
+
         full_url = f"{self.base_url}{path}"
+
         headers = self._headers("normal")
+
         headers["Accept"] = "text/event-stream"
 
         events_received: list[tuple[str, dict]] = []
+
         event_counts: dict[str, int] = {}
+
         error_message: str | None = None
+
         status_code: int | None = None
+
         response_headers: dict[str, str] = {}
+
         timed_out = False
 
         start = time.monotonic()
 
         async def _read_stream() -> None:
+
             nonlocal status_code, response_headers, error_message
+
             async with self._llm_heavy_client.stream(
                 "POST", full_url, headers=headers, json={"url": url}
             ) as resp:
                 status_code = resp.status_code
+
                 response_headers = dict(resp.headers)
+
                 if status_code != 200:
                     await resp.aread()
+
                     return
 
                 event_type: str | None = None
+
                 data_lines: list[str] = []
 
                 async for line in resp.aiter_lines():
                     if line.startswith("event: "):
                         event_type = line[7:].strip()
+
                     elif line.startswith("data: "):
                         data_lines.append(line[6:])
+
                     elif line == "" and event_type is not None:
                         data_str = "\n".join(data_lines)
+
                         try:
                             data = json.loads(data_str) if data_str else {}
+
                         except json.JSONDecodeError:
                             data = {"_raw": data_str}
+
                         events_received.append((event_type, data))
+
                         event_counts[event_type] = event_counts.get(event_type, 0) + 1
+
                         if event_type == "error":
                             error_message = str(data.get("error", "unknown error"))
+
                         is_terminal = event_type in ("result", "error")
+
                         event_type = None
+
                         data_lines = []
+
                         if is_terminal:
                             return
 
         try:
             await asyncio.wait_for(_read_stream(), timeout=timeout_seconds)
+
         except TimeoutError:
             timed_out = True
 
@@ -842,32 +1173,40 @@ class ComprehensiveAPITester:
 
         if status_code is None:
             validation: dict[str, Any] = {"status": "fail", "reason": "no response"}
+
         elif status_code != 200:
             validation = {
                 "status": "pass",
                 "reason": f"non-streaming response {status_code}",
             }
+
         elif not events_received:
             validation = {"status": "fail", "reason": "no events received"}
+
         else:
             validation = {
                 "status": "pass",
                 "reason": f"received {len(events_received)} events: {sorted(event_counts.keys())}",
             }
+
             if expected_events:
                 missing = expected_events - set(event_counts.keys())
+
                 if missing:
                     validation = {
                         "status": "fail",
                         "reason": f"missing expected events: {sorted(missing)}",
                     }
+
             if forbidden_events and validation.get("status") == "pass":
                 found = forbidden_events & set(event_counts.keys())
+
                 if found:
                     validation = {
                         "status": "fail",
                         "reason": f"received forbidden events: {sorted(found)}",
                     }
+
             if timed_out and validation.get("status") == "pass":
                 validation["warning"] = (
                     f"stream timed out after {timeout_seconds}s "
@@ -895,7 +1234,9 @@ class ComprehensiveAPITester:
             duration_ms=duration_ms,
             validation=validation,
         )
+
         self._track_result("pipeline", "POST", path, test_case, status_code, validation)
+
         return {
             "status_code": status_code,
             "events_received": event_counts,
@@ -905,7 +1246,9 @@ class ComprehensiveAPITester:
         }
 
     async def test_system(self) -> None:
+
         log_group("System Endpoints")
+
         await self.request(
             "system",
             "health_default",
@@ -914,6 +1257,7 @@ class ComprehensiveAPITester:
             auth_mode="none",
             expected_status=200,
         )
+
         await self.request(
             "system",
             "status_default",
@@ -922,6 +1266,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 503],
         )
+
         await self.request(
             "system",
             "config_default",
@@ -930,6 +1275,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 401, 403, 503],
         )
+
         await self.request(
             "system",
             "metrics_default",
@@ -938,6 +1284,7 @@ class ComprehensiveAPITester:
             auth_mode="none",
             expected_status=[200, 401, 403],
         )
+
         await self.request(
             "system",
             "metrics_with_auth",
@@ -948,7 +1295,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_sources(self) -> None:
+
         log_group("Sources Endpoints")
+
         await self.request(
             "sources",
             "list_default",
@@ -959,6 +1308,7 @@ class ComprehensiveAPITester:
         )
 
         source_id = f"test-src-{int(time.time())}"
+
         create_body = {
             "id": source_id,
             "name": "Comprehensive Test Source",
@@ -967,6 +1317,7 @@ class ComprehensiveAPITester:
             "enabled": True,
             "interval_minutes": 30,
         }
+
         code, _data, _ms, _h = await self.request(
             "sources",
             "create_normal",
@@ -976,6 +1327,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[201, 200, 409, 422],
         )
+
         if code in [200, 201]:
             self._created_source_ids.append(source_id)
 
@@ -988,6 +1340,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[409, 400, 200, 201, 422],
         )
+
         await self.request(
             "sources",
             "create_missing_fields",
@@ -997,6 +1350,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[400, 422],
         )
+
         await self.request(
             "sources",
             "create_invalid_url",
@@ -1011,6 +1365,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[400, 422, 201, 200],
         )
+
         await self.request(
             "sources",
             "get_by_id",
@@ -1019,6 +1374,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 404],
         )
+
         await self.request(
             "sources",
             "get_nonexistent",
@@ -1027,6 +1383,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=404,
         )
+
         await self.request(
             "sources",
             "update_normal",
@@ -1036,6 +1393,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 404],
         )
+
         await self.request(
             "sources",
             "update_nonexistent",
@@ -1047,7 +1405,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_articles(self) -> None:
+
         log_group("Articles Endpoints")
+
         code, data, _ms, _h = await self.request(
             "articles",
             "list_default",
@@ -1057,6 +1417,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=200,
         )
+
         await self.request(
             "articles",
             "list_page_zero",
@@ -1066,6 +1427,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 422, 400],
         )
+
         await self.request(
             "articles",
             "list_large_page_size",
@@ -1075,6 +1437,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 422, 400],
         )
+
         await self.request(
             "articles",
             "list_negative_page",
@@ -1084,6 +1447,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[422, 400, 200],
         )
+
         await self.request(
             "articles",
             "list_with_source",
@@ -1093,6 +1457,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=200,
         )
+
         await self.request(
             "articles",
             "get_nonexistent",
@@ -1103,9 +1468,12 @@ class ComprehensiveAPITester:
         )
 
         article_id = None
+
         if isinstance(data, dict):
             data_payload = data.get("data") or {}
+
             items = data_payload.get("items") or data.get("items")
+
             if items and isinstance(items, list):
                 article_id = items[0].get("id")
 
@@ -1118,11 +1486,14 @@ class ComprehensiveAPITester:
                 auth_mode="normal",
                 expected_status=[200, 404],
             )
+
         else:
             print(f"  {SKIP} GET    /api/v1/articles/{{id}} (no articles available)")
 
     async def test_pipeline(self) -> None:
+
         log_group("Pipeline Endpoints")
+
         await self.request(
             "pipeline",
             "queue_stats",
@@ -1131,6 +1502,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 503],
         )
+
         await self.request(
             "pipeline",
             "status",
@@ -1139,6 +1511,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 404, 503],
         )
+
         await self.request(
             "pipeline",
             "trigger_normal",
@@ -1148,6 +1521,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[200, 404, 400],
         )
+
         await self.request(
             "pipeline",
             "trigger_missing_source",
@@ -1157,6 +1531,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[400, 422, 200],
         )
+
         await self.request(
             "pipeline",
             "task_nonexistent",
@@ -1165,6 +1540,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[404, 200, 400],
         )
+
         await self.request(
             "pipeline",
             "url_normal",
@@ -1175,6 +1551,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "pipeline",
             "url_invalid",
@@ -1185,6 +1562,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "pipeline",
             "url_missing",
@@ -1195,41 +1573,55 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
+
         sse_result = await self._test_sse_stream(
             "url_stream_valid",
             "https://example.com/stream-test",
             expected_events={"log"},
             timeout_seconds=30.0,
         )
+
         events_recv = sse_result.get("events_received", {})
+
         if "result" in events_recv and "error" not in events_recv:
             log_info("SSE valid URL: log+result received, no error (ideal)")
+
         elif "error" in events_recv:
             log_warn(
                 "SSE valid URL: pipeline returned error event "
                 f"(likely LLM circuit breaker open): {sse_result.get('error_message', '')[:120]}"
             )
+
         if "heartbeat" not in events_recv:
             log_warn(
                 "SSE heartbeat event not emitted (known endpoint race condition "
                 "in _heartbeat generator vs asyncio.wait_for cancellation)"
             )
+
         invalid_result = await self._test_sse_stream(
             "url_stream_invalid",
             "https://nonexistent.invalid/test",
             expected_events={"log", "error"},
             timeout_seconds=30.0,
         )
+
         invalid_err = invalid_result.get("error_message")
+
         if not invalid_err:
             log_warn("SSE invalid URL: error event received but message is empty")
 
     async def test_search(self) -> None:
+
         log_group("Search Endpoints")
+
         # Use real search queries from the database (populated by _fetch_real_data).
+
         # Fallback to first entry if list is shorter than expected.
+
         real_q = REAL_SEARCH_QUERIES[0] if REAL_SEARCH_QUERIES else "车牌跟踪"
+
         real_q_2 = REAL_SEARCH_QUERIES[1] if len(REAL_SEARCH_QUERIES) > 1 else "Steam Machine"
+
         real_q_3 = REAL_SEARCH_QUERIES[2] if len(REAL_SEARCH_QUERIES) > 2 else "Flock"
 
         await self.request(
@@ -1243,6 +1635,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_real_query_2",
@@ -1254,6 +1647,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_real_query_3",
@@ -1265,6 +1659,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_empty_query",
@@ -1275,6 +1670,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 400, 422],
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_large_limit",
@@ -1285,6 +1681,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 400, 422],
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_missing_q",
@@ -1295,7 +1692,9 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 200],
             llm_heavy=True,
         )
+
         # Abnormal string tests — security/robustness
+
         await self.request(
             "search",
             "basic_sql_injection",
@@ -1307,6 +1706,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_xss",
@@ -1318,6 +1718,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "basic_long_string",
@@ -1329,6 +1730,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "drift_normal",
@@ -1340,6 +1742,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "drift_real_query_2",
@@ -1351,6 +1754,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "drift_missing_query",
@@ -1362,6 +1766,7 @@ class ComprehensiveAPITester:
             allow_server_error=False,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "drift_sql_injection",
@@ -1373,6 +1778,7 @@ class ComprehensiveAPITester:
             allow_server_error=False,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "causal_normal",
@@ -1384,6 +1790,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "causal_real_query_2",
@@ -1395,6 +1802,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "causal_invalid_depth",
@@ -1406,6 +1814,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "causal_xss",
@@ -1417,6 +1826,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "temporal_normal",
@@ -1428,6 +1838,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "temporal_real_query_2",
@@ -1439,6 +1850,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "temporal_invalid_range",
@@ -1450,6 +1862,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "search",
             "temporal_cypher_injection",
@@ -1463,7 +1876,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_graph(self) -> None:
+
         log_group("Graph Endpoints")
+
         await self.request(
             "graph",
             "entities_list",
@@ -1474,6 +1889,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500, 503],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "entity_by_name",
@@ -1483,6 +1899,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "entity_nonexistent",
@@ -1492,8 +1909,11 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         # Use real article ID if available, otherwise zero-UUID placeholder
+
         article_uuid = REAL_ARTICLE_ID or "00000000-0000-0000-0000-000000000000"
+
         await self.request(
             "graph",
             "article_graph_real",
@@ -1503,6 +1923,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "article_graph_nonexistent",
@@ -1512,6 +1933,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "relations_normal",
@@ -1522,6 +1944,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "relations_missing_entity",
@@ -1531,6 +1954,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "relations_search_normal",
@@ -1541,6 +1965,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "traverse_normal",
@@ -1551,6 +1976,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph",
             "traverse_missing_entity",
@@ -1561,7 +1987,9 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
+
         # Abnormal string test — Cypher injection attempt
+
         await self.request(
             "graph",
             "traverse_cypher_injection",
@@ -1574,7 +2002,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_graph_metrics(self) -> None:
+
         log_group("Graph Metrics Endpoints")
+
         await self.request(
             "graph_metrics",
             "metrics_default",
@@ -1586,7 +2016,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_graph_visualization(self) -> None:
+
         log_group("Graph Visualization Endpoints")
+
         await self.request(
             "graph_visualization",
             "snapshot_default",
@@ -1596,6 +2028,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500, 503],
             allow_server_error=True,
         )
+
         await self.request(
             "graph_visualization",
             "create_normal",
@@ -1606,6 +2039,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph_visualization",
             "create_missing_entity",
@@ -1616,6 +2050,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "graph_visualization",
             "create_invalid_hops",
@@ -1628,7 +2063,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_communities(self) -> None:
+
         log_group("Communities Endpoints")
+
         await self.request(
             "communities",
             "list_default",
@@ -1638,6 +2075,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 503],
             allow_server_error=True,
         )
+
         await self.request(
             "communities",
             "health",
@@ -1648,6 +2086,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "communities",
             "health_diagnose",
@@ -1658,6 +2097,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "communities",
             "health_repair",
@@ -1669,6 +2109,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "communities",
             "get_nonexistent",
@@ -1678,6 +2119,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "communities",
             "rebuild",
@@ -1689,6 +2131,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "communities",
             "reports_generate",
@@ -1700,6 +2143,7 @@ class ComprehensiveAPITester:
             allow_server_error=True,
             llm_heavy=True,
         )
+
         await self.request(
             "communities",
             "report_regenerate_nonexistent",
@@ -1712,7 +2156,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_admin(self) -> None:
+
         log_group("Admin Endpoints")
+
         await self.request(
             "admin",
             "articles_deduplicate",
@@ -1723,6 +2169,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "api_keys_list",
@@ -1732,6 +2179,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 503],
             allow_server_error=True,
         )
+
         code, data, _ms, _h = await self.request(
             "admin",
             "api_keys_create",
@@ -1746,11 +2194,15 @@ class ComprehensiveAPITester:
             expected_status=[200, 201, 403, 422, 500],
             allow_server_error=True,
         )
+
         if isinstance(data, dict):
             key_payload = data.get("data") or {}
+
             key_id = key_payload.get("id") or data.get("id")
+
             if key_id:
                 self._created_api_key_ids.append(str(key_id))
+
         await self.request(
             "admin",
             "api_keys_create_invalid",
@@ -1761,6 +2213,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "api_keys_delete_nonexistent",
@@ -1770,6 +2223,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "api_keys_rotate_nonexistent",
@@ -1779,6 +2233,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "authorities_list",
@@ -1788,6 +2243,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "authorities_update",
@@ -1798,6 +2254,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 403, 400, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "authorities_refresh",
@@ -1807,6 +2264,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "llm_failures_list",
@@ -1817,6 +2275,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "llm_failures_stats",
@@ -1828,8 +2287,11 @@ class ComprehensiveAPITester:
         )
 
         now = datetime.now(UTC)
+
         from_time = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+
         to_time = now.strftime("%Y-%m-%dT%H:%M:%S")
+
         time_params = {"from": from_time, "to": to_time}
 
         await self.request(
@@ -1842,6 +2304,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         for group in ["summary", "provider", "model", "call_point"]:
             await self.request(
                 "admin",
@@ -1853,6 +2316,7 @@ class ComprehensiveAPITester:
                 expected_status=[200, 403, 500],
                 allow_server_error=True,
             )
+
         await self.request(
             "admin",
             "llm_usage_invalid_group",
@@ -1863,6 +2327,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "memory_diagnostics",
@@ -1872,6 +2337,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 403, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "admin",
             "memory_trigger_consolidation",
@@ -1884,7 +2350,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_monitoring(self) -> None:
+
         log_group("Monitoring Endpoints")
+
         await self.request(
             "monitoring",
             "alert_rules_list",
@@ -1894,6 +2362,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 503],
             allow_server_error=True,
         )
+
         code, data, _ms, _h = await self.request(
             "monitoring",
             "alert_rules_create",
@@ -1910,11 +2379,15 @@ class ComprehensiveAPITester:
             expected_status=[200, 201, 422, 500],
             allow_server_error=True,
         )
+
         if isinstance(data, dict):
             rule_payload = data.get("data") or {}
+
             rule_id = rule_payload.get("id") or data.get("id")
+
             if rule_id:
                 self._created_alert_rule_ids.append(str(rule_id))
+
         await self.request(
             "monitoring",
             "alert_rules_create_invalid",
@@ -1925,6 +2398,7 @@ class ComprehensiveAPITester:
             expected_status=[400, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_rules_get_nonexistent",
@@ -1934,6 +2408,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_rules_patch_nonexistent",
@@ -1944,6 +2419,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_rules_delete_nonexistent",
@@ -1953,6 +2429,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_trigger",
@@ -1963,6 +2440,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 404, 400, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_events_list",
@@ -1973,6 +2451,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "alert_ack_nonexistent",
@@ -1982,6 +2461,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "llm_failures_list",
@@ -1992,6 +2472,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "llm_failures_stats",
@@ -2001,9 +2482,13 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         now = datetime.now(UTC)
+
         from_time = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+
         to_time = now.strftime("%Y-%m-%dT%H:%M:%S")
+
         await self.request(
             "monitoring",
             "llm_usage",
@@ -2014,6 +2499,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "memory_diagnostics",
@@ -2023,6 +2509,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "causal_stats",
@@ -2032,6 +2519,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "graph_metrics",
@@ -2041,6 +2529,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "monitoring",
             "communities_health",
@@ -2052,7 +2541,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_saga(self) -> None:
+
         log_group("Saga Endpoints")
+
         await self.request(
             "saga",
             "get_nonexistent",
@@ -2062,6 +2553,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "saga",
             "compensate_nonexistent",
@@ -2071,6 +2563,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "saga",
             "retry_nonexistent",
@@ -2080,6 +2573,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "saga",
             "by_article_nonexistent",
@@ -2089,6 +2583,7 @@ class ComprehensiveAPITester:
             expected_status=[404, 200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "saga",
             "failed_list",
@@ -2101,10 +2596,15 @@ class ComprehensiveAPITester:
         )
 
     async def test_analytics(self) -> None:
+
         log_group("Analytics Endpoints")
+
         now = datetime.now(UTC)
+
         from_time = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+
         to_time = now.strftime("%Y-%m-%dT%H:%M:%S")
+
         await self.request(
             "analytics",
             "shifts_default",
@@ -2115,6 +2615,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "analytics",
             "shifts_no_time",
@@ -2124,6 +2625,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 400, 422, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "analytics",
             "briefings_default",
@@ -2134,6 +2636,7 @@ class ComprehensiveAPITester:
             expected_status=[200, 500],
             allow_server_error=True,
         )
+
         await self.request(
             "analytics",
             "briefings_large_limit",
@@ -2146,7 +2649,9 @@ class ComprehensiveAPITester:
         )
 
     async def test_auth_scenarios(self) -> None:
+
         log_group("Authentication Scenarios")
+
         await self.request(
             "auth",
             "no_auth_on_sources",
@@ -2155,6 +2660,7 @@ class ComprehensiveAPITester:
             auth_mode="none",
             expected_status=401,
         )
+
         await self.request(
             "auth",
             "wrong_auth_on_sources",
@@ -2163,6 +2669,7 @@ class ComprehensiveAPITester:
             auth_mode="wrong",
             expected_status=403,
         )
+
         await self.request(
             "auth",
             "no_auth_on_admin",
@@ -2171,6 +2678,7 @@ class ComprehensiveAPITester:
             auth_mode="none",
             expected_status=401,
         )
+
         await self.request(
             "auth",
             "wrong_auth_on_admin",
@@ -2179,6 +2687,7 @@ class ComprehensiveAPITester:
             auth_mode="wrong",
             expected_status=403,
         )
+
         await self.request(
             "auth",
             "regular_key_on_admin",
@@ -2187,6 +2696,7 @@ class ComprehensiveAPITester:
             auth_mode="normal",
             expected_status=[403, 200, 503],
         )
+
         await self.request(
             "auth",
             "admin_key_on_regular",
@@ -2195,6 +2705,7 @@ class ComprehensiveAPITester:
             auth_mode="admin",
             expected_status=200,
         )
+
         await self.request(
             "auth",
             "no_auth_on_health",
@@ -2203,6 +2714,7 @@ class ComprehensiveAPITester:
             auth_mode="none",
             expected_status=200,
         )
+
         await self.request(
             "auth",
             "no_auth_on_metrics",
@@ -2213,7 +2725,9 @@ class ComprehensiveAPITester:
         )
 
     async def cleanup(self) -> None:
+
         log_group("Cleanup")
+
         for source_id in self._created_source_ids:
             await self.request(
                 "sources",
@@ -2224,6 +2738,7 @@ class ComprehensiveAPITester:
                 expected_status=[200, 204, 404, 500],
                 allow_server_error=True,
             )
+
         for key_id in self._created_api_key_ids:
             await self.request(
                 "admin",
@@ -2234,6 +2749,7 @@ class ComprehensiveAPITester:
                 expected_status=[200, 204, 404, 500],
                 allow_server_error=True,
             )
+
         for rule_id in self._created_alert_rule_ids:
             await self.request(
                 "monitoring",
@@ -2246,30 +2762,53 @@ class ComprehensiveAPITester:
             )
 
     async def run_all(self) -> dict[str, Any]:
+
         log_group("Running Comprehensive API Tests")
+
         await self._fetch_real_data()
+
         await self.test_system()
+
         await self.test_sources()
+
         await self.test_articles()
+
         await self.test_pipeline()
+
         await self.test_search()
+
         await self.test_graph()
+
         await self.test_graph_metrics()
+
         await self.test_graph_visualization()
+
         await self.test_communities()
+
         await self.test_admin()
+
         await self.test_monitoring()
+
         await self.test_saga()
+
         await self.test_analytics()
+
         await self.test_auth_scenarios()
+
         await self.cleanup()
+
         return self._build_summary()
 
     def _build_summary(self) -> dict[str, Any]:
+
         total = len(self._results)
+
         passed = sum(1 for r in self._results if r["validation"] == "pass")
+
         failed = sum(1 for r in self._results if r["validation"] == "fail")
+
         skipped = sum(1 for r in self._results if r["validation"] == "skip")
+
         return {
             "total": total,
             "passed": passed,
@@ -2278,18 +2817,28 @@ class ComprehensiveAPITester:
         }
 
     def print_summary(self) -> dict[str, Any]:
+
         summary = self._build_summary()
+
         print(f"\n{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
+
         print(f"{Colors.MAGENTA}  Comprehensive API Test Summary{Colors.NC}")
+
         print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
+
         print(f"  Total:   {summary['total']}")
+
         print(f"  {Colors.GREEN}Passed:{Colors.NC}  {summary['passed']}")
+
         print(f"  {Colors.RED}Failed:{Colors.NC}  {summary['failed']}")
+
         print(f"  {Colors.YELLOW}Skipped:{Colors.NC} {summary['skipped']}")
+
         print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
 
         if summary["failed"] > 0:
             print(f"\n{Colors.RED}Failed tests:{Colors.NC}")
+
             for r in self._results:
                 if r["validation"] == "fail":
                     print(
@@ -2298,54 +2847,79 @@ class ComprehensiveAPITester:
                     )
 
         groups: dict[str, dict[str, int]] = {}
+
         for r in self._results:
             g = r["endpoint_group"]
+
             if g not in groups:
                 groups[g] = {"pass": 0, "fail": 0, "skip": 0}
+
             groups[g][r["validation"]] = groups[g].get(r["validation"], 0) + 1
 
         print(f"\n{Colors.CYAN}By endpoint group:{Colors.NC}")
+
         for g in sorted(groups.keys()):
             counts = groups[g]
+
             total_g = counts["pass"] + counts["fail"] + counts["skip"]
+
             print(
                 f"  {g:25} {total_g:4} | "
                 f"{Colors.GREEN}P:{counts['pass']:4}{Colors.NC} "
                 f"{Colors.RED}F:{counts['fail']:4}{Colors.NC} "
                 f"{Colors.YELLOW}S:{counts['skip']:4}{Colors.NC}"
             )
+
         return summary
 
 
 async def run_tests(args: argparse.Namespace) -> int:
+
     print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
+
     print(f"{Colors.MAGENTA}  Weaver Comprehensive API Test Suite{Colors.NC}")
+
     print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
+
     print(f"  Base URL:    {args.url}")
+
     print(f"  Output dir:  {args.output_dir}")
+
     print(f"  Auto start:  {not args.no_start}")
+
     print(f"  API key:     {(args.api_key or DEFAULT_API_KEY)[:8]}...")
+
     print(f"  Admin key:   {(args.admin_key or DEFAULT_ADMIN_KEY)[:8]}...")
+
     print(f"{Colors.MAGENTA}{'=' * 70}{Colors.NC}")
 
     api_key = args.api_key or os.getenv("WEAVER_API__API_KEY", DEFAULT_API_KEY)
+
     admin_key = args.admin_key or os.getenv("WEAVER_API__ADMIN_API_KEY", DEFAULT_ADMIN_KEY)
 
     # Load API keys from .env file if not in environment
+
     if not args.api_key:
         env_file = Path.cwd() / ".env"
+
         if env_file.exists():
             with env_file.open() as f:
                 for line in f:
                     line = line.strip()
+
                     if not line or line.startswith("#"):
                         continue
+
                     if "=" in line:
                         key, _, value = line.partition("=")
+
                         key = key.strip()
+
                         value = value.strip()
+
                         if key == "WEAVER_API__API_KEY" and api_key == DEFAULT_API_KEY:
                             api_key = value
+
                         elif key == "WEAVER_API__ADMIN_API_KEY" and admin_key == DEFAULT_ADMIN_KEY:
                             admin_key = value
 
@@ -2353,13 +2927,16 @@ async def run_tests(args: argparse.Namespace) -> int:
         log_warn(f"API key is short ({len(api_key)} chars, min 32). Auth tests may fail.")
 
     output_dir = Path(args.output_dir)
+
     if output_dir.exists() and args.clean:
         import shutil
 
         shutil.rmtree(output_dir)
+
         log_info(f"Cleaned output directory: {output_dir}")
 
     recorder = ResponseRecorder(output_dir)
+
     app_manager = AppProcessManager(
         base_url=args.url,
         api_key=api_key,
@@ -2376,94 +2953,134 @@ async def run_tests(args: argparse.Namespace) -> int:
 
     try:
         log_step("1/4", "Ensuring app is running...")
+
         if not await app_manager.ensure_running():
             log_error("Failed to start or connect to app")
+
             return 1
 
         log_step("2/4", "Running comprehensive API tests...")
+
         await tester.run_all()
 
         log_step("3/4", "Exporting response recordings and summary...")
+
         recorder_summary = recorder.export_summary()
+
         test_summary = tester.print_summary()
 
         log_info(f"Recorded {recorder_summary['total_calls']} API calls")
+
         log_info(f"Output: {output_dir.resolve()}")
+
         log_info(f"Summary: {output_dir / 'summary.json'}")
 
         log_step("4/4", "Done.")
+
         return 0 if test_summary["failed"] == 0 else 1
 
     except KeyboardInterrupt:
         log_warn("Test interrupted by user")
+
         return 130
+
     except Exception as e:
         log_error(f"Unexpected error: {e}")
+
         import traceback
 
         traceback.print_exc()
+
         return 1
+
     finally:
         await tester.close()
+
         await app_manager.stop()
 
 
 def parse_args() -> argparse.Namespace:
+
     parser = argparse.ArgumentParser(
         description="Comprehensive API test script for all Weaver endpoints.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+
 Examples:
+
   # Default: auto-start app and run all tests
+
   uv run python tests/scripts/comprehensive_api_test.py
 
+
+
   # Connect to already-running app
+
   uv run python tests/scripts/comprehensive_api_test.py --no-start
 
+
+
   # Custom URL and keys
+
   uv run python tests/scripts/comprehensive_api_test.py \\
+
       --url http://localhost:8001 \\
+
       --api-key my-key-32-chars-minimum-length! \\
+
       --admin-key my-admin-key-32-chars-min-len!
 
+
+
   # Clean output dir before running
+
   uv run python tests/scripts/comprehensive_api_test.py --clean
+
         """,
     )
+
     parser.add_argument(
         "--url",
         default=BASE_URL,
         help=f"API base URL (default: {BASE_URL})",
     )
+
     parser.add_argument(
         "--api-key",
         default=None,
         help="API key for regular endpoints (default: env WEAVER_API__API_KEY or built-in)",
     )
+
     parser.add_argument(
         "--admin-key",
         default=None,
         help="Admin API key for admin endpoints (default: env WEAVER_API__ADMIN_API_KEY or built-in)",
     )
+
     parser.add_argument(
         "--output-dir",
         default=str(OUTPUT_DIR),
         help=f"Output directory for response recordings (default: {OUTPUT_DIR})",
     )
+
     parser.add_argument(
         "--no-start",
         action="store_true",
         help="Do not auto-start the app; connect to an already-running instance",
     )
+
     parser.add_argument(
         "--clean",
         action="store_true",
         help="Remove output directory before running",
     )
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+
     exit_code = asyncio.run(run_tests(args))
+
     sys.exit(exit_code)

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for Protocol → implementation binding registry."""
 
 from unittest.mock import MagicMock, patch

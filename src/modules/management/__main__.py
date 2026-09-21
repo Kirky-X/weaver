@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entry point for `python -m src.modules.management` CLI.
 
 Delegates to the appropriate command module based on sys.argv.

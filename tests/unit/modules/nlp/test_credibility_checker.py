@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RuleBasedCredibilityCheckerNode - updated for new 3-signal algorithm."""
 
 from __future__ import annotations
@@ -444,9 +444,7 @@ class TestCredibilityCheckerNodeErrorHandling:
         self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         """Test that credibility checker handles source repo errors."""
-        mock_source_auth_repo.get = AsyncMock(
-            side_effect=Exception("Database connection failed")
-        )
+        mock_source_auth_repo.get = AsyncMock(side_effect=Exception("Database connection failed"))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(

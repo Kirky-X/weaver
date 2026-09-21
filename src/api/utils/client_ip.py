@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Proxy-aware client IP resolution.
 
 Default posture is zero-trust: ``X-Forwarded-For`` is honored only when the

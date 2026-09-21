@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Ownership check tests for ApiKeyManager.revoke_key / rotate_key.
 
 Verifies fix (CWE-639 IDOR): any admin could previously revoke

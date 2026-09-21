@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Phase 3 hybrid integration tests: PostgreSQL + LadybugDB.
 
 Validates that Weaver works correctly when PG is the relational primary

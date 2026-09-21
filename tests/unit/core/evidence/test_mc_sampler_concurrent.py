@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """REVISED (llm-token-optimization): 区域评分已批量化.
 
 原 测试断言 asyncio.gather 并发评分（每区域一次调用）；

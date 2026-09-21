@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for sentiment trend API endpoint.
 
 Covers:
@@ -206,10 +206,10 @@ class TestGetSentimentTrend:
     def test_get_sentiment_trend_missing_entity_returns_400(self) -> None:
         """Missing entity param → HTTP 400 (Constraints: at least one filter required).
 
-Spec says entity is optional, but Constraints say
-        "entity_name 和 community_id 不能同时为 None". The endpoint only
-        exposes entity (no community_id param), so missing entity means no
-        filter → HTTP 400 (user task spec: "entity 必传（HTTP 400 缺失时）").
+        Spec says entity is optional, but Constraints say
+                "entity_name 和 community_id 不能同时为 None". The endpoint only
+                exposes entity (no community_id param), so missing entity means no
+                filter → HTTP 400 (user task spec: "entity 必传（HTTP 400 缺失时）").
         """
         mock_service = MagicMock()
         mock_service.analyze_trend = AsyncMock(return_value=_make_trend_result())

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Short-TTL response cache for hot search queries.
 
 Caches the ``SearchResponse`` payload of successful unified searches keyed

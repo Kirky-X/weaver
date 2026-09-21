@@ -1,15 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Alert SQLAlchemy ORM models.
 
+
+
 Defines alert rules for entity monitoring and the events triggered by
+
 those rules.
+
 """
 
 from __future__ import annotations
 
+
 from datetime import UTC, datetime
+
 from typing import Any
+
 
 from sqlalchemy import (
     BigInteger,
@@ -23,44 +32,61 @@ from sqlalchemy import (
     String,
     text,
 )
+
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 
 from core.db.models.base import Base, JSONCompatible
 
 
 class AlertRule(Base):
-    """Alert rules for entity monitoring.
-    """
+    """Alert rules for entity monitoring."""
 
     __tablename__ = "alert_rules"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
     entity_name: Mapped[str] = mapped_column(String(200), nullable=False)
+
     metric: Mapped[str] = mapped_column(String(50), nullable=False)
+
     operator: Mapped[str] = mapped_column(String(20), nullable=False)
+
     threshold: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+
     channel: Mapped[str] = mapped_column(
         String(50), nullable=False, default="webhook", server_default=text("'webhook'")
     )
+
     cooldown_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60, server_default=text("60")
     )
+
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+
     # Trigger type distinguishes traditional threshold rules from new
+
     # trend-based rules (added by migration 28). Default 'threshold'
+
     # preserves backward compatibility — existing rules continue to use
+
     # metric/operator/threshold fields. Trend rules use
+
     # trend_window_days + trend_threshold instead.
+
     trigger_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="threshold",
         server_default=text("'threshold'"),
     )
+
     trend_window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     trend_threshold: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -69,6 +95,7 @@ class AlertRule(Base):
     )
 
     # Relationships
+
     events: Mapped[list[AlertEvent]] = relationship(
         back_populates="rule", cascade="all, delete-orphan"
     )
@@ -99,30 +126,41 @@ class AlertRule(Base):
 
 
 class AlertEvent(Base):
-    """Alert events triggered by rules.
-    """
+    """Alert events triggered by rules."""
 
     __tablename__ = "alert_events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
     rule_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("alert_rules.id"), nullable=False)
+
     entity_name: Mapped[str] = mapped_column(String(200), nullable=False)
+
     metric_value: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+
     triggered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
+
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+
     # payload_hash: sha256 hex digest of normalized alert payload (JSON
+
     # keys sorted ascending, ensure_ascii=False). Used by TrendAlertEvaluator
+
     # for 24h dedup. Nullable for backward compat
+
     # with pre-migration rows (migration 33).
+
     payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Relationships
+
     rule: Mapped[AlertRule] = relationship(back_populates="events")
 
     __table_args__ = (

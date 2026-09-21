@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED: Tests for core.utils.article_enrichment.enrich_articles_with_titles.
 
 After the Article node slim-down, graph-query callers

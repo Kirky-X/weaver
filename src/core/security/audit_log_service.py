@@ -1,26 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Audit log service for writing security events to database.
-"""
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
+"""Audit log service for writing security events to database."""
 
 from __future__ import annotations
 
+
 from typing import Any
+
 
 from sqlalchemy import select
 
+
 from core.db import AuditLog
+
 from core.observability import get_logger
+
 from core.protocols import RelationalPool
+
 
 log = get_logger(__name__)
 
 
 class AuditLogService:
-    """Service for persisting audit log events to the database.
-    """
+    """Service for persisting audit log events to the database."""
 
     def __init__(self, pool: RelationalPool) -> None:
+
         self._pool = pool
 
     async def log_event(
@@ -35,15 +42,26 @@ class AuditLogService:
     ) -> None:
         """Write an audit event to the database.
 
+
+
         Args:
+
             key_id: API key identifier of the caller.
+
             action: Action performed (e.g., 'source.create', 'pipeline.trigger').
+
             target_type: Type of resource affected.
+
             target_id: ID of the resource affected.
+
             detail: Additional details as JSONB.
+
             client_ip: Client IP address.
+
             user_agent: Client user agent string.
+
         """
+
         try:
             entry = AuditLog(
                 key_id=key_id,
@@ -54,11 +72,15 @@ class AuditLogService:
                 client_ip=client_ip,
                 user_agent=user_agent,
             )
+
             async with self._pool.session() as session:
                 session.add(entry)
+
                 await session.commit()
+
         except Exception as exc:
             # Audit logging must never break the request
+
             log.error(
                 "audit_log_write_failed",
                 error=str(exc),
@@ -77,17 +99,30 @@ class AuditLogService:
     ) -> list[dict[str, Any]]:
         """Query audit log events.
 
+
+
         Args:
+
             key_id: Filter by API key ID.
+
             action: Filter by action.
+
             target_type: Filter by target type.
+
             limit: Maximum number of events to return (clamped to 1-10_000).
+
             include_pii: Include PII fields (client_ip, user_agent). Only
+
                 enable for admin-privileged callers.
 
+
+
         Returns:
+
             List of audit event dicts.
+
         """
+
         limit = min(max(int(limit), 1), 10_000)
 
         async with self._pool.session() as session:
@@ -95,12 +130,15 @@ class AuditLogService:
 
             if key_id:
                 query = query.where(AuditLog.key_id == key_id)
+
             if action:
                 query = query.where(AuditLog.action == action)
+
             if target_type:
                 query = query.where(AuditLog.target_type == target_type)
 
             result = await session.execute(query)
+
             events = result.scalars().all()
 
             return [

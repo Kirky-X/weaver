@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 #
 # 实体类型词表：与 EntityType 相关的归一化/映射数据（集中一个文件便于运维）。
 #

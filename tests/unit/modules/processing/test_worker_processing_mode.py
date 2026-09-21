@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for PipelineWorker processing_mode wiring — dead code fix.
 
 ``process_batch_fast`` exists in Pipeline but is never called by

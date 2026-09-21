@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for Pipeline Phase 3 independent stage skipping — config-driven.
 
 Phase 3 has 5 independent stages (no downstream dependencies) that should

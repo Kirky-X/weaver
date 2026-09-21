@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DuckDB connection pool implementing RelationalPool protocol.
 
 DuckDB doesn't support native async, so this implementation wraps a sync

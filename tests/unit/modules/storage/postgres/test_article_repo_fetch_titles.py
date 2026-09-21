@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED: ArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
 
 When the graph DB Article node is slimmed down to only ``id`` + ``pg_id``, any caller that previously read ``title`` /

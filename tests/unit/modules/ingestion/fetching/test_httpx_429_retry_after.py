@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for HttpxFetcher 429/503 Retry-After handling
 
 When a server returns 429 (Too Many Requests) or 503 (Service

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for core.db.initializer module."""
@@ -477,9 +477,7 @@ class TestInitializeNeo4j:
         from core.db.initializer import initialize_neo4j
 
         mock_pool = AsyncMock()
-        mock_pool.execute_query = AsyncMock(
-            return_value=[{"name": "entity_name_type_unique"}]
-        )
+        mock_pool.execute_query = AsyncMock(return_value=[{"name": "entity_name_type_unique"}])
 
         result = await initialize_neo4j(mock_pool, create_constraints=False)
 

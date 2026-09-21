@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for parse_bing_html (web search HTML parser).
 
 TDD Red phase: tests fail until ``parse_bing_html`` is implemented in

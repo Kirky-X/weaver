@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for HttpxFetcher.fetch(pre_validated=...) — dead code fix.
 
 When the caller (SmartFetcher) has already validated the URL upstream,

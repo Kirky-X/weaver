@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared ingestion domain models (NewsItem / RawArticle).
 
 Owned by ``core.types`` since these dataclasses flow through

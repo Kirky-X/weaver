@@ -1,21 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """LLM monitoring endpoints for failure tracking and usage statistics."""
 
 from __future__ import annotations
 
+
 from datetime import datetime
+
 from typing import TYPE_CHECKING
 
+
 from fastapi import APIRouter, Depends, Query
+
 from pydantic import BaseModel
 
+
 from api.dependencies import get_llm_failure_repo, get_llm_usage_repo
+
 from api.middleware.auth import verify_admin_api_key
+
 from api.schemas.response import APIResponse, success_response
+
 
 if TYPE_CHECKING:
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
+
 
 router = APIRouter(prefix="/monitoring/llm", tags=["monitoring", "llm"])
 
@@ -27,14 +38,23 @@ class LLMFailureResponse(BaseModel):
     """Response model for LLM failure record."""
 
     id: int
+
     article_id: str | None
+
     task_id: str | None
+
     call_point: str
+
     provider: str
+
     error_type: str
+
     error_message: str | None
+
     attempt: int
+
     fallback_tried: bool
+
     created_at: str | None
 
 
@@ -42,8 +62,11 @@ class LLMFailureStatsResponse(BaseModel):
     """Response model for LLM failure statistics."""
 
     total_failures: int
+
     by_call_point: dict[str, int]
+
     by_status: dict[str, int]
+
     last_failure_at: str | None = None
 
 
@@ -63,21 +86,38 @@ async def list_llm_failures(
 ) -> APIResponse[list[LLMFailureResponse]]:
     """Get LLM failure records with optional filtering.
 
+
+
     Query LLM failure records for monitoring and debugging purposes.
+
     Supports filtering by call point, error_type, and time range.
 
+
+
     Args:
+
         call_point: Filter by call point (e.g., 'classifier', 'analyzer', 'entity_extractor').
+
         status: Filter by error_type.
+
         since: ISO timestamp string, only return records after this time.
+
         limit: Maximum number of records to return (default 50, max 200).
+
         _: Verified admin API key.
+
         repo: LLM failure repository.
 
+
+
     Returns:
+
         List of LLM failure records ordered by creation time (newest first).
 
+
+
     """
+
     failures = await repo.query(
         call_point=call_point,
         status=status,
@@ -114,17 +154,30 @@ async def get_llm_failure_stats(
 ) -> APIResponse[LLMFailureStatsResponse]:
     """Get LLM failure statistics summary.
 
+
+
     Returns aggregate statistics of LLM failures grouped by call point and error type.
 
+
+
     Args:
+
         since: ISO timestamp string, only count records after this time.
+
         _: Verified admin API key.
+
         repo: LLM failure repository.
 
+
+
     Returns:
+
         Statistics summary including total count and breakdowns.
 
+
+
     """
+
     stats = await repo.get_stats(since=since)
 
     return success_response(
@@ -167,8 +220,12 @@ async def get_llm_usage_unified(
 ) -> APIResponse[dict]:
     """Unified LLM usage statistics endpoint.
 
+
+
     Supports different grouping dimensions via the `group_by` parameter.
+
     """
+
     from api.endpoints._llm_usage_shared import query_llm_usage
 
     return await query_llm_usage(

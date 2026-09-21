@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for Crawler + RetryQueue wiring — dead code fix.
 
 RetryQueue was implemented but never wired into Crawler, so failed

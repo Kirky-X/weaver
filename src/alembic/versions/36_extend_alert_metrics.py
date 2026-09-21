@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Extend alert_rules CHECK constraint to include saga metrics.
 
 Revision ID: 36_extend_alert_metrics

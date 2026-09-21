@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Architectural guard: no runtime import cycles among modules/*.
 
 Cross-module imports are allowed (module boundaries are enforced by the
