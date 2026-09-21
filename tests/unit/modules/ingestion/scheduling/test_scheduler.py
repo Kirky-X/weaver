@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SourceScheduler."""
 
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -306,3 +307,79 @@ class TestCrawlSourcePersistsValidators:
         await scheduler._crawl_source("src-1")
 
         assert repo.update_crawl_state.call_args.kwargs["etag"] == '"etag-fresh"'
+
+
+class TestCrawlSourceReliability:
+    """Timeout wrapper, failure backoff, and disable observability."""
+
+    def _scheduler_with_parser(self, parse_behavior):
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        config = SourceConfig(
+            id="src-1", name="S", url="https://example.com/feed", source_type="rss"
+        )
+        registry = SourceRegistry(fetcher=MagicMock())
+        registry.add_source(config)
+        parser = MagicMock()
+        parser.parse = AsyncMock(side_effect=parse_behavior)
+        registry.get_parser = MagicMock(return_value=parser)
+        return SourceScheduler(
+            registry=registry, on_items_discovered=AsyncMock(), repo=None
+        ), config
+
+    @pytest.mark.asyncio
+    async def test_hanging_parse_is_cut_off_by_timeout(self):
+        """A parser that never returns is cut off at the crawl timeout."""
+
+        async def hang(source, force=False):
+            await asyncio.sleep(3600)
+
+        scheduler, _ = self._scheduler_with_parser(hang)
+        scheduler._crawl_timeout = 0.05
+
+        await asyncio.wait_for(scheduler._crawl_source("src-1"), timeout=5)
+
+        # Failure was recorded (the timeout counts as a crawl failure).
+        assert scheduler._consecutive_failures.get("src-1") == 1
+
+    @pytest.mark.asyncio
+    async def test_repeated_failures_push_next_run_back(self):
+        """Consecutive failures back off the source's next scheduled run."""
+        from datetime import datetime as dt
+
+        def boom(source, force=False):
+            raise RuntimeError("boom")
+
+        scheduler, config = self._scheduler_with_parser(boom)
+        now = dt.now(tz=UTC)
+        pushed = now + timedelta(minutes=60)
+        scheduler._scheduler.modify_job = MagicMock()
+        scheduler._next_backoff_time = MagicMock(return_value=pushed)
+
+        await scheduler._crawl_source("src-1")
+        await scheduler._crawl_source("src-1")
+
+        # Second failure must have asked the scheduler to delay the job.
+        scheduler._scheduler.modify_job.assert_called_once()
+        kwargs = scheduler._scheduler.modify_job.call_args.kwargs
+        assert kwargs["next_run_time"] == pushed
+
+    @pytest.mark.asyncio
+    async def test_auto_disable_increments_metric(self):
+        """Auto-disable is observable, not silent."""
+        from core.observability.metrics import MetricsCollector
+
+        async def boom(source, force=False):
+            raise RuntimeError("boom")
+
+        scheduler, config = self._scheduler_with_parser(boom)
+        scheduler._max_consecutive_failures = 1
+
+        counter = MetricsCollector.source_auto_disabled_total.labels(source_id="src-1")
+        before = counter._value.get()
+        await scheduler._crawl_source("src-1")
+
+        after = counter._value.get()
+        assert after == before + 1

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Prometheus metrics definitions for the weaver system."""
 
 from __future__ import annotations
@@ -103,6 +103,13 @@ class MetricsCollector:
         "credibility_score_distribution",
         "可信度分布",
         buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    )
+
+    # Ingestion scheduler metrics
+    source_auto_disabled_total = Counter(
+        "source_auto_disabled_total",
+        "连续失败后被自动禁用的资讯源数量",
+        ["source_id"],
     )
 
     # Fetcher metrics
