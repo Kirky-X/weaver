@@ -99,7 +99,12 @@ class TestManifestDocumentation:
     """AGENTS.md documents the manifest; its counts must not drift."""
 
     def test_agents_md_counts_match_manifest(self):
-        agents_md = Path(__file__).parents[4].joinpath("AGENTS.md").read_text(encoding="utf-8")
+        # AGENTS.md 被 .gitignore 排除（不入库），CI checkout 后不存在；
+        # 该守护仅在有文件的本地环境生效。
+        agents_md_path = Path(__file__).parents[4].joinpath("AGENTS.md")
+        if not agents_md_path.exists():
+            pytest.skip("AGENTS.md not present (gitignored, local-only)")
+        agents_md = agents_md_path.read_text(encoding="utf-8")
         html_count = sum(1 for e in INDEX_SOURCES if e["source_type"] == "html")
         json_count = len(INDEX_SOURCES) - html_count
         assert (

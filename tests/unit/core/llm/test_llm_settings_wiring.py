@@ -73,7 +73,5 @@ class TestRequestDelayWiring:
         assert provider.request_delay_max == 1.5
 
     def test_provider_request_delay_absent_is_none(self, tmp_path: Path) -> None:
-        settings = LLMSettings(
-            toml_path=tmp_path / _ABSENT, providers={"p": {"type": "openai"}}
-        )
+        settings = LLMSettings(toml_path=tmp_path / _ABSENT, providers={"p": {"type": "openai"}})
         assert settings.providers["p"].request_delay_enabled is None

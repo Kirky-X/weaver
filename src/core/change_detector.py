@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Kirky.X
-"""Change detection for article incremental updates.
-"""
+"""Change detection for article incremental updates."""
 
 from __future__ import annotations
 

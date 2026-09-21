@@ -63,7 +63,9 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
             max_relationships=max_relationships,
             max_hops=max_hops,
         )
-        self._query_builder: GraphQueryBuilder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
+        self._query_builder: GraphQueryBuilder = create_graph_query_builder(
+            GraphDatabaseType.LADYBUG
+        )
 
     def _should_validate_entity_names(self) -> bool:
         """LadybugDB validates entity names because data model may differ."""
