@@ -443,9 +443,7 @@ class TestSmartRouterCostInjection:
             "chat.agnes.agnes-3.0-flash": CostRate(input=0.0, output=0.0),
         }
 
-        router = SmartRouter(
-            settings=settings, experience=MagicMock(), circuit_breakers={}
-        )
+        router = SmartRouter(settings=settings, experience=MagicMock(), circuit_breakers={})
 
         assert router._selector.cost_per_model == {
             "chat.openai.gpt-4o": 0.0125,
@@ -463,8 +461,6 @@ class TestSmartRouterCostInjection:
         settings.call_points = {}
         settings.cost = object()  # no .rates dict
 
-        router = SmartRouter(
-            settings=settings, experience=MagicMock(), circuit_breakers={}
-        )
+        router = SmartRouter(settings=settings, experience=MagicMock(), circuit_breakers={})
 
         assert router._selector.cost_per_model == {}

@@ -97,8 +97,7 @@ def _prehash_key(key_value: str) -> bytes:
 
 
 class ApiKeyManager:
-    """API Key lifecycle management with bcrypt hashing and ORM.
-    """
+    """API Key lifecycle management with bcrypt hashing and ORM."""
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
