@@ -134,6 +134,10 @@ class HTMLIndexParser(BaseSourceParser):
     URLs are handed to ``Crawler``, which extracts the real article body via
     trafilatura later in the pipeline.
 
+    Conditional requests: stored ETag/Last-Modified validators accompany the
+    fetch (mirroring ``RSSParser``) so an unmodified multi-MB index page
+    costs a 304 instead of a full re-download.
+
     Args:
         fetcher: BaseFetcher instance for page fetching.
     """
@@ -145,21 +149,43 @@ class HTMLIndexParser(BaseSourceParser):
         """Fetch an HTML index page and return the article links it contains.
 
         Args:
-            config: Source configuration with the index page URL.
-            force: Unused — HTML index pages carry no incremental state.
+            config: Source configuration with the index page URL and any
+                stored ETag/Last-Modified validators.
+            force: Re-fetch unconditionally, ignoring stored validators.
 
         Returns:
             List of NewsItem for discovered links (bodies unfetched).
         """
+        headers: dict[str, str] = {}
+        if not force:
+            if config.etag:
+                headers["If-None-Match"] = config.etag
+            if config.last_modified:
+                headers["If-Modified-Since"] = config.last_modified
+
         try:
-            status_code, content, _ = await self._fetcher.fetch(config.url)
+            status_code, content, response_headers = await self._fetcher.fetch(
+                config.url, headers=headers if headers else None
+            )
         except Exception as exc:
             log.warning("html_index_fetch_failed", url=config.url, error=str(exc))
+            return []
+
+        if status_code == 304 and not force:
+            log.debug("html_index_not_modified", url=config.url)
             return []
 
         if status_code != 200:
             log.warning("html_index_unexpected_status", url=config.url, status=status_code)
             return []
+
+        # Only refresh the stored validators when the server actually sent
+        # them — an absent header must not wipe a previously stored one
+        # (same contract as RSSParser).
+        if "ETag" in response_headers:
+            config.etag = response_headers["ETag"]
+        if "Last-Modified" in response_headers:
+            config.last_modified = response_headers["Last-Modified"]
 
         if not content:
             log.warning("html_index_empty_content", url=config.url)

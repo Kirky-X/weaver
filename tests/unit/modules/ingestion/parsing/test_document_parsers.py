@@ -185,6 +185,94 @@ class TestHTMLIndexParser:
         assert await parser.parse(_config("https://example.com/index")) == []
 
 
+class TestHTMLIndexParserConditionalFetch:
+    """HTML index pages honour ETag/Last-Modified like RSS feeds.
+
+    CNN/Guardian index pages run 1.5-4.5 MB; without conditional requests
+    every 30-minute poll re-downloads the full page.
+    """
+
+    def _config_with_validators(self) -> SourceConfig:
+        return SourceConfig(
+            id="s1",
+            name="S",
+            url="https://example.com/index",
+            source_type="html",
+            etag='"abc123"',
+            last_modified="Wed, 01 Jan 2026 00:00:00 GMT",
+        )
+
+    @pytest.mark.asyncio
+    async def test_stored_validators_are_sent(self):
+        """If-None-Match/If-Modified-Since accompany the request."""
+        fetcher = _fetcher(
+            200,
+            "<html><body><a href='https://example.com/news/articles/x0000001'>A</a></body></html>",
+        )
+        parser = HTMLIndexParser(fetcher)
+
+        await parser.parse(self._config_with_validators())
+
+        kwargs = fetcher.fetch.call_args.kwargs
+        headers = kwargs["headers"]
+        assert headers["If-None-Match"] == '"abc123"'
+        assert headers["If-Modified-Since"] == "Wed, 01 Jan 2026 00:00:00 GMT"
+
+    @pytest.mark.asyncio
+    async def test_304_returns_empty(self):
+        """A 304 Not Modified yields no items instead of failing."""
+        parser = HTMLIndexParser(_fetcher(304, ""))
+
+        assert await parser.parse(self._config_with_validators()) == []
+
+    @pytest.mark.asyncio
+    async def test_force_skips_validators_and_304(self):
+        """force=True ignores stored validators and treats 304 as no data."""
+        fetcher = _fetcher(200, "<html></html>")
+        parser = HTMLIndexParser(fetcher)
+        config = self._config_with_validators()
+
+        await parser.parse(config, force=True)
+
+        assert fetcher.fetch.call_args.kwargs.get("headers") is None
+
+    @pytest.mark.asyncio
+    async def test_response_validators_are_stored(self):
+        """ETag/Last-Modified from the response are written back to config."""
+        fetcher = MagicMock()
+        fetcher.fetch = AsyncMock(
+            return_value=(
+                200,
+                "<html><body><a href='https://example.com/news/articles/x0000001'>A</a></body></html>",
+                {"ETag": '"new-etag"', "Last-Modified": "Thu, 02 Jan 2026 00:00:00 GMT"},
+            )
+        )
+        parser = HTMLIndexParser(fetcher)
+        config = SourceConfig(
+            id="s1", name="S", url="https://example.com/index", source_type="html"
+        )
+
+        await parser.parse(config)
+
+        assert config.etag == '"new-etag"'
+        assert config.last_modified == "Thu, 02 Jan 2026 00:00:00 GMT"
+
+    @pytest.mark.asyncio
+    async def test_absent_response_validators_do_not_wipe_stored_ones(self):
+        """A response without validators keeps the previously stored ones."""
+        fetcher = _fetcher(
+            200,
+            "<html><body><a href='https://example.com/news/articles/x0000001'>A</a></body></html>",
+        )
+        parser = HTMLIndexParser(fetcher)
+        config = self._config_with_validators()
+
+        await parser.parse(config)
+
+        assert config.etag == '"abc123"'
+        assert config.last_modified == "Wed, 01 Jan 2026 00:00:00 GMT"
+
+
 class TestJSONApiParser:
     """Tests for JSONApiParser."""
 

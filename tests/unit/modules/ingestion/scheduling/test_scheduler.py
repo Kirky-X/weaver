@@ -220,3 +220,89 @@ class TestSourceSchedulerTriggerNow:
         await scheduler.trigger_now("source-1", max_items=5, task_id=None)
 
         scheduler._crawl_source.assert_called_once_with("source-1", 5, None, force=False)
+
+
+class TestCrawlSourcePersistsValidators:
+    """ETag/Last-Modified refreshed by parsers must reach the repo.
+
+    update_crawl_state accepts etag/last_modified, but _crawl_source never
+    passed them — RSSParser's conditional-fetch validators were mutated on
+    the in-memory config only and lost on restart, silently downgrading
+    every feed to full re-downloads.
+    """
+
+    def _make(self, items):
+        from modules.ingestion.domain.models import NewsItem, SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        config = SourceConfig(
+            id="src-1",
+            name="S",
+            url="https://example.com/feed",
+            source_type="rss",
+            etag='"etag-1"',
+            last_modified="Wed, 01 Jan 2026 00:00:00 GMT",
+        )
+        registry = SourceRegistry(fetcher=MagicMock())
+        registry.add_source(config)
+        parser = MagicMock()
+        parser.parse = AsyncMock(return_value=items)
+        registry.get_parser = MagicMock(return_value=parser)
+
+        repo = MagicMock()
+        repo.update_crawl_state = AsyncMock()
+        on_items = AsyncMock()
+        scheduler = SourceScheduler(registry=registry, on_items_discovered=on_items, repo=repo)
+        return scheduler, repo, config
+
+    @pytest.mark.asyncio
+    async def test_validators_persisted_with_items(self):
+        from modules.ingestion.domain.models import NewsItem
+
+        scheduler, repo, config = self._make([MagicMock(spec=NewsItem)])
+        await scheduler._crawl_source("src-1")
+
+        repo.update_crawl_state.assert_called_once()
+        kwargs = repo.update_crawl_state.call_args.kwargs
+        assert kwargs["etag"] == '"etag-1"'
+        assert kwargs["last_modified"] == "Wed, 01 Jan 2026 00:00:00 GMT"
+        assert kwargs.get("last_crawl_time") is not None
+
+    @pytest.mark.asyncio
+    async def test_validators_persisted_without_items(self):
+        """A 304/empty crawl still persists validators (source is healthy)."""
+        scheduler, repo, _ = self._make([])
+        await scheduler._crawl_source("src-1")
+
+        repo.update_crawl_state.assert_called_once()
+        kwargs = repo.update_crawl_state.call_args.kwargs
+        assert kwargs["etag"] == '"etag-1"'
+
+    @pytest.mark.asyncio
+    async def test_validators_refreshed_by_parser_are_persisted(self):
+        """Values the parser writes back (not just initially stored) persist."""
+        from modules.ingestion.domain.models import NewsItem, SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        config = SourceConfig(
+            id="src-1", name="S", url="https://example.com/feed", source_type="rss"
+        )
+        registry = SourceRegistry(fetcher=MagicMock())
+        registry.add_source(config)
+
+        async def parse(source, force=False):
+            source.etag = '"etag-fresh"'
+            return [MagicMock(spec=NewsItem)]
+
+        parser = MagicMock()
+        parser.parse = AsyncMock(side_effect=parse)
+        registry.get_parser = MagicMock(return_value=parser)
+
+        repo = MagicMock()
+        repo.update_crawl_state = AsyncMock()
+        scheduler = SourceScheduler(registry=registry, on_items_discovered=AsyncMock(), repo=repo)
+        await scheduler._crawl_source("src-1")
+
+        assert repo.update_crawl_state.call_args.kwargs["etag"] == '"etag-fresh"'

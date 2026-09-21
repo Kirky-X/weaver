@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Source scheduler for periodic crawling using APScheduler."""
 
 from __future__ import annotations
@@ -164,21 +164,27 @@ class SourceScheduler:
 
         try:
             items = await parser.parse(source, force=force)
+            # Persist crawl state in one shot. Validators (etag/last_modified)
+            # are stored independent of whether items were produced, so a
+            # 304-then-restart cycle keeps conditional-fetch capability (else
+            # every poll after a restart re-downloads the full feed/page).
             if items:
                 source.last_crawl_time = datetime.now(UTC)
-                # Persist last_crawl_time to database
-                if self._repo and source.last_crawl_time:
-                    try:
-                        await self._repo.update_crawl_state(
-                            source_id=source.id,
-                            last_crawl_time=source.last_crawl_time,
-                        )
-                    except Exception as repo_exc:
-                        log.warning(
-                            "persist_crawl_state_failed",
-                            source_id=source_id,
-                            error=str(repo_exc),
-                        )
+            if self._repo and (items or source.etag or source.last_modified):
+                try:
+                    await self._repo.update_crawl_state(
+                        source_id=source.id,
+                        last_crawl_time=source.last_crawl_time if items else None,
+                        etag=source.etag,
+                        last_modified=source.last_modified,
+                    )
+                except Exception as repo_exc:
+                    log.warning(
+                        "persist_crawl_state_failed",
+                        source_id=source_id,
+                        error=str(repo_exc),
+                    )
+            if items:
                 await self._on_items(items, source, max_items, task_id, force)
                 # Reset consecutive failure counter on success
                 self._consecutive_failures.pop(source_id, None)
