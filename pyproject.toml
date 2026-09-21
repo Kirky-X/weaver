@@ -119,7 +119,7 @@ dev = [
     "mypy>=1.19.1",
     "types-redis>=4.6.0.20241004",  # NOTE: types-redis lags runtime redis 8.x; pinned to last available typing stub
     "types-PyYAML>=6.0.12.20250915",
-    "types-aiofiles>=25.1.0.20251011",
+    "types-aiofiles>=25.1.0.20260518",
     # ── Security auditing ─────────────────────────────────
     "bandit>=1.9.4",
     "detect-secrets>=1.5.0",
