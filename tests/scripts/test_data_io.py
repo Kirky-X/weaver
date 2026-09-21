@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for scripts/data_io.py — PG↔DuckDB / Neo4j→LadybugDB migration tool.
 
 Tests run against real Docker services (no mocks):
@@ -410,6 +410,14 @@ def neo4j_with_data(clean_neo4j):
                     eid=f"entity-{i}",
                     role="subject",
                 ).consume()
+
+            # RELATED_TO carries an INT64 created_at column in the LadybugDB
+            # schema — the only fixture rel that round-trips a timestamp.
+            session.run(
+                "MATCH (e1:Entity {id: 'entity-1'}), (e2:Entity {id: 'entity-2'}) "
+                "CREATE (e1)-[:RELATED_TO {edge_type: 'cooccurrence', "
+                "weight: 0.5, created_at: datetime()}]->(e2)"
+            ).consume()
         yield {"entity_count": 3, "article_count": 3, "mentions_count": 3}
     finally:
         driver.close()
@@ -631,3 +639,194 @@ async def test_validate_migration_returns_list_of_dicts(pg_with_data, tmp_path):
         assert isinstance(r["source_count"], int)
         assert isinstance(r["target_count"], int)
         assert isinstance(r["match"], bool)
+
+
+# ── Tests: LadybugDB → Neo4j import (restore direction) ───────────────
+
+
+def _neo4j_count(session, query: str) -> int:
+    record = session.run(query).single()
+    return record["cnt"]
+
+
+def _clear_neo4j() -> None:
+    from neo4j import GraphDatabase
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        with driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n").consume()
+    finally:
+        driver.close()
+
+
+@pytest.mark.asyncio
+async def test_import_ladybug_to_neo4j_roundtrip_counts(neo4j_with_data, tmp_path):
+    """Neo4j → LadybugDB → Neo4j roundtrip preserves node and rel counts."""
+    from neo4j import GraphDatabase
+
+    from scripts.data_io import export_neo4j_to_ladybug, import_ladybug_to_neo4j
+
+    ladybug_path = tmp_path / "roundtrip.ladybug"
+    await export_neo4j_to_ladybug(
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        neo4j_password=NEO4J_PASSWORD,
+        ladybug_path=str(ladybug_path),
+    )
+
+    _clear_neo4j()
+
+    await import_ladybug_to_neo4j(
+        ladybug_path=str(ladybug_path),
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        neo4j_password=NEO4J_PASSWORD,
+    )
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        with driver.session() as session:
+            entity = _neo4j_count(session, "MATCH (n:Entity) RETURN count(n) AS cnt")
+            article = _neo4j_count(session, "MATCH (n:Article) RETURN count(n) AS cnt")
+            mentions = _neo4j_count(session, "MATCH ()-[r:MENTIONS]->() RETURN count(r) AS cnt")
+        assert entity == 3, f"Expected 3 Entity nodes after import, got {entity}"
+        assert article == 3, f"Expected 3 Article nodes after import, got {article}"
+        assert mentions == 3, f"Expected 3 MENTIONS rels after import, got {mentions}"
+    finally:
+        driver.close()
+
+
+@pytest.mark.asyncio
+async def test_import_ladybug_to_neo4j_preserves_props(neo4j_with_data, tmp_path):
+    """Roundtrip preserves property values and converts epoch timestamps back to datetime."""
+    from neo4j import GraphDatabase
+
+    from scripts.data_io import export_neo4j_to_ladybug, import_ladybug_to_neo4j
+
+    # Capture the pre-export timestamp to assert value (not just type) fidelity.
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        with driver.session() as session:
+            original = session.run(
+                "MATCH (e:Entity {id: 'entity-0'}) "
+                "RETURN e.created_at AS created_at, e.canonical_name AS name"
+            ).single()
+            original_rel = session.run(
+                "MATCH (e1:Entity {id: 'entity-1'})-[r:RELATED_TO]->(e2:Entity {id: 'entity-2'}) "
+                "RETURN r.created_at AS created_at, r.weight AS weight"
+            ).single()
+        assert original is not None
+        assert original_rel is not None
+        original_ts = original["created_at"]
+        original_name = original["name"]
+        original_rel_ts = original_rel["created_at"]
+    finally:
+        driver.close()
+
+    ladybug_path = tmp_path / "props.ladybug"
+    await export_neo4j_to_ladybug(
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        neo4j_password=NEO4J_PASSWORD,
+        ladybug_path=str(ladybug_path),
+    )
+
+    _clear_neo4j()
+
+    await import_ladybug_to_neo4j(
+        ladybug_path=str(ladybug_path),
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        neo4j_password=NEO4J_PASSWORD,
+    )
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        with driver.session() as session:
+            record = session.run(
+                "MATCH (e:Entity {id: 'entity-0'}) "
+                "RETURN e.canonical_name AS name, e.type AS type, "
+                "e.tier AS tier, e.aliases AS aliases, e.created_at AS created_at"
+            ).single()
+            rel_record = session.run(
+                "MATCH (:Article {id: 'article-0'})-[r:MENTIONS]->(:Entity {id: 'entity-0'}) "
+                "RETURN r.role AS role, r.created_at AS created_at"
+            ).single()
+        assert record is not None, "entity-0 must exist after import"
+        assert record["name"] == original_name
+        assert record["type"] == "ORG"
+        assert record["tier"] == 2
+        assert set(record["aliases"]) == {"Alias_0_1", "Alias_0_2"}
+        assert record["created_at"] is not None, "timestamp column must convert to datetime"
+        assert hasattr(record["created_at"], "year"), (
+            f"created_at must be datetime-like, got {type(record['created_at'])}"
+        )
+        # Value fidelity: naive local-timezone conversion would drift hours.
+        # neo4j returns neo4j.time.DateTime — convert to native datetime first.
+        roundtrip_dt = record["created_at"].to_native()
+        original_dt = original_ts.to_native()
+        assert abs(roundtrip_dt.timestamp() - original_dt.timestamp()) < 1, (
+            f"timestamp value drifted: original={original_ts}, roundtrip={record['created_at']}"
+        )
+        # Relationship properties round-trip too. MENTIONS in the LadybugDB
+        # schema only defines `role` (timestamps are schema-filtered on
+        # export), so timestamp fidelity is asserted on RELATED_TO, whose
+        # schema declares `created_at INT64`.
+        assert rel_record is not None, "MENTIONS rel must preserve its properties"
+        assert rel_record["role"] == "subject"
+        rel_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        try:
+            with rel_driver.session() as session:
+                rel_ts = session.run(
+                    "MATCH (e1:Entity {id: 'entity-1'})-[r:RELATED_TO]->(e2:Entity {id: 'entity-2'}) "
+                    "RETURN r.created_at AS created_at, r.weight AS weight"
+                ).single()
+            assert rel_ts is not None, "RELATED_TO must exist after import"
+            assert rel_ts["weight"] == 0.5
+            assert rel_ts["created_at"] is not None, "rel timestamp must convert to datetime"
+            rel_dt = rel_ts["created_at"].to_native()
+            original_rel_dt = original_rel_ts.to_native()
+            assert abs(rel_dt.timestamp() - original_rel_dt.timestamp()) < 1, (
+                f"rel timestamp drifted: original={original_rel_ts}, roundtrip={rel_ts['created_at']}"
+            )
+        finally:
+            rel_driver.close()
+    finally:
+        driver.close()
+
+
+@pytest.mark.asyncio
+async def test_import_ladybug_to_neo4j_empty_db(tmp_path):
+    """Importing an empty (schema-only) LadybugDB leaves Neo4j empty without error."""
+    import real_ladybug as ladybug
+
+    from scripts.data_io import _init_ladybug_schema, import_ladybug_to_neo4j
+
+    ladybug_path = tmp_path / "empty.ladybug"
+    db = ladybug.Database(
+        str(ladybug_path), max_db_size=1024 * 1024 * 1024, buffer_pool_size=256 * 1024 * 1024
+    )
+    conn = ladybug.Connection(db)
+    _init_ladybug_schema(conn)
+    conn.close()
+    db.close()
+
+    _clear_neo4j()
+
+    await import_ladybug_to_neo4j(
+        ladybug_path=str(ladybug_path),
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        neo4j_password=NEO4J_PASSWORD,
+    )
+
+    from neo4j import GraphDatabase
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    try:
+        with driver.session() as session:
+            total = _neo4j_count(session, "MATCH (n) RETURN count(n) AS cnt")
+        assert total == 0, f"Expected 0 nodes after importing empty db, got {total}"
+    finally:
+        driver.close()
