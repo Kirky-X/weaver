@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 #
 # 结构化输出（call_at 传入 output_model）时追加到 system_prompt 最末尾的 JSON-only
 # 强制约束。加载方：core/llm/client.py。利用弱模型 recency bias（对末尾指令记忆最强）

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM cost rate configuration models.
 
 Defines per-model token cost rates (USD per 1K tokens) loaded from TOML.

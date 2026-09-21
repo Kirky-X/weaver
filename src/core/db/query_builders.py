@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Database-agnostic query builders for vector similarity operations.
 
 Provides a QueryBuilder pattern that abstracts database-specific SQL syntax

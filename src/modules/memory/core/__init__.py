@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: (c) 2026 Weaver Contributors
+# SPDX-FileCopyrightText: (c) 2026 Kirky.X
 """Core data types and algorithms for multi-graph memory."""
 
 from modules.memory.core.event_node import EventNode

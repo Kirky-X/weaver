@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """E2E tests for system endpoints: /health, /metrics, /api/v1/status,
 /api/v1/config, /api/v1/system/health/dependencies, /api/v1/admin/cache/clear,
 /api/v1/admin/config/reload."""

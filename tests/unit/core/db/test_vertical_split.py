@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for Articles vertical split: articles_core + article_bodies + article_analysis.
 
 The vertical split separates the monolithic 45-column articles table into:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM-based intent classifier following MAGMA intent taxonomy."""
 
 from core.llm.client import LLMClient

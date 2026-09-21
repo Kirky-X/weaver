@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SchemaNode: Represents an abstracted pattern from event clusters.
 
 A SchemaNode is created by the ConsolidationWorker when it identifies

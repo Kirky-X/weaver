@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Input validation integration tests (V-01 ~ V-15).
 
 Covers 15 input validation cases across five endpoint groups:

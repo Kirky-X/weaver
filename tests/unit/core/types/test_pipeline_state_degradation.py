@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for core.types.pipeline_state degradation summary.
 
 ``get_degradation_summary`` used to silently map unknown

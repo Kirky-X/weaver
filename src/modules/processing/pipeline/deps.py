@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pipeline dependency dataclasses.
 
 Groups the 23 constructor parameters of ``Pipeline`` into a small number of

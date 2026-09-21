@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """CascadeClassifier — 4-layer cascade: fastText → SetFit → fusion → LLM."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Base class for graph readers with shared dependencies.
 
 Provides common dependency injection (pool, query_builder, execute_fn) for

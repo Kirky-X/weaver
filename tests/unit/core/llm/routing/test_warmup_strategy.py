@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for warmup_strategy = round_robin in ExperienceStore."""
 
 from unittest.mock import MagicMock

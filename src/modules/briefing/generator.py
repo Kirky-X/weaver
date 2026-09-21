@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Briefing generator — produce per-category daily briefings.
 
 BriefingGenerator is an independent class (not a pipeline node) that:

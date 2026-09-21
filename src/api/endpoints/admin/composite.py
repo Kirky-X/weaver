@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Admin composite router — aggregates all admin sub-routers.
 
 Each sub-router carries its own ``/admin`` prefix, so the composite itself

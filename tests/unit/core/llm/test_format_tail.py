@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for _JSON_FORMAT_TAIL appended to structured-output system prompts.
 
 Validates that call_at appends the JSON format guard to the END of system_prompt

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """F-S-01~18: Search API 集成测试。
 
 覆盖统一搜索（auto/local/global）、DRIFT 搜索、因果搜索、时序搜索、

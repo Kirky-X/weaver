@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for the settings.toml unknown-key detector.
 
 Root Settings uses extra="ignore", so a typo'd TOML key would be silently

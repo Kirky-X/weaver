@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared type definitions used in Protocol signatures.
 
 This module DEFINES PersistStatus (owned here since so the protocols

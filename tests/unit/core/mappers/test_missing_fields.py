@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Mapper missing-field tolerance tests (surviving live mappers only)."""
 
 from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test FK references point to articles_core table, not articles VIEW.
 
 Validates LLMFailureRecord, PendingSync, and

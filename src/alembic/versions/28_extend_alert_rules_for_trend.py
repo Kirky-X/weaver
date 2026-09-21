@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Extend alert_rules table for trend-based triggers.
 
 Revision ID: 28_extend_alert_rules_for_trend

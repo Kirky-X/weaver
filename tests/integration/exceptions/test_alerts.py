@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Alert monitoring integration tests.
 
 Covers 8 alert use cases across rule CRUD, trigger/cooldown, and events:

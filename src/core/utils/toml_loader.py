@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared reader for committed TOML *data* files (vocabularies / mappings).
 
 These are not runtime *settings* (those go through pydantic-settings). They are

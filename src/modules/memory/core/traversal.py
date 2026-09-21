@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Graph traversal algorithms for adaptive retrieval.
 
 Implements MAGMA's Heuristic Beam Search with transition score calculation.

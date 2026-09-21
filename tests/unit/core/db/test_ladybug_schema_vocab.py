@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Guard: ladybug_schema NODE_TABLES/REL_TABLES stay in sync with SCHEMA_QUERIES.
 
 The vocabulary tuples are the single source consumed by scripts/data_io.py

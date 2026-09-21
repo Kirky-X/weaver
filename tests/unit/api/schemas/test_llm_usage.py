@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Regression tests for LLM usage schema success_rate bounds.
 
 ``success_rate`` is documented as a 0.0–1.0 ratio. The schema MUST reject

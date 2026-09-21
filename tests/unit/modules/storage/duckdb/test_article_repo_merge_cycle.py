@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Regression tests: DuckDBArticleRepo.detect_merge_cycle recursive CTE.
 
 The merge-chain CTE previously used ``mc.path || a.id`` (UUID[] || UUID),

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for ModelSelector — Thompson Sampling integration, exploration, and priors."""
 
 from unittest.mock import MagicMock, patch

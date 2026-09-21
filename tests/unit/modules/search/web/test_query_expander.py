@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for modules.search.web.query_expander module.
 
 Covers R-web-search-008: LLM-driven query expansion. A broad query like

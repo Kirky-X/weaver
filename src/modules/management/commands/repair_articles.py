@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """repair-articles command — fix incomplete terminal-path articles.
 
 Scans articles with persist_status=COMPLETE but NULL enrichment fields

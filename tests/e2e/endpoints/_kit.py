@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared helpers for per-domain endpoint E2E tests.
 
 Every request goes through :func:`api_call` / :func:`api_call_multi`, which

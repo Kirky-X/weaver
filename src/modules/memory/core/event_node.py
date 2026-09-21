@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """EventNode: MAGMA's unified memory item representation.
 
 n_i = <c_i, τ_i, v_i, A_i>

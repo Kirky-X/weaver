@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for LiteLLMCaller.rerank() token usage tracking.
 
 Test 5.1: rerank returns TokenUsage (not None) with input_tokens > 0 and output_tokens == 0.

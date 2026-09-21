@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Knowledge cluster cache storage using DuckDB + Parquet.
 
 Provides in-memory DuckDB storage with async Parquet persistence

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for fallback_orchestrator (web search module).
 
 TDD Red phase: tests fail until ``detect_three_tier_empty``,

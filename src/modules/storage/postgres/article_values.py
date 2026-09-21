@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared ArticleCore/ArticleBody value construction from RawArticle.
 
 Single implementation of the body-length description fallback, URL

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SSRF (Server-Side Request Forgery) protection checker.
 
 This module provides SSRF protection by blocking requests to:

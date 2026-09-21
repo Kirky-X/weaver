@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Bing search result HTML parser.
 
 Parses the HTML response from ``https://cn.bing.com/search?q=...`` and

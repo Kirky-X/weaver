@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for IncrementalCommunityUpdater.check_and_run() and force_rebuild()."""
 
 from datetime import UTC, datetime, timedelta

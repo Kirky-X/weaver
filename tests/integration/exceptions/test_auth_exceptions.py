@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Authentication exception integration tests (A-01 ~ A-15).
 
 Covers 15 authentication failure modes across five categories:

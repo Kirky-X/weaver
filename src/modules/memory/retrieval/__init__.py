@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Intent-aware adaptive retrieval across multi-graph views."""
 
 from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine

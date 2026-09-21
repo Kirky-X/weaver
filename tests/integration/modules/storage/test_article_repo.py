@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Integration tests for ArticleRepo - uses real database with automatic fallback.
 
 Uses relational_pool fixture which automatically falls back to DuckDB

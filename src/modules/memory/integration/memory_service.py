@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Memory Integration Service - Unified interface for MAGMA memory system.
 
 This service integrates all MAGMA components and provides a single entry point

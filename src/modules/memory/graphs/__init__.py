@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Graph repository implementations for temporal and causal graphs."""
 
 from modules.memory.graphs.base import BaseGraphRepo

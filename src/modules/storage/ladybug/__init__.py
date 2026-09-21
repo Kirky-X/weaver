@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB storage module - embedded graph database.
 
 LadybugDB is a Kuzu fork that provides an embedded graph database

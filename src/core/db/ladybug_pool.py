@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB connection pool implementing GraphPool protocol.
 
 LadybugDB provides native async support via AsyncConnection.

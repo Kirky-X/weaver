@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Temporal Graph Repository.
 
 Manages EVENT_FOLLOWED_BY edges representing chronological ordering of events.

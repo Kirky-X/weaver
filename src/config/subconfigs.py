@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Sub-configuration models for pydantic-settings.
 
 All configuration models are defined here as pydantic BaseModel classes.

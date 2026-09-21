@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Checkpoint cleanup pipeline node — clean up pipeline checkpoints after completion."""
 
 from __future__ import annotations

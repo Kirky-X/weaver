@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Regression tests for storage MEDIUM findings.
 
 Each test pins one `fixed` verdict from ``logs/ocr_scan_msz_storage.json``.

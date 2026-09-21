@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DuckDB article repository - reuses PostgreSQL implementation.
 
 DuckDB supports SQLAlchemy ORM syntax, so we can directly reuse

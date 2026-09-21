@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SQL identifier validation in safe_query.
 
 This module tests the validate_sql_identifier() function from core.db.safe_query,

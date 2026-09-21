@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared graph metrics utilities for graph and monitoring endpoints.
 
 The health-summary and full-metrics view implementations live here once;

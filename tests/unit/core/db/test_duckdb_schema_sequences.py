@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for DuckDB schema BIGINT_PK_TABLES mapping and _reset_duckdb_sequences.
 
 Covers R-duckdb-schema-004 (BIGINT_PK_TABLES mapping completeness) and

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Extended tests for pipeline endpoint coverage.
 
 This module tests previously uncovered code paths in pipeline.py:

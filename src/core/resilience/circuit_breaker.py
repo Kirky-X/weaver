@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unified circuit breaker using pybreaker with event emission.
 
 This module provides a pybreaker-based circuit breaker implementation

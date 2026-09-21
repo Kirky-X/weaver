@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Classification processing nodes."""
 
 from modules.processing.nodes.classification.cascade_classifier import CascadeClassifier

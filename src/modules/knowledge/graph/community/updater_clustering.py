@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Subgraph clustering service collaborator for the incremental community updater.
 
 Extracted from ``IncrementalCommunityUpdater``. Owns subgraph extraction around

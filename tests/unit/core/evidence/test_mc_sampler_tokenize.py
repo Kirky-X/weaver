@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for MCSampler word-level tokenization
 
 ``_simple_similarity`` currently uses ``set(text1)`` (character-level),

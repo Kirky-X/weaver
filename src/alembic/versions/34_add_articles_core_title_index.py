@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Add title index to articles_core for DB-level dedup (Stage 3 safety net).
 
 Revision ID: 34_add_articles_core_title_index

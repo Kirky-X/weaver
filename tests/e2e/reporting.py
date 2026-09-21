@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Markdown audit report generation for the E2E API suite.
 
 Reads all records captured by :class:`APIResponseRecorder` and produces a

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Regression tests for core/resilience HIGH findings (OCR report).
 
 Covers: (force_half_open state guard), (per-call retryer).

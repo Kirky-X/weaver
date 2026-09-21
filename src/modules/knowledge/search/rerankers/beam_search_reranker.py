@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """BeamSearchReranker — standalone reusable beam search reranking.
 
 Extracted from AdaptiveSearchEngine's _beam_search method into a

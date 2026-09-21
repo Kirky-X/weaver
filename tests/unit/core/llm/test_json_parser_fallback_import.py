@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """回归：parse_llm_json 的 ValidationError 分支引用未导入的异常类。
 
 该文件曾使用 ValidationError 却未 import，except 匹配阶段抛 NameError

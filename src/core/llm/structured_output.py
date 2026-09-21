@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Schema-driven structured output — SchemaNode → JSON Schema.
 
 SchemaDrivenStructuredOutput queries the graph database for a SchemaNode by

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Sources API 调度接入测试。
 
 验证运行时 create/update/delete 源时调度器的 interval job 生命周期：

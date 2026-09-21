@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """High-severity fixes verification for memory graph repos.
 
 Covers: Ladybug MERGE edges, hardcoded CAUSES relation types, temporal

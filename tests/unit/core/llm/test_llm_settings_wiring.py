@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for LLMSettings wiring that was previously dead config surface.
 
 Covers: provider-level ``request_delay_*`` forwarding (parse_providers used

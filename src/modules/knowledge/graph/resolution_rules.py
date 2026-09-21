@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entity resolution rules for deduplication and canonical name selection.
 
 Based on GraphRAG's entity disambiguation approach with enhancements for

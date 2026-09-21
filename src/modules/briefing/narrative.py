@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Narrative briefing generator — produces briefings from NarrativeNode framing.
 
 NarrativeBriefingGenerator is the narrative-mode counterpart of BriefingGenerator.

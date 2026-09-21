@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for circuit breaker OPEN→HALF_OPEN automatic recovery.
 
 pybreaker transitions OPEN→HALF_OPEN only inside ``CircuitOpenState.before_call``

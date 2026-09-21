@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Internal event bus for decoupled component communication.
 
 Uses blinker for signal dispatching while maintaining a type-safe API.

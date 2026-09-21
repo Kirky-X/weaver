@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RED test for Pipeline Phase 3 concurrent nodes
 
 Phase 3 has 4 LLM-heavy nodes that are independent and can run

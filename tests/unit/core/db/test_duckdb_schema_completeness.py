@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for DuckDB schema completeness — TDD tests that verify the DuckDB
 DDL in core.db.duckdb_schema matches the PostgreSQL ORM models.
 

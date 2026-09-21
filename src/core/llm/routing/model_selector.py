@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Multi-dimensional weighted model selector for smart routing.
 
 Scores candidate models using editorial, reliability, cost, and latency

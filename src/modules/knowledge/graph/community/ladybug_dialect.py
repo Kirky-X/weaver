@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB Cypher dialect adapter.
 
 Centralizes Cypher query differences between Neo4j and LadybugDB:

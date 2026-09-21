@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """PrefixShape diagnostics for LLM cache miss analysis.
 
 Tracks prefix shape (system prompt, tools schema, payload) stability

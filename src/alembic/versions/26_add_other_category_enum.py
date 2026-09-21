@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Add '其他' value to category_type ENUM for terminal articles.
 
 Revision ID: 26_add_other_category_enum

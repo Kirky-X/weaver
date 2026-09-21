@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """TieredRouter: difficulty-based tiered LLM routing.
 
 Routes based on difficulty score to tiered LLM providers using

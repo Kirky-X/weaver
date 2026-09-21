@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """High-severity fixes verification for analytics modules.
 
 Covers: cooldown race, TTL reset, raw insert unique violation, hget TOCTOU,

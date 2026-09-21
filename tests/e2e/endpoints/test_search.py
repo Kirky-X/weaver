@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """E2E tests for search endpoints (unified, local, global, drift, causal, temporal).
 
 Contract (src/api/endpoints/content/search.py):

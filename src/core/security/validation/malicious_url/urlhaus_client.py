@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """URLhaus API client for real-time malicious URL lookup.
 
 URLhaus is a free service from abuse.ch that provides a database of

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Flashrank reranker for cross-encoder re-ranking.
 
 Flashrank uses lightweight ONNX models for fast CPU-based re-ranking,

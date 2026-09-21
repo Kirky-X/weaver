@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Safe echoing of user-supplied identifiers into HTTPException detail strings.
 
 Prevents reflected-XSS by HTML-escaping and truncating user input before it

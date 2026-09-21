@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pytest configuration and fixtures for E2E tests.
 
 This module provides fixtures for end-to-end testing of the Weaver application.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Miscellaneous SQLAlchemy ORM models.
 
 Groups models that don't fit a dedicated module: entity/community vectors,

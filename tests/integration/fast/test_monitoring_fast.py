@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """~12：监控 API 快速集成测试。
 
 覆盖系统状态、依赖健康、告警规则/事件、LLM 用量/失败、Saga 失败、
