@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Unified LLM client with label-based routing."""
@@ -366,7 +366,12 @@ class LLMClient:
         parsed_label = Label.parse(label) if isinstance(label, str) else label
         cp = self._resolve_call_point(call_point)
 
-        cache_key = self._build_cache_key(cp.value, payload)
+        # Truncate BEFORE building the cache key: the key must reflect the
+        # model-visible payload, so bodies differing only past the input
+        # limit share one cache entry.
+        truncated_payload = self._truncate_payload_for_callpoint(payload, cp)
+
+        cache_key = self._build_cache_key(cp.value, truncated_payload)
         ttl = self._resolve_cache_ttl(cp.value)
 
         # Cache lookup (Redis → TTLCache)
@@ -376,8 +381,6 @@ class LLMClient:
 
         log.debug("llm_cache_miss", label=str(parsed_label))
         self._cache_misses += 1
-
-        truncated_payload = self._truncate_payload_for_callpoint(payload, cp)
 
         # 构建label链
         labels = self._router.resolve(parsed_label)
@@ -552,6 +555,22 @@ class LLMClient:
             provider=label.provider,
         ).observe(time.monotonic() - started)
 
+        parsed_result: T | str = response.content
+        if output_model:
+            # A structurally-invalid response is a provider failure: fall
+            # through to the next label instead of raising, and never cache
+            # the poisoned response.
+            try:
+                parsed_result = parse_llm_json(response.content, output_model)
+            except Exception as exc:
+                log.warning(
+                    "llm_parse_failed_counted_as_provider_failure",
+                    label=str(label),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                return _ProviderFailed(exc)
+
         # Cache write + metrics + diagnostics + usage event
         self._response_cache[cache_key] = {
             "content": response.content,
@@ -571,9 +590,7 @@ class LLMClient:
             task_id=task_id,
         )
 
-        if output_model:
-            return parse_llm_json(response.content, output_model)
-        return response.content
+        return parsed_result
 
     async def _write_redis_cache(self, cache_key: str, response: Any, ttl: int) -> None:
         """Write response to Redis cache (best-effort)."""

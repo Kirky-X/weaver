@@ -509,6 +509,25 @@ CACHE_TTL: dict[str, int] = {
     "merger": 7 * 24 * 60 * 60,
     "claim_extraction": 24 * 60 * 60,
     "narrative_schema": 7 * 24 * 60 * 60,
+    # 实体事实/消解稳定（与 entity_extractor 同为图谱派生内容）
+    "entity_resolver": 7 * 24 * 60 * 60,
+    "entity_refine": 7 * 24 * 60 * 60,
+    "entity_facts": 7 * 24 * 60 * 60,
+    # 社区报告/标题更新慢（图谱周期任务产出）
+    "community_report": 7 * 24 * 60 * 60,
+    "community_title": 7 * 24 * 60 * 60,
+    # 检索与推理类时效性强
+    "search_local": 24 * 60 * 60,
+    "search_global": 24 * 60 * 60,
+    "causal_inference": 24 * 60 * 60,
+    "narrative_synthesis": 24 * 60 * 60,
+    "evidence_sampling": 24 * 60 * 60,
+    "rerank": 24 * 60 * 60,
+    # 分析/生成类（2026-09 优化审查补齐）
+    "sentiment": 24 * 60 * 60,
+    "briefing": 24 * 60 * 60,
+    "query_expander": 24 * 60 * 60,
+    # embedding 不在此表：走独立的 embedding_cache_ttl 配置
     "default": 24 * 60 * 60,
 }
 

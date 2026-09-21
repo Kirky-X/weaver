@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for LLM module types."""
@@ -221,3 +221,22 @@ class TestRoutingConfig:
             fallbacks=["chat.anthropic.claude"],
         )
         assert len(config.fallbacks) == 1
+
+
+class TestCacheTtlCoverage:
+    """Every CallPoint must have an explicit cache TTL.
+
+    Missing entries silently fall to the 24h default — an audit blind spot
+    (10 newer call points had none, flagged in the 2026-09 optimization
+    review).
+    """
+
+    def test_every_call_point_has_explicit_ttl(self) -> None:
+        from core.llm.types import CACHE_TTL, CallPoint
+
+        # embedding is excluded by design: it uses the dedicated
+        # embedding_cache_ttl setting, not this per-call-point table.
+        missing = [
+            cp.value for cp in CallPoint if cp.value not in CACHE_TTL and cp.value != "embedding"
+        ]
+        assert not missing, f"CallPoints missing from CACHE_TTL: {missing}"
