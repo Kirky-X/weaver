@@ -148,3 +148,4 @@ MagicMock/
 .tmp_high_verify/
 .workbuddy/
 .tmp_*.py
+.laya-eval/

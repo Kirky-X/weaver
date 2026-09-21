@@ -128,6 +128,8 @@ fallbacks = []
 classifier = 600
 analyze = 3000
 
+# 注意：fallbacks 禁止留空——熔断打开时空链无路可走（单点故障）。
+# 至少为 defaults.chat 和关键 call-point 配一个第二 provider 的模型。
 # ============================================================
 # Call Point Routing (task-specific provider selection)
 # Label format: {type}.{provider}.{model_id}
