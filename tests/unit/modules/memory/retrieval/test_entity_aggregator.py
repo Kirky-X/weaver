@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.llm.types import CallPoint
 from modules.memory.core.graph_types import AggregationType
 from modules.memory.retrieval.entity_aggregator import EntityAggregator
 
@@ -124,7 +125,7 @@ class TestEntityAggregatorFacts:
 
         mock_llm.call_at.assert_called_once()
         call_kwargs = mock_llm.call_at.call_args.kwargs
-        assert call_kwargs["call_point"] == "ENTITY_FACTS"
+        assert call_kwargs["call_point"] == CallPoint.ENTITY_FACTS
         assert call_kwargs["payload"]["entity_name"] == "腾讯"
         assert call_kwargs["payload"]["task"] == "extract_facts"
         assert "腾讯" in call_kwargs["payload"]["context"]
