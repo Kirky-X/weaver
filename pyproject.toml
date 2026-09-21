@@ -125,7 +125,7 @@ dev = [
     "detect-secrets>=1.5.0",
     # ── Git workflow ──────────────────────────────────────
     "pre-commit>=4.5.1",
-    "commitizen>=4.13.9",
+    "commitizen>=4.18.1",
     # ── Docstring style ───────────────────────────────────
     "pydocstyle>=6.3.0",
     "pytest-benchmark>=5.2.3",
