@@ -1243,7 +1243,7 @@ class TestSystemConfigEndpoint:
             pass
 
     @pytest.mark.asyncio
-    async def test_config_endpoint_response_structure(self):
+    async def test_config_endpoint_response_structure(self, monkeypatch):
         """Test system_config endpoint returns correct response structure.
 
         Requires admin API key authentication.
@@ -1259,13 +1259,18 @@ class TestSystemConfigEndpoint:
 
         settings = get_settings()
 
+        # Self-provision a deterministic admin key: relying on the ambient
+        # environment made this test flaky — CI runners have no admin key
+        # configured, verify_admin_api_key then answers a generic 403
+        # (CWE-200 hardening) which broke the accepted status codes below.
+        admin_key = "ci-" + "a" * 32
+        monkeypatch.setattr(settings.api, "admin_api_key", admin_key)
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Use admin API key if configured, otherwise regular key (dev mode)
-            api_key = settings.api.admin_api_key or settings.api.get_api_key()
             response = await client.get(
                 "/api/v1/config",
-                headers={"X-API-Key": api_key},
+                headers={"X-API-Key": admin_key},
             )
             # Either 200 (if deps initialized), 503 (if not), or 404 (if endpoint doesn't exist)
             assert response.status_code in (200, 500, 503, 404)
