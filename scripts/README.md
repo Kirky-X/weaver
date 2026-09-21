@@ -131,6 +131,11 @@ uv run python scripts/data_io.py export --from neo4j --to ladybug \
     --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j \
     --neo4j-password weavertest --ladybug-path data/weaver_graph.ladybug
 
+# LadybugDB → Neo4j 导入（图数据库恢复；仅清空 8 个受管标签的现有节点并打印清空数量）
+uv run python scripts/data_io.py import --from ladybug --to neo4j \
+    --ladybug-path data/weaver_graph.ladybug \
+    --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j --neo4j-password weavertest
+
 # 跨库一致性校验（原 verify_db_consistency.py，已合并）
 uv run python scripts/data_io.py verify --mode all
 uv run python scripts/data_io.py verify --mode pg-duckdb \
@@ -144,7 +149,7 @@ uv run python scripts/data_io.py verify --mode neo4j-ladybug \
 | 子命令   | 描述                                                                                                                                    |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `export` | 主库 → 备库（postgres→duckdb、neo4j→ladybug），原子文件替换                                                                             |
-| `import` | 备库 → 主库（duckdb→postgres）                                                                                                          |
+| `import` | 备库 → 主库（duckdb→postgres、ladybug→neo4j）；目标库先清空（打印清空数量），再按计数验证导入                                            |
 | `verify` | **跨 4 库一致性校验**：PG↔DuckDB（27 表行数+MD5+抽样）、Neo4j↔Ladybug（8 标签+13 关系计数+抽样）。退出码 0 全过 / 1 不一致 / 2 用法错误 |
 
 ### 特性

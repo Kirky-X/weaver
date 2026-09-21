@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Weaver data import/export tool.
 
 Migrates data between primary databases (PostgreSQL + Neo4j) and fallback
@@ -9,6 +9,7 @@ checking across the dual-database failover architecture.
 
 Subcommands:
     import  --from duckdb  --to postgres   : DuckDB → PostgreSQL
+    import  --from ladybug --to neo4j      : LadybugDB → Neo4j
     export  --from postgres --to duckdb    : PostgreSQL → DuckDB
     export  --from neo4j    --to ladybug   : Neo4j → LadybugDB
 
@@ -28,6 +29,10 @@ Usage:
     uv run python scripts/data_io.py import --from duckdb --to postgres\\
         --duckdb-path data/weaver.duckdb\\
         --pg-dsn 'postgresql+asyncpg://postgres:weavertest@localhost:5432/weaver'
+
+    uv run python scripts/data_io.py import --from ladybug --to neo4j\\
+        --ladybug-path data/weaver_graph.ladybug\\
+        --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j --neo4j-password weavertest
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ import contextlib
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -296,6 +302,64 @@ def _to_epoch_seconds(v: Any) -> int | None:
     if isinstance(v, (int, float)):
         return int(v)
     return None
+
+
+def _from_epoch_seconds(v: Any) -> datetime | None:
+    """Inverse of _to_epoch_seconds: INT64 epoch seconds → UTC-aware datetime."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(int(v), tz=UTC)
+    return None
+
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifiers(names: list[str], context: str) -> list[str]:
+    """Filter schema-introspected names to safe Cypher identifiers.
+
+    Import reads column/property names from the *backup file itself*
+    (``CALL TABLE_INFO``); a hand-crafted file could carry names that
+    break out of the backtick quoting. Anything outside
+    ``[A-Za-z_][A-Za-z0-9_]*`` is dropped with an explicit warning.
+    """
+    safe = [n for n in names if _SAFE_IDENTIFIER_RE.match(n)]
+    dropped = len(names) - len(safe)
+    if dropped:
+        print(f"WARN: Dropped {dropped} unsafe identifier(s) from {context} introspection")
+    return safe
+
+
+def _convert_ladybug_props(props: dict[str, Any]) -> dict[str, Any]:
+    """Convert a LadybugDB row dict to Neo4j-compatible properties.
+
+    Inverse of the export conversions: INT64 epoch seconds in
+    ``*_at`` / ``*_time`` columns become UTC-aware datetimes;
+    everything else passes through (STRING[] lists → Cypher lists).
+    None values are dropped (Neo4j has no null property values).
+    Unconvertible timestamps are dropped with an explicit warning —
+    never silently.
+    """
+    out: dict[str, Any] = {}
+    for k, v in props.items():
+        if v is None:
+            continue
+        if k.endswith("_at") or k.endswith("_time"):
+            try:
+                dt = _from_epoch_seconds(v)
+            except (OSError, OverflowError, ValueError) as exc:
+                print(f"WARN: Dropping property {k}={v!r}: timestamp conversion failed: {exc}")
+                continue
+            if dt is not None:
+                out[k] = dt
+            else:
+                print(f"WARN: Dropping property {k}={v!r}: not a convertible timestamp")
+            continue
+        out[k] = v
+    return out
 
 
 def _convert_neo4j_node_props(props: dict, ladybug_cols: list[str]) -> dict:
@@ -884,6 +948,231 @@ async def export_neo4j_to_ladybug(
             ladybug_conn.close()
         with contextlib.suppress(Exception):
             ladybug_db.close()
+
+
+async def import_ladybug_to_neo4j(
+    ladybug_path: str,
+    neo4j_uri: str,
+    neo4j_user: str,
+    neo4j_password: str,
+) -> None:
+    """Import all node labels and relationship types from LadybugDB into Neo4j.
+
+    Restore direction of :func:`export_neo4j_to_ladybug`.
+
+    Strategy:
+        1. Open LadybugDB read-only with LadybugPool-aligned parameters
+           (never mutates the backup file)
+        2. Wipe existing Neo4j nodes/rels under the 8 managed labels only
+           (restore semantics; wordlist-external labels such as standalone
+           metadata nodes are preserved, but wordlist-external relationships
+           attached to managed nodes are removed by DETACH DELETE); wipe
+           count printed. Restore = clean target, so per-label verification
+           below is exact.
+        3. For each node label, read all nodes from LadybugDB and CREATE
+           them into Neo4j in batches of BATCH_SIZE (target is empty, so
+           CREATE is O(1)/row vs MERGE's O(N²) without uniqueness
+           constraints)
+        4. For each relationship type, read rows and CREATE them in
+           Neo4j; rows whose endpoint node was skipped count as orphans
+           and are skipped with a warning (LadybugDB FK enforcement makes
+           this rare, but the check is defensive against hand-edited data)
+        5. Verify node/rel counts match between source and target
+
+    Type conversions (inverse of export):
+        - INT64 epoch seconds (``*_at`` / ``*_time`` columns) → datetime
+        - STRING[] lists pass through as Cypher list properties
+
+    Known drift (mirrors the export ``id`` fallback): Article nodes that
+    only carry ``pg_id`` in the source get a synthetic ``id`` property
+    (equal to ``pg_id``) written back. Repeat exports via ``coalesce``
+    keep this idempotent.
+    """
+    import real_ladybug as ladybug
+    from neo4j import GraphDatabase
+
+    if not Path(ladybug_path).exists():
+        raise FileNotFoundError(f"LadybugDB file not found: {ladybug_path}")
+
+    ladybug_db = ladybug.Database(
+        ladybug_path,
+        read_only=True,
+        buffer_pool_size=256 * 1024 * 1024,
+    )
+    ladybug_conn = ladybug.Connection(ladybug_db)
+    neo4j_driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+
+    expected_nodes, expected_rels = _graph_vocab()
+
+    try:
+        # 1. Wipe managed labels (restore semantics) — explicit count, never silent
+        with neo4j_driver.session() as session:
+            wipe_row = session.run(
+                "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $known) RETURN count(n) AS cnt",
+                known=list(expected_nodes),
+            ).single()
+            existing = wipe_row["cnt"] if wipe_row else 0
+            if existing:
+                session.run(
+                    "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $known) DETACH DELETE n",
+                    known=list(expected_nodes),
+                ).consume()
+                print(
+                    f"Wiped {existing} existing Neo4j nodes under managed "
+                    f"labels {expected_nodes} (restore semantics)"
+                )
+
+        # 2. Import nodes label by label
+        imported_ids: dict[str, set[Any]] = {label: set() for label in expected_nodes}
+
+        for label in expected_nodes:
+            # Column names come from the backup file's own introspection —
+            # whitelist them before any Cypher interpolation.
+            cols = _validate_identifiers(
+                _get_ladybug_node_columns(ladybug_conn, label), f"{label} columns"
+            )
+            if not cols:
+                continue
+
+            col_str = ", ".join(f"n.`{c}` AS `{c}`" for c in cols)
+            source_result = ladybug_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"MATCH (n:`{label}`) RETURN {col_str}"
+            )
+            source_count = 0
+            batch: list[dict] = []
+            while source_result.has_next():  # type: ignore[union-attr]
+                row = dict(zip(cols, source_result.get_next(), strict=True))  # type: ignore[union-attr]
+                node_id = row.get("id")
+                if node_id is None:
+                    # PK is NOT NULL in LadybugDB; defensive only
+                    print(f"WARN: Skipping {label} node without id property")
+                    continue
+                imported_ids[label].add(node_id)
+                batch.append({"_id": node_id, "props": _convert_ladybug_props(row)})
+                source_count += 1
+                if len(batch) >= BATCH_SIZE:
+                    _neo4j_create_nodes(neo4j_driver, label, batch)
+                    batch = []
+            if batch:
+                _neo4j_create_nodes(neo4j_driver, label, batch)
+
+            with neo4j_driver.session() as session:
+                count_row = session.run(
+                    f"MATCH (n:`{label}`) RETURN count(n) AS cnt"  # nosemgrep: formatted-sql-query
+                ).single()
+                target_count = count_row["cnt"] if count_row else 0
+            if target_count != source_count:
+                raise RuntimeError(
+                    f"Node count mismatch for {label}: "
+                    f"LadybugDB={source_count}, Neo4j={target_count}"
+                )
+
+        # 3. Import relationships type by type
+        orphan_skipped = 0
+
+        for rel_type in expected_rels:
+            rel_props = _validate_identifiers(
+                _get_ladybug_rel_properties(ladybug_conn, rel_type), f"{rel_type} properties"
+            )
+            from_label, to_label = _get_ladybug_rel_endpoints(rel_type)
+
+            prop_str = "".join(f", r.`{p}` AS `{p}`" for p in rel_props)
+            source_result = ladybug_conn.execute(  # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+                f"MATCH (a:`{from_label}`)-[r:`{rel_type}`]->(b:`{to_label}`) "
+                f"RETURN a.id AS `_from_id`, b.id AS `_to_id`{prop_str}"
+            )
+            source_count = 0
+            batch = []
+            while source_result.has_next():  # type: ignore[union-attr]
+                row = dict(
+                    zip(
+                        ["_from_id", "_to_id", *rel_props],
+                        source_result.get_next(),  # type: ignore[union-attr]
+                        strict=True,
+                    )
+                )
+                if (
+                    row["_from_id"] not in imported_ids[from_label]
+                    or row["_to_id"] not in imported_ids[to_label]
+                ):
+                    orphan_skipped += 1
+                    continue
+                rel_data = {
+                    k: v
+                    for k, v in row.items()
+                    if k not in ("_from_id", "_to_id") and v is not None
+                }
+                batch.append(
+                    {
+                        "_from": row["_from_id"],
+                        "_to": row["_to_id"],
+                        "props": _convert_ladybug_props(rel_data),
+                    }
+                )
+                source_count += 1
+                if len(batch) >= BATCH_SIZE:
+                    _neo4j_create_rels(neo4j_driver, rel_type, from_label, to_label, batch)
+                    batch = []
+            if batch:
+                _neo4j_create_rels(neo4j_driver, rel_type, from_label, to_label, batch)
+
+            with neo4j_driver.session() as session:
+                count_row = session.run(
+                    f"MATCH ()-[r:`{rel_type}`]->() RETURN count(r) AS cnt"  # nosemgrep: formatted-sql-query
+                ).single()
+                target_count = count_row["cnt"] if count_row else 0
+            if target_count != source_count:
+                raise RuntimeError(
+                    f"Rel count mismatch for {rel_type}: "
+                    f"LadybugDB={source_count}, Neo4j={target_count}"
+                )
+
+        if orphan_skipped:
+            print(
+                f"WARN: Skipped {orphan_skipped} orphan relationships "
+                "(endpoint node missing or skipped)"
+            )
+    finally:
+        neo4j_driver.close()
+        with contextlib.suppress(Exception):
+            ladybug_conn.close()
+        with contextlib.suppress(Exception):
+            ladybug_db.close()
+
+
+def _neo4j_create_nodes(neo4j_driver, label: str, rows: list[dict]) -> None:
+    """Batch CREATE nodes in Neo4j via UNWIND.
+
+    ``SET n = row.props`` sets the whole property set, so the node ends up
+    exactly matching the LadybugDB row. The target is wiped per managed
+    label before this runs, so CREATE (no uniqueness-constraint lookup)
+    is both safe and O(1)/row — MERGE without a constraint degenerates to
+    a full label scan per row.
+    """
+    with neo4j_driver.session() as session:
+        # nosemgrep: formatted-sql-query — label from _graph_vocab DDL authority
+        session.run(  # nosemgrep: sqlalchemy-execute-raw-query
+            f"UNWIND $rows AS row CREATE (n:`{label}` {{id: row._id}}) SET n = row.props",
+            rows=rows,
+        ).consume()
+
+
+def _neo4j_create_rels(
+    neo4j_driver,
+    rel_type: str,
+    from_label: str,
+    to_label: str,
+    rows: list[dict],
+) -> None:
+    """Batch CREATE relationships in Neo4j via UNWIND."""
+    with neo4j_driver.session() as session:
+        # nosemgrep: formatted-sql-query — identifiers from DDL authority
+        session.run(  # nosemgrep: sqlalchemy-execute-raw-query
+            f"UNWIND $rows AS row "
+            f"MATCH (a:`{from_label}` {{id: row._from}}), (b:`{to_label}` {{id: row._to}}) "
+            f"CREATE (a)-[r:`{rel_type}`]->(b) SET r = row.props",
+            rows=rows,
+        ).consume()
 
 
 async def validate_migration(
@@ -2190,16 +2479,29 @@ async def _verify_consistency(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="data_io",
-        description="Weaver data import/export tool (PG↔DuckDB, Neo4j→LadybugDB)",
+        description="Weaver data import/export tool (PG↔DuckDB, Neo4j↔LadybugDB)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # import subcommand
     p_import = sub.add_parser("import", help="Import data into a primary database")
-    p_import.add_argument("--from", dest="from_type", required=True, choices=["duckdb"])
-    p_import.add_argument("--to", dest="to_type", required=True, choices=["postgres"])
-    p_import.add_argument("--duckdb-path", required=True)
-    p_import.add_argument("--pg-dsn", required=True)
+    p_import.add_argument(
+        "--from",
+        dest="from_type",
+        required=True,
+        choices=["duckdb", "ladybug"],
+    )
+    p_import.add_argument("--to", dest="to_type", required=True, choices=["postgres", "neo4j"])
+    # DuckDB source
+    p_import.add_argument("--duckdb-path")
+    # PostgreSQL target
+    p_import.add_argument("--pg-dsn")
+    # LadybugDB source
+    p_import.add_argument("--ladybug-path")
+    # Neo4j target
+    p_import.add_argument("--neo4j-uri")
+    p_import.add_argument("--neo4j-user", default="neo4j")
+    p_import.add_argument("--neo4j-password")
 
     # export subcommand
     p_export = sub.add_parser("export", help="Export data from a primary database")
@@ -2266,11 +2568,31 @@ def _build_parser() -> argparse.ArgumentParser:
 async def _async_main(args: argparse.Namespace) -> int:
     if args.command == "import":
         if args.from_type == "duckdb" and args.to_type == "postgres":
+            if not args.duckdb_path or not args.pg_dsn:
+                print("[ERROR] --duckdb-path and --pg-dsn are required", file=sys.stderr)
+                return 2
             await import_duckdb_to_postgres(
                 duckdb_path=args.duckdb_path,
                 pg_dsn=args.pg_dsn,
             )
             print(f"[OK] DuckDB → PostgreSQL import completed: {args.duckdb_path} → {args.pg_dsn}")
+            return 0
+        if args.from_type == "ladybug" and args.to_type == "neo4j":
+            if not all([args.ladybug_path, args.neo4j_uri, args.neo4j_password]):
+                print(
+                    "[ERROR] --ladybug-path, --neo4j-uri, --neo4j-password are required",
+                    file=sys.stderr,
+                )
+                return 2
+            await import_ladybug_to_neo4j(
+                ladybug_path=args.ladybug_path,
+                neo4j_uri=args.neo4j_uri,
+                neo4j_user=args.neo4j_user,
+                neo4j_password=args.neo4j_password,
+            )
+            print(
+                f"[OK] LadybugDB → Neo4j import completed: {args.ladybug_path} → {args.neo4j_uri}"
+            )
             return 0
     elif args.command == "export":
         if args.from_type == "postgres" and args.to_type == "duckdb":
@@ -2303,7 +2625,10 @@ async def _async_main(args: argparse.Namespace) -> int:
     elif args.command == "verify":
         return await _verify_consistency(args)
 
-    print(f"[ERROR] Unknown command combination: {args}", file=sys.stderr)
+    print(
+        f"[ERROR] Unsupported direction: {args.command} {args.from_type} -> {args.to_type}",
+        file=sys.stderr,
+    )
     return 2
 
 
