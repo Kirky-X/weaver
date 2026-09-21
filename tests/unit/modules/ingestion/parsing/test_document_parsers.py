@@ -36,12 +36,12 @@ class TestHTMLIndexParser:
     """Tests for HTMLIndexParser."""
 
     @pytest.mark.asyncio
-    async def test_extracts_links_from_anchor_tags(self):
-        """Anchor hrefs become NewsItems."""
+    async def test_extracts_article_links_from_anchor_tags(self):
+        """Anchor hrefs in article shape become NewsItems."""
         html = (
             "<html><body>"
-            '<a href="https://example.com/news/one">One</a>'
-            '<a href="/news/two">Two</a>'
+            '<a href="https://example.com/news/articles/one12345">One</a>'
+            '<a href="/news/articles/two20260921">Two</a>'
             "</body></html>"
         )
         parser = HTMLIndexParser(_fetcher(200, html))
@@ -49,24 +49,24 @@ class TestHTMLIndexParser:
         items = await parser.parse(_config("https://example.com/index"))
 
         urls = [i.url for i in items]
-        assert "https://example.com/news/one" in urls
+        assert "https://example.com/news/articles/one12345" in urls
         # Relative link resolved against the page URL.
-        assert "https://example.com/news/two" in urls
+        assert "https://example.com/news/articles/two20260921" in urls
 
     @pytest.mark.asyncio
     async def test_deduplicates_repeated_links(self):
         """The same href appearing twice yields one item."""
         html = (
             "<html><body>"
-            '<a href="https://example.com/a">A</a>'
-            '<a href="https://example.com/a">A again</a>'
+            '<a href="https://example.com/news/articles/abc12345">A</a>'
+            '<a href="https://example.com/news/articles/abc12345">A again</a>'
             "</body></html>"
         )
         parser = HTMLIndexParser(_fetcher(200, html))
 
         items = await parser.parse(_config("https://example.com/index"))
 
-        assert [i.url for i in items].count("https://example.com/a") == 1
+        assert [i.url for i in items].count("https://example.com/news/articles/abc12345") == 1
 
     @pytest.mark.asyncio
     async def test_ignores_non_http_schemes(self):
@@ -75,24 +75,91 @@ class TestHTMLIndexParser:
             "<html><body>"
             '<a href="mailto:test@example.com">Mail</a>'
             '<a href="javascript:void(0)">JS</a>'
-            '<a href="https://example.com/real">Real</a>'
+            '<a href="https://example.com/news/articles/real0001">Real</a>'
             "</body></html>"
         )
         parser = HTMLIndexParser(_fetcher(200, html))
 
         items = await parser.parse(_config("https://example.com/index"))
 
-        assert [i.url for i in items] == ["https://example.com/real"]
+        assert [i.url for i in items] == ["https://example.com/news/articles/real0001"]
 
     @pytest.mark.asyncio
     async def test_derives_placeholder_title_from_slug(self):
         """A slug path produces a readable placeholder title."""
-        html = '<html><body><a href="https://example.com/some-news_slug.html">X</a></body></html>'
+        html = (
+            '<html><body><a href="https://example.com/news/2026/some-news_slug.html">X</a>'
+            "</body></html>"
+        )
         parser = HTMLIndexParser(_fetcher(200, html))
 
         items = await parser.parse(_config("https://example.com/index"))
 
         assert items[0].title == "some news slug"
+
+    @pytest.mark.asyncio
+    async def test_foreign_links_are_dropped(self):
+        """Links pointing at other hosts (social, cross-promo) are dropped."""
+        html = (
+            "<html><body>"
+            '<a href="https://facebook.com/example/page0001">FB</a>'
+            '<a href="https://example.com/news/articles/local0001">Local</a>'
+            "</body></html>"
+        )
+        parser = HTMLIndexParser(_fetcher(200, html))
+
+        items = await parser.parse(_config("https://example.com/index"))
+
+        assert [i.url for i in items] == ["https://example.com/news/articles/local0001"]
+
+    @pytest.mark.asyncio
+    async def test_short_section_paths_are_dropped(self):
+        """1-2 segment paths (sections, nav pages) are dropped."""
+        html = (
+            "<html><body>"
+            '<a href="https://example.com/business">Section</a>'
+            '<a href="https://example.com/business/banking">Subsection</a>'
+            '<a href="https://example.com/signin">Signin</a>'
+            '<a href="https://example.com/">Home</a>'
+            '<a href="https://example.com/news/articles/keep00001">Keep</a>'
+            "</body></html>"
+        )
+        parser = HTMLIndexParser(_fetcher(200, html))
+
+        items = await parser.parse(_config("https://example.com/index"))
+
+        assert [i.url for i in items] == ["https://example.com/news/articles/keep00001"]
+
+    @pytest.mark.asyncio
+    async def test_nav_segment_paths_are_dropped(self):
+        """Paths through aggregation segments (tags, video, live) are dropped."""
+        html = (
+            "<html><body>"
+            '<a href="https://example.com/future/tags/keeping-tabs-xyz">Tags</a>'
+            '<a href="https://example.com/news/video/recap-20260921">Video</a>'
+            '<a href="https://example.com/news/articles/keep00001">Keep</a>'
+            "</body></html>"
+        )
+        parser = HTMLIndexParser(_fetcher(200, html))
+
+        items = await parser.parse(_config("https://example.com/index"))
+
+        assert [i.url for i in items] == ["https://example.com/news/articles/keep00001"]
+
+    @pytest.mark.asyncio
+    async def test_short_terminal_slug_is_dropped(self):
+        """A long path with a tiny terminal segment is not an article."""
+        html = (
+            "<html><body>"
+            '<a href="https://example.com/news/section/ab">Short slug</a>'
+            '<a href="https://example.com/news/articles/keep00001">Keep</a>'
+            "</body></html>"
+        )
+        parser = HTMLIndexParser(_fetcher(200, html))
+
+        items = await parser.parse(_config("https://example.com/index"))
+
+        assert [i.url for i in items] == ["https://example.com/news/articles/keep00001"]
 
     @pytest.mark.asyncio
     async def test_non_200_returns_empty(self):

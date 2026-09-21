@@ -41,6 +41,39 @@ MIN_EXTRACTED_LENGTH = 100
 # misconfigured URL (e.g. a site's full sitemap) cannot flood the pipeline.
 MAX_ITEMS_PER_INDEX = 200
 
+# Index pages link to far more than articles: social profiles, terms pages,
+# and — noisiest of all — section indexes (/business/banking). Section and
+# service links fetch fine but carry no article, so link extraction keeps
+# only same-host paths in article shape. The shape is derived from the four
+# built-in English sites (BBC/CNN/Guardian/Times): real articles are ≥3 path
+# segments with a substantial terminal slug (/news/articles/c0000000000,
+# /2026/09/21/economy/slug, /business/2026/sep/21/slug,
+# /business/companies-markets/article/slug-1a2b3c4); sections and service
+# pages are 1-2 segments. The live suite (test_index_sources_live.py) fails
+# loudly if a future source's article shape violates this.
+MIN_PATH_SEGMENTS = 3
+MIN_SLUG_LENGTH = 8
+# Aggregation hubs that live *inside* long paths (/future/tags/x,
+# /news/video/y) are not articles either.
+NAV_SEGMENTS = frozenset(
+    {
+        "tag",
+        "tags",
+        "topics",
+        "topic",
+        "category",
+        "categories",
+        "video",
+        "videos",
+        "audio",
+        "podcast",
+        "podcasts",
+        "live",
+        "gallery",
+        "galleries",
+    }
+)
+
 
 def _looks_like_json(text: str) -> bool:
     """Cheap pre-check before handing a payload to json_repair."""
@@ -84,6 +117,12 @@ def _extract_json_payload(content: str) -> str:
     end = lower.find("</pre", body_start)
     body = content[body_start:] if end == -1 else content[body_start:end]
     return html.unescape(body)
+
+
+def _normalize_host(netloc: str) -> str:
+    """Lowercase a host and drop its ``www.`` prefix for same-site checks."""
+    host = (netloc or "").lower()
+    return host[4:] if host.startswith("www.") else host
 
 
 class HTMLIndexParser(BaseSourceParser):
@@ -154,15 +193,18 @@ class HTMLIndexParser(BaseSourceParser):
 
     @staticmethod
     def _extract_links(html: str, base_url: str) -> list[str]:
-        """Extract absolute http(s) links from an HTML page.
+        """Extract absolute http(s) article links from an HTML page.
 
         Uses trafilatura's link extraction when it yields anything, and falls
         back to a regex anchor scan so a page trafilatura cannot parse (e.g. an
-        XML sitemap) still produces results.
+        XML sitemap) still produces results. Candidates are then filtered to
+        same-host links in article shape (see the MIN_PATH_SEGMENTS block) —
+        index pages link to sections, terms pages and social profiles just as
+        liberally as to articles, and every kept link costs a fetch.
 
         Args:
             html: Raw HTML/XML content.
-            base_url: URL used to resolve relative links.
+            base_url: URL used to resolve relative links and define "same host".
 
         Returns:
             List of absolute http(s) URLs, in document order.
@@ -179,12 +221,41 @@ class HTMLIndexParser(BaseSourceParser):
         if not candidates:
             candidates.extend(match.group(1) for match in _ANCHOR_RE.finditer(html))
 
+        base_host = _normalize_host(urlparse(base_url).netloc)
         resolved: list[str] = []
         for candidate in candidates:
             absolute = urljoin(base_url, candidate.strip())
-            if absolute.startswith(("http://", "https://")):
-                resolved.append(absolute)
+            if not absolute.startswith(("http://", "https://")):
+                continue
+            if not HTMLIndexParser._is_article_link(absolute, base_host):
+                continue
+            resolved.append(absolute)
+
+        dropped = len(candidates) - len(resolved)
+        if dropped:
+            log.info("html_index_links_filtered", url=base_url, dropped=dropped, kept=len(resolved))
         return resolved
+
+    @staticmethod
+    def _is_article_link(url: str, base_host: str) -> bool:
+        """Whether ``url`` looks like an article on ``base_host``.
+
+        Same host (``www.`` normalized), at least ``MIN_PATH_SEGMENTS`` path
+        segments, no nav segment anywhere in the path, and a terminal slug of
+        at least ``MIN_SLUG_LENGTH`` characters.
+        """
+        parsed = urlparse(url)
+        if _normalize_host(parsed.netloc) != base_host:
+            return False
+        segments = [seg for seg in parsed.path.split("/") if seg]
+        if len(segments) < MIN_PATH_SEGMENTS:
+            return False
+        if any(seg.lower() in NAV_SEGMENTS for seg in segments):
+            return False
+        terminal = segments[-1]
+        # Strip a file extension so "story.html" is judged on "story".
+        terminal = re.sub(r"\.[a-zA-Z0-9]{1,5}$", "", terminal)
+        return len(terminal) >= MIN_SLUG_LENGTH
 
     @staticmethod
     def _title_from_url(url: str) -> str:
