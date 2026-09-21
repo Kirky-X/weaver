@@ -18,6 +18,7 @@ items" by the scheduler and does not count toward auto-disable.
 from __future__ import annotations
 
 import asyncio
+import html
 import io
 import re
 from datetime import UTC, datetime
@@ -45,6 +46,44 @@ def _looks_like_json(text: str) -> bool:
     """Cheap pre-check before handing a payload to json_repair."""
     stripped = text.lstrip()
     return stripped.startswith(("{", "["))
+
+
+# Only tags (name right after ``<``) are stripped, so titles containing
+# comparisons like "增速 < 5% 的行业 > 预期" survive untouched.
+_MARKUP_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+# Cap for a single item title: legacy JSON APIs can carry multi-KB strings.
+MAX_TITLE_LENGTH = 2048
+
+# SmartFetcher's crawl4ai fallback renders JSON endpoints through a browser,
+# which wraps the payload in a document (``<html><body><pre>[...]</pre>…``).
+# Extracted with a forward-only find chain instead of a regex: a regex over
+# attacker-controlled HTML can backtrack quadratically, and this runs per
+# crawl on arbitrarily large responses.
+_MAX_BROWSER_WRAP_SCAN = 256 * 1024
+
+
+def _extract_json_payload(content: str) -> str:
+    """Return the JSON payload from ``content``, unwrapping browser HTML.
+
+    Bare JSON passes through untouched; an HTML document contributes the body
+    of its first ``<pre>`` block (entities unescaped — URLs in the payload
+    carry ``&amp;`` after rendering). Content with neither shape is returned
+    as-is so the caller's JSON pre-check rejects it.
+    """
+    if _looks_like_json(content):
+        return content
+    lower = content.lower()[:_MAX_BROWSER_WRAP_SCAN]
+    start = lower.find("<pre")
+    if start == -1:
+        return content
+    open_end = lower.find(">", start)
+    if open_end == -1:
+        return content
+    body_start = open_end + 1
+    end = lower.find("</pre", body_start)
+    body = content[body_start:] if end == -1 else content[body_start:end]
+    return html.unescape(body)
 
 
 class HTMLIndexParser(BaseSourceParser):
@@ -168,10 +207,15 @@ class JSONApiParser(BaseSourceParser):
 
     - a bare list of objects: ``[{...}, {...}]``
     - an object wrapping the list under a well-known key
-      (``items`` / ``data`` / ``list`` / ``results`` / ``articles`` / ``entries``)
+      (``items`` / ``data`` / ``list`` / ``results`` / ``articles`` / ``entries``
+      / ``datasource``)
 
     Each object is expected to expose a URL under one of
-    ``url`` / ``link`` / ``href`` (plus ``title`` / ``name`` / ``headline``).
+    ``url`` / ``link`` / ``href`` / ``publishUrl`` (plus
+    ``title`` / ``name`` / ``headline``). Key lookup falls back to a
+    case-insensitive match so legacy list APIs that use UPPERCASE field names
+    (``URL`` / ``TITLE`` / ``DOCRELPUBTIME``) resolve without per-site config.
+    Titles are stripped of inline markup (``<a href=...>标题</a>`` wrappers).
     Objects that do not yield a usable URL are skipped rather than failing the
     whole batch.
 
@@ -179,10 +223,19 @@ class JSONApiParser(BaseSourceParser):
         fetcher: BaseFetcher instance for API fetching.
     """
 
-    URL_KEYS = ("url", "link", "href")
+    URL_KEYS = ("url", "link", "href", "publishUrl")
     TITLE_KEYS = ("title", "name", "headline")
-    DATE_KEYS = ("date", "published", "published_at", "pubDate", "timestamp", "created_at")
-    LIST_KEYS = ("items", "data", "list", "results", "articles", "entries")
+    DATE_KEYS = (
+        "date",
+        "published",
+        "published_at",
+        "pubDate",
+        "timestamp",
+        "created_at",
+        "publishTime",
+        "docRelPubTime",
+    )
+    LIST_KEYS = ("items", "data", "list", "results", "articles", "entries", "datasource")
 
     def __init__(self, fetcher: BaseFetcher) -> None:
         self._fetcher = fetcher
@@ -207,16 +260,20 @@ class JSONApiParser(BaseSourceParser):
             log.warning("json_api_unexpected_status", url=config.url, status=status_code)
             return []
 
-        if not content or not _looks_like_json(content):
+        if not content:
             log.warning("json_api_not_json", url=config.url)
             return []
 
-        import json_repair
-
+        # Payload extraction and JSON decode are CPU-bound on multi-MB
+        # responses; keep them off the event loop like HTMLIndexParser does.
         try:
-            data = json_repair.loads(content)
+            payload, data = await asyncio.to_thread(JSONApiParser._decode_payload, content)
         except Exception as exc:
             log.warning("json_api_parse_failed", url=config.url, error=str(exc))
+            return []
+
+        if not payload:
+            log.warning("json_api_not_json", url=config.url)
             return []
 
         entries = self._unwrap(data)
@@ -242,7 +299,7 @@ class JSONApiParser(BaseSourceParser):
             items.append(
                 NewsItem(
                     url=absolute,
-                    title=self._first_str(entry, self.TITLE_KEYS) or "",
+                    title=self._strip_markup(self._first_str(entry, self.TITLE_KEYS) or ""),
                     source=config.name,
                     source_host=urlparse(absolute).netloc,
                     source_id=config.id,
@@ -256,6 +313,21 @@ class JSONApiParser(BaseSourceParser):
 
         log.info("json_api_parsed", url=config.url, items_found=len(items))
         return items
+
+    @staticmethod
+    def _decode_payload(content: str) -> tuple[str, object]:
+        """Extract the JSON payload from ``content`` and decode it.
+
+        Runs in a worker thread (see ``parse``). Returns an empty payload
+        when ``content`` carries no recognizable JSON so the caller logs the
+        not-json outcome; raises when the decode itself fails.
+        """
+        import json_repair
+
+        payload = _extract_json_payload(content)
+        if not _looks_like_json(payload):
+            return "", None
+        return payload, json_repair.loads(payload)
 
     @classmethod
     def _unwrap(cls, data: object) -> list | None:
@@ -277,13 +349,37 @@ class JSONApiParser(BaseSourceParser):
         return None
 
     @staticmethod
-    def _first_str(entry: dict, keys: tuple[str, ...]) -> str | None:
+    def _get_field(entry: dict, key: str) -> object | None:
+        """Fetch ``key`` from ``entry``, falling back to a case-insensitive match.
+
+        A hit whose value is None/empty is treated as a miss so mixed-case
+        legacy entries (``{"url": "", "URL": "https://..."}``) still resolve;
+        exact hits with real values keep precedence over the fallback.
+        """
+        value = entry.get(key)
+        if value not in (None, ""):
+            return value
+        key_lower = key.lower()
+        for entry_key, entry_value in entry.items():
+            # Skip the exact key itself: its None/empty value is why we are
+            # here, and re-matching it would return the same empty value.
+            if isinstance(entry_key, str) and entry_key != key and entry_key.lower() == key_lower:
+                return entry_value
+        return None
+
+    @classmethod
+    def _first_str(cls, entry: dict, keys: tuple[str, ...]) -> str | None:
         """Return the first non-empty string value among ``keys``."""
         for key in keys:
-            value = entry.get(key)
+            value = cls._get_field(entry, key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return None
+
+    @staticmethod
+    def _strip_markup(text: str) -> str:
+        """Remove inline HTML tags and collapse surrounding whitespace."""
+        return _MARKUP_RE.sub("", text).strip()[:MAX_TITLE_LENGTH]
 
     @classmethod
     def _parse_date(cls, entry: dict) -> datetime | None:
@@ -294,7 +390,7 @@ class JSONApiParser(BaseSourceParser):
         "always include".
         """
         for key in cls.DATE_KEYS:
-            raw = entry.get(key)
+            raw = cls._get_field(entry, key)
             if raw is None:
                 continue
 

@@ -188,6 +188,121 @@ class TestJSONApiParser:
 
         assert await parser.parse(_config("https://example.com/api", "json")) == []
 
+    @pytest.mark.asyncio
+    async def test_html_wrapped_json_from_browser_fallback(self):
+        """A JSON payload wrapped in a <pre> block (crawl4ai fallback shape)."""
+        payload = (
+            "<html><head></head><body><pre>["
+            '{"TITLE": "标题", "URL": "https://www.gov.cn/a.htm?x=1&amp;y=2"}'
+            "]</pre></body></html>"
+        )
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://www.gov.cn/list.json", "json"))
+
+        assert [i.url for i in items] == ["https://www.gov.cn/a.htm?x=1&y=2"]
+        assert items[0].title == "标题"
+
+    @pytest.mark.asyncio
+    async def test_plain_html_junk_still_rejected(self):
+        """HTML without any <pre> JSON is still rejected as not-json."""
+        parser = JSONApiParser(_fetcher(200, "<html><body>blocked</body></html>"))
+
+        assert await parser.parse(_config("https://example.com/api", "json")) == []
+
+    @pytest.mark.asyncio
+    async def test_uppercase_keys_are_matched(self):
+        """Legacy list APIs with UPPERCASE field names (gov.cn shape)."""
+        payload = (
+            '[{"TITLE": "政策", "SUB_TITLE": "", "URL": "https://www.gov.cn/a.htm",'
+            ' "DOCRELPUBTIME": "2026-03-20"}]'
+        )
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://www.gov.cn/list.json", "json"))
+
+        assert [i.url for i in items] == ["https://www.gov.cn/a.htm"]
+        assert items[0].title == "政策"
+        assert items[0].publish_time == datetime(2026, 3, 20, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_sub_title_is_not_confused_with_title(self):
+        """Case-insensitive fallback must not map SUB_TITLE onto title."""
+        payload = '[{"TITLE": "真标题", "SUB_TITLE": "副标题", "URL": "https://example.com/x"}]'
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert items[0].title == "真标题"
+
+    @pytest.mark.asyncio
+    async def test_datasource_list_with_publish_url(self):
+        """news.cn shape: list under ``datasource``, URL under ``publishUrl``."""
+        payload = (
+            '{"categoryName": "时政关注", "datasource": [{'
+            "\"title\": \"<a href='https://www.news.cn/a.html' target='_blank'>标题一</a>\","
+            '"publishUrl": "https://www.news.cn/a.html",'
+            '"publishTime": "2026-03-20 09:32:34",'
+            '"contentType": "Link"}]}'
+        )
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://www.news.cn/list.json", "json"))
+
+        assert [i.url for i in items] == ["https://www.news.cn/a.html"]
+        assert items[0].title == "标题一"
+        assert items[0].publish_time == datetime(2026, 3, 20, 9, 32, 34, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_inline_tags_are_stripped(self):
+        """Inline markup is removed; surrounding text is kept."""
+        payload = '[{"url": "https://example.com/f", "title": "Plain <b>bold</b> mix"}]'
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert items[0].title == "Plain bold mix"
+
+    @pytest.mark.asyncio
+    async def test_comparison_brackets_in_title_survive(self):
+        """Angle brackets without a tag name are not treated as markup."""
+        payload = '[{"url": "https://example.com/g", "title": "增速 < 5% 的行业 > 预期"}]'
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert items[0].title == "增速 < 5% 的行业 > 预期"
+
+    @pytest.mark.asyncio
+    async def test_long_title_is_capped(self):
+        """Titles above MAX_TITLE_LENGTH are truncated."""
+        payload = '[{"url": "https://example.com/h", "title": "' + "长" * 3000 + '"}]'
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert len(items[0].title) == 2048
+
+    @pytest.mark.asyncio
+    async def test_empty_lowercase_value_falls_back_to_uppercase(self):
+        """A null/empty exact-key hit falls back to its case variant."""
+        payload = '[{"url": null, "URL": "https://example.com/i", "title": "T"}]'
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert [i.url for i in items] == ["https://example.com/i"]
+
+    @pytest.mark.asyncio
+    async def test_browser_wrap_without_closing_pre_is_contained(self):
+        """Multiple <pre> opens with no </pre> close: extract the first block."""
+        payload = "<html><body><pre>" + '[{"url": "https://example.com/j"}]' + "<pre><pre>"
+        parser = JSONApiParser(_fetcher(200, payload))
+
+        items = await parser.parse(_config("https://example.com/api", "json"))
+
+        assert [i.url for i in items] == ["https://example.com/j"]
+
 
 class TestPDFDocumentParser:
     """Tests for PDFDocumentParser."""
