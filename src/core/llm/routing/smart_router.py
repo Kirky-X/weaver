@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SmartRouter: unified routing facade for LLM model selection.
 
 Coordinates the RoutingPipeline (rule-based filtering) and
@@ -69,10 +69,19 @@ class SmartRouter:
             )
         )
 
+        # Build ModelSelector, wiring the configured cost rates into the
+        # cost dimension — without this the routing weights' cost component
+        # silently scored every candidate at 0.0.
+        cost_per_model: dict[str, float] = {}
+        rates = getattr(getattr(settings, "cost", None), "rates", None)
+        if isinstance(rates, dict):
+            cost_per_model = {label: rate.input + rate.output for label, rate in rates.items()}
+
         # Build ModelSelector
         self._selector = ModelSelector(
             experience=experience,
             circuit_breakers=circuit_breakers,
+            cost_per_model=cost_per_model,
         )
 
     def route(

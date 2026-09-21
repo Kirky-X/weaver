@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for HybridSearchEngine - comprehensive coverage."""
 
 from __future__ import annotations
@@ -740,7 +740,9 @@ class TestHybridSearchConfigExtended:
         assert config.mmr_lambda == 0.7
         assert config.vector_weight == 1.0
         assert config.bm25_weight == 1.0
-        assert config.graph_weight == 1.0
+        assert not hasattr(config, "graph_weight"), (
+            "graph retrieval leg does not exist; the dead config field was removed"
+        )
         assert config.rrf_k == 60
         assert config.top_k == 10
         assert config.temporal_decay_enabled is False
@@ -906,3 +908,100 @@ class TestHybridSearchZeroScorePreservation:
         hybrid = engine._to_hybrid_results(results)
 
         assert hybrid[0].score == 0.0
+
+
+class TestHybridSearchEngineTimestampPromotion:
+    """publish_time/created_at must survive fusion for temporal decay.
+
+    _apply_temporal_decay reads top-level publish_time/created_at; before the
+    fix, fusion dropped them (BM25 kept the ISO string only inside metadata,
+    vector legs discarded the datetime), so the decay multiplier was always 1.0.
+    """
+
+    def test_fuse_promotes_bm25_iso_publish_time(self):
+        engine = HybridSearchEngine()
+
+        bm25 = [
+            {
+                "doc_id": "d1",
+                "score": 10.0,
+                "title": "T",
+                "content": "C",
+                "metadata": {"publish_time": "2026-09-01T00:00:00+00:00"},
+            }
+        ]
+        fused = engine._fuse_results([], bm25)
+
+        assert fused[0]["publish_time"] == datetime(2026, 9, 1, tzinfo=UTC)
+
+    def test_fuse_prefers_vector_datetime_over_bm25_string(self):
+        engine = HybridSearchEngine()
+        vec_dt = datetime(2026, 9, 15, tzinfo=UTC)
+
+        vector = [{"doc_id": "d1", "score": 0.9, "title": "V", "publish_time": vec_dt}]
+        bm25 = [
+            {
+                "doc_id": "d1",
+                "score": 10.0,
+                "title": "B",
+                "content": "C",
+                "metadata": {"publish_time": "2026-01-01T00:00:00+00:00"},
+            }
+        ]
+        fused = engine._fuse_results(vector, bm25)
+
+        assert fused[0]["publish_time"] == vec_dt
+
+    def test_fuse_promotes_created_at_fallback(self):
+        engine = HybridSearchEngine()
+        created = datetime(2026, 8, 1, tzinfo=UTC)
+
+        vector = [{"doc_id": "d1", "score": 0.9, "title": "V", "created_at": created}]
+        fused = engine._fuse_results(vector, [])
+
+        assert fused[0]["publish_time"] is None
+        assert fused[0]["created_at"] == created
+
+    def test_fuse_garbage_timestamp_becomes_none(self):
+        engine = HybridSearchEngine()
+
+        bm25 = [
+            {
+                "doc_id": "d1",
+                "score": 10.0,
+                "title": "T",
+                "content": "C",
+                "metadata": {"publish_time": "not-a-date"},
+            }
+        ]
+        fused = engine._fuse_results([], bm25)
+
+        assert fused[0]["publish_time"] is None
+
+    def test_vector_search_carries_timestamps(self):
+        """_vector_search must not discard publish_time/created_at."""
+        engine = HybridSearchEngine()
+        repo = MagicMock()
+        pub = datetime(2026, 9, 20, tzinfo=UTC)
+        created = datetime(2026, 9, 21, tzinfo=UTC)
+        repo.find_similar = AsyncMock(
+            return_value=[
+                ArticleSearchResultView(
+                    article_id="art-1",
+                    title="T",
+                    category="社会",
+                    similarity=0.9,
+                    publish_time=pub,
+                    created_at=created,
+                )
+            ]
+        )
+        engine._vector_repo = repo
+
+        import asyncio
+
+        results = asyncio.run(engine._vector_search([0.1], 5))
+
+        assert results[0]["doc_id"] == "art-1"
+        assert results[0]["publish_time"] == pub
+        assert results[0]["created_at"] == created

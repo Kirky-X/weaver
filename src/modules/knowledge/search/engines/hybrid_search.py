@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Hybrid search engine combining vector, BM25, and graph retrieval.
 
 This engine implements a multi-stage retrieval pipeline:
@@ -32,6 +32,18 @@ from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 log = get_logger(__name__)
 
 
+def _coerce_datetime(value: Any) -> datetime | None:
+    """Parse a datetime that may already be one, an ISO string, or garbage."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
 @dataclass
 class HybridSearchConfig:
     """Configuration for hybrid search."""
@@ -42,9 +54,9 @@ class HybridSearchConfig:
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"
+    # Per-leg RRF contribution multipliers (default 1.0 = equal weight).
     vector_weight: float = 1.0
     bm25_weight: float = 1.0
-    graph_weight: float = 1.0
     rrf_k: int = 60
     top_k: int = 10
     # Min cosine similarity for the vector retriever. 0.80（旧默认）对常见
@@ -78,10 +90,12 @@ class HybridSearchEngine:
     Combines:
     - Vector similarity search (semantic)
     - BM25 lexical search (keyword)
-    - Graph-based search (entity relationships)
 
-    Uses Reciprocal Rank Fusion (RRF) to merge results, with optional
-    cross-encoder re-ranking and MMR diversity.
+    Fuses them with Reciprocal Rank Fusion (per-leg weights configurable via
+    ``vector_weight`` / ``bm25_weight``), with optional cross-encoder
+    re-ranking and MMR diversity. A graph retrieval leg (entity
+    relationships) is a possible future addition; local-mode entity search
+    covers that use case today.
 
     Args:
         vector_repo: Vector repository for semantic search.
@@ -268,6 +282,9 @@ class HybridSearchEngine:
                     "doc_id": r.article_id,
                     "score": r.similarity,
                     "title": r.title or "",
+                    # Native datetimes: temporal decay reads these after fusion.
+                    "publish_time": r.publish_time,
+                    "created_at": r.created_at,
                 }
                 for r in results
             ]
@@ -351,6 +368,7 @@ class HybridSearchEngine:
         fused = reciprocal_rank_fusion(
             results_list,
             k=self._config.rrf_k,
+            weights=[self._config.vector_weight, self._config.bm25_weight],
         )
 
         # Track source ranks
@@ -363,7 +381,7 @@ class HybridSearchEngine:
         vector_info_map = {r["doc_id"]: r for r in vector_results}
         bm25_info_map = {r["doc_id"]: r for r in bm25_results}
 
-        return [
+        fused_items: list[dict[str, Any]] = [
             {
                 "doc_id": doc_id,
                 "rrf_score": score,
@@ -381,6 +399,29 @@ class HybridSearchEngine:
             }
             for doc_id, score in fused
         ]
+
+        # Promote timestamps to top level: _apply_temporal_decay reads
+        # publish_time/created_at from the result dict itself, not metadata.
+        # Vector legs carry native datetimes (preferred); BM25 carries an ISO
+        # string inside metadata. Unparseable values become None rather than
+        # poisoning the decay calculation.
+        for item in fused_items:
+            doc_id = item["doc_id"]
+            vector_info = vector_info_map.get(doc_id, {})
+            publish_time = vector_info.get("publish_time")
+            created_at = vector_info.get("created_at")
+            if publish_time is None or created_at is None:
+                meta_ts = _coerce_datetime(
+                    bm25_info_map.get(doc_id, {}).get("metadata", {}).get("publish_time")
+                )
+                if publish_time is None:
+                    publish_time = meta_ts
+                if created_at is None:
+                    created_at = meta_ts
+            item["publish_time"] = publish_time
+            item["created_at"] = created_at
+
+        return fused_items
 
     def _rerank_results(
         self,

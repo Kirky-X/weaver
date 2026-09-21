@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RRF fusion."""
 
 from __future__ import annotations
@@ -163,3 +163,40 @@ class TestFusionScoreAtKUniqueItems:
         metrics = fusion_score_at_k([list1, list2, list3], top_k=2)
 
         assert metrics["num_unique_items"] == 3
+
+
+class TestRRFWeights:
+    """Optional per-list weights scale each list's RRF contribution.
+
+    Default (no weights / all 1.0) must be byte-identical to the legacy
+    behaviour so existing rankings do not shift.
+    """
+
+    def test_weights_none_matches_legacy(self) -> None:
+        vector = [("doc1", 0.9), ("doc2", 0.8), ("doc3", 0.7)]
+        bm25 = [("doc2", 15.0), ("doc4", 12.0), ("doc1", 10.0)]
+
+        legacy = reciprocal_rank_fusion([vector, bm25])
+        weighted = reciprocal_rank_fusion([vector, bm25], weights=[1.0, 1.0])
+
+        assert weighted == legacy
+
+    def test_higher_weight_boosts_list(self) -> None:
+        vector = [("a", 0.9), ("b", 0.8)]
+        bm25 = [("b", 15.0), ("a", 12.0)]
+        # Unweighted: a and b tie-ish; heavy vector weight must push a above b.
+        fused = reciprocal_rank_fusion([vector, bm25], weights=[10.0, 1.0])
+        assert fused[0][0] == "a"
+
+    def test_partial_weights_default_to_one(self) -> None:
+        vector = [("a", 0.9), ("b", 0.8)]
+        bm25 = [("b", 15.0), ("a", 12.0)]
+        full = reciprocal_rank_fusion([vector, bm25], weights=[2.0, 2.0])
+        partial = reciprocal_rank_fusion([vector, bm25], weights=[2.0])
+        assert [i for i, _ in full] == [i for i, _ in partial]
+
+    def test_zero_weight_disables_list(self) -> None:
+        vector = [("a", 0.9)]
+        bm25 = [("b", 15.0)]
+        fused = reciprocal_rank_fusion([vector, bm25], weights=[0.0, 1.0])
+        assert [i for i, _ in fused] == ["b"]

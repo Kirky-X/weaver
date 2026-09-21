@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Reciprocal Rank Fusion (RRF) algorithm for combining multiple retrieval results.
 
 RRF is a simple yet effective method for combining ranked lists from multiple
@@ -39,6 +39,7 @@ def reciprocal_rank_fusion(
     results_list: list[list[tuple[Any, float]]],
     k: int = 60,
     return_scores: bool = True,
+    weights: list[float] | None = None,
 ) -> list[tuple[Any, float]]:
     """Combine multiple ranked lists using Reciprocal Rank Fusion.
 
@@ -46,6 +47,8 @@ def reciprocal_rank_fusion(
         results_list: List of ranked lists, each containing (item, score) tuples.
         k: RRF constant for rank smoothing (default: 60).
         return_scores: Whether to return RRF scores or just items.
+        weights: Optional per-list contribution multiplier. A missing entry
+            defaults to 1.0 (legacy behaviour), and 0.0 disables a list.
 
     Returns:
         Fused list of (item, rrf_score) tuples sorted by RRF score.
@@ -63,9 +66,14 @@ def reciprocal_rank_fusion(
     item_scores: dict[Any, float] = defaultdict(float)
     item_ranks: dict[Any, list[int]] = defaultdict(list)
 
-    for ranked_list in results_list:
+    for list_idx, ranked_list in enumerate(results_list):
+        weight = weights[list_idx] if weights and list_idx < len(weights) else 1.0
+        if weight == 0.0:
+            # A disabled list contributes neither score nor items — its
+            # entries must not linger in the fusion as 0.0-scored noise.
+            continue
         for rank, (item, _) in enumerate(ranked_list, start=1):
-            rrf_contribution = 1.0 / (k + rank)
+            rrf_contribution = weight / (k + rank)
             item_scores[item] += rrf_contribution
             item_ranks[item].append(rank)
 
