@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for CleanerNode."""
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ class TestCleanerNodeBasic:
     async def test_llm_publish_time_backfills_when_raw_missing(
         self, mock_llm, mock_budget, mock_prompt_loader, sample_cleaner_output
     ):
-        """REM-002: LLM-parsed publish_time backfills publish_time when raw.publish_time is None.
+        """LLM-parsed publish_time backfills publish_time when raw.publish_time is None.
 
         Previously the LLM publish_time was written to a dead field
         'llm_publish_time' that was never read. Now it backfills the canonical
@@ -182,7 +182,7 @@ class TestCleanerNodeEdgeCases:
     async def test_handles_no_publish_time(
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
-        """REM-002: Should not overwrite publish_time when LLM output has no publish_time.
+        """Should not overwrite publish_time when LLM output has no publish_time.
 
         When LLM output has publish_time=None and raw.publish_time exists,
         the cleaned publish_time must retain raw.publish_time (not be set to None).

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for core.event.bus module."""
@@ -353,3 +353,41 @@ class TestEventBus:
 
         assert len(bus._handlers[CredibilityComputedEvent]) == 1
         assert len(bus._handlers[LLMFailureEvent]) == 1
+
+
+class TestEmitTaskReferences:
+    """emit() must hold a strong ref until the task completes."""
+
+    async def test_emit_delivers_event_and_releases_ref(self) -> None:
+        bus = EventBus()
+        received = []
+
+        async def handler(event) -> None:
+            received.append(event)
+
+        bus.subscribe(CredibilityComputedEvent, handler)
+
+        event = CredibilityComputedEvent(url="https://example.com", score=0.5)
+        bus.emit(event)
+
+        # Task is referenced while pending
+        assert bus._emit_tasks, "emit() must keep a strong reference to the task"
+
+        for _ in range(50):
+            if received:
+                break
+            import asyncio
+
+            await asyncio.sleep(0.01)
+
+        assert len(received) == 1
+
+        import asyncio
+
+        for _ in range(50):
+            if not bus._emit_tasks:
+                break
+            await asyncio.sleep(0.01)
+
+        # Completed tasks are discarded from the ref set
+        assert not bus._emit_tasks

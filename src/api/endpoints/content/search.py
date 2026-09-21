@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Search API endpoints — knowledge graph and article similarity search."""
 
 from __future__ import annotations
@@ -26,10 +26,12 @@ from api.dependencies import (
     get_pipeline_service,
     get_vector_repo,
 )
+from api.endpoints.content.search_cache import get_cached_search, store_search
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
 from core.observability import get_logger
+from core.utils.vector_math import cosine_similarity
 from core.protocols import GraphPool, PipelineService
 from modules.knowledge.search import (
     GlobalSearchEngine,
@@ -53,7 +55,7 @@ from modules.storage import VectorRepo
 router = APIRouter(prefix="/search", tags=["search"])
 
 # Module-level background task registry for web-search fallback pipeline
-# ingestion (T017). Strong references prevent asyncio Task GC; the
+# ingestion. Strong references prevent asyncio Task GC; the
 # ``add_done_callback(set.discard)`` pattern auto-cleans on completion.
 # Matches the convention in src/api/endpoints/content/pipeline.py:283.
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -133,6 +135,7 @@ async def search_unified(
         None,
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
+    no_cache: bool = Query(False, description="Bypass the short-TTL response cache"),
     _: str = Depends(verify_api_key),
     local_engine: LocalSearchEngine = Depends(get_local_search_engine),
     global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
@@ -170,9 +173,27 @@ async def search_unified(
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
 
+    # Short-TTL response cache for hot queries
+    cache_params = {
+        "q": q,
+        "mode": mode,
+        "community_level": community_level,
+        "threshold": threshold,
+        "limit": limit,
+        "category": category,
+        "use_hybrid": use_hybrid,
+        "global_mode": global_mode,
+        "output_mode": out_mode_value,
+        "enrich_entities": enrich,
+        "no_cache": no_cache,
+    }
+    cached_payload = await get_cached_search(request, cache_params)
+    if cached_payload is not None:
+        return success_response(SearchResponse.model_validate(cached_payload))
+
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
-    use_explicit_mode = explicit_mode in ("local", "global")
+    use_explicit_mode = explicit_mode in ("local", "global", "hybrid")
 
     # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
@@ -192,6 +213,28 @@ async def search_unified(
         # Explicit mode: bypass intent routing, call engines directly
         if explicit_mode == "local":
             engine_result = await local_engine.search(q)
+        elif explicit_mode == "hybrid":
+            # Hybrid needs the query embedding from the caller — the engine
+            # has no LLM reference and silently skips its vector branch when
+            # embedding is None (BM25-only fallback).
+            query_emb = (await llm.embed_default([q]))[0]
+            hybrid_results = await hybrid_engine.search(q, embedding=query_emb)
+            engine_result = {
+                "answer": "",
+                "context_tokens": 0,
+                "confidence": 0.6,
+                "entities": [],
+                "sources": [
+                    {
+                        "url": f"/api/v1/articles/{r.doc_id}",
+                        "title": r.title,
+                        "snippet": (r.content or "")[:200],
+                        "score": r.score,
+                    }
+                    for r in hybrid_results
+                ],
+                "metadata": {"retrieval": "hybrid_rrf"},
+            }
         else:  # global
             engine_result = await global_engine.search(q, community_level=community_level)
         classification = IntentClassification(
@@ -256,8 +299,13 @@ async def search_unified(
                 for r in web_results
                 if r.url
             ]
-            result_confidence = 0.5  # web-search fallback confidence
-            # M1 fix: update context_tokens to reflect the new answer
+            # Only claim fallback confidence when at least one Bing result
+            # actually contributed a URL/snippet; results with empty URLs
+            # produce empty answer/sources and must not mask the engine's
+            # (correctly low) confidence.
+            if result_sources:
+                result_confidence = 0.5  # web-search fallback confidence
+            # update context_tokens to reflect the new answer
             # length (rough estimate: 1 token ≈ 4 chars for English/CJK
             # mixed text). Without this, context_tokens would stay at 0
             # (from the empty engine_result), creating an inconsistent
@@ -266,9 +314,9 @@ async def search_unified(
             # Fire-and-forget: schedule background pipeline ingestion for
             # each Bing result URL. URLs are processed sequentially inside
             # a SINGLE background task to avoid DuckDB write lock contention
-            # (HIGH-1: matches pipeline.py:285 convention).
+            # (matches pipeline.py:285 convention).
             urls = [r.url for r in web_results if r.url]
-            # MEDIUM-1 (T051-B): pass concurrency cap + total batch timeout
+            # Pass concurrency cap + total batch timeout
             # from SearchSettings so operators can tune via env vars
             # (WEAVER_SEARCH__MAX_BACKGROUND_TASKS,
             #  WEAVER_SEARCH__BACKGROUND_TASK_TOTAL_TIMEOUT). Reading
@@ -286,7 +334,7 @@ async def search_unified(
                 max_concurrent=search_settings.max_background_tasks,
                 total_timeout=search_settings.background_task_total_timeout,
             )
-            # MEDIUM-1: when at concurrency cap, the background task was
+            # When at concurrency cap, the background task was
             # dropped (not spawned). Signal the client via metadata so it
             # can retry ingestion later (the search itself succeeded —
             # Bing snippets are already in the response).
@@ -306,18 +354,18 @@ async def search_unified(
     # Note: Narrative synthesis and entity aggregation are handled by MAGMA
     # memory integration when output_mode=NARRATIVE or enrich_entities=True.
 
-    return success_response(
-        SearchResponse(
-            query=q,
-            answer=result_answer,
-            context_tokens=result_tokens,
-            confidence=result_confidence,
-            search_type=search_type,
-            entities=result_entities,
-            sources=result_sources,
-            metadata=result_metadata,
-        )
+    response_payload = SearchResponse(
+        query=q,
+        answer=result_answer,
+        context_tokens=result_tokens,
+        confidence=result_confidence,
+        search_type=search_type,
+        entities=result_entities,
+        sources=result_sources,
+        metadata=result_metadata,
     )
+    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
+    return success_response(response_payload)
 
 
 # ── Explicit Local/Global Search Endpoints ────────────────────
@@ -327,8 +375,8 @@ async def _execute_explicit_search(
     q: str,
     mode: str,
     community_level: int,
-    local_engine: LocalSearchEngine,
-    global_engine: GlobalSearchEngine,
+    local_engine: LocalSearchEngine | None,
+    global_engine: GlobalSearchEngine | None,
 ) -> SearchResponse:
     """Build SearchResponse for explicit local/global mode.
 
@@ -388,7 +436,7 @@ async def search_local(
     Shortcut for ``GET /search?mode=local``. Returns entity-focused results
     with article context from the local subgraph.
     """
-    result = await _execute_explicit_search(q, "local", 0, local_engine, None)  # type: ignore[arg-type]
+    result = await _execute_explicit_search(q, "local", 0, local_engine, None)
     return success_response(result)
 
 
@@ -405,7 +453,7 @@ async def search_global(
     Shortcut for ``GET /search?mode=global``. Returns community-report-based
     answers spanning multiple entities.
     """
-    result = await _execute_explicit_search(q, "global", community_level, None, global_engine)  # type: ignore[arg-type]
+    result = await _execute_explicit_search(q, "global", community_level, None, global_engine)
     return success_response(result)
 
 
@@ -416,9 +464,9 @@ class DriftSearchRequest(BaseModel):
     """Request model for DRIFT search."""
 
     query: str = Field(..., min_length=1, description="Search query (non-empty)")
-    primer_k: int = 3
-    max_follow_ups: int = 2
-    confidence_threshold: float = 0.7
+    primer_k: int = Field(default=3, ge=1)
+    max_follow_ups: int = Field(default=2, ge=0)
+    confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class DriftSearchResponse(BaseModel):
@@ -468,18 +516,28 @@ async def search_drift(
         Hierarchical search result with primer and follow-up answers.
 
     """
-    from modules.knowledge.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
-
     try:
+        from modules.knowledge.search.engines.drift_search import (
+            DriftConfig,
+            DRIFTSearchEngine,
+        )
+
         config = DriftConfig(
             primer_k=body.primer_k,
             max_follow_ups=body.max_follow_ups,
             confidence_threshold=body.confidence_threshold,
         )
 
-        # Get context builder and LLM from global engine
-        context_builder = global_engine._context_builder
-        llm = global_engine._llm
+        # use the public accessor instead of private attributes; it
+        # validates that an LLM client is actually configured before DRIFT
+        # construction, surfacing a clean 503 instead of an AttributeError.
+        try:
+            context_builder, llm = global_engine.get_drift_deps()
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="DRIFT search unavailable: LLM client not configured",
+            ) from exc
 
         engine = DRIFTSearchEngine(
             context_builder=context_builder,
@@ -508,6 +566,10 @@ async def search_drift(
             )
         )
 
+    except HTTPException:
+        # let deliberate HTTP errors (e.g. 503 LLM not configured)
+        # pass through instead of being rewritten as a generic 500.
+        raise
     except Exception as exc:
         # CWE-200: log full error server-side (with traceback context),
         # expose only generic message to client to avoid disclosing
@@ -520,10 +582,10 @@ async def search_drift(
         )
         err_msg = str(exc).lower()
         if "neo4j" in err_msg or "graph" in err_msg:
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
         if "llm" in err_msg or "circuit breaker" in err_msg:
-            raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail="DRIFT search failed")
+            raise HTTPException(status_code=503, detail="LLM service unavailable") from exc
+        raise HTTPException(status_code=500, detail="DRIFT search failed") from exc
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────
@@ -650,16 +712,18 @@ async def search_causal(
         )
 
         # Execute search (with timeout protection)
+        from container import get_settings
+
         results = await asyncio.wait_for(
             engine.search(query=body.query, intent=IntentType.WHY),
-            timeout=60.0,
+            timeout=get_settings().search.causal_search_timeout,
         )
 
-        # D5 / Task 5.1: pull traversal metadata from engine.last_metadata
-        # (populated by _beam_search → _prefetch_neighbors via Task 3.5).
+        # Pull traversal metadata from engine.last_metadata
+        # (populated by _beam_search → _prefetch_neighbors).
         # causal_edges_traversed counts neighbors reached via CAUSES/ENABLES
         # edges (0 when graph DB has no CAUSAL edges — Q1 finding).
-        # degraded is set when score_range == 0 with >=2 results (D3 fix).
+        # degraded is set when score_range == 0 with >=2 results (fix).
         engine_metadata = engine.last_metadata
         causal_edges_traversed = int(engine_metadata.get("causal_edges_traversed", 0))
         degraded = bool(engine_metadata.get("degraded", False))
@@ -674,7 +738,7 @@ async def search_causal(
             for r in results
         ]
 
-        # D5 / Task 5.2-5.4: answer text reflects actual traversal path,
+        # Answer text reflects actual traversal path,
         # NOT a hardcoded "found N causal chains" lie. Three branches:
         # - causal_edges_traversed > 0: real causal chain traversal
         # - == 0 and results non-empty: only semantic anchors, no causal edge
@@ -689,7 +753,7 @@ async def search_causal(
             answer = f"未找到与查询相关的因果链，返回 {len(causal_chain)} 个语义相关事件"
             confidence = sum(r.get("score", 0) for r in results) / max(len(results), 1)
 
-        # D3 / Task 5.5: when scoring function degraded (all scores identical),
+        # When scoring function degraded (all scores identical),
         # cap confidence at 0.3 to distinguish "no real differentiation" from
         # "high-confidence result". This prevents confidence=1.0 lies when
         # every anchor has the same exp(2.0)=7.389 raw score (the bug).
@@ -702,7 +766,7 @@ async def search_causal(
                 answer=answer,
                 causal_chain=causal_chain,
                 confidence=confidence,
-                # Task 5.6: expose causal_edges_traversed + degraded for callers
+                # expose causal_edges_traversed + degraded for callers
                 metadata={
                     "depth": body.max_depth,
                     "causal_edges_traversed": causal_edges_traversed,
@@ -711,9 +775,9 @@ async def search_causal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("causal_search_timeout", query=body.query)
-        raise HTTPException(status_code=504, detail="Causal search timed out")
+        raise HTTPException(status_code=504, detail="Causal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -725,20 +789,10 @@ async def search_causal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during causal search")
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during causal search"
+        ) from exc
 
 
 _TIME_RANGE_RE = re.compile(r"^(\d+)([dhm])$")
@@ -813,12 +867,18 @@ async def _semantic_temporal_search(
     """
     query_embedding = await embedding_service.embed(query)
 
+    from container import get_settings
+
+    search_settings = get_settings().search
     all_events = await asyncio.wait_for(
-        temporal_repo.get_events_by_timerange(start_time=start_time, end_time=end_time, limit=500),
-        timeout=30.0,
+        temporal_repo.get_events_by_timerange(
+            start_time=start_time,
+            end_time=end_time,
+            limit=search_settings.temporal_window_fetch_limit,
+        ),
+        timeout=search_settings.temporal_search_timeout,
     )
 
-    # Filter out legacy dirty data (event_time=0 from writer bug)
     all_events = [e for e in all_events if _is_valid_event_timestamp(e.get("timestamp"))]
 
     if not all_events:
@@ -829,7 +889,7 @@ async def _semantic_temporal_search(
 
     scored: list[tuple[float, dict[str, Any]]] = []
     for event, emb in zip(all_events, event_embeddings, strict=True):
-        sim = _cosine_similarity(query_embedding, emb)
+        sim = cosine_similarity(query_embedding, emb)
         attr = event.get("attributes")
         if isinstance(attr, str):
             with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -871,6 +931,7 @@ async def search_temporal(
         Ordered list of events with temporal metadata.
 
     """
+    from container import get_settings
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
     log = get_logger(__name__)
@@ -896,7 +957,7 @@ async def search_temporal(
                 )
             except Exception as emb_exc:
                 # Embedding batch timeout/failure → fall back to substring search
-                # (P0-2: previously returned 500; now degrades gracefully)
+                # (previously returned 500; now degrades gracefully)
                 log.warning(
                     "temporal_search_embedding_fallback",
                     error=str(emb_exc),
@@ -909,7 +970,7 @@ async def search_temporal(
                         start_time=start_time,
                         end_time=end_time,
                     ),
-                    timeout=30.0,
+                    timeout=get_settings().search.temporal_search_timeout,
                 )
         else:
             events = await asyncio.wait_for(
@@ -919,10 +980,9 @@ async def search_temporal(
                     start_time=start_time,
                     end_time=end_time,
                 ),
-                timeout=30.0,
+                timeout=get_settings().search.temporal_search_timeout,
             )
 
-        # Force filter: exclude legacy dirty data (timestamp=0 from writer bug)
         events = [e for e in events if _is_valid_event_timestamp(e.get("timestamp"))]
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization;
@@ -952,9 +1012,9 @@ async def search_temporal(
             )
         )
 
-    except TimeoutError:
+    except TimeoutError as _exc:
         log.error("temporal_search_timeout", limit=body.limit)
-        raise HTTPException(status_code=504, detail="Temporal search timed out")
+        raise HTTPException(status_code=504, detail="Temporal search timed out") from _exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -965,5 +1025,7 @@ async def search_temporal(
             query=body.query[:50],
         )
         if "neo4j" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during temporal search")
+            raise HTTPException(status_code=503, detail="Graph service unavailable") from exc
+        raise HTTPException(
+            status_code=500, detail="Internal server error during temporal search"
+        ) from exc

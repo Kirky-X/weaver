@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Two-level deduplication: Cache Hash + DB UNIQUE constraint."""
 
 from __future__ import annotations
@@ -97,10 +97,23 @@ class Deduplicator:
 
         if cache_available:
             try:
-                url_hashes = [self._hash(item.url) for item in items]
+                # Skip malformed URLs instead of letting one bad URL disable
+                # the cache path for the whole batch; they fall through to
+                # the DB check below.
+                valid_items: list = []
+                invalid_items: list = []
+                url_hashes: list[str] = []
+                for item in items:
+                    try:
+                        url_hashes.append(self._hash(item.url))
+                        valid_items.append(item)
+                    except ValueError:
+                        invalid_items.append(item)
                 exists = await self._cache.hexists_many(self.DEDUP_KEY, url_hashes)
 
-                candidates = [item for item, ex in zip(items, exists) if not ex]
+                candidates = [
+                    item for item, ex in zip(valid_items, exists) if not ex
+                ] + invalid_items
                 cache_filtered = original_count - len(candidates)
 
                 if not candidates:
@@ -125,9 +138,14 @@ class Deduplicator:
             metrics.dedup_redis_fallback_total.inc()
 
         urls = [item.url for item in candidates]
+        # DB stores normalized source_url (see article_writer), and
+        # get_existing_urls normalizes its input — compare on the
+        # normalized form so both dedup paths agree with the cache keys.
         if hasattr(self._repo, "get_existing_urls"):
             db_existing = await self._repo.get_existing_urls(urls)
-            new_items = [item for item in candidates if item.url not in db_existing]
+            new_items = [
+                item for item in candidates if self.normalize_url(item.url) not in db_existing
+            ]
         else:
             new_items = candidates
 
@@ -140,6 +158,9 @@ class Deduplicator:
                 now_str = str(int(time.time()))
                 for item in new_items:
                     await self._cache.hset(self.DEDUP_KEY, self._hash(item.url), now_str)
+                # Rolling TTL on the shared hash so entries do not grow
+                # unbounded if the periodic cleanup_expired job is delayed.
+                await self._cache.expire(self.DEDUP_KEY, self._ttl)
             except Exception as e:
                 log.warning("dedup_cache_write_failed", error=str(e))
                 self._cache_healthy = False
@@ -186,8 +207,8 @@ class Deduplicator:
                 candidates = urls
 
         if hasattr(self._repo, "get_existing_urls"):
-            db_existing = await self._repo.get_existing_urls(candidates)
-            new_urls = [url for url in candidates if url not in db_existing]
+            db_existing = set(await self._repo.get_existing_urls(candidates))
+            new_urls = [url for url in candidates if self.normalize_url(url) not in db_existing]
         else:
             new_urls = candidates
 
@@ -196,6 +217,9 @@ class Deduplicator:
                 now = str(int(time.time()))
                 for url in new_urls:
                     await self._cache.hset(self.DEDUP_KEY, self._hash(url), now)
+                # Rolling TTL on the shared hash so entries do not grow
+                # unbounded if the periodic cleanup_expired job is delayed.
+                await self._cache.expire(self.DEDUP_KEY, self._ttl)
             except Exception as e:
                 log.warning("dedup_urls_cache_write_failed", error=str(e))
                 self._cache_healthy = False

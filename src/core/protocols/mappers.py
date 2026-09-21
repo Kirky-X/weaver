@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Mapper protocol definitions for unified data mapping.
 
 This module defines the MapperProtocol that all Mapper classes must implement.
@@ -12,9 +12,7 @@ in their docstring using the "Implements:" section.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeVar, runtime_checkable
-
-ViewT = TypeVar("ViewT")
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -25,9 +23,7 @@ class MapperProtocol(Protocol):
     into typed Pydantic View models with field-level type conversion.
 
     Implementations:
-        - PostgresArticleMapper: Maps PostgreSQL ORM rows/dicts to ArticleView
         - Neo4jEntityMapper: Maps Neo4j records to EntityView
-        - CommunityMapper: Maps community data to CommunityView
         - CommunitySearchResultMapper: Maps search results to CommunitySearchResultView
     """
 

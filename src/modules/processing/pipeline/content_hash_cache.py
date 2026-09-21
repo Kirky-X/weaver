@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Content hash cache collaborator.
 
 Caches processing results keyed by SHA-256 of article title+body so that
@@ -10,19 +10,34 @@ Extracted from ``Pipeline`` to keep the orchestrator focused on flow control.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
 log = get_logger(__name__)
+
+# Fallback snapshot version when not configured. Production value comes
+# from pipeline.toml ``content_hash_version``（配置驱动失效：prompt/输出
+# 结构变更时 bump 配置值，旧快照立即全部视为 miss）。
+_DEFAULT_SCHEMA_VERSION = 2
+
+# Keys never cached: per-article identity and non-serializable objects.
+# ``_cache_hit`` (and any future private marker) is excluded via the
+# leading-underscore rule below.
+_UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
+
+# Cached snapshots expire after 7 days (overridable via
+# pipeline.toml ``content_hash_cache_ttl_seconds``).
+_CACHE_TTL_SECONDS = 604800
 
 
 class ContentHashCacheService:
@@ -34,10 +49,22 @@ class ContentHashCacheService:
 
     Args:
         cache_client: Cache pool (Redis). May be None when caching is disabled.
+        schema_version: Snapshot version; entries written under a different
+            version are treated as misses. Wired from pipeline.toml
+            ``content_hash_version`` so deployments invalidate stale
+            snapshots by config change instead of waiting out the TTL.
     """
 
-    def __init__(self, *, cache_client: CachePool | None) -> None:
+    def __init__(
+        self,
+        *,
+        cache_client: CachePool | None,
+        schema_version: int = _DEFAULT_SCHEMA_VERSION,
+        ttl_seconds: int = _CACHE_TTL_SECONDS,
+    ) -> None:
         self._cache_client = cache_client
+        self._schema_version = schema_version
+        self._ttl_seconds = ttl_seconds
 
     async def check(self, articles: list[RawArticle]) -> list[dict[str, Any] | None]:
         """Check content hash cache for a batch of articles.
@@ -46,15 +73,21 @@ class ContentHashCacheService:
             articles: List of raw articles to check.
 
         Returns:
-            List of cached results (None for cache misses).
+            List of cached result snapshots (None for cache misses). A valid
+            snapshot carries the full processed state (``cleaned``, analysis
+            results, ``vectors``); entries from an older schema version are
+            reported as misses so they never pollute fresh pipeline states.
         """
         if not self._cache_client:
             return [None] * len(articles)
 
-        # Compute content hashes
+        # Compute content hashes. 长度前缀防止边界碰撞：纯分隔符方案下
+        # (title="A\x00BC", body="C") 与 (title="A", body="BC\x00C") 会
+        # 生成同一字符串（title/body 来自抓取内容，NUL 可被攻击者构造）
+        # ——前缀使 title/body 边界由 title 长度唯一确定。
         cache_keys = []
         for article in articles:
-            content = f"{article.title}{article.body}"
+            content = f"{len(article.title)}:{article.title}\x00{article.body}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             cache_keys.append(f"content_hash:{content_hash}")
 
@@ -64,9 +97,18 @@ class ContentHashCacheService:
             for cached in cached_values:
                 if cached:
                     try:
-                        results.append(json.loads(cached))
-                        MetricsCollector.content_hash_cache_hit_total.labels(hit="hit").inc()
+                        parsed = json.loads(cached)
                     except (json.JSONDecodeError, TypeError):
+                        parsed = None
+                    if (
+                        isinstance(parsed, dict)
+                        and parsed.get("_schema_version") == self._schema_version
+                        and "cleaned" in parsed
+                    ):
+                        results.append(parsed)
+                        MetricsCollector.content_hash_cache_hit_total.labels(hit="hit").inc()
+                    else:
+                        # Corrupt entry or stale schema — treat as a miss.
                         results.append(None)
                         MetricsCollector.content_hash_cache_hit_total.labels(hit="miss").inc()
                 else:
@@ -77,8 +119,44 @@ class ContentHashCacheService:
             log.warning("content_hash_cache_check_failed", error=str(exc))
             return [None] * len(articles)
 
+    def _snapshot_pair(self, state: PipelineState) -> tuple[str, dict[str, Any]] | None:
+        """Build (cache_key, snapshot_dict) for a state; None when unwritable."""
+        raw = state.get("raw")
+        if not raw:
+            return None
+
+        # Must mirror check()'s key derivation (see the length-prefix note there).
+        content = f"{len(raw.title)}:{raw.title}\x00{raw.body}"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        cache_key = f"content_hash:{content_hash}"
+
+        snapshot: dict[str, Any] = {"_schema_version": self._schema_version}
+        for key, value in state.items():
+            if key in _UNCACHEABLE_KEYS or key.startswith("_"):
+                continue
+            if key == "entities" and isinstance(value, list):
+                # Strip per-entity embeddings: they dominate the snapshot size
+                # (1024 floats each → hundreds of KB per article) and would
+                # blow Redis capacity under the 7-day TTL. Entity vectors live
+                # in entity_vectors (persisted on first encounter of the
+                # entity) — a cache hit skips Phase 3 entirely so they are
+                # never recomputed from the snapshot anyway.
+                value = [
+                    {k: v for k, v in entity.items() if k != "embedding"}
+                    if isinstance(entity, dict)
+                    else entity
+                    for entity in value
+                ]
+            snapshot[key] = value
+        return cache_key, snapshot
+
     async def write(self, state: PipelineState) -> None:
-        """Write processing result to content hash cache.
+        """Write the processed state snapshot to the content hash cache.
+
+        The snapshot must match what the pipeline mappers consume
+        (``cleaned``, ``sentiment``, ``credibility``, ``summary_info``,
+        ``vectors``, ...) so a cache hit can short-circuit Phase 1/Phase 3
+        without losing analysis results or embeddings.
 
         Args:
             state: Completed pipeline state to cache.
@@ -86,29 +164,17 @@ class ContentHashCacheService:
         if not self._cache_client:
             return
 
-        raw = state.get("raw")
-        if not raw:
+        pair = self._snapshot_pair(state)
+        if pair is None:
             return
-
-        content = f"{raw.title}{raw.body}"
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-        cache_key = f"content_hash:{content_hash}"
-
-        # Cache essential fields
-        cache_data = {
-            "title": state.get("title", raw.title),
-            "body": state.get("body", raw.body),
-            "category": state.get("category"),
-            "quality_score": state.get("quality_score"),
-            "credibility_score": state.get("credibility_score"),
-            "sentiment_score": state.get("sentiment_score"),
-        }
+        cache_key, snapshot = pair
 
         try:
+            payload = await asyncio.to_thread(json.dumps, snapshot, ensure_ascii=False, default=str)
             await self._cache_client.set(
                 cache_key,
-                json.dumps(cache_data, ensure_ascii=False),
-                ex=604800,  # 7 days TTL
+                payload,
+                ex=self._ttl_seconds,
             )
         except Exception as exc:
             log.warning("content_hash_cache_write_failed", error=str(exc))
@@ -116,8 +182,29 @@ class ContentHashCacheService:
     async def write_batch(self, states: list[PipelineState]) -> None:
         """Write multiple processing results to content hash cache.
 
+        Serialization runs in a worker thread (large snapshots with vectors)
+        and all keys are flushed in a single pipeline round trip.
+
         Args:
             states: List of completed pipeline states to cache.
         """
-        for state in states:
-            await self.write(state)
+        if not self._cache_client or not states:
+            return
+
+        pairs = [pair for pair in (self._snapshot_pair(s) for s in states) if pair]
+        if not pairs:
+            return
+
+        try:
+            serialized = await asyncio.to_thread(
+                lambda: [
+                    (key, json.dumps(snapshot, ensure_ascii=False, default=str))
+                    for key, snapshot in pairs
+                ]
+            )
+            async with self._cache_client.pipeline() as pipe:
+                for key, payload in serialized:
+                    pipe.set(key, payload, ex=self._ttl_seconds)
+                await pipe.execute()
+        except Exception as exc:
+            log.warning("content_hash_cache_write_failed", error=str(exc))

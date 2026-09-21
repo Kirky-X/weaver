@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for BeamSearchReranker."""
 
 from __future__ import annotations
@@ -183,3 +183,79 @@ class TestMultiHopExpansion:
 
         assert len(results) == 1
         assert results[0]["id"] == "e1"
+
+
+class TestExpansionDedupAndEmptyIds:
+    """Regression: expansion must not waste beam slots.
+
+    - Neighbors with empty ids can never be visited/collected, but were
+      previously queued into next_candidates and consumed beam_width slots.
+    - The same neighbor discovered by multiple frontier nodes was queued
+      multiple times.
+    """
+
+    def _mock_graph(self, neighbors_by_id):
+        mock_graph = MagicMock()
+        mock_graph.get_neighbors = side_effect = lambda eid: neighbors_by_id.get(eid, [])
+        return mock_graph
+
+    def test_empty_id_neighbor_does_not_evict_valid_candidate(self):
+        # beam_width=1: the empty-id neighbor outscores "good", so under the
+        # old behavior it occupied the only beam slot and "good" was pruned
+        # without ever being collectable. expansion_weight > decay_factor
+        # makes a collected "good" outrank e1 in the final ordering.
+        reranker = BeamSearchReranker(beam_width=1, decay_factor=0.1, expansion_weight=0.9)
+        neighbors = {
+            "e1": [
+                {"id": "", "fusion_score": 1.0, "content": "Empty id"},
+                {"id": "good", "fusion_score": 0.99, "content": "Valid"},
+            ]
+        }
+        graph = self._mock_graph(neighbors)
+
+        candidates = [{"id": "e1", "fusion_score": 0.9, "content": "Entity 1"}]
+        results = reranker.rerank("q", candidates, graph=graph, depth=1)
+
+        collected = {r["id"] for r in results}
+        assert "good" in collected
+
+    def test_shared_neighbor_counted_once(self):
+        reranker = BeamSearchReranker(beam_width=10)
+        shared = {"id": "shared", "fusion_score": 0.4, "content": "Shared"}
+        neighbors = {
+            "e1": [shared, {"id": "a", "fusion_score": 0.8, "content": "A"}],
+            "e2": [shared, {"id": "b", "fusion_score": 0.7, "content": "B"}],
+        }
+        graph = self._mock_graph(neighbors)
+
+        candidates = [
+            {"id": "e1", "fusion_score": 0.9, "content": "Entity 1"},
+            {"id": "e2", "fusion_score": 0.85, "content": "Entity 2"},
+        ]
+        results = reranker.rerank("q", candidates, graph=graph, depth=1)
+
+        ids = [r["id"] for r in results]
+        assert ids.count("shared") == 1
+
+
+class TestRerankQueryLogging:
+    """#219: the ``query`` parameter is used in the expansion-failure log."""
+
+    def test_expand_failure_log_includes_query(self):
+        from unittest.mock import patch
+
+        reranker = BeamSearchReranker()
+        graph = MagicMock()
+        graph.get_neighbors.side_effect = RuntimeError("boom")
+        candidates = [{"id": "n1", "fusion_score": 1.0}]
+
+        with patch("modules.knowledge.search.rerankers.beam_search_reranker.log") as mock_log:
+            reranker.rerank("seed query", candidates, graph=graph, depth=1)
+
+        warnings = [
+            c
+            for c in mock_log.warning.call_args_list
+            if c.args and c.args[0] == "beam_expand_failed"
+        ]
+        assert warnings
+        assert warnings[0].kwargs["query"] == "seed query"

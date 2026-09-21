@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Service layer protocol definitions for cross-module communication.
 
 This module defines Protocol classes for service layer interfaces that
@@ -136,7 +136,8 @@ class TaskRegistryService(Protocol):
         """List registered tasks.
 
         Args:
-            status: Filter by status (pending, running, done, cancelled).
+            status: Filter by status (running, done, cancelled, failed).
+                ``pending`` 不是合法取值——Status 不产出 PENDING。
             limit: Maximum number of tasks to return.
 
         Returns:
@@ -186,26 +187,26 @@ class DeduplicationStrategy(Protocol):
 
 @runtime_checkable
 class DailyBriefingProtocol(Protocol):
-    """Protocol for daily briefing service (R-briefing-001).
+    """Protocol for daily briefing service.
 
     This service provides a stable interface for modules that need to
     generate, fetch, and list daily briefings without depending on the
-    concrete implementation (DailyBriefingService, T008).
+    concrete implementation (DailyBriefingService,).
 
     Implementations:
-        - DailyBriefingService: src/modules/briefing/service.py (T008)
+        - DailyBriefingService: src/modules/briefing/service.py
 
     Used by:
-        - T009 briefings endpoint: GET /api/v1/briefings/daily and
+        - briefings endpoint: GET /api/v1/briefings/daily and
           POST /api/v1/briefings/daily/generate depend on this Protocol
           via the ``_get_briefing_service`` helper in
           ``api.endpoints.briefings`` (lazy-constructed from container).
-        - T010 APScheduler task: generate_daily_briefing calls
+        - APScheduler task: generate_daily_briefing calls
           generate_briefing for 4 categories (general/finance/tech/ai).
 
     Naming (Rule 7 — exposed conflict):
-        Parameter name is `date` (not `briefing_date`) per spec
-        R-briefing-001. The `date: date` annotation (parameter name
+        Parameter name is `date` (not `briefing_date`) per spec.
+        The `date: date` annotation (parameter name
         shadowing type name) is intentional — spec compliance takes
         priority over stylistic preference. BriefingResult field is
         also `date`, keeping Protocol↔DTO naming aligned.
@@ -228,7 +229,7 @@ class DailyBriefingProtocol(Protocol):
         Returns:
             BriefingResult with summary, items, and narrative_mode flag.
             On LLM failure, summary is None but briefing is still persisted
-            (Rule 12: best-effort per spec R-briefing-002).
+            (Rule 12: best-effort per spec).
         """
         ...
 
@@ -268,27 +269,27 @@ class DailyBriefingProtocol(Protocol):
 
 @runtime_checkable
 class SentimentTrendProtocol(Protocol):
-    """Protocol for sentiment trend analysis (R-sentiment-001).
+    """Protocol for sentiment trend analysis.
 
     This service provides a stable interface for modules that need to
     analyze sentiment shifts over a time window for an entity or
     community, without depending on the concrete implementation
-    (SentimentTrendAnalyzer, T012).
+    (SentimentTrendAnalyzer,).
 
     Implementations:
-        - SentimentTrendAnalyzer: src/modules/trend/sentiment.py (T012)
+        - SentimentTrendAnalyzer: src/modules/trend/sentiment.py
 
     Used by:
-        - T013 trends endpoint: GET /api/v1/trends/sentiment depends on
+        - trends endpoint: GET /api/v1/trends/sentiment depends on
           this Protocol via the ``_get_sentiment_trend_service`` helper
           in ``api.endpoints.trends`` (lazy-constructed from container).
-        - T018 TrendAlertEvaluator: sentiment_shift trigger_type rules
+        - TrendAlertEvaluator: sentiment_shift trigger_type rules
           invoke analyze_trend to detect shifts > threshold.
-        - T015 TrendDetector: optional dependency for sentiment_change
-          contribution to trend_score (R-trend-005).
+        - TrendDetector: optional dependency for sentiment_change
+          contribution to trend_score.
 
     Field semantics (Rule 7 — exposed ambiguity in spec):
-        spec R-sentiment-001 lists two list-typed fields ``shifts`` and
+        spec lists two list-typed fields ``shifts`` and
         ``list`` in SentimentTrendResult. They serve distinct purposes:
         - ``shifts``: raw shift records from sentiment_shifts table
           (one entry per article-level comparison).
@@ -309,12 +310,12 @@ class SentimentTrendProtocol(Protocol):
             entity_name: Canonical entity name to filter article-level
                 sentiment_shifts (article_id IS NOT NULL). Mutually
                 exclusive with community_id — at least one MUST be set
-                (spec R-sentiment-001 constraints).
+                (spec constraints).
             community_id: Community identifier to filter community-level
                 shifts. When given, all entity shifts within the community
                 are aggregated.
             window_days: Time window in days (only 7 and 30 are supported
-                per spec R-sentiment-001 constraints; other values raise
+                per spec constraints; other values raise
                 ValueError at the implementation layer).
 
         Returns:
@@ -331,40 +332,40 @@ class SentimentTrendProtocol(Protocol):
 
 @runtime_checkable
 class TrendDetectionProtocol(Protocol):
-    """Protocol for trend detection (R-trend-001).
+    """Protocol for trend detection.
 
     This service provides a stable interface for modules that need to
     detect trending entities over a time window by analyzing EventNode
     frequency changes and optional sentiment contribution, without
-    depending on the concrete implementation (TrendDetector, T015).
+    depending on the concrete implementation (TrendDetector,).
 
     Implementations:
-        - TrendDetector: src/modules/trend/detection.py (T015)
+        - TrendDetector: src/modules/trend/detection.py
 
     Used by:
-        - T016 trends endpoint: GET /api/v1/trends/detection depends on
+        - trends endpoint: GET /api/v1/trends/detection depends on
           this Protocol via the ``_get_trend_detection_service`` helper
           in ``api.endpoints.trends`` (lazy-constructed from container).
-        - T018 TrendAlertEvaluator: trend_spike / trend_drop trigger_type
+        - TrendAlertEvaluator: trend_spike / trend_drop trigger_type
           rules invoke detect_trends to evaluate frequency changes.
 
-    Trend score formula (R-trend-005):
+    Trend score formula:
         trend_score = 0.6 * frequency_change + 0.4 * sentiment_change
         When sentiment data is unavailable (analyzer None or entity has
         no sentiment_shifts), trend_score degenerates to frequency_change
         alone (Rule 12 — fail loud, but degrade gracefully on data
         availability rather than raising).
 
-    Direction thresholds (R-trend-005):
+    Direction thresholds:
         trend_score > 0.2  → 'up'
         trend_score < -0.2 → 'down'
         otherwise         → 'stable'
 
-    Insufficient-data contract (R-trend-003):
+    Insufficient-data contract:
         When EventNode count < 50 in the window, returns
         status='insufficient_data', trends=[], list=[]. Does NOT raise —
         data insufficiency is a legitimate state, not an error. The API
-        endpoint returns HTTP 200 in this case (R-trend-004).
+        endpoint returns HTTP 200 in this case.
     """
 
     async def detect_trends(
@@ -372,12 +373,12 @@ class TrendDetectionProtocol(Protocol):
         window_days: int = 7,
         entity_type: str | None = None,
     ) -> TrendDetectionResult:
-        """Detect trending entities over a time window (R-trend-002/003).
+        """Detect trending entities over a time window (/003).
 
         Args:
             window_days: Time window in days (7 or 30 per spec constraints;
                 other values raise ValueError at the implementation layer).
-            entity_type: Optional EventNode.name filter (R-trend-002:
+            entity_type: Optional EventNode.name filter (
                 "按 entity_type 过滤"). None aggregates across all entity
                 types.
 

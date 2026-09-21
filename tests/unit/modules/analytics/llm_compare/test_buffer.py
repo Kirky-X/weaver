@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for EvalCompareBuffer - Redis buffer for LLM comparison results."""
 
 from datetime import UTC, datetime
@@ -138,6 +138,16 @@ class TestEvalCompareBufferAccumulate:
         cache = MagicMock()
         cache.hincrby = AsyncMock()
         cache.expire = AsyncMock()
+        # Default: bucket key not yet present (first write)
+        cache.hgetall = AsyncMock(return_value={})
+        # Pipeline mock: increments are batched in one round-trip.
+        mock_pipe = MagicMock()
+        mock_pipe.execute = AsyncMock()
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_pipe)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+        cache.pipeline = MagicMock(return_value=mock_cm)
+        cache.mock_pipe = mock_pipe
         return cache
 
     @pytest.fixture
@@ -170,7 +180,7 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(sample_event)
 
         # Should call hincrby for count
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "classifier::gpt-4::claude-3::count",
             1,
@@ -187,14 +197,14 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(sample_event)
 
         # Should increment primary latency (int(150.5) = 150)
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "classifier::gpt-4::claude-3::primary_latency_sum",
             150,
         )
 
         # Should increment candidate latency (int(200.3) = 200)
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "classifier::gpt-4::claude-3::candidate_latency_sum",
             200,
@@ -211,14 +221,14 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(sample_event)
 
         # Primary success = True, should increment by 1
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "classifier::gpt-4::claude-3::primary_success",
             1,
         )
 
         # Candidate success = False, should increment by 0
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "classifier::gpt-4::claude-3::candidate_success",
             0,
@@ -231,13 +241,27 @@ class TestEvalCompareBufferAccumulate:
         mock_cache: MagicMock,
         sample_event: LLMCompareEvent,
     ):
-        """Test that accumulate sets TTL on bucket key."""
+        """Test that accumulate sets TTL on a newly-created bucket key."""
         await buffer.accumulate(sample_event)
 
         mock_cache.expire.assert_called_once_with(
             "llm:compare:2026041410",
             3600,
         )
+
+    @pytest.mark.asyncio
+    async def test_accumulate_does_not_reset_ttl(
+        self,
+        buffer: EvalCompareBuffer,
+        mock_cache: MagicMock,
+        sample_event: LLMCompareEvent,
+    ):
+        """Test that an existing bucket key's TTL is never re-set."""
+        mock_cache.hgetall = AsyncMock(return_value={"existing::field": "1"})
+
+        await buffer.accumulate(sample_event)
+
+        mock_cache.expire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_accumulate_multiple_events_same_bucket(
@@ -268,13 +292,16 @@ class TestEvalCompareBufferAccumulate:
             candidate_success=True,
         )
 
+        # First event creates the bucket (empty hash check), second finds it
+        # populated and must not push the TTL forward.
+        mock_cache.hgetall = AsyncMock(side_effect=[{}, {"k::count": "1"}])
         await buffer.accumulate(event1)
         await buffer.accumulate(event2)
 
         # hincrby should be called 5 times per event (5 metrics)
-        assert mock_cache.hincrby.call_count == 10
-        # expire should be called twice (once per accumulate)
-        assert mock_cache.expire.call_count == 2
+        assert mock_cache.mock_pipe.hincrby.call_count == 10
+        # expire should only fire on the first write
+        assert mock_cache.expire.call_count == 1
 
     @pytest.mark.asyncio
     async def test_accumulate_different_call_points(
@@ -309,7 +336,7 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(event2)
 
         # Should use different field names
-        calls = [str(call) for call in mock_cache.hincrby.call_args_list]
+        calls = [str(call) for call in mock_cache.mock_pipe.hincrby.call_args_list]
         assert any("classifier" in call for call in calls)
         assert any("embedding" in call for call in calls)
 
@@ -321,7 +348,7 @@ class TestEvalCompareBufferAccumulate:
         sample_event: LLMCompareEvent,
     ):
         """Test that accumulate handles exceptions without raising."""
-        mock_cache.hincrby.side_effect = Exception("Redis connection failed")
+        mock_cache.mock_pipe.execute.side_effect = Exception("Redis connection failed")
 
         # Should not raise exception
         await buffer.accumulate(sample_event)
@@ -350,12 +377,12 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(event)
 
         # Both success counters should increment by 1
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::primary_success",
             1,
         )
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::candidate_success",
             1,
@@ -382,48 +409,66 @@ class TestEvalCompareBufferAccumulate:
         await buffer.accumulate(event)
 
         # Both success counters should increment by 0
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::primary_success",
             0,
         )
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::candidate_success",
             0,
         )
 
     @pytest.mark.asyncio
-    async def test_accumulate_latency_truncation(
+    async def test_accumulate_latency_rounding(
         self,
         buffer: EvalCompareBuffer,
         mock_cache: MagicMock,
     ):
-        """Test that latency values are truncated to int."""
+        """Latencies are rounded to int (round, not int-truncation: int()
+        biases the running sum downward for fractional latencies)."""
         event = LLMCompareEvent(
             timestamp=datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC),
             call_point="test",
             primary_model="model-a",
             candidate_model="model-b",
-            primary_latency=150.9,  # Should be truncated to 150
-            candidate_latency=200.1,  # Should be truncated to 200
+            primary_latency=150.9,  # rounds to 151
+            candidate_latency=200.1,  # rounds to 200
             primary_success=True,
             candidate_success=True,
         )
 
         await buffer.accumulate(event)
 
-        # Verify truncation to int
-        mock_cache.hincrby.assert_any_call(
+        # Verify rounding to int
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::primary_latency_sum",
-            150,
+            151,
         )
-        mock_cache.hincrby.assert_any_call(
+        mock_cache.mock_pipe.hincrby.assert_any_call(
             "llm:compare:2026041410",
             "test::model-a::model-b::candidate_latency_sum",
             200,
         )
+
+    @pytest.mark.asyncio
+    async def test_accumulate_batches_increments_in_single_pipeline(
+        self,
+        buffer: EvalCompareBuffer,
+        mock_cache: MagicMock,
+        sample_event: LLMCompareEvent,
+    ):
+        """Test that the 5 increments execute in one pipeline round-trip."""
+        await buffer.accumulate(sample_event)
+
+        mock_cache.pipeline.assert_called_once_with()
+        mock_cache.mock_pipe.hincrby.assert_called()
+        assert mock_cache.mock_pipe.hincrby.call_count == 5
+        mock_cache.mock_pipe.execute.assert_awaited_once()
+        # No direct round-trips outside the pipeline
+        mock_cache.hincrby.assert_not_called()
 
 
 class TestEvalCompareBufferConstants:

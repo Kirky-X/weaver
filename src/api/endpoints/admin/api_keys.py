@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Admin endpoints for API key management.
 
 Endpoints:
@@ -25,7 +25,7 @@ def _raise_for_key_op_status(result: KeyOpResult, key_id: str) -> None:
     """Raise HTTPException for non-OK KeyOpResult.
 
     Centralizes the KeyOpStatus → HTTP status code mapping to avoid
-    duplication between revoke and rotate endpoints (LOW-002).
+    duplication between revoke and rotate endpoints.
     """
     status_map = {
         KeyOpStatus.NOT_FOUND: (404, f"API key '{key_id}' not found"),
@@ -95,7 +95,6 @@ class ApiKeyItem(BaseModel):
 
 @router.post("/api-keys", response_model=APIResponse[CreateApiKeyResponse])
 async def create_api_key(
-    request: Request,
     body: CreateApiKeyRequest,
     _: str = Depends(verify_admin_api_key),
 ) -> APIResponse[CreateApiKeyResponse]:
@@ -130,7 +129,6 @@ async def create_api_key(
 
 @router.get("/api-keys", response_model=APIResponse[list[ApiKeyItem]])
 async def list_api_keys(
-    request: Request,
     include_revoked: bool = Query(False, description="Include revoked keys"),
     _: str = Depends(verify_admin_api_key),
 ) -> APIResponse[list[ApiKeyItem]]:
@@ -169,7 +167,7 @@ async def revoke_api_key(
 ) -> APIResponse[dict]:
     """Revoke an API key by key_id.
 
-    Ownership check (vuln-0009 fix): only the key's creator or a super-admin
+    Ownership check: only the key's creator or a super-admin
     (``env-admin``) can revoke a key. All attempts — success or failure — are
     written to the audit log for security monitoring.
     """
@@ -183,7 +181,7 @@ async def revoke_api_key(
     result = await manager.revoke_key(key_id, actor=admin_id)
 
     # Audit log: record every attempt regardless of outcome so security
-    # monitoring can detect probing patterns (vuln-0009).
+    # monitoring can detect probing patterns.
     audit = AuditLogService(pool)
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
@@ -221,10 +219,11 @@ async def rotate_api_key(
 ) -> APIResponse[RotateKeyResponse]:
     """Manually rotate an API key, creating a replacement.
 
-    The old key remains valid during a 24-hour grace period.
+    The old key is invalidated immediately (``rotated_to`` is set and
+    ``validate_key`` rejects rotated keys); there is no grace period.
     The new key inherits the same scopes and rate limit.
 
-    Ownership check (vuln-0009 fix): only the key's creator or a super-admin
+    Ownership check: only the key's creator or a super-admin
     (``env-admin``) can rotate a key. All attempts — success or failure — are
     written to the audit log for security monitoring.
     """
@@ -237,7 +236,7 @@ async def rotate_api_key(
 
     result = await manager.rotate_key(key_id, actor=admin_id)
 
-    # Audit log: record every attempt regardless of outcome (vuln-0009).
+    # Audit log: record every attempt regardless of outcome.
     audit = AuditLogService(pool)
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")

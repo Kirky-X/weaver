@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Migration 30 tests — extend sentiment_shifts for article-level tracking.
 
 Verifies:
@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     """Read revision and down_revision from a migration file without importing."""
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',

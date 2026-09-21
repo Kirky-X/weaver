@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Temporal-aware retriever for search result scoring.
 
 Implements a mixed scoring formula that blends base relevance with
@@ -9,7 +9,7 @@ drop below 60% of their base score.
 Formula: score = base_score * (0.6 + 0.4 * time_decay)
 Where time_decay = exp(-λ * age_in_days), λ = ln(2) / half_life_days
 
-Implements: TemporalAwareRetriever — ADD §3.6
+Implements: TemporalAwareRetriever
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class TemporalAwareRetriever:
 
     When enabled=False, returns base_score unchanged.
 
-    Implements: TemporalAwareRetriever — ADD §3.6
+    Implements: TemporalAwareRetriever
     """
 
     def __init__(
@@ -57,10 +57,10 @@ class TemporalAwareRetriever:
         if not self._enabled:
             return base_score
 
-        time_decay = self._calculate_decay(age_in_days)
+        time_decay = self.calculate_decay(age_in_days)
         return base_score * (0.6 + 0.4 * time_decay)
 
-    def _calculate_decay(self, age_in_days: float) -> float:
+    def calculate_decay(self, age_in_days: float) -> float:
         """Calculate exponential decay multiplier.
 
         Formula: exp(-λ * age), where λ = ln(2) / half_life_days
@@ -97,21 +97,13 @@ class TemporalAwareRetriever:
         if now is None:
             now = datetime.now(UTC)
 
+        # Normalize naive timestamps to UTC — subtracting a naive datetime
+        # from an aware one raises TypeError.
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+
         age_delta = now - timestamp
         return max(0.0, age_delta.total_seconds() / 86400.0)
-
-
-# Backward-compatible function wrappers
-def calculate_decay_multiplier(
-    age_in_days: float,
-    half_life_days: float,
-) -> float:
-    """Calculate the decay multiplier using exponential decay.
-
-    Backward-compatible wrapper around TemporalAwareRetriever.
-    """
-    retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
-    return retriever._calculate_decay(age_in_days)
 
 
 def apply_temporal_decay(
@@ -119,21 +111,14 @@ def apply_temporal_decay(
     age_in_days: float,
     half_life_days: float,
 ) -> float:
-    """Apply temporal decay to a relevance score.
-
-    Backward-compatible wrapper. Uses the old formula (score * decay)
-    for compatibility. New code should use TemporalAwareRetriever.score().
-    """
-    multiplier = calculate_decay_multiplier(age_in_days, half_life_days)
-    return score * multiplier
+    """Apply exponential temporal decay to a relevance score (score * multiplier)."""
+    retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
+    return score * retriever.calculate_decay(age_in_days)
 
 
 def calculate_age_in_days(
     timestamp: datetime | None,
     now: datetime | None = None,
 ) -> float:
-    """Calculate age in days from a timestamp.
-
-    Backward-compatible wrapper around TemporalAwareRetriever.
-    """
+    """Calculate age in days from a timestamp."""
     return TemporalAwareRetriever.calculate_age_in_days(timestamp, now)

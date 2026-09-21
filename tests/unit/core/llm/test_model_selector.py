@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for ModelSelector."""
 
 import pytest
@@ -91,6 +91,18 @@ class TestNormalizeInverse:
         result = _normalize_inverse({"a": 0.0, "b": 10.0})
         assert result["a"] == 1.0  # lowest → highest score
         assert result["b"] == 0.0  # highest → lowest score
+
+    def test_all_zero_is_best_possible(self):
+        """所有 cost/latency 均为 0 时，全部应得满分 1.0。
+
+        0 是最优取值，「全部为 0」不应降级为中性 0.5 而稀释该维度的
+        信号。
+        """
+        assert _normalize_inverse({"a": 0.0, "b": 0.0}) == {"a": 1.0, "b": 1.0}
+
+    def test_equal_nonzero_is_neutral_tie(self):
+        """非 0 的并列取值无区分信号，保持 0.5。"""
+        assert _normalize_inverse({"a": 5.0, "b": 5.0}) == {"a": 0.5, "b": 0.5}
 
 
 class TestModeWeights:

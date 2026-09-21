@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """BM25 index building and maintenance service.
 
 This service manages BM25 index lifecycle:
@@ -11,6 +11,7 @@ This service manages BM25 index lifecycle:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 log = get_logger(__name__)
+
+# Redis key holding the last successful index build time (ISO-8601). Survives
+# process restarts so the scheduled job can go straight to incremental mode.
+WATERMARK_KEY = "bm25:last_indexed_at"
 
 
 class BM25IndexService:
@@ -46,6 +51,7 @@ class BM25IndexService:
         relational_pool: RelationalPool,
         bm25_retriever: BM25Retriever,
         rebuild_interval_seconds: int = 300,
+        cache_client: Any | None = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._retriever = bm25_retriever
@@ -54,6 +60,8 @@ class BM25IndexService:
         self._is_building = False
         self._build_count = 0
         self._scheduler_job: Any = None
+        # Optional Redis client: persists the watermark across restarts
+        self._cache_client = cache_client
 
     async def build_full_index(self, limit: int | None = None) -> int:
         """Build full BM25 index from all articles.
@@ -69,6 +77,13 @@ class BM25IndexService:
             return 0
 
         self._is_building = True
+        try:
+            return await self._do_full_build(limit)
+        finally:
+            self._is_building = False
+
+    async def _do_full_build(self, limit: int | None = None) -> int:
+        """Run the full build body. Caller owns the ``_is_building`` flag."""
         start_time = datetime.now(UTC)
 
         try:
@@ -79,13 +94,19 @@ class BM25IndexService:
 
             if not documents:
                 log.warning("bm25_build_no_articles")
+                # Advance the watermark anyway so scheduled incremental runs
+                # stop re-attempting a full build on an empty corpus.
+                self._last_build_time = datetime.now(UTC)
+                await self._write_watermark(self._last_build_time)
                 return 0
 
-            # Build index
-            self._retriever.index(documents)
+            # Build index off the event loop (sync tokenization over all docs)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._retriever.index, documents)
 
             self._last_build_time = datetime.now(UTC)
             self._build_count += 1
+            await self._write_watermark(self._last_build_time)
 
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
             log.info(
@@ -99,9 +120,6 @@ class BM25IndexService:
         except Exception as exc:
             log.error("bm25_build_full_failed", error=str(exc))
             return 0
-
-        finally:
-            self._is_building = False
 
     async def incremental_update(self, since: datetime | None = None) -> int:
         """Incrementally update index with new articles.
@@ -117,15 +135,18 @@ class BM25IndexService:
             log.warning("bm25_incremental_build_in_progress")
             return 0
 
-        cutoff = since or self._last_build_time
-        if cutoff is None:
-            # No previous build, do full build instead
-            log.info("bm25_incremental_no_previous_build")
-            return await self.build_full_index()
-
+        # Take the flag BEFORE any await: the watermark read below is a
+        # suspension point, so two concurrent calls could otherwise both
+        # pass the check and run concurrent index mutations.
         self._is_building = True
 
         try:
+            cutoff = since or self._last_build_time or await self._read_watermark()
+            if cutoff is None:
+                # No previous build, do full build instead (flag already held)
+                log.info("bm25_incremental_no_previous_build")
+                return await self._do_full_build()
+
             log.info("bm25_incremental_start", since=cutoff.isoformat())
 
             # Fetch only new/updated articles
@@ -133,11 +154,14 @@ class BM25IndexService:
 
             if not documents:
                 log.info("bm25_incremental_no_new_articles")
+                await self._write_watermark(datetime.now(UTC))
                 return 0
 
-            # Add to existing index
-            self._retriever.add_documents(documents)
+            # Add to existing index off the event loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._retriever.add_documents, documents)
 
+            await self._write_watermark(datetime.now(UTC))
             log.info("bm25_incremental_complete", new_documents=len(documents))
             return len(documents)
 
@@ -255,16 +279,37 @@ class BM25IndexService:
             return documents
 
     async def scheduled_rebuild(self) -> int:
-        """Scheduled job for rebuilding BM25 index.
+        """Scheduled job for maintaining the BM25 index.
 
-        This method is called by APScheduler at configured intervals.
-        It performs a full rebuild to ensure index consistency.
+        Incremental by default (watermark-based); falls back to a full
+        rebuild only when the index is empty or no watermark exists.
 
         Returns:
             Number of documents indexed.
         """
         log.info("bm25_scheduled_rebuild_start")
+        if self._retriever.get_document_count() > 0 or self._last_build_time:
+            return await self.incremental_update()
         return await self.build_full_index()
+
+    async def _read_watermark(self) -> datetime | None:
+        """Read the last build time from Redis (in-memory value as fallback)."""
+        if self._cache_client is not None:
+            try:
+                raw = await self._cache_client.get(WATERMARK_KEY)
+                if raw:
+                    return datetime.fromisoformat(raw)
+            except Exception as exc:
+                log.debug("bm25_watermark_read_failed", error=str(exc))
+        return self._last_build_time
+
+    async def _write_watermark(self, moment: datetime) -> None:
+        """Persist the last build time to Redis (best-effort)."""
+        if self._cache_client is not None:
+            try:
+                await self._cache_client.set(WATERMARK_KEY, moment.isoformat())
+            except Exception as exc:
+                log.debug("bm25_watermark_write_failed", error=str(exc))
 
     def get_stats(self) -> dict[str, Any]:
         """Get service statistics.
@@ -279,40 +324,3 @@ class BM25IndexService:
             "document_count": self._retriever.get_document_count(),
             "rebuild_interval_seconds": self._rebuild_interval,
         }
-
-
-def create_bm25_scheduler_job(
-    scheduler: Any,
-    index_service: BM25IndexService,
-) -> Any:
-    """Create and register BM25 rebuild job with APScheduler.
-
-    Args:
-        scheduler: APScheduler AsyncScheduler instance.
-        index_service: BM25IndexService instance.
-
-    Returns:
-        The scheduled job.
-    """
-    from apscheduler.triggers.interval import IntervalTrigger
-
-    # Create interval trigger
-    trigger = IntervalTrigger(seconds=index_service._rebuild_interval)
-
-    # Add job to scheduler
-    job = scheduler.add_job(
-        index_service.scheduled_rebuild,
-        trigger=trigger,
-        id="bm25_rebuild_index",
-        name="BM25 Index Rebuild",
-        replace_existing=True,
-        max_instances=1,  # Prevent overlapping runs
-    )
-
-    log.info(
-        "bm25_scheduler_job_added",
-        interval_seconds=index_service._rebuild_interval,
-        job_id=job.id,
-    )
-
-    return job

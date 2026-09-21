@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Context builders for search operations."""
 
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder

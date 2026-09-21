@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for community article_count backfill (R3 fix).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Unit tests for community article_count backfill.
 
 Verifies that article_count is backfilled on Community nodes after both
 incremental update and full rebuild, traversing the
@@ -11,7 +11,7 @@ Covers two call sites:
    run_full_rebuild and run_incremental_update)
 2. CommunityDetector.rebuild_communities (called by the
    /api/v1/admin/communities/rebuild endpoint — the primary user-facing
-   trigger, which was initially missed in the R3 fix)
+   trigger, which was initially missed in the fix)
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def clustering_service(mock_pool, mock_collaborators):
 
 
 class TestUpdateArticleCounts:
-    """Tests for _update_article_counts method (R3 fix)."""
+    """Tests for _update_article_counts method."""
 
     @pytest.mark.asyncio
     async def test_executes_backfill_query(self, clustering_service, mock_pool):
@@ -98,7 +98,7 @@ class TestDetectorRebuildCommunitiesBackfill:
     """Tests that CommunityDetector.rebuild_communities backfills article_count.
 
     This is the primary user-facing entry point (via
-    /api/v1/admin/communities/rebuild). The initial R3 fix only patched
+    /api/v1/admin/communities/rebuild). The initial fix only patched
     SubgraphClusteringService.run_full_rebuild, missing this path.
     """
 
@@ -162,3 +162,39 @@ class TestDetectorRebuildCommunitiesBackfill:
 
         # Should not raise — best-effort per Rule 12
         await detector.rebuild_communities()
+
+
+class TestDiffWriterModuleImports:
+    """#197: ``LadybugDialect`` is imported once at module level."""
+
+    def test_ladybug_dialect_imported_at_module_level(self):
+        import modules.knowledge.graph.community.updater_diff as module
+
+        assert hasattr(module, "LadybugDialect")
+
+    def test_methods_do_not_shadow_it_with_local_imports(self):
+        import inspect
+
+        import modules.knowledge.graph.community.updater_diff as module
+
+        for method_name in ("_mark_stale_reports", "_write_new_assignments"):
+            source = inspect.getsource(getattr(module.DiffWriter, method_name))
+            assert "import LadybugDialect" not in source
+
+
+class TestDiffWriterModuleImports:
+    """#197: ``LadybugDialect`` is imported once at module level."""
+
+    def test_ladybug_dialect_imported_at_module_level(self):
+        import modules.knowledge.graph.community.updater_diff as module
+
+        assert hasattr(module, "LadybugDialect")
+
+    def test_methods_do_not_shadow_it_with_local_imports(self):
+        import inspect
+
+        import modules.knowledge.graph.community.updater_diff as module
+
+        for method_name in ("_mark_stale_reports", "_write_new_assignments"):
+            source = inspect.getsource(getattr(module.DiffWriter, method_name))
+            assert "import LadybugDialect" not in source

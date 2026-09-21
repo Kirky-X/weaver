@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Alert jobs for scheduler: trend alert evaluation (T019 / R-alert-002).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Alert jobs for scheduler: trend alert evaluation.
 
 Responsibilities:
-- Evaluate trend alert rules hourly via TrendAlertEvaluator (T018)
+- Evaluate trend alert rules hourly via TrendAlertEvaluator
 - Graceful degradation when trend_detector or sentiment_analyzer is None
 - Single-responsibility sub-class of the SchedulerJobs composition root
 
@@ -37,10 +37,10 @@ log = get_logger(__name__)
 
 
 class AlertJobs:
-    """Scheduler jobs for trend alerting (T019 / R-alert-002).
+    """Scheduler jobs for trend alerting.
 
     Handles hourly evaluation of trend alert rules. Delegates to
-    TrendAlertEvaluator (T018) which performs the actual rule evaluation,
+    TrendAlertEvaluator which performs the actual rule evaluation,
     dedup, and alert_events insertion.
 
     Implements: hourly trend alert evaluation (CRON minute=0).
@@ -58,14 +58,14 @@ class AlertJobs:
 
     @scheduled_task("evaluate_trend_alerts", timeout_seconds=300)
     async def evaluate_trend_alerts(self) -> int:
-        """Evaluate trend alert rules and insert alert_events (T019 / R-alert-002).
+        """Evaluate trend alert rules and insert alert_events.
 
         Constructs a TrendAlertEvaluator with the injected pool, trend_detector,
         and sentiment_analyzer, then calls ``evaluate()`` which queries
         enabled alert_rules, evaluates each rule, and inserts alert_events
         for triggers passing 24h dedup.
 
-        Graceful skip (R-alert-002 Constraints):
+        Graceful skip (Constraints):
             When trend_detector or sentiment_analyzer is None, the job logs
             a warning and returns 0. This is NOT an error — the scheduler
             must not be blocked by missing optional dependencies. The trend
@@ -81,7 +81,7 @@ class AlertJobs:
         Raises:
             Nothing — exceptions are caught by the @scheduled_task wrapper
             and returned as -2. This ensures the scheduler is never blocked
-            by evaluator errors (R-alert-002: failure doesn't block next
+            by evaluator errors (failure doesn't block next
             execution).
         """
         if self._trend_detector is None or self._sentiment_analyzer is None:

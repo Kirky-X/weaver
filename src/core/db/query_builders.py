@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Database-agnostic query builders for vector similarity operations.
 
 Provides a QueryBuilder pattern that abstracts database-specific SQL syntax
@@ -8,10 +8,12 @@ for vector operations, supporting both PostgreSQL (pgvector) and DuckDB backends
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from core.constants import DatabaseType as _CanonicalDatabaseType
 from core.db.models import VectorType
 
 if TYPE_CHECKING:
@@ -19,14 +21,15 @@ if TYPE_CHECKING:
 
 
 class DatabaseType(str, Enum):
-    """Supported database types for vector operations."""
+    """Supported database types for vector operations.
 
-    POSTGRES = "postgres"
-    DUCKDB = "duckdb"
+    Relational-backend axis. Values are sourced from the canonical
+    :class:`core.constants.DatabaseType` so each backend identifier string
+    is defined in exactly one place (no cross-file literal drift).
+    """
 
-
-# Re-exported from models for backward compatibility:
-# - VectorType (canonical: core.db.models)
+    POSTGRES = _CanonicalDatabaseType.POSTGRES.value
+    DUCKDB = _CanonicalDatabaseType.DUCKDB.value
 
 
 def validate_limit(limit: int) -> int:
@@ -39,8 +42,12 @@ def validate_limit(limit: int) -> int:
         The validated limit.
 
     Raises:
-        ValueError: If limit is out of bounds.
+        ValueError: If limit is out of bounds or not an integer.
     """
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid limit: {limit!r}, must be an integer") from exc
     if not 1 <= limit <= 1000:
         raise ValueError(f"Invalid limit: {limit}, must be 1-1000")
     return limit
@@ -56,11 +63,35 @@ def validate_threshold(threshold: float) -> float:
         The validated threshold.
 
     Raises:
-        ValueError: If threshold is out of range.
+        ValueError: If threshold is out of range or not numeric.
     """
+    try:
+        threshold = float(threshold)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid threshold: {threshold!r}, must be a number") from exc
     if not 0.0 <= threshold <= 1.0:
         raise ValueError(f"Invalid threshold: {threshold}, must be 0.0-1.0")
     return threshold
+
+
+def validate_param_placeholder(param: str) -> str:
+    """Validate a SQL bind-parameter placeholder (e.g. ``:category``).
+
+    Placeholder names originating from query configs are interpolated into
+    SQL strings, so they must be restricted to a safe identifier shape.
+
+    Args:
+        param: Placeholder string starting with ``:``.
+
+    Returns:
+        The validated placeholder.
+
+    Raises:
+        ValueError: If the placeholder is not ``:identifier`` shaped.
+    """
+    if not isinstance(param, str) or not re.fullmatch(r":[A-Za-z_][A-Za-z0-9_]*", param):
+        raise ValueError(f"Invalid SQL parameter placeholder: {param!r}")
+    return param
 
 
 @dataclass(frozen=True)
@@ -68,7 +99,6 @@ class SimilarityQuery:
     """Configuration for similarity search queries.
 
     Attributes:
-        embedding_param: Parameter name for embedding vector.
         threshold: Minimum cosine similarity threshold (0.0 to 1.0).
         limit: Maximum number of results to return.
         category_param: Parameter name for category filter.
@@ -78,7 +108,6 @@ class SimilarityQuery:
         filter_by_model_id: Whether to filter by model_id.
     """
 
-    embedding_param: str = ":embedding"
     threshold: float = 0.80
     limit: int = 20
     category_param: str = ":category"
@@ -93,14 +122,44 @@ class EntitySimilarityQuery:
     """Configuration for entity similarity search queries.
 
     Attributes:
-        embedding_param: Parameter name for embedding vector.
         threshold: Minimum cosine similarity threshold (0.0 to 1.0).
         limit: Maximum number of results to return.
     """
 
-    embedding_param: str = ":embedding"
     threshold: float = 0.85
     limit: int = 5
+
+
+def _find_similar_entities_query_sql(config: EntitySimilarityQuery, similarity_expr: str) -> str:
+    """ANSI-SQL entity similarity search, shared verbatim by both builders.
+
+    Only the similarity expression is dialect-specific and is passed in.
+    """
+    limit = validate_limit(config.limit)
+    threshold = validate_threshold(config.threshold)
+    return f"""
+        SELECT
+            neo4j_id,
+            {similarity_expr} AS similarity
+        FROM entity_vectors
+        WHERE {similarity_expr} >= {threshold}
+        ORDER BY {similarity_expr} DESC
+        LIMIT {limit}
+    """
+
+
+def _articles_similarity_conditions(similarity_expr: str, config: SimilarityQuery) -> list[str]:
+    """WHERE-condition list for the articles similarity search (both builders)."""
+    conditions = ["av.vector_type = :vector_type"]
+
+    if config.filter_by_category:
+        conditions.append(f"a.category = {validate_param_placeholder(config.category_param)}")
+
+    if config.filter_by_model_id:
+        conditions.append(f"av.model_id = {validate_param_placeholder(config.model_id_param)}")
+
+    conditions.append(f"{similarity_expr} >= :threshold")
+    return conditions
 
 
 @runtime_checkable
@@ -176,6 +235,14 @@ class VectorQueryBuilder(Protocol):
         """
         ...
 
+    def build_upsert_entity_vector_query(self) -> str:
+        """Build upsert query for entity vectors.
+
+        Returns:
+            SQL query string for upserting entity vectors.
+        """
+        ...
+
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build similarity search query for articles.
 
@@ -246,6 +313,8 @@ class PgVectorQueryBuilder:
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
         """Build PostgreSQL batch upsert with ON CONFLICT."""
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be a positive integer, got {batch_size}")
         values_placeholders = ", ".join(
             f"(:article_id_{i}, :vector_type_{i}, CAST(:embedding_{i} AS vector), :model_id_{i})"
             for i in range(batch_size)
@@ -260,28 +329,17 @@ class PgVectorQueryBuilder:
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build pgvector cosine similarity search."""
         # Validate inputs for security
-        validate_limit(config.limit)
-        validate_threshold(config.threshold)
+        limit = validate_limit(config.limit)
+        threshold = validate_threshold(config.threshold)
         VectorType(config.vector_type)  # Validate against enum
 
         similarity_expr = self.build_similarity_expression("av.embedding")
-
-        # Build WHERE conditions based on filter flags
-        conditions = ["av.vector_type = :vector_type"]
-
-        if config.filter_by_category:
-            conditions.append(f"a.category = {config.category_param}")
-
-        if config.filter_by_model_id:
-            conditions.append(f"av.model_id = {config.model_id_param}")
-
-        conditions.append(f"{similarity_expr} >= :threshold")
-
-        where_clause = " AND ".join(conditions)
+        where_clause = " AND ".join(_articles_similarity_conditions(similarity_expr, config))
 
         return f"""
             SELECT
                 a.id::text AS article_id,
+                a.title,
                 a.category,
                 {similarity_expr} AS similarity,
                 a.publish_time,
@@ -289,26 +347,15 @@ class PgVectorQueryBuilder:
             FROM article_vectors av
             JOIN articles a ON a.id = av.article_id
             WHERE {where_clause}
-            ORDER BY similarity DESC
-            LIMIT {config.limit}
+            ORDER BY {similarity_expr} DESC
+            LIMIT {limit}
         """
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build pgvector entity similarity search."""
-        # Validate inputs for security
-        validate_limit(config.limit)
-        validate_threshold(config.threshold)
-
-        similarity_expr = self.build_similarity_expression("embedding")
-        return f"""
-            SELECT
-                neo4j_id,
-                {similarity_expr} AS similarity
-            FROM entity_vectors
-            WHERE {similarity_expr} >= {config.threshold}
-            ORDER BY similarity DESC
-            LIMIT {config.limit}
-        """
+        return _find_similar_entities_query_sql(
+            config, self.build_similarity_expression("embedding")
+        )
 
     def build_array_contains_expression(self, column: str, param: str) -> str:
         """PostgreSQL ANY expression for array containment."""
@@ -358,7 +405,7 @@ class DuckDBVectorQueryBuilder:
         Note: article_vectors uses id BIGINT PK + UNIQUE(article_id, vector_type).
         DuckDB requires explicit conflict target when table has multiple
         UNIQUE/PRIMARY KEY constraints; we target (article_id, vector_type)
-        for upsert semantics. REM-003: now updates updated_at (previously
+        for upsert semantics. now updates updated_at (previously
         incorrectly updated created_at).
         """
         return """
@@ -393,28 +440,17 @@ class DuckDBVectorQueryBuilder:
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build DuckDB cosine similarity search."""
         # Validate inputs for security
-        validate_limit(config.limit)
-        validate_threshold(config.threshold)
+        limit = validate_limit(config.limit)
+        threshold = validate_threshold(config.threshold)
         VectorType(config.vector_type)  # Validate against enum
 
         similarity_expr = self.build_similarity_expression("av.embedding")
-
-        # Build WHERE conditions based on filter flags
-        conditions = ["av.vector_type = :vector_type"]
-
-        if config.filter_by_category:
-            conditions.append(f"a.category = {config.category_param}")
-
-        if config.filter_by_model_id:
-            conditions.append(f"av.model_id = {config.model_id_param}")
-
-        conditions.append(f"{similarity_expr} >= :threshold")
-
-        where_clause = " AND ".join(conditions)
+        where_clause = " AND ".join(_articles_similarity_conditions(similarity_expr, config))
 
         return f"""
             SELECT
                 CAST(a.id AS VARCHAR) AS article_id,
+                a.title,
                 a.category,
                 {similarity_expr} AS similarity,
                 a.publish_time,
@@ -423,25 +459,14 @@ class DuckDBVectorQueryBuilder:
             JOIN articles a ON a.id = av.article_id
             WHERE {where_clause}
             ORDER BY {similarity_expr} DESC
-            LIMIT {config.limit}
+            LIMIT {limit}
         """
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build DuckDB entity similarity search."""
-        # Validate inputs for security
-        validate_limit(config.limit)
-        validate_threshold(config.threshold)
-
-        similarity_expr = self.build_similarity_expression("embedding")
-        return f"""
-            SELECT
-                neo4j_id,
-                {similarity_expr} AS similarity
-            FROM entity_vectors
-            WHERE {similarity_expr} >= {config.threshold}
-            ORDER BY {similarity_expr} DESC
-            LIMIT {config.limit}
-        """
+        return _find_similar_entities_query_sql(
+            config, self.build_similarity_expression("embedding")
+        )
 
     def build_array_contains_expression(self, column: str, param: str) -> str:
         """DuckDB unnest expression for array containment."""

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for modularity calculation module."""
 
 import pytest
@@ -19,9 +19,9 @@ class TestFindConnectedComponents:
     """Test Union-Find connected components detection."""
 
     def test_empty_edges_returns_empty(self) -> None:
-        """Empty edge list should return empty component list."""
+        """Empty edge list should return an empty component list."""
         result = _find_connected_components([])
-        assert result == [set()]
+        assert result == []
 
     def test_single_edge_returns_single_component(self) -> None:
         """Single edge creates one component with two nodes."""
@@ -55,6 +55,13 @@ class TestFindConnectedComponents:
         assert len(result[0]) == 3
         assert len(result[1]) == 2
 
+    def test_long_chain_merges_into_one_component(self) -> None:
+        """Union by size keeps a long chain as a single component."""
+        edges = [(f"n{i}", f"n{i + 1}", 1.0) for i in range(200)]
+        result = _find_connected_components(edges)
+        assert len(result) == 1
+        assert len(result[0]) == 201
+
 
 class TestComputeModularity:
     """Test standard modularity calculation."""
@@ -63,6 +70,18 @@ class TestComputeModularity:
         """Empty graph has zero modularity."""
         result = _compute_modularity([], {})
         assert result == 0.0
+
+    def test_all_zero_weights_returns_zero(self) -> None:
+        """Zero total weight must not divide by zero."""
+        edges = [("A", "B", 0.0), ("B", "C", 0.0)]
+        partitions = {"A": 0, "B": 1, "C": 0}
+        assert _compute_modularity(edges, partitions) == 0.0
+
+    def test_non_positive_total_weight_returns_zero(self) -> None:
+        """A negative total weight is guarded like zero (no bogus sign flip)."""
+        edges = [("A", "B", 1.0), ("B", "C", -3.0)]
+        partitions = {"A": 0, "B": 1, "C": 0}
+        assert _compute_modularity(edges, partitions) == 0.0
 
     def test_empty_partitions_returns_zero(self) -> None:
         """No community assignments returns zero."""

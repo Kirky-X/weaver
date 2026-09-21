@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Create analytics tables: sentiment_shifts, daily_briefings, daily_briefing_items.
 
 Revision ID: 04_create_analytics_tables

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for LLMClient batch_call using Redis MGET/MSET."""
 
 import hashlib
@@ -180,3 +180,32 @@ class TestBatchCallUsesMget:
         assert redis.mset.call_count == 1
         stored = redis.mset.call_args[0][0]
         assert len(stored) == 2
+
+
+class TestBatchCallInvalidCallPoint:
+    """batch_call 对非法 call_point 必须留可观测信号。
+
+    此前字符串路径静默降级为 CLASSIFIER，与 ``call()``（会告警）不一致。
+    """
+
+    @pytest.mark.asyncio
+    async def test_invalid_call_point_logs_warning(self) -> None:
+        client = _make_client(redis_mock=None)
+        with patch("core.llm.client.log") as mock_log:
+            result = await client.batch_call(
+                label=_make_label(), payloads=[], call_point="not-a-call-point"
+            )
+
+        assert result == []
+        mock_log.warning.assert_called_once()
+        assert mock_log.warning.call_args[0][0] == "batch_call_point_invalid"
+
+    @pytest.mark.asyncio
+    async def test_valid_call_point_does_not_warn(self) -> None:
+        client = _make_client(redis_mock=None)
+        with patch("core.llm.client.log") as mock_log:
+            await client.batch_call(
+                label=_make_label(), payloads=[], call_point=CallPoint.CLASSIFIER.value
+            )
+
+        mock_log.warning.assert_not_called()

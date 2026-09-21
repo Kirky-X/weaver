@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Safe echoing of user-supplied identifiers into HTTPException detail strings.
 
 Prevents reflected-XSS by HTML-escaping and truncating user input before it
@@ -28,6 +28,12 @@ def safe_echo(value: str) -> str:
     Returns:
         Sanitized string safe to embed in error detail.
     """
+    # Defensive coercion: this helper guards error paths, so a caller
+    # passing None/int must not turn a recoverable 404/409 into a TypeError.
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value = str(value)
     if not value:
         return ""
     truncated = value[:_MAX_DETAIL_ECHO_LEN]

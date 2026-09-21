@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for ORM model definitions (sentiment_shifts, daily_briefings, etc.)."""
 
 from datetime import UTC, datetime
@@ -53,7 +53,7 @@ class TestSentimentShiftModel:
             "before_avg",
             "after_avg",
             "trigger_article_ids",
-            # Migration 30: article-level tracking fields (T003 SentimentTrackerNode)
+            # Migration 30: article-level tracking fields (SentimentTrackerNode)
             "article_id",
             "entity_name",
             "shift_value",
@@ -103,7 +103,7 @@ class TestDailyBriefingModel:
             "status",
             "total_items",
             "generated_at",
-            # Migration 32 (T004): added category column for per-category
+            # Migration 32: added category column for per-category
             # briefings (finance/tech/ai/general).
             "category",
         }

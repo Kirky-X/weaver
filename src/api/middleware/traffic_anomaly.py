@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Traffic anomaly detection middleware.
 
 Thin wrapper that re-exports from the canonical implementation
@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from api.utils.client_ip import get_client_ip
+from core.constants import HEALTH_PROBE_PATHS as SKIP_PATHS
 from core.observability import get_logger
 from core.security import (
     TrafficAction,
@@ -30,8 +32,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Endpoints to skip traffic anomaly detection
-SKIP_PATHS = {"/health", "/metrics"}
+# Endpoints to skip traffic anomaly detection (single source in core.constants).
 
 __all__ = [
     "TrafficAction",
@@ -63,10 +64,24 @@ class TrafficAnomalyMiddleware(BaseHTTPMiddleware):
         if request.url.path in SKIP_PATHS:
             return await call_next(request)
 
-        key_id = getattr(request.state, "api_key_id", None) or "anonymous"
-        ip = request.client.host if request.client else "unknown"
+        # pass None through instead of an "anonymous" sentinel —
+        # the detector branches on `key_id is None` to run the IP-based
+        # unknown-key-scan check, and on `if key_id:` for per-key limiting.
+        # A truthy sentinel silently disabled the scan path and pooled all
+        # unauthenticated traffic into one shared bucket.
+        key_id = getattr(request.state, "api_key_id", None)
+        ip = get_client_ip(request)
 
-        decision = await self._detector.check_request(key_id=key_id, ip=ip)
+        try:
+            decision = await self._detector.check_request(key_id=key_id, ip=ip)
+        except Exception:
+            # Fail-open: a Redis outage must not 500 every request through
+            # this middleware. Log and let the request proceed unshaped.
+            log.exception(
+                "traffic_anomaly_check_failed_fail_open",
+                path=request.url.path,
+            )
+            return await call_next(request)
 
         if decision.action == TrafficAction.BLOCK:
             return JSONResponse(

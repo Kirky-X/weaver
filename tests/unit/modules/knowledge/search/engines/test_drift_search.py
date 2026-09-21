@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for DRIFTSearchEngine - comprehensive coverage."""
 
 from __future__ import annotations
@@ -76,6 +76,25 @@ class TestDriftSearchEngineSearch:
         assert result.answer == "Local fallback answer"
         assert result.primer_communities == 0
         assert result.follow_up_iterations == 0
+
+    @pytest.mark.asyncio
+    async def test_search_fallback_without_local_engine_degrades(self):
+        """Fallback with local_engine=None must degrade, not AttributeError."""
+        context_builder = _make_mock_context_builder(total_communities=0)
+        llm = _make_mock_llm()
+
+        engine = DRIFTSearchEngine(
+            context_builder=context_builder,
+            llm=llm,
+            local_engine=None,
+        )
+
+        result = await engine.search("test query")
+
+        assert isinstance(result, DriftResult)
+        assert result.drift_mode == "fallback_local"
+        assert result.metadata["degraded"] is True
+        assert result.metadata["reason"] == "local_engine_not_configured"
 
     @pytest.mark.asyncio
     async def test_search_full_drift_flow(self):
@@ -408,7 +427,7 @@ class TestDriftSearchEngineAggregateResults:
             follow_ups=[],
         )
 
-        assert result["confidence"] == 0.5  # default
+        assert result["confidence"] == 0.0  # unparseable → honest zero, flagged in metadata
 
     @pytest.mark.asyncio
     async def test_aggregate_multiple_follow_ups(self):
@@ -508,11 +527,11 @@ class TestDriftSearchEngineExtractMethods:
 
     def test_extract_confidence_no_marker(self, engine):
         """Test confidence extraction without marker returns default."""
-        assert engine._extract_confidence("Answer without confidence") == 0.5
+        assert engine._extract_confidence("Answer without confidence") is None
 
     def test_extract_confidence_invalid_value(self, engine):
         """Test confidence extraction with invalid value returns default."""
-        assert engine._extract_confidence("Answer [置信度: invalid]") == 0.5
+        assert engine._extract_confidence("Answer [置信度: invalid]") is None
 
     def test_extract_confidence_standalone(self, engine):
         """Test confidence extraction with standalone pattern."""
@@ -621,3 +640,22 @@ class TestDriftResultExtended:
         )
         assert r.drift_mode == "fallback_local"
         assert r.metadata["key"] == "value"
+
+
+class TestDriftSearchModuleImports:
+    """#18: `re` must be imported once at module level."""
+
+    def test_re_imported_at_module_level(self) -> None:
+        import modules.knowledge.search.engines.drift_search as drift_module
+
+        assert hasattr(drift_module, "re")
+
+    def test_confidence_extraction_still_works(self) -> None:
+        """Removing the local imports must not change parsing behaviour."""
+        from modules.knowledge.search.engines.drift_search import DRIFTSearchEngine
+
+        engine = DRIFTSearchEngine.__new__(DRIFTSearchEngine)
+
+        assert engine._extract_confidence("答案 [置信度: 0.8]") == 0.8
+        assert engine._extract_confidence("no marker here") is None
+        assert engine._remove_confidence_marker("答案 [置信度: 0.8]") == "答案"

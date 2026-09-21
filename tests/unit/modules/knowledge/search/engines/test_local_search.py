@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for LocalSearchEngine - comprehensive coverage."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -135,6 +135,21 @@ class TestLocalSearchEngineSearch:
 
         assert "failed" in result.answer.lower()
         assert result.confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_search_context_build_failure_degrades(self, mock_context_builder, mock_llm):
+        """Context build failure must degrade, not raise out of search()."""
+        mock_context_builder.build = AsyncMock(side_effect=Exception("db unavailable"))
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        result = await engine.search("test query")
+
+        assert isinstance(result, SearchResult)
+        assert result.metadata["degraded"] is True
+        assert result.confidence == 0.0
+        assert result.sources == []
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_search_with_hybrid_engine(self, mock_context_builder, mock_llm):
@@ -435,3 +450,72 @@ class TestSearchResultExtended:
         assert len(result.entities) == 2
         assert result.confidence == 0.85
         assert result.metadata["key"] == "value"
+
+
+class TestSearchBatchIsolation:
+    """Regression: one failing query in search_batch must not discard
+    results of the others."""
+
+    @pytest.mark.asyncio
+    async def test_batch_item_failure_degrades_independently(self):
+        from unittest.mock import MagicMock, patch
+
+        from modules.knowledge.search.engines.local_search import (
+            LocalSearchEngine,
+            SearchResult,
+        )
+
+        builder = MagicMock()
+        engine = LocalSearchEngine(context_builder=builder, llm=MagicMock())
+
+        ok_result = SearchResult(query="ok", answer="fine", context_tokens=1)
+
+        async def fake_search(query, max_tokens=None):
+            if query == "boom":
+                raise RuntimeError("kaboom")
+            return ok_result
+
+        with patch.object(engine, "search", side_effect=fake_search):
+            results = await engine.search_batch(["ok", "boom", "ok2"])
+
+        assert len(results) == 3
+        assert results[0] is ok_result
+        assert results[1].metadata.get("degraded") is True
+        assert "kaboom" in results[1].answer
+        assert results[2] is ok_result
+
+
+class TestLocalSearchModuleImports:
+    """#332: asyncio must be a module-level import."""
+
+    def test_asyncio_imported_at_module_level(self) -> None:
+        import modules.knowledge.search.engines.local_search as local_search_module
+
+        assert hasattr(local_search_module, "asyncio")
+
+
+class TestExtractEntitiesLogVerbosity:
+    """#214: per-section and per-entity extraction logs are DEBUG level."""
+
+    def _context(self) -> MagicMock:
+        section = MagicMock()
+        section.metadata = {"entity_count": 2}
+        section.name = "Relevant Entities"
+        section.content = "- EntityA (Person)\n- EntityB (Organization)"
+        context = MagicMock()
+        context.sections = [section]
+        return context
+
+    def test_extraction_details_logged_at_debug(self, mock_context_builder, mock_llm) -> None:
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        with patch("modules.knowledge.search.engines.local_search.log") as mock_log:
+            entities = engine._extract_entities_from_context(self._context())
+
+        assert entities != []
+        info_events = [c.args[0] for c in mock_log.info.call_args_list if c.args]
+        assert "extract_entities_content" not in info_events
+        assert "entity_extracted" not in info_events
+        debug_events = [c.args[0] for c in mock_log.debug.call_args_list if c.args]
+        assert "extract_entities_content" in debug_events
+        assert "entity_extracted" in debug_events

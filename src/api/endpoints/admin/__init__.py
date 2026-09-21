@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Admin API endpoints package — lazy-loads sub-routers to avoid circular deps."""
 
 from __future__ import annotations

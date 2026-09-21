@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DuckDB storage module - reuses PostgreSQL ORM implementations.
 
 DuckDB supports SQLAlchemy syntax, so we can reuse most repositories

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Batch Merger pipeline node — Union-Find based article merging."""
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ import asyncio
 import time
 import traceback
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -23,6 +24,7 @@ from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from core.protocols import ArticleRepository, VectorRepository
+    from core.saga.orchestrator import SagaOrchestrator
     from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
 log = get_logger(__name__)
@@ -102,6 +104,7 @@ class BatchMergerNode:
         article_repo: ArticleRepository | None = None,
         graph_writer: Neo4jWriter | None = None,
         saga_orchestrator: SagaOrchestrator | None = None,
+        similarity_threshold: float = SIMILARITY_THRESHOLD,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader
@@ -109,6 +112,9 @@ class BatchMergerNode:
         self._article_repo = article_repo
         self._graph_writer = graph_writer
         self._saga_orchestrator = saga_orchestrator
+        # Instance attribute keeps self.SIMILARITY_THRESHOLD call sites unchanged
+        # while allowing pipeline.toml (merge_similarity_threshold) to tune it.
+        self.SIMILARITY_THRESHOLD = similarity_threshold
 
     async def execute_batch(
         self, states: list[PipelineState], pipeline_b_mode: bool = False
@@ -308,9 +314,14 @@ class BatchMergerNode:
             task_id=group_states[0].get("task_id"),
         )
 
+        # Sort key: (has_time, time). None publish_time sorts last and never
+        # compares against a datetime directly (avoids TypeError on mixed types).
         primary = max(
             group_states,
-            key=lambda s: s["raw"].publish_time if s["raw"].publish_time is not None else 0,
+            key=lambda s: (
+                s["raw"].publish_time is not None,
+                s["raw"].publish_time or datetime.min,
+            ),
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title
@@ -419,10 +430,22 @@ class BatchMergerNode:
             raise RuntimeError("Article repository not configured")
 
         article_ids = await self._article_repo.bulk_upsert(new_states)
-        pg_ids = [str(aid) for aid in article_ids]
+        failed_states = [s for s, aid in zip(new_states, article_ids) if aid is None]
+        if failed_states:
+            log.error(
+                "saga_phase1_partial_upsert_failure",
+                failed_count=len(failed_states),
+                failed_urls=[getattr(s.get("raw"), "url", "unknown") for s in failed_states],
+            )
+        pg_ids = [str(aid) for aid in article_ids if aid is not None]
 
         # Update persist status and link IDs to states
         for state, aid in zip(new_states, article_ids):
+            if aid is None:
+                # Failed upsert: leave article_id unset so downstream steps
+                # (vectors, graph) skip this state instead of writing
+                # another article's id.
+                continue
             state["article_id"] = str(aid)
             await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
 
@@ -432,21 +455,31 @@ class BatchMergerNode:
             for state in new_states:
                 if "vectors" in state:
                     vectors = state["vectors"]
-                    if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
-                        art_id = uuid.UUID(state["article_id"])
-                        vector_data.append(
-                            (
-                                art_id,
-                                vectors.get("title"),
-                                vectors.get("content"),
-                                vectors.get("model_id", "unknown"),
-                            )
+                    art_id_str = state.get("article_id")
+                    if (
+                        art_id_str is None
+                        or not isinstance(vectors, dict)
+                        or "title" not in vectors
+                        or "content" not in vectors
+                    ):
+                        continue
+                    art_id = uuid.UUID(art_id_str)
+                    vector_data.append(
+                        (
+                            art_id,
+                            vectors.get("title"),
+                            vectors.get("content"),
+                            vectors.get("model_id", "unknown"),
                         )
-                        vector_article_ids.append(art_id)
+                    )
+                    vector_article_ids.append(art_id)
             if vector_data:
                 await self._vector_repo.bulk_upsert_article_vectors(vector_data)
 
-        log.info("saga_phase1_complete", pg_count=len(article_ids))
+        log.info(
+            "saga_phase1_complete",
+            pg_count=len(article_ids) - len(failed_states),
+        )
         return pg_ids
 
     async def _persist_to_neo4j(
@@ -605,6 +638,18 @@ class BatchMergerNode:
             pg_compensation_data["article_ids"] = saga_context["article_ids"]
             pg_compensation_data["vector_article_ids"] = saga_context["vector_article_ids"]
 
+        # Defined unconditionally BEFORE the closures that reference it —
+        # the closure below syncs into this dict, and defining it only
+        # inside the graph_writer branch would be a latent NameError.
+        neo4j_compensation_data: dict[str, Any] = {
+            "type": "neo4j",
+            "step_name": "persist_neo4j",
+            "operation": "entity_create",
+            "saga_id": "",
+            "article_id": "",
+            "article_ids": saga_context["neo4j_article_ids"],
+        }
+
         async def execute_persist_neo4j() -> None:
             """Phase 2: Persist to Neo4j using batch write."""
             batch_result = await self._persist_to_neo4j(new_states)
@@ -624,14 +669,6 @@ class BatchMergerNode:
         ]
 
         if self._graph_writer:
-            neo4j_compensation_data: dict[str, Any] = {
-                "type": "neo4j",
-                "step_name": "persist_neo4j",
-                "operation": "entity_create",
-                "saga_id": "",
-                "article_id": "",
-                "article_ids": saga_context["neo4j_article_ids"],
-            }
             steps.append(
                 SagaStep(
                     name="persist_neo4j",
@@ -738,6 +775,22 @@ class BatchMergerNode:
                     )
             return result
 
+        async def _cleanup_phase1_vectors() -> None:
+            """Remove Phase 1 vectors when Phase 2 fails, mirroring the
+            Phase 1 exception handler so no orphan vector rows remain."""
+            if vector_article_ids and self._vector_repo:
+                try:
+                    deleted = await self._vector_repo.delete_article_vectors_by_article_ids(
+                        vector_article_ids
+                    )
+                    log.info("saga_phase2_vectors_cleaned", count=deleted)
+                except Exception as vec_exc:
+                    log.warning(
+                        "saga_phase2_vector_cleanup_failed",
+                        error=str(vec_exc),
+                        article_ids=[str(a) for a in vector_article_ids],
+                    )
+
         # Phase 2: Persist to Neo4j using batch write with concurrency control
         if self._graph_writer:
             try:
@@ -750,6 +803,7 @@ class BatchMergerNode:
                     result["compensation_executed"] = True
                     result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
                     result["success"] = False
+                    await _cleanup_phase1_vectors()
                     return result
 
             except Exception as exc:
@@ -775,6 +829,7 @@ class BatchMergerNode:
                                 article_id=state.get("article_id"),
                                 error=str(mark_exc),
                             )
+                await _cleanup_phase1_vectors()
                 return result
 
         # All phases succeeded

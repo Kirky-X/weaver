@@ -1,24 +1,34 @@
-# 贡献指南
+# 🤝 贡献指南
 
-感谢您对 Weaver 项目的关注！本文档将帮助您了解如何参与项目贡献。
+感谢您对 **Weaver** 项目的关注！无论您是在修复缺陷、添加新特性、改进文档还是帮助他人，您的贡献都弥足珍贵。
 
-## 目录
+## 📋 目录
 
-- [行为准则](#行为准则)
-- [如何贡献](#如何贡献)
-- [开发环境搭建](#开发环境搭建)
-- [代码规范](#代码规范)
-- [提交规范](#提交规范)
-- [审查流程](#审查流程)
-- [发布流程](#发布流程)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [行为准则](#-行为准则)
+- [如何贡献](#-如何贡献)
+- [开发环境搭建](#-开发环境搭建)
+- [代码规范](#-代码规范)
+- [提交规范](#-提交规范)
+- [审查流程](#-审查流程)
+- [测试](#测试)
+- [发布流程](#-发布流程)
+
+</details>
 
 ---
 
-## 行为准则
+## 👋 行为准则
 
-### 我们的承诺
+### 🎯 我们的承诺
 
 为了营造一个开放和友好的环境，我们作为贡献者和维护者承诺：
+
+| 贡献方式 | 文档 | 测试 | 社区 |
+|:---------|:-----|:-----|:-----|
+| 修复缺陷、添加特性 | 改进文档与指南 | 编写测试、发现问题 | 帮助与支持他人 |
 
 - 无论年龄、体型、残疾、种族、性别特征、性别认同和表达、经验水平、教育程度、社会经济地位、国籍、个人外貌、种族、宗教或性取向如何，都对每个人表示尊重和礼貌
 - 接受建设性批评，并以优雅的方式接受
@@ -33,9 +43,21 @@
 - 未经明确许可，发布他人的私人信息
 - 其他在专业环境中被认为不适当的行为
 
+### 适用范围
+
+本行为准则适用于所有项目空间，包括代码仓库、Issue、Pull Request、Discussion，以及代表项目的官方公开渠道与线下活动。
+
+### 执行
+
+- **举报渠道**：如遭遇或目睹不可接受的行为，请通过 GitHub 联系维护者 [@Kirky-X](https://github.com/Kirky-X)
+- **核查程序**：维护者将在收到举报后及时核查，与涉事双方沟通了解情况，并保守举报人隐私
+- **处理后果**：经确认违反本准则者，将视情节轻重受到警告、临时或永久禁止参与项目等处理；维护者保留对处理决定的解释权
+
+> 本行为准则改编自 [Contributor Covenant](https://www.contributor-covenant.org) v2.1，遵循 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可发布。
+
 ---
 
-## 如何贡献
+## 🙌 如何贡献
 
 ### 报告 Bug
 
@@ -103,7 +125,7 @@
 
 ---
 
-## 开发环境搭建
+## 🛠️ 开发环境搭建
 
 ### 前提条件
 
@@ -123,10 +145,8 @@
 2. **安装依赖**
    ```bash
    # 使用 uv (强烈推荐)
-   uv sync --group dev
-
-   # 或使用 pip (不推荐)
-   pip install -e ".[dev]"
+   # --all-groups 同时安装 [dependency-groups] 中的 dev 和 test 组 (pytest 位于 test 组)
+   uv sync --all-groups
    ```
 
 3. **安装浏览器**
@@ -137,7 +157,7 @@
 4. **安装 NLP 模型**
    ```bash
    uv pip install "spacy-pkuseg>=0.0.27,<0.1.0"
-   uv run python -m spacy download zh_core_web_sm
+   uv run python -m spacy download zh_core_web_lg
    ```
 
 5. **配置环境**
@@ -172,7 +192,7 @@ uv run python -m src.main
 
 ---
 
-## 代码规范
+## 📏 代码规范
 
 ### Python 代码风格
 
@@ -180,8 +200,7 @@ uv run python -m src.main
 
 | 工具             | 用途                | 配置位置                      |
 |----------------|-------------------|---------------------------|
-| **Ruff**       | 代码 Lint 和格式化      | `pyproject.toml`          |
-| **Black**      | 代码格式化 (与 Ruff 配合) | `pyproject.toml`          |
+| **Ruff**       | 代码 Lint 和格式化 (唯一格式化真源) | `pyproject.toml`          |
 | **isort**      | Import 排序         | `pyproject.toml`          |
 | **mypy**       | 静态类型检查 (部分启用)     | `pyproject.toml`          |
 | **bandit**     | 安全漏洞扫描            | `pyproject.toml`          |
@@ -191,30 +210,30 @@ uv run python -m src.main
 ### 运行代码检查
 
 ```bash
-# 使用 pre-commit hooks (推荐 - 自动运行所有检查)
+# 使用 pre-commit hooks (推荐)
+# 注意: mypy 与 bandit 未挂载为 hook, 需手动运行
 pre-commit run --all-files
 
 # 或手动运行各个工具
 
-# 格式化代码 (isort + black)
+# 格式化代码 (ruff format 是唯一格式化真源; black 已移除)
+uv run ruff format src/ tests/ scripts/
 uv run isort src/ tests/ scripts/
-uv run black src/ tests/ scripts/
 
 # Lint 检查并自动修复
 uv run ruff check --fix src/ tests/ scripts/
 
 # 类型检查 (mypy - 目前仅部分启用)
-uv run mypy src/
+uv run mypy --ignore-missing-imports src/
 
 # 安全扫描
-uv run bandit -r src/ -ll
+uv run bandit -c pyproject.toml -r src/
 
 # 运行所有检查
-uv run ruff check src/ && uv run mypy src/ && uv run bandit -r src/
+uv run ruff check src/ && uv run mypy src/ && uv run bandit -c pyproject.toml -r src/
 ```
 
-> **注意**: 项目使用 Ruff 作为主要 Linter,Black 和 isort 作为格式化工具。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目同时配置了独立的
-> isort 和 black。
+> **注意**: 项目使用 Ruff 同时承担 Lint 和格式化（`ruff format` 是唯一格式化真源，black 已从依赖中移除）。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目仍配置了独立的 isort。
 
 ### 代码风格指南
 
@@ -351,7 +370,7 @@ except Exception as e:  # ✓ 可以，但仅在顶层使用
 
 ---
 
-## 提交规范
+## 📝 提交规范
 
 ### 提交信息格式
 
@@ -376,9 +395,11 @@ except Exception as e:  # ✓ 可以，但仅在顶层使用
 | `refactor` | 代码重构           |
 | `perf`     | 性能优化           |
 | `test`     | 测试相关           |
+| `build`    | 构建系统或依赖变更   |
 | `chore`    | 构建/工具链/依赖更新    |
 | `ci`       | CI/CD 相关       |
 | `revert`   | 回滚提交           |
+| `wip`      | 进行中，勿合并到 main  |
 
 #### Scope
 
@@ -434,9 +455,18 @@ Closes #123
 
 ---
 
-## 审查流程
+## 🔍 审查流程
 
 ### Pull Request 流程
+
+```mermaid
+graph LR
+    A["创建 PR<br/>填写模板"] --> B["自动化检查<br/>CI + 覆盖率 ≥80%"]
+    B --> C{"审查者批准"}
+    C -->|"需修改"| D["解决评论"]
+    D --> C
+    C -->|"通过"| E["Squash and Merge"]
+```
 
 1. **创建 PR**
     - 使用清晰的标题
@@ -446,8 +476,7 @@ Closes #123
 2. **自动化检查**
     - CI 会运行测试套件
     - 代码覆盖率检查 (要求 ≥80%)
-    - Pre-commit hooks 检查 (ruff, black, isort)
-    - 提交信息格式验证 (commitizen)
+    - CI 直接运行 `ruff format --check` / `ruff check` / `mypy`；isort 仅在本地 pre-commit hook 中运行
 
 3. **代码审查**
     - 至少需要 1 个审查者批准
@@ -460,33 +489,7 @@ Closes #123
 
 ### PR 模板
 
-```markdown
-## 描述
-简要描述这个 PR 的目的和更改内容。
-
-Fixes # (issue)
-
-## 更改类型
-- [ ] Bug 修复
-- [ ] 新功能
-- [ ] 破坏性变更
-- [ ] 文档更新
-- [ ] 性能优化
-- [ ] 代码重构
-
-## 检查清单
-- [ ] 代码遵循项目代码风格
-- [ ] 测试通过
-- [ ] 添加/更新了测试
-- [ ] 文档已更新
-- [ ] 所有 CI 检查通过
-
-## 测试说明
-描述如何测试这些更改。
-
-## 截图（如适用）
-添加截图帮助理解更改。
-```
+仓库已提供 PR 模板（`.github/PULL_REQUEST_TEMPLATE.md`），创建 PR 时会自动加载，按模板逐项填写即可。
 
 ---
 
@@ -494,11 +497,16 @@ Fixes # (issue)
 
 ### 测试结构
 
-项目包含 300+ 个测试文件,分为：
+项目包含 300+ 个测试文件，分为：
 
-- **单元测试** (`tests/unit/`) - 测试独立模块和函数
-- **集成测试** (`tests/integration/`) - 测试模块间交互
-- **端到端测试** (`tests/e2e/`) - 完整流程测试 (需要 Docker)
+- **单元测试** (`tests/unit/`) — 测试独立模块和函数
+- **集成测试** (`tests/integration/`) — 测试模块间交互
+- **端到端测试** (`tests/e2e/`) — 完整流程测试（需要 Docker）
+- **性能测试** (`tests/performance/`) — 性能基准测试（标记 `performance` / `benchmark`）
+- **架构测试** (`tests/arch/`) — 架构约束与依赖关系验证
+- **配置测试** (`tests/config/`) — 配置加载与校验
+- **脚本测试** (`tests/scripts/`) — CLI 脚本功能验证
+- **测试夹具** (`tests/fixtures/`) — 共享测试数据与 fixture
 
 ### 运行测试
 
@@ -512,7 +520,7 @@ uv run pytest tests/unit/ -v
 # 运行特定标记的测试
 uv run pytest -m unit -v          # 仅单元测试
 uv run pytest -m integration -v   # 仅集成测试
-uv run pytest -m performance -v   # 性能测试
+uv run pytest tests/performance/ -v -o addopts=""   # 性能测试 (默认 addopts 忽略 tests/performance)
 
 # 运行测试并生成覆盖率报告
 uv run pytest --cov=src --cov-report=html --cov-report=term-missing
@@ -520,19 +528,19 @@ uv run pytest --cov=src --cov-report=html --cov-report=term-missing
 # 并行运行测试 (使用 pytest-xdist)
 uv run pytest -n auto
 
-# 运行 E2E 测试 (需要 Docker)
-uv run pytest tests/e2e/ -v
+# 运行 E2E 测试 (需要 Docker; 默认 addopts 忽略 tests/e2e, 需先启动 tests/e2e/docker-compose.yml 中的服务)
+uv run pytest tests/e2e/ -v -o addopts=""
 ```
 
 ### 覆盖率要求
 
 - **最低覆盖率**: 80% (`--cov-fail-under=80`)
-- **覆盖率报告**: HTML 和 XML 格式
+- **覆盖率报告**: 默认输出终端 missing 报告；HTML/XML 需显式传 `--cov-report=html` / `--cov-report=xml`
 - **排除目录**: alembic, scripts, tests, 部分基础设施模块
 
 ---
 
-## 发布流程
+## 🚀 发布流程
 
 ### 版本号规范
 
@@ -547,6 +555,14 @@ MAJOR.MINOR.PATCH
 - **PATCH**：向下兼容的问题修复
 
 ### 发布步骤
+
+```mermaid
+graph LR
+    A["更新版本号<br/>pyproject.toml"] --> B["更新 CHANGELOG<br/>记录所有变更"]
+    B --> C["创建发布 PR<br/>Release vX.Y.Z"]
+    C --> D["合并 + 打标签<br/>git tag -a vX.Y.Z"]
+    D --> E["创建 GitHub Release<br/>发布说明 + 二进制文件"]
+```
 
 1. **更新版本号**
    ```bash
@@ -570,10 +586,11 @@ MAJOR.MINOR.PATCH
 5. **创建 GitHub Release**
     - 填写发布说明
     - 附上二进制文件（如需要）
+    - 注：推送 `v*` tag 后 `release.yml` 会自动构建并创建 Release，手动步骤通常可省略
 
 ---
 
-## 获取帮助
+## ❓ 获取帮助
 
 如果您在贡献过程中遇到问题：
 
@@ -584,10 +601,20 @@ MAJOR.MINOR.PATCH
 
 ---
 
-## 许可证
+## 📄 许可证
 
 通过提交代码，您同意您的贡献将在 [Apache-2.0 许可证](../LICENSE) 下发布。
 
 ---
 
-感谢您的贡献！🎉
+## 🔗 相关文档
+
+- [API 文档](API.md) — 完整 API 接口参考
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [项目 README](../README.md) — 返回首页
+
+---
+
+感谢您的贡献！

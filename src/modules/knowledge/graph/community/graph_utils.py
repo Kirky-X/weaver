@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shared graph utility functions for community detection.
 
 Provides common graph algorithms used across community detection modules:
@@ -9,6 +9,7 @@ Provides common graph algorithms used across community detection modules:
 
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 
 
@@ -92,8 +93,6 @@ def assign_components_to_uuids(
     Returns:
         Mapping from node name to community UUID.
     """
-    import uuid
-
     assignments: dict[str, str] = {}
     for component in components:
         community_id = str(uuid.uuid4())

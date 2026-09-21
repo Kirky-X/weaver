@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RelationTypeNormalizer module."""
 
 from datetime import UTC, datetime
@@ -90,7 +90,9 @@ def _make_mock_pool(
             result.scalars = MagicMock(return_value=mock_scalars)
         elif "unknown_relation_types" in query_str:
             # 查询未知关系类型 - 返回配置的记录或 None
-            result.scalar_one_or_none = MagicMock(return_value=_unknown_record)
+            mock_scalars = MagicMock()
+            mock_scalars.first = MagicMock(return_value=_unknown_record)
+            result.scalars = MagicMock(return_value=mock_scalars)
         else:
             # 默认空结果
             mock_scalars = MagicMock()
@@ -280,7 +282,9 @@ class TestRelationTypeNormalizer:
         # Mock execute to return None (no existing record)
         async def mock_execute(query, params=None):
             result = MagicMock()
-            result.scalar_one_or_none = MagicMock(return_value=None)
+            mock_scalars = MagicMock()
+            mock_scalars.first = MagicMock(return_value=None)
+            result.scalars = MagicMock(return_value=mock_scalars)
             return result
 
         mock_session.execute = AsyncMock(wraps=mock_execute)
@@ -346,7 +350,9 @@ class TestRelationTypeNormalizer:
         # Mock execute to return None (no existing record)
         async def mock_execute(query, params=None):
             result = MagicMock()
-            result.scalar_one_or_none = MagicMock(return_value=None)
+            mock_scalars = MagicMock()
+            mock_scalars.first = MagicMock(return_value=None)
+            result.scalars = MagicMock(return_value=mock_scalars)
             return result
 
         mock_session.execute = AsyncMock(wraps=mock_execute)
@@ -545,3 +551,94 @@ class TestRelationTypeNormalizer:
         # "合作关系" should strip "系" to get "合作关"
         result = await normalizer.normalize("合作关系")
         assert result.name_en == "PARTNERS_WITH"
+
+
+class TestConcurrentLoadOnce:
+    """Regression: concurrent normalize() calls must load the cache exactly
+    once (asyncio.Lock double-check)."""
+
+    @pytest.mark.asyncio
+    async def test_parallel_normalize_loads_once(self):
+        import asyncio
+
+        normalizer = RelationTypeNormalizer(_make_mock_pool(relation_types=[]))
+
+        results = await asyncio.gather(*[normalizer._ensure_loaded() for _ in range(10)])
+
+        assert results == [None] * 10
+        assert normalizer._loaded is True
+        # The lock attribute exists and is an asyncio.Lock.
+        assert isinstance(normalizer._load_lock, asyncio.Lock)
+
+    @pytest.mark.asyncio
+    async def test_second_call_skips_reload(self):
+        pool = _make_mock_pool(relation_types=[])
+        normalizer = RelationTypeNormalizer(pool)
+
+        await normalizer._ensure_loaded()
+        session_calls = pool.session.call_count
+
+        await normalizer._ensure_loaded()
+        assert pool.session.call_count == session_calls
+
+
+class TestStandardNameResolvedByAliasCache:
+    """#93: the removed dedicated "standard name" branch is covered by step 1."""
+
+    @pytest.mark.asyncio
+    async def test_standard_name_is_present_in_alias_cache(self):
+        relation_types = [
+            _make_mock_relation_type(
+                id=1,
+                name="合作",
+                name_en="PARTNERS_WITH",
+                category="商业",
+                is_symmetric=True,
+                sort_order=1,
+                aliases=None,
+            )
+        ]
+        normalizer = RelationTypeNormalizer(_make_mock_pool(relation_types))
+
+        await normalizer._ensure_loaded()
+
+        # The standard name is an alias-cache key, so no separate lookup step
+        # is needed to resolve it.
+        assert "合作" in normalizer._alias_cache
+
+        result = await normalizer.normalize("合作")
+
+        assert result.name == "合作"
+        assert result.name_en == "PARTNERS_WITH"
+        assert result.is_unknown is False
+
+
+class TestStandardNameResolvedByAliasCache:
+    """#93: the removed dedicated "standard name" branch is covered by step 1."""
+
+    @pytest.mark.asyncio
+    async def test_standard_name_is_present_in_alias_cache(self):
+        relation_types = [
+            _make_mock_relation_type(
+                id=1,
+                name="合作",
+                name_en="PARTNERS_WITH",
+                category="商业",
+                is_symmetric=True,
+                sort_order=1,
+                aliases=None,
+            )
+        ]
+        normalizer = RelationTypeNormalizer(_make_mock_pool(relation_types))
+
+        await normalizer._ensure_loaded()
+
+        # The standard name is an alias-cache key, so no separate lookup step
+        # is needed to resolve it.
+        assert "合作" in normalizer._alias_cache
+
+        result = await normalizer.normalize("合作")
+
+        assert result.name == "合作"
+        assert result.name_en == "PARTNERS_WITH"
+        assert result.is_unknown is False

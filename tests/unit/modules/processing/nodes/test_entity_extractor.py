@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for processing EntityExtractorNode."""
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -951,3 +952,36 @@ class TestEntityOutputValidation:
         assert result["entities"][0]["type"] == "人物"
         assert result["entities"][1]["type"] == "未知"
         assert result["entities"][2]["type"] == "地点"
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    def test_exception_handlers_use_plain_exception(self):
+        """#245: ``Exception`` is not listed alongside its own subclasses."""
+        from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+
+        src = inspect.getsource(EntityExtractorNode)
+
+        assert "except (OSError, RuntimeError, Exception)" not in src
+        assert "(AllProvidersFailedError, CircuitOpenError, ValueError, Exception)" not in src
+
+    def test_disable_data_metrics_is_passed_from_execute(self):
+        """#247: the flag is computed once in execute() and passed down."""
+        from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+
+        execute_src = inspect.getsource(EntityExtractorNode.execute)
+        spacy_src = inspect.getsource(EntityExtractorNode._extract_spacy_entities)
+
+        assert "disable_data_metrics" in execute_src
+        assert "_extract_spacy_entities(" in execute_src
+        assert "disable_data_metrics: bool" in spacy_src
+        assert "disable_data_metrics = (" not in spacy_src
+
+    def test_no_dead_entity_count_variable(self):
+        """#109: the unread ``entity_count`` assignment is gone."""
+        from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+
+        src = inspect.getsource(EntityExtractorNode._llm_refine_and_validate)
+
+        assert 'entity_count = len(state["entities"])' not in src

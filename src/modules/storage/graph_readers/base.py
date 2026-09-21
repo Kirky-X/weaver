@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Base class for graph readers with shared dependencies.
 
 Provides common dependency injection (pool, query_builder, execute_fn) for
@@ -19,8 +19,12 @@ if TYPE_CHECKING:
     from core.protocols import GraphPool
 
 # Callable signature: (build_query_fn, params) -> list[dict[str, Any]]
-# where build_query_fn: (GraphQueryBuilder) -> str
-ExecuteWithFallbackFn = Callable[..., Any]
+# where build_query_fn: (GraphQueryBuilder) -> str.
+# Concrete generic alias so wrong-arity callables and
+# mis-ordered params are caught by mypy/pyright instead of silently
+# passing through ``Callable[..., Any]``.
+BuildQueryFn = Callable[[GraphQueryBuilder], str]
+ExecuteWithFallbackFn = Callable[[BuildQueryFn, dict[str, Any] | None], list[dict[str, Any]]]
 
 
 class GraphReaderBase:

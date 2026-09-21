@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM module type definitions."""
 
 from __future__ import annotations
@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, SecretStr, field_validator
+
+from core.constants import CircuitState as CircuitState
+
+# LLM 调用超时的单一默认值来源（GlobalConfig / LLMSettings / 调用方默认参数共用）
+DEFAULT_LLM_TIMEOUT: float = 120.0
 
 
 class LLMType(str, Enum):
@@ -28,10 +33,18 @@ class CallPoint(str, Enum):
     CATEGORIZER = "categorizer"
     MERGER = "merger"
     ANALYZE = "analyze"
+    # analyze + narrative_schema 合并调用点（LLM 调用优化：必调 chat 3→2）。
+    # AnalyzeNode 发起合并调用，NarrativeSchemaExtractorNode 退化为读 state
+    # 持久化。开关：config/pipeline.toml [phase3] merge_analyze_narrative。
+    ANALYZE_NARRATIVE = "analyze_narrative"
     CREDIBILITY_CHECKER = "credibility_checker"
     QUALITY_SCORER = "quality_scorer"
     ENTITY_EXTRACTOR = "entity_extractor"
     ENTITY_RESOLVER = "entity_resolver"
+    # GLiNER 实体精炼（LLM refine）后处理。此前 gliner_extractor 用裸字符串
+    # "entity_refine" 调用，不在本枚举内 → _resolve_call_point 回退 CLASSIFIER，
+    # 误用其 token 预算与路由；现补为正式 call point。
+    ENTITY_REFINE = "entity_refine"
     EMBEDDING = "embedding"
     RERANK = "rerank"
     SEARCH_LOCAL = "search_local"
@@ -43,13 +56,12 @@ class CallPoint(str, Enum):
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
     NARRATIVE_SCHEMA = "narrative_schema"
     EVIDENCE_SAMPLING = "evidence_sampling"
-    ROI_SUMMARY = "roi_summary"
     SENTIMENT = "sentiment"
     CLAIM_EXTRACTION = "claim_extraction"
-    # T004: BriefingGenerator — daily per-category briefing summary generation.
+    # BriefingGenerator — daily per-category briefing summary generation.
     # Used by BriefingGenerator.generate() to summarize articles per category.
     BRIEFING = "briefing"
-    # R-web-search-008: QueryExpander — LLM-driven broad-query expansion
+    # QueryExpander — LLM-driven broad-query expansion
     # (e.g. "菲律宾" → ["菲律宾 仁爱礁", "菲律宾 南海"]). Used by
     # modules.search.web.query_expander.LLMQueryExpander to surface topical
     # news that a literal single-term query would miss.
@@ -73,12 +85,8 @@ TYPE_TO_CAPABILITY: dict[LLMType, Capability] = {
 }
 
 
-class CircuitState(str, Enum):
-    """熔断器状态."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
+# CircuitState（熔断器状态）单一定义在 core.constants，此处冗余别名导入
+# 保持 ``core.llm.types.CircuitState`` 导入路径兼容。
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +142,12 @@ class Label:
 
 @dataclass
 class TokenUsage:
-    """Token使用量."""
+    """Token使用量.
+
+    Invariant: cached_tokens is a SUBSET of input_tokens (provider
+    prompt_tokens counts cached tokens). Cost calculation relies on this:
+    effective_input = input_tokens - cached_tokens.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -253,6 +266,9 @@ class RoutingConfig(BaseModel):
     max_tokens: int | None = None
     temperature: float | None = None
     response_format: str | None = None  # "json" for Ollama JSON mode
+    # Optional per-call-point response-cache TTL (seconds). When unset, the
+    # built-in CACHE_TTL policy table (see below) applies.
+    cache_ttl: int | None = None
 
     # Tiered routing (difficulty-based provider selection)
     tiered_routing: bool = False
@@ -279,7 +295,9 @@ def parse_routing_dict_shared(v: Any) -> dict[str, RoutingConfig]:
             if isinstance(val, RoutingConfig):
                 result[key] = val
             elif isinstance(val, dict):
-                # Parse tiers if present (enhanced version)
+                # Parse tiers if present (enhanced version). Build a copy so
+                # the caller's config dict is not mutated as a side effect.
+                val = dict(val)
                 tiers_data = val.pop("tiers", None)
                 tiers: list[TierConfig] = []
                 if isinstance(tiers_data, list):
@@ -323,11 +341,14 @@ class ProviderConfig(BaseModel):
 
     name: str = ""
     type: str = "openai"  # LiteLLM provider type
-    api_key: str = ""
+    # SecretStr keeps the key out of repr()/logs; consumers must call
+    # .get_secret_value() explicitly (only the resilience pool does).
+    api_key: SecretStr = SecretStr("")
     base_url: str = ""
     rpm_limit: int = 60
     concurrency: int = 5
-    timeout: float = 120.0
+    # None = 未配置，运行时回落 GlobalConfig.default_timeout（llm.toml [global]）
+    timeout: float | None = None
     priority: int = 100
     weight: int = 100
     models: dict[str, ModelConfig] = {}
@@ -341,12 +362,27 @@ class ProviderConfig(BaseModel):
         return self.models.get(model_name)
 
 
+# Embedding response-cache TTL default (7 days); overridable via
+# llm.toml [global].embedding_cache_ttl. Single definition — client.py
+# imports this instead of duplicating the literal.
+EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60
+
+
 class GlobalConfig(BaseModel):
     """全局配置 - pydantic BaseModel for TOML loading."""
 
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
-    default_timeout: float = 120.0
+    default_timeout: float = DEFAULT_LLM_TIMEOUT
+    # LLM call retry policy (tenacity-based retry_llm in ProviderPool)
+    retry_max_attempts: int = 3
+    retry_min_wait: float = 5.0
+    retry_max_wait: float = 60.0
+    # Embedding response-cache TTL (seconds)
+    embedding_cache_ttl: int = EMBEDDING_CACHE_TTL
+    # Cap on cached rerank clients per caller (FIFO eviction bounds memory
+    # under key rotation; purely a safety ceiling, not a throughput knob)
+    rerank_client_cap: int = 32
     # 请求延迟配置
     request_delay_enabled: bool = False
     request_delay_min: float = 1.0
@@ -383,9 +419,11 @@ class RoutingMode(str, Enum):
         """
         try:
             return cls(value.lower())
-        except ValueError:
+        except ValueError as _exc:
             valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid routing mode '{value}'. Valid values: {valid_values}")
+            raise ValueError(
+                f"Invalid routing mode '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,16 +483,16 @@ class EvalConfig:
     Attributes:
         enabled: Whether shadow evaluation is enabled
         sample_rate: Fraction of requests to shadow (0.0 to 1.0)
-        target_call_points: List of call points to evaluate
+        target_call_points: Immutable sequence of call points to evaluate
         baseline_model: Baseline model label for comparison
-        candidate_models: List of candidate model labels to compare
+        candidate_models: Immutable sequence of candidate model labels to compare
     """
 
     enabled: bool = False
     sample_rate: float = 0.1
-    target_call_points: list[str] = ()  # type: ignore[assignment]
+    target_call_points: tuple[str, ...] = ()
     baseline_model: str = ""
-    candidate_models: list[str] = ()  # type: ignore[assignment]
+    candidate_models: tuple[str, ...] = ()
 
 
 # Cache TTL per call point (in seconds)
@@ -464,12 +502,32 @@ CACHE_TTL: dict[str, int] = {
     "quality_scorer": 24 * 60 * 60,
     "credibility_checker": 24 * 60 * 60,
     "analyze": 24 * 60 * 60,
+    "analyze_narrative": 24 * 60 * 60,
     "summary": 7 * 24 * 60 * 60,
     "entity_extractor": 7 * 24 * 60 * 60,
     "cleaner": 24 * 60 * 60,
     "merger": 7 * 24 * 60 * 60,
     "claim_extraction": 24 * 60 * 60,
     "narrative_schema": 7 * 24 * 60 * 60,
+    # 实体事实/消解稳定（与 entity_extractor 同为图谱派生内容）
+    "entity_resolver": 7 * 24 * 60 * 60,
+    "entity_refine": 7 * 24 * 60 * 60,
+    "entity_facts": 7 * 24 * 60 * 60,
+    # 社区报告/标题更新慢（图谱周期任务产出）
+    "community_report": 7 * 24 * 60 * 60,
+    "community_title": 7 * 24 * 60 * 60,
+    # 检索与推理类时效性强
+    "search_local": 24 * 60 * 60,
+    "search_global": 24 * 60 * 60,
+    "causal_inference": 24 * 60 * 60,
+    "narrative_synthesis": 24 * 60 * 60,
+    "evidence_sampling": 24 * 60 * 60,
+    "rerank": 24 * 60 * 60,
+    # 分析/生成类（2026-09 优化审查补齐）
+    "sentiment": 24 * 60 * 60,
+    "briefing": 24 * 60 * 60,
+    "query_expander": 24 * 60 * 60,
+    # embedding 不在此表：走独立的 embedding_cache_ttl 配置
     "default": 24 * 60 * 60,
 }
 

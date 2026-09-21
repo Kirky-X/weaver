@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entity resolution rules for deduplication and canonical name selection.
 
 Based on GraphRAG's entity disambiguation approach with enhancements for
@@ -244,11 +244,15 @@ class EntityResolutionRules:
             ResolutionResult with match information.
         """
         if candidates:
-            for candidate in candidates:
-                canonical = candidate.get("canonical_name", "")
-                for rule in self._rules:
-                    if rule.entity_types and entity_type not in rule.entity_types:
-                        continue
+            # Outer loop over rules (sorted by priority, best first), inner
+            # loop over candidates: a high-priority rule match on ANY
+            # candidate must win over a low-priority rule match on an
+            # earlier candidate.
+            for rule in self._rules:
+                if rule.entity_types and entity_type not in rule.entity_types:
+                    continue
+                for candidate in candidates:
+                    canonical = candidate.get("canonical_name", "")
                     result = rule.matcher(name, canonical, entity_type)
                     if result and result.match_type != MatchType.NONE:
                         return result
@@ -478,6 +482,19 @@ class EntityResolutionRules:
 
         return None
 
+    @staticmethod
+    def _strip_one_suffix(name: str, suffixes: list[str]) -> tuple[str, str | None]:
+        """Strip at most one suffix from ``name``.
+
+        Returns ``(stripped, suffix)`` where ``suffix`` is None when nothing
+        was stripped. Recording which suffix was stripped lets callers reject
+        cross-suffix collisions (e.g. 北京市 vs 北京州 both stripping to 北京).
+        """
+        for suffix in suffixes:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                return name[: -len(suffix)].strip(), suffix
+        return name, None
+
     def _person_name_variant_match(
         self,
         name: str,
@@ -487,14 +504,12 @@ class EntityResolutionRules:
         """Match person name variants (with/without titles)."""
         titles = ["先生", "女士", "博士", "教授", "总", "董", "长", "Mr.", "Ms.", "Dr.", "Prof."]
 
-        name_stripped = name
-        canonical_stripped = canonical
+        name_stripped, name_suffix = self._strip_one_suffix(name, titles)
+        canonical_stripped, canonical_suffix = self._strip_one_suffix(canonical, titles)
 
-        for title in titles:
-            if name.endswith(title):
-                name_stripped = name[: -len(title)].strip()
-            if canonical.endswith(title):
-                canonical_stripped = canonical[: -len(title)].strip()
+        # Reject cross-suffix collisions: 王总 vs 王董 must not merge.
+        if name_suffix and canonical_suffix and name_suffix != canonical_suffix:
+            return None
 
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
@@ -516,15 +531,13 @@ class EntityResolutionRules:
         # Use shared suffix list from NameNormalizer (canonical, more complete)
         suffixes = ORGANIZATION_SUFFIXES
 
-        name_stripped = name
-        canonical_stripped = canonical
+        name_stripped, _name_suffix = self._strip_one_suffix(name, suffixes)
+        canonical_stripped, _canonical_suffix = self._strip_one_suffix(canonical, suffixes)
 
-        for suffix in suffixes:
-            if name.endswith(suffix):
-                name_stripped = name[: -len(suffix)].strip()
-            if canonical.endswith(suffix):
-                canonical_stripped = canonical[: -len(suffix)].strip()
-
+        # Deliberately NO cross-suffix rejection here, unlike locations:
+        # a company and its group are legitimate aliases, so 阿里巴巴公司 and
+        # 阿里巴巴集团 must merge — asserted by
+        # tests/unit/modules/nlp/test_resolution_rules.py::test_organization_variant_match.
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
                 match_type=MatchType.ALIAS,
@@ -544,14 +557,12 @@ class EntityResolutionRules:
         """Match location name variants."""
         suffixes = ["市", "省", "县", "区", "州", "国", "地区"]
 
-        name_stripped = name
-        canonical_stripped = canonical
+        name_stripped, name_suffix = self._strip_one_suffix(name, suffixes)
+        canonical_stripped, canonical_suffix = self._strip_one_suffix(canonical, suffixes)
 
-        for suffix in suffixes:
-            if name.endswith(suffix):
-                name_stripped = name[: -len(suffix)].strip()
-            if canonical.endswith(suffix):
-                canonical_stripped = canonical[: -len(suffix)].strip()
+        # Reject cross-suffix collisions: 北京市 vs 北京州 must not merge.
+        if name_suffix and canonical_suffix and name_suffix != canonical_suffix:
+            return None
 
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
@@ -600,6 +611,21 @@ class EntityResolutionRules:
     def get_all_aliases(self, canonical: str) -> set[str]:
         """Get all known aliases for a canonical name."""
         return self._alias_map.get(canonical, set())
+
+    def get_rule_counts(self) -> dict[str, int]:
+        """Return counts of the loaded rules and mappings.
+
+        The counts live here because the storage layout is this class's
+        concern: ``add_abbreviation`` writes 3 keys per abbreviation and
+        ``add_translation`` writes 2 keys per pair, so callers must not
+        compute the totals from ``len()`` themselves.
+        """
+        return {
+            "known_aliases": len(self._alias_map),
+            "abbreviations": len(self._abbreviation_map) // 3,
+            "translations": len(self._translation_map) // 2,
+            "rules_count": len(self._rules),
+        }
 
     def get_abbreviation_full(self, abbr: str) -> str | None:
         """Get the full form of an abbreviation."""

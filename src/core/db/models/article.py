@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Article-related SQLAlchemy ORM models.
 
 Includes the vertical-split tables (core/body/analysis/processing), the
@@ -40,12 +40,13 @@ from core.db.models.base import (
     PersistStatus,
     VectorType,
 )
+from core.constants import DEFAULT_EMBEDDING_MODEL_ID, DOCUMENT_TYPES
 
 
 class ArticleCore(Base):
     """High-frequency query columns for articles.
 
-    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Implements: Vertical split
     Row width ~500 bytes → ~16 rows/page → full table scan ×3 faster.
     """
 
@@ -152,7 +153,7 @@ class ArticleCore(Base):
         ),
         CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_core_no_self_merge"),
         CheckConstraint(
-            "document_type IN ('news', 'policy', 'tweet', 'wechat', 'blog', 'report', 'pdf_doc', 'social_post')",
+            "document_type IN (" + ", ".join(f"'{t}'" for t in sorted(DOCUMENT_TYPES)) + ")",
             name="chk_core_document_type",
         ),
         # ── Existing indexes ──
@@ -170,7 +171,7 @@ class ArticleCore(Base):
         Index("idx_core_category_publish", "category", publish_time.desc()),
         Index("idx_core_host_publish", "source_host", publish_time.desc()),
         Index("idx_core_status_created", "persist_status", created_at.asc()),
-        # ── Optimization indexes (design doc §9.2) ──
+        # ── Optimization indexes ──
         Index(
             "idx_articles_sentiment_time",
             "sentiment_score",
@@ -200,7 +201,7 @@ class ArticleCore(Base):
             updated_at.asc(),
             postgresql_where=text("persist_status IN ('pg_done', 'neo4j_failed', 'failed')"),
         ),
-        # ── GIN indexes for JSONB queries (design doc §9.2) ──
+        # ── GIN indexes for JSONB queries ──
         Index(
             "idx_articles_doc_metadata_gin",
             "doc_metadata",
@@ -214,7 +215,7 @@ class ArticleCore(Base):
 class ArticleBody(Base):
     """Large text fields for articles, only accessed on detail pages.
 
-    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Implements: Vertical split
     """
 
     __tablename__ = "article_bodies"
@@ -234,7 +235,7 @@ class ArticleBody(Base):
 class ArticleAnalysis(Base):
     """LLM analysis results for articles.
 
-    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Implements: Vertical split
     Grows with features without affecting core table performance.
     """
 
@@ -283,7 +284,7 @@ class ArticleAnalysis(Base):
             "quality_score >= 0 AND quality_score <= 1",
             name="chk_analysis_quality_score_range",
         ),
-        # Optimization index: is_news filter (design doc §9.2 #4)
+        # Optimization index: is_news filter
         # Note: is_news is in article_analysis after vertical split
         Index(
             "idx_articles_is_news",
@@ -302,7 +303,7 @@ class ArticleAnalysis(Base):
 class ArticleProcessing(Base):
     """Processing tracking fields for articles, separated from core for row width optimization.
 
-    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Implements: Vertical split
     Keeps core table narrow (~400 bytes) by moving processing state to separate table.
     """
 
@@ -479,6 +480,9 @@ class Article(Base):
     # Article maps to a backward-compatible view; use ArticleCore for vector access
 
     # Constraints
+    # NOTE: Article maps to the read-only "articles" VIEW; the Index entries
+    # below are informational — real indexes live on the base tables and are
+    # managed by migrations, never created via metadata.create_all().
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
         CheckConstraint(
@@ -543,7 +547,7 @@ class ArticleVector(Base):
     )
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
     model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="text-embedding-3-large"
+        String(64), nullable=False, default=DEFAULT_EMBEDDING_MODEL_ID
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -571,10 +575,7 @@ class ArticleVector(Base):
 
 
 class ArticleVersion(Base):
-    """Article version history for tracking content changes.
-
-    Implements: Weaver-数据库设计文档 §9.11.6
-    """
+    """Article version history for tracking content changes."""
 
     __tablename__ = "article_versions"
 

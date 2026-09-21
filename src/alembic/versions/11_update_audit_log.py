@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Update audit_log table to match design doc §12.3.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Update audit_log table to match the DB design.
 
 Revision ID: 11_update_audit_log
 Revises: 10_simplify_prompt_templates
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §12.3:
+Changes:
 - Add user_agent TEXT column
 - Change key_id VARCHAR(100) → VARCHAR(64)
 - Change action VARCHAR(50) → VARCHAR(64)
@@ -29,6 +29,19 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Update audit_log schema to match design doc."""
+    # key_id narrows VARCHAR(100) -> VARCHAR(64); abort with actionable
+    # guidance when existing rows would not fit instead of letting the
+    # ALTER fail mid-migration.
+    conn = op.get_bind()
+    oversize_rows = conn.execute(
+        sa.text("SELECT count(*) FROM audit_log WHERE length(key_id) > 64")
+    ).scalar()
+    if oversize_rows:
+        raise RuntimeError(
+            f"audit_log.key_id has {oversize_rows} row(s) exceeding 64 chars; "
+            "shorten or clear them before migrating."
+        )
+
     # Add user_agent column
     op.add_column("audit_log", sa.Column("user_agent", sa.Text(), nullable=True))
 

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Confirmation tests for DailyBriefing and DailyBriefingItem model fields.
 
-Verifies that ORM models align with the database design document (§12.2).
+Verifies that ORM models align with the DB design spec.
 These are structural tests — they check column definitions, constraints,
 and relationships without requiring a running database.
 """
@@ -24,7 +24,7 @@ from core.db.models import DailyBriefing, DailyBriefingItem
 
 
 class TestDailyBriefingModel:
-    """Verify DailyBriefing ORM model matches design document §12.2."""
+    """Verify DailyBriefing ORM model matches the DB design spec."""
 
     def test_tablename(self) -> None:
         assert DailyBriefing.__tablename__ == "daily_briefings"
@@ -46,7 +46,7 @@ class TestDailyBriefingModel:
         assert col.unique is None
 
     def test_category_column_added_by_migration_32(self) -> None:
-        """T004/Migration 32 added category column (finance/tech/ai/general).
+        """/Migration 32 added category column (finance/tech/ai/general).
 
         Nullable for backward compat with pre-migration-32 rows.
         """
@@ -114,7 +114,7 @@ class TestDailyBriefingModel:
 
 
 class TestDailyBriefingItemModel:
-    """Verify DailyBriefingItem ORM model matches design document §12.2."""
+    """Verify DailyBriefingItem ORM model matches the DB design spec."""
 
     def test_tablename(self) -> None:
         assert DailyBriefingItem.__tablename__ == "daily_briefing_items"

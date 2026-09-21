@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """PhishTank data synchronization and URL lookup.
 
 PhishTank is a free community-driven phishing URL database.
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from core.constants import PHISHTANK_DATA_URL
 from core.observability import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
 from core.utils.paths import data_path
@@ -55,7 +56,6 @@ class PhishTankSync:
     for fast URL lookup.
 
     Attributes:
-        DATA_URL: PhishTank data download URL.
         _fetcher: HttpxFetcher for downloading data.
         _data_path: Local storage path.
         _sync_interval: Time between syncs.
@@ -65,15 +65,13 @@ class PhishTankSync:
         _last_sync: Last sync timestamp.
     """
 
-    DATA_URL = "https://data.phishtank.com/data/online-valid.json"
-
     def __init__(
         self,
         fetcher: Any,
         data_path: str = data_path("phishtank.json"),
         sync_interval_hours: int = 6,
         enabled: bool = True,
-        data_url: str = "https://data.phishtank.com/data/online-valid.json",
+        data_url: str = PHISHTANK_DATA_URL,
     ) -> None:
         """Initialize PhishTank sync.
 
@@ -239,7 +237,10 @@ class PhishTankSync:
                 },
             )
 
-        # Domain match
+        # Domain match. Scheme-agnostic on purpose: the exact-URL check above
+        # is scheme-sensitive, but the domain fallback treats
+        # https://evil.com as matching a phish registered as http://evil.com.
+        # Documented behavior, not an oversight.
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
 

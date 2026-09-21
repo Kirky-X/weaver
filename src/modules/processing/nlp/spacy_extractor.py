@@ -1,43 +1,61 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Multi-language spaCy NER extractor."""
 
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.constants import EntityType, LanguageCode
 from core.observability import get_logger
+from core.utils.paths import CACHE_DIR, CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 
 log = get_logger(__name__)
 
-MODEL_MAP = {
-    # zh_core_web_lg is preferred over zh_core_web_trf because:
-    # - trf model requires spacy-transformers + PyTorch/TensorFlow
-    # - lg model provides better NER accuracy for production use
-    "zh": ["zh_core_web_lg", "zh_core_web_trf"],
-    "en": ["en_core_web_lg", "en_core_web_trf"],
+MODEL_MAP: dict[str, list[str]] = {
+    # lg model is preferred over trf: trf requires spacy-transformers +
+    # PyTorch/TensorFlow, while lg gives better production NER accuracy.
+    # Model names come from LanguageCode (single source shared with the
+    # BM25 retriever), so a new supported language only edits the enum.
+    **{code.value: list(code.spacy_models) for code in LanguageCode},
     "default": ["xx_ent_wiki_sm"],
 }
 
-SPACY_TO_ENTITY_TYPE = {
-    "PER": "人物",
-    "PERSON": "人物",
-    "ORG": "组织机构",
-    "GPE": "地点",
-    "LOC": "地点",
-    "TIME": "事件",
-    "DATE": "事件",
-    "EVENT": "事件",
-    "CARDINAL": "数据指标",
-    "PERCENT": "数据指标",
-    "MONEY": "数据指标",
-    "LAW": "法规与政策",
-}
+# spaCy label → canonical entity-type mapping is stored as data in
+# config/entity_types.toml ([spacy_to_entity_type]) instead of being hardcoded.
+ENTITY_TYPES_FILE = CONFIG_DIR / "entity_types.toml"
+
+
+def _load_spacy_to_entity_type() -> dict[str, str]:
+    """Load the spaCy label → entity-type mapping from config/entity_types.toml.
+
+    Targets are validated against ``EntityType``; unknown targets are dropped
+    with a warning so config drift can never emit an entity type that the
+    graph/DB layer would reject.
+    """
+    data = load_toml_or_warn(ENTITY_TYPES_FILE, event="entity_types_config")
+    allowed = {t.value for t in EntityType}
+    mapping: dict[str, str] = {}
+    for label, entity_type in (data.get("spacy_to_entity_type") or {}).items():
+        if entity_type not in allowed:
+            log.warning("spacy_entity_type_target_invalid", label=label, target=entity_type)
+            continue
+        mapping[str(label)] = str(entity_type)
+    return mapping
+
+
+SPACY_TO_ENTITY_TYPE = _load_spacy_to_entity_type()
 
 # Maximum wheel file size (1GB) to prevent zip bomb attacks
 MAX_WHEEL_SIZE = 1 * 1024 * 1024 * 1024
+
+# Wheels are extracted once into this persistent per-wheel directory and
+# reused across restarts, instead of re-extracting on every model load.
+WHEEL_EXTRACT_ROOT = CACHE_DIR / "spacy_wheels"
 
 
 @dataclass
@@ -81,6 +99,9 @@ class SpacyExtractor:
                           Loaded from configuration file (settings.toml).
         """
         self._models: dict[str, object] = {}
+        # Loading a model extracts a multi-hundred-MB wheel: serialize the
+        # whole check-load-store sequence so concurrent first access loads once.
+        self._models_lock = threading.Lock()
         self._temp_dirs: list[str] = []  # Track extracted wheel directories
         # Store model paths from config (priority over env vars)
         self._zh_model_path = zh_model_path
@@ -97,6 +118,12 @@ class SpacyExtractor:
     def _extract_wheel_safely(self, wheel_path: str) -> str | None:
         """Extract a wheel file safely with path traversal and size checks.
 
+        Extraction target is a persistent per-wheel directory under
+        WHEEL_EXTRACT_ROOT keyed by the wheel filename (unique per
+        model+version). The directory is populated in a temp sibling and
+        renamed into place atomically, so a partial extraction is never
+        reused by a later load or another process.
+
         Args:
             wheel_path: Path to the .whl file.
 
@@ -109,8 +136,19 @@ class SpacyExtractor:
 
         wheel = Path(wheel_path)
 
-        # Zip bomb protection: check file size
-        wheel_size = wheel.stat().st_size
+        # Zip bomb protection: check file size. stat() can raise
+        # FileNotFoundError/OSError (deleted wheel, permissions) — return
+        # None per the method contract instead of propagating to callers.
+        try:
+            wheel_size = wheel.stat().st_size
+        except OSError as e:
+            log.warning(
+                "spacy_wheel_stat_failed",
+                wheel_path=wheel_path,
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            return None
         if wheel_size > MAX_WHEEL_SIZE:
             log.warning(
                 "spacy_wheel_size_exceeded",
@@ -120,33 +158,72 @@ class SpacyExtractor:
             )
             return None
 
-        # Create temp directory
-        extract_dir = tempfile.mkdtemp(prefix="spacy_model_")
+        try:
+            WHEEL_EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.warning(
+                "spacy_wheel_cache_dir_unavailable",
+                path=str(WHEEL_EXTRACT_ROOT),
+                error=str(e),
+            )
+            return None
+
+        final_dir = WHEEL_EXTRACT_ROOT / wheel.stem
+        if final_dir.is_dir() and any(final_dir.iterdir()):
+            return str(final_dir)
+
+        # Temp dir must live on the same volume as final_dir for atomic rename
+        try:
+            extract_dir = tempfile.mkdtemp(prefix="spacy_model_", dir=str(WHEEL_EXTRACT_ROOT))
+        except OSError as e:
+            log.warning(
+                "spacy_temp_dir_creation_failed",
+                wheel_path=wheel_path,
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
+            return None
         extract_path = Path(extract_dir)
+        self._temp_dirs.append(extract_dir)
 
         try:
             with zipfile.ZipFile(wheel_path, "r") as zf:
                 # Path traversal protection: verify all members resolve within extract_dir
                 for member in zf.namelist():
                     member_path = (extract_path / member).resolve()
-                    if not str(member_path).startswith(str(extract_path.resolve())):
+                    if not member_path.is_relative_to(extract_path.resolve()):
                         log.warning(
                             "spacy_wheel_path_traversal",
                             wheel_path=wheel_path,
                             malicious_member=member,
                         )
+                        shutil.rmtree(extract_dir, ignore_errors=True)
                         return None
 
                 # Safe to extract
                 zf.extractall(extract_dir)
 
-            # Track for cleanup
-            self._temp_dirs.append(extract_dir)
-            return extract_dir
+            try:
+                os.replace(extract_dir, str(final_dir))
+            except OSError:
+                # Another process finished extracting the same wheel first;
+                # reuse its copy if it is complete, otherwise surface the error.
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                if final_dir.is_dir() and any(final_dir.iterdir()):
+                    return str(final_dir)
+                raise
+
+            if extract_dir in self._temp_dirs:
+                self._temp_dirs.remove(extract_dir)
+            return str(final_dir)
 
         except (zipfile.BadZipFile, OSError) as e:
             log.warning("spacy_wheel_extract_failed", wheel_path=wheel_path, error=str(e))
             shutil.rmtree(extract_dir, ignore_errors=True)
+            # Drop the failed dir from the tracking list so repeated failed
+            # extractions do not grow it unboundedly.
+            if extract_dir in self._temp_dirs:
+                self._temp_dirs.remove(extract_dir)
             return None
 
     def _load(self, model_name: str) -> object | None:
@@ -280,6 +357,8 @@ class SpacyExtractor:
         """Get the spaCy NLP pipeline for a language.
 
         Tries models in order, returns first successfully loaded one.
+        Loaded models are cached per model name for the extractor's
+        lifetime; loading is serialized to avoid duplicate work.
 
         Args:
             language: Language code (zh, en, etc.).
@@ -292,18 +371,23 @@ class SpacyExtractor:
         """
         model_candidates = MODEL_MAP.get(language, MODEL_MAP["default"])
 
-        for model in model_candidates:
-            nlp = self._load(model)
-            if nlp is not None:
-                log.debug("spacy_model_loaded", model=model, language=language)
-                return nlp
+        with self._models_lock:
+            for model in model_candidates:
+                cached = self._models.get(model)
+                if cached is not None:
+                    return cached
+                nlp = self._load(model)
+                if nlp is not None:
+                    self._models[model] = nlp
+                    log.debug("spacy_model_loaded", model=model, language=language)
+                    return nlp
 
         raise RuntimeError(
             f"No spaCy model available for language '{language}'. Tried: {model_candidates}"
         )
 
     def extract(
-        self, text: str, language: str = "zh", disable_data_metrics: bool = False
+        self, text: str, language: str = LanguageCode.ZH.value, disable_data_metrics: bool = False
     ) -> list[SpacyEntity]:
         """Extract named entities from text.
 
@@ -366,7 +450,7 @@ class SpacyExtractor:
             languages: List of language codes to preload.
                       If None, preloads default models.
         """
-        langs = languages or ["zh", "en"]
+        langs = languages or [code.value for code in LanguageCode]
         for lang in langs:
             try:
                 self._get_nlp(lang)

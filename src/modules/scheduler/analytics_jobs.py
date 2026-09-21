@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Analytics jobs for scheduler: aggregation, briefing, and signal detection.
 
 Responsibilities:
@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, select
 
 from config.settings import SchedulerSettings
+from core.constants import BRIEFING_CATEGORIES
 from core.db import Article
 from core.observability import get_logger
 from modules.scheduler.wrapper import scheduled_task
@@ -68,6 +69,9 @@ class AnalyticsJobs:
             cache=self._cache,
             relational_pool=self._relational_pool,
         )
+        if errors:
+            # Partial flush failures must be visible, not silently dropped.
+            log.warning("llm_usage_flush_partial_errors", processed=processed, errors=errors)
         return processed
 
     @scheduled_task("llm_compare_aggregate", timeout_seconds=300)
@@ -79,6 +83,8 @@ class AnalyticsJobs:
             cache=self._cache,
             relational_pool=self._relational_pool,
         )
+        if errors:
+            log.warning("llm_compare_flush_partial_errors", processed=processed, errors=errors)
         return processed
 
     @scheduled_task("check_expiring_api_keys", timeout_seconds=300)
@@ -149,11 +155,11 @@ class AnalyticsJobs:
 
     @scheduled_task("generate_daily_briefing", timeout_seconds=300)
     async def generate_daily_briefing(self) -> dict[str, Any]:
-        """Generate 4 daily briefings (general/finance/tech/ai) per spec R-briefing-006.
+        """Generate 4 daily briefings (general/finance/tech/ai) per spec.
 
         Uses DailyBriefingService.generate_briefing called once per category.
 
-        Error isolation (Rule 12 + R-briefing-006):
+        Error isolation (Rule 12 +):
             A single category failure is logged and recorded in the results
             dict but does NOT block other categories. The scheduler itself
             is never blocked — if the briefing service can't be built (LLM
@@ -178,7 +184,7 @@ class AnalyticsJobs:
                 "categories_total": 4,
             }
 
-        categories = ("general", "finance", "tech", "ai")
+        categories = tuple(sorted(BRIEFING_CATEGORIES))
         today = _date.today()
         results: dict[str, dict[str, Any]] = {}
         succeeded = 0
@@ -194,7 +200,7 @@ class AnalyticsJobs:
                 succeeded += 1
             except Exception as exc:
                 # Rule 12: error is logged + surfaced in results, not swallowed.
-                # R-briefing-006: failure doesn't block next execution or other
+                # Failure doesn't block next execution or other
                 # categories.
                 log.error(
                     "generate_daily_briefing_category_failed",
@@ -217,7 +223,7 @@ class AnalyticsJobs:
         }
 
     def _build_briefing_service(self) -> Any:
-        """Lazy-construct DailyBriefingService from container (T010).
+        """Lazy-construct DailyBriefingService from container.
 
         AnalyticsJobs does not hold a container reference, so we fetch it
         via ``container.get_container()`` (same pattern as api/middleware/auth.py).
@@ -228,7 +234,7 @@ class AnalyticsJobs:
             DailyBriefingService instance, or None if container/LLM/prompt_loader
             unavailable. Returning None (not raising) ensures the scheduler
             is not blocked by missing dependencies — the caller logs a warning
-            and returns an error dict (R-briefing-006).
+            and returns an error dict.
         """
         try:
             from container import get_container
@@ -275,8 +281,10 @@ class AnalyticsJobs:
         try:
             from modules.analytics import SentimentShiftDetector, ShiftConfig
 
+            # Dedicated analytics lookback — reusing cleanup_old_synced_days
+            # coupled two independent concerns (retention vs detection).
             config = ShiftConfig(
-                window_days=self._settings.cleanup_old_synced_days or 14,
+                window_days=getattr(self._settings, "sentiment_shift_window_days", 14),
             )
             detector = SentimentShiftDetector(config=config)
 
@@ -360,7 +368,9 @@ class AnalyticsJobs:
                 if not rows:
                     return []
 
-                return [float(row[1] or 0.5) for row in rows]
+                # Explicit None check: `or 0.5` would rewrite a legitimate
+                # 0.0 average (all articles truly scored 0.0 that day) to 0.5.
+                return [float(row[1]) if row[1] is not None else 0.5 for row in rows]
         except Exception as exc:
             log.error("fetch_sentiment_signal_failed", error=str(exc))
             return []

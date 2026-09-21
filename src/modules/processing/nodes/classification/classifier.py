@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Cascade classifier — rule-first, ML cascade, LLM fallback."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -62,6 +63,9 @@ NEWS_URL_PATTERNS = [
     r"\.news",
 ]
 
+# Precompiled once: _rule_classify runs per article on the hot path.
+_NEWS_URL_REGEXES = [re.compile(pattern) for pattern in NEWS_URL_PATTERNS]
+
 
 class CascadeClassifierNode:
     """Pipeline node: cascade classifier with rule-first, LLM-fallback."""
@@ -91,12 +95,13 @@ class CascadeClassifierNode:
             log.info("cascade_rule_match", title=title, is_news=is_news_rule)
             return state
 
-        # Layer 1-3: ML cascade (fastText → SetFit → fusion)
+        # Layer 1-3: ML cascade (fastText → SetFit → fusion). Offloaded to a
+        # thread: fastText/SetFit inference is synchronous and CPU-bound.
         if self._cascade:
-            result = self._cascade.classify(title)
+            result = await asyncio.to_thread(self._cascade.classify, title)
             if result is not None:
                 label, confidence = result
-                state["is_news"] = label in ("news", "1", "true")
+                state["is_news"] = label.lower() in ("news", "1", "true")
                 state["terminal"] = not state["is_news"]
                 log.info("cascade_ml_match", title=title, label=label, confidence=confidence)
                 return state
@@ -118,6 +123,14 @@ class CascadeClassifierNode:
                 article_id=state.get("article_id"),
                 task_id=state.get("task_id"),
             )
+            if result.is_news is None:
+                # Surface the LLM omission instead of silently defaulting to
+                # non-news, which would terminate a valid article.
+                log.warning(
+                    "classifier_llm_missing_is_news",
+                    title=title,
+                    article_id=state.get("article_id"),
+                )
             state["is_news"] = result.is_news if result.is_news is not None else False
             state["terminal"] = not state["is_news"]
 
@@ -147,8 +160,8 @@ class CascadeClassifierNode:
         if news_count == 1 and non_news_count == 0:
             return True
 
-        for pattern in NEWS_URL_PATTERNS:
-            if re.search(pattern, url):
+        for regex in _NEWS_URL_REGEXES:
+            if regex.search(url):
                 return True
 
         if len(title) < 5:

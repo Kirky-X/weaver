@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Global search engine using Map-Reduce pattern.
 
 Performs community-level searches with aggregation, suitable for
@@ -99,6 +99,24 @@ class GlobalSearchEngine:
         # Extract pool from context_builder for DRIFT search compatibility
         self._pool = getattr(context_builder, "_pool", None)
 
+    def get_drift_deps(self) -> tuple[Any, LLMClient]:
+        """Return validated dependencies for DRIFT search construction.
+
+        the DRIFT endpoint previously reached into ``_context_builder``
+        and ``_llm`` directly. ``llm`` is optional on this engine but required
+        by ``DRIFTSearchEngine``, so this accessor makes the None case an
+        explicit error instead of a downstream AttributeError.
+
+        Raises:
+            RuntimeError: If the LLM client was not configured.
+
+        """
+        if self._llm is None:
+            raise RuntimeError(
+                "GlobalSearchEngine has no LLM client configured; DRIFT search unavailable"
+            )
+        return self._context_builder, self._llm
+
     @staticmethod
     def _collect_entities(communities) -> list[str]:
         return list(set(e for c in communities if c.key_entities for e in c.key_entities))
@@ -140,69 +158,21 @@ class GlobalSearchEngine:
             )
 
             if not communities:
-                # Check if there are any communities at all
-                has_communities = await self.has_any_communities(community_level)
-                if not has_communities:
-                    return SearchResult(
-                        query=query,
-                        answer="社区数据尚未初始化，请先执行社区检测。",
-                        context_tokens=0,
-                        confidence=0.0,
-                        metadata={
-                            "search_type": SearchMode.GLOBAL.value,
-                            "communities": 0,
-                            "hint": "run POST /api/v1/admin/communities/rebuild",
-                        },
-                    )
-
-                # Communities exist but none are relevant - fall back to local search
-                if self._local is not None:
-                    log.info("global_search_fallback_to_local", query=query)
-                    local_result = await self._local.search(query=query, use_llm=use_llm)
-                    if isinstance(local_result, dict):
-                        local_result["metadata"] = {
-                            **local_result.get("metadata", {}),
-                            "search_type": SearchMode.HYBRID.value,
-                            "fallback_from_global": True,
-                        }
-                        return local_result
-                    elif hasattr(local_result, "metadata"):
-                        local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                        local_result.metadata["fallback_from_global"] = True
-                        return local_result
-
-                return SearchResult(
-                    query=query,
-                    answer="No relevant communities found for the query.",
-                    context_tokens=0,
-                    confidence=0.0,
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": 0,
-                        "hybrid_used": self._hybrid_engine is not None,
-                    },
+                return await self._resolve_no_communities_result(
+                    query,
+                    community_level,
+                    use_llm,
                 )
 
             # If use_llm=False, return context without LLM generation
             if not use_llm:
-                total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
-                community_scores = [c.similarity_score for c in communities]
-                return SearchResult(
-                    query=query,
-                    answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
-                    context_tokens=total_tokens,
-                    confidence=self._estimate_confidence([], community_scores),
-                    entities=self._collect_entities(communities),
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": len(communities),
-                        "llm_used": False,
-                        "hybrid_used": self._hybrid_engine is not None,
-                        "search_method": "vector_similarity",
-                        "community_level": community_level,
-                        "top_community_score": community_scores[0] if community_scores else 0,
-                    },
-                )
+                return self._build_no_llm_result(query, communities, community_level)
+
+            # No LLM configured: degrade to context-only result instead of
+            # crashing on self._llm.call in the map/reduce phases.
+            if self._llm is None:
+                log.warning("global_search_no_llm_configured", query=query[:50])
+                return self._build_no_llm_result(query, communities, community_level)
 
             # Sort communities by similarity score (weight) and limit to top 3
             # to avoid excessive LLM calls causing timeouts
@@ -219,202 +189,343 @@ class GlobalSearchEngine:
             total_tokens = 0
             community_weights = []
 
-            # Early return when no community passes relevance threshold
-            # Fall back to local search if available (short queries like "AI"
-            # often have low similarity with long community reports)
             if not sorted_communities:
-                if self._local is not None:
-                    log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
-                    try:
-                        local_result = await self._local.search(query=query, use_llm=use_llm)
-                        if isinstance(local_result, dict):
-                            local_result["metadata"] = {
-                                **local_result.get("metadata", {}),
-                                "search_type": SearchMode.HYBRID.value,
-                                "fallback_from_global": True,
-                                "fallback_reason": "low_relevance_skip",
-                            }
-                            return local_result
-                        elif hasattr(local_result, "metadata"):
-                            local_result.metadata["search_type"] = SearchMode.HYBRID.value
-                            local_result.metadata["fallback_from_global"] = True
-                            local_result.metadata["fallback_reason"] = "low_relevance_skip"
-                            return local_result
-                    except Exception as exc:
-                        log.warning("global_search_local_fallback_failed", error=str(exc))
-
-                return SearchResult(
-                    query=query,
-                    answer="未找到与查询相关的社区信息。",
-                    context_tokens=0,
-                    sources=[],
-                    entities=[],
-                    confidence=0.0,
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": 0,
-                        "llm_used": False,
-                        "low_relevance_skip": True,
-                    },
-                )
+                return await self._fallback_low_relevance(query, use_llm)
 
             # Parallel LLM calls with semaphore for rate limiting and timeout
-            semaphore = asyncio.Semaphore(3)  # Reduced concurrent LLM calls
-
-            async def process_community(
-                idx: int, community: CommunityContext
-            ) -> tuple[int, str, dict[str, Any], int]:
-                """Process a single community with semaphore and timeout."""
-                async with semaphore:
-                    map_prompt = self._build_map_prompt(query, community)
-                    try:
-                        # Add timeout to individual LLM call
-                        response = await asyncio.wait_for(
-                            self._llm.call(
-                                label="chat.agnes.agnes-2.0-flash",
-                                call_point=CallPoint.SEARCH_GLOBAL,
-                                payload={
-                                    "system_prompt": (
-                                        "你是一个知识图谱分析专家，基于社区报告回答用户问题。请用简洁、准确的语言回答，仅使用中文。"
-                                    ),
-                                    "user_content": map_prompt,
-                                },
-                            ),
-                            timeout=self._get_timeout("global_map_community_timeout", 15.0),
-                        )
-                        answer = response if isinstance(response, str) else str(response)
-                    except TimeoutError:
-                        log.warning("community_llm_timeout", community_id=community.id)
-                        answer = f"[Timeout processing community: {community.title}]"
-                    weight_info = {
-                        "community_id": community.id,
-                        "title": community.title,
-                        "weight": community.similarity_score,
-                    }
-                    tokens = len(map_prompt) // 4
-                    return idx, answer, weight_info, tokens
-
-            # Execute all LLM calls in parallel with overall timeout
-            try:
-                results = await asyncio.wait_for(
-                    asyncio.gather(
-                        *[process_community(i, c) for i, c in enumerate(sorted_communities)]
-                    ),
-                    timeout=self._get_timeout("global_map_overall_timeout", 30.0),
-                )
-            except TimeoutError:
-                log.warning("global_search_map_timeout", query=query[:50])
-                # Fallback: return simple context-based answer without LLM synthesis
-                fallback_answer = "\n\n".join(
-                    f"**{c.title}**\n{c.summary or c.full_content or 'No summary available'}"
-                    for c in sorted_communities[:3]
-                )
-                return SearchResult(
-                    query=query,
-                    answer=fallback_answer,
-                    context_tokens=sum(
-                        len(c.full_content or c.summary or "") // 4 for c in sorted_communities
-                    ),
-                    sources=[],
-                    entities=self._collect_entities(sorted_communities),
-                    confidence=0.5,
-                    metadata={
-                        "search_type": SearchMode.GLOBAL.value,
-                        "communities": len(sorted_communities),
-                        "llm_used": False,
-                        "timeout_fallback": True,
-                    },
-                )
-
-            # Sort results by original index and extract data
-            for idx, answer, weight_info, tokens in sorted(results, key=lambda r: r[0]):
-                intermediate_answers.append(answer)
-                community_weights.append(weight_info)
-                total_tokens += tokens
-
-            reduce_prompt = self._build_reduce_prompt(
-                query, intermediate_answers, community_weights
+            map_result = await self._map_communities_with_llm(
+                query, sorted_communities, community_level, max_tokens, use_llm, start
             )
-
-            # Reduce phase with timeout
-            try:
-                final_response = await asyncio.wait_for(
-                    self._llm.call(
-                        label="chat.agnes.agnes-2.0-flash",
-                        call_point=CallPoint.SEARCH_GLOBAL,
-                        payload={
-                            "system_prompt": (
-                                "你是一个知识图谱分析专家，综合多个社区观点生成统一答案。请提供全面、平衡的回答，仅使用中文，不要包含任何英文或其他语言字符。"
-                            ),
-                            "user_content": reduce_prompt,
-                        },
-                    ),
-                    timeout=self._get_timeout("global_reduce_timeout", 15.0),
-                )
-                final_answer = (
-                    final_response if isinstance(final_response, str) else str(final_response)
-                )
-                reduce_timeout_fallback = False
-            except TimeoutError:
-                log.warning("global_search_reduce_timeout", query=query[:50])
-                # Fallback: concatenate intermediate answers
-                final_answer = "\n\n".join(
-                    f"**社区 {i + 1}观点:** {ans}" for i, ans in enumerate(intermediate_answers)
-                )
-                reduce_timeout_fallback = True
-
-            # Collect community scores for confidence estimation
-            community_scores = [c.similarity_score for c in sorted_communities]
-
-            return SearchResult(
-                query=query,
-                answer=final_answer,
-                context_tokens=total_tokens,
-                sources=[],
-                entities=self._collect_entities(sorted_communities),
-                confidence=self._estimate_confidence(intermediate_answers, community_scores),
-                metadata={
-                    "search_type": SearchMode.GLOBAL.value,
-                    "communities": len(sorted_communities),
-                    "community_level": community_level,
-                    "intermediate_count": len(intermediate_answers),
-                    "llm_used": not reduce_timeout_fallback,
-                    "reduce_timeout_fallback": reduce_timeout_fallback,
-                    "hybrid_used": self._hybrid_engine is not None,
-                    "search_method": "vector_similarity",
-                    "top_community_score": community_scores[0] if community_scores else 0,
-                    "avg_community_score": (
-                        sum(community_scores) / len(community_scores) if community_scores else 0
-                    ),
-                },
+            fallback, intermediate_answers, community_weights, total_tokens = map_result
+            if fallback is not None:
+                return fallback
+            return await self._reduce_and_synthesize(
+                query,
+                sorted_communities,
+                community_level,
+                intermediate_answers,
+                community_weights,
+                total_tokens,
+                start,
             )
-
         except Exception as exc:
             log.error("global_search_failed", error=str(exc))
-            # Reuse already-queried communities data for graceful degradation
-            community_scores = [c.similarity_score for c in communities] if communities else []
-            return SearchResult(
-                query=query,
-                answer=f"Search failed: {exc!s}",
-                context_tokens=(
-                    sum(len(c.full_content or c.summary) // 4 for c in communities)
-                    if communities
-                    else 0
-                ),
-                entities=self._collect_entities(communities) if communities else [],
-                confidence=self._estimate_confidence([], community_scores) if communities else 0.0,
-                metadata={
-                    "error": str(exc),
-                    "search_type": SearchMode.GLOBAL.value,
-                    "communities": len(communities) if communities else 0,
-                    "llm_used": False,
-                    "hybrid_used": self._hybrid_engine is not None,
-                    "degraded": True,
-                },
-            )
+            return self._build_search_error_result(query, exc, communities)
         finally:
             elapsed = time.monotonic() - start
             MetricsCollector.search_latency_seconds.labels(mode="global").observe(elapsed)
+
+    async def _resolve_no_communities_result(
+        self,
+        query: str,
+        community_level: int,
+        use_llm: bool,
+    ) -> SearchResult:
+        """Handle case where no relevant communities found — fallback or empty."""
+        has_communities = await self.has_any_communities(community_level)
+        if not has_communities:
+            return SearchResult(
+                query=query,
+                answer="社区数据尚未初始化，请先执行社区检测。",
+                context_tokens=0,
+                confidence=0.0,
+                metadata={
+                    "search_type": SearchMode.GLOBAL.value,
+                    "communities": 0,
+                    "hint": "run POST /api/v1/admin/communities/rebuild",
+                },
+            )
+
+        # Communities exist but none are relevant - fall back to local search
+        if self._local is not None:
+            log.info("global_search_fallback_to_local", query=query)
+            local_result = await self._local.search(query=query, use_llm=use_llm)
+            if isinstance(local_result, dict) or hasattr(local_result, "metadata"):
+                return self._apply_local_fallback_metadata(local_result)
+
+        return SearchResult(
+            query=query,
+            answer="No relevant communities found for the query.",
+            context_tokens=0,
+            confidence=0.0,
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": 0,
+                "hybrid_used": self._hybrid_engine is not None,
+            },
+        )
+
+    def _build_no_llm_result(
+        self,
+        query: str,
+        communities: list,
+        community_level: int,
+    ) -> SearchResult:
+        """Return context-only result when use_llm=False."""
+        total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
+        community_scores = [c.similarity_score for c in communities]
+        return SearchResult(
+            query=query,
+            answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
+            context_tokens=total_tokens,
+            confidence=self._estimate_confidence([], community_scores),
+            entities=self._collect_entities(communities),
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": len(communities),
+                "llm_used": False,
+                "hybrid_used": self._hybrid_engine is not None,
+                "search_method": "vector_similarity",
+                "community_level": community_level,
+                "top_community_score": community_scores[0] if community_scores else 0,
+            },
+        )
+
+    def _build_search_error_result(
+        self,
+        query: str,
+        exc: Exception,
+        communities: list | None,
+    ) -> SearchResult:
+        """Build graceful-degradation result on search failure."""
+        community_scores = [c.similarity_score for c in communities] if communities else []
+        return SearchResult(
+            query=query,
+            answer=f"Search failed: {exc!s}",
+            context_tokens=(
+                sum(len(c.full_content or c.summary) // 4 for c in communities)
+                if communities
+                else 0
+            ),
+            entities=self._collect_entities(communities) if communities else [],
+            confidence=self._estimate_confidence([], community_scores) if communities else 0.0,
+            metadata={
+                "error": str(exc),
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": len(communities) if communities else 0,
+                "llm_used": False,
+                "hybrid_used": self._hybrid_engine is not None,
+                "degraded": True,
+            },
+        )
+
+    async def _map_communities_with_llm(
+        self,
+        query: str,
+        sorted_communities: list,
+        community_level: int,
+        max_tokens: int,
+        use_llm: bool,
+        start: float,
+    ) -> tuple[SearchResult | None, list[str], list[dict[str, Any]], int]:
+        """Map phase: parallel per-community LLM synthesis (fallback embedded)."""
+        intermediate_answers: list[str] = []
+        total_tokens = 0
+        community_weights: list = []
+
+        semaphore = asyncio.Semaphore(3)  # Reduced concurrent LLM calls
+
+        async def process_community(
+            idx: int, community: CommunityContext
+        ) -> tuple[int, str, dict[str, Any], int]:
+            """Process a single community with semaphore and timeout."""
+            async with semaphore:
+                map_prompt = self._build_map_prompt(query, community)
+                try:
+                    # Add timeout to individual LLM call
+                    response = await asyncio.wait_for(
+                        self._llm.call(
+                            label=self._llm.default_chat_label,
+                            call_point=CallPoint.SEARCH_GLOBAL,
+                            payload={
+                                "system_prompt": (
+                                    "你是一个知识图谱分析专家，基于社区报告回答用户问题。请用简洁、准确的语言回答，仅使用中文。"
+                                ),
+                                "user_content": map_prompt,
+                            },
+                        ),
+                        timeout=self._get_timeout("global_map_community_timeout", 15.0),
+                    )
+                    answer = response if isinstance(response, str) else str(response)
+                except TimeoutError:
+                    log.warning("community_llm_timeout", community_id=community.id)
+                    answer = f"[Timeout processing community: {community.title}]"
+                weight_info = {
+                    "community_id": community.id,
+                    "title": community.title,
+                    "weight": community.similarity_score,
+                }
+                tokens = len(map_prompt) // 4
+                return idx, answer, weight_info, tokens
+
+        # Execute all LLM calls in parallel with overall timeout
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    *[process_community(i, c) for i, c in enumerate(sorted_communities)]
+                ),
+                timeout=self._get_timeout("global_map_overall_timeout", 30.0),
+            )
+        except TimeoutError:
+            log.warning("global_search_map_timeout", query=query[:50])
+            # Fallback: return simple context-based answer without LLM synthesis
+            fallback_answer = "\n\n".join(
+                f"**{c.title}**\n{c.summary or c.full_content or 'No summary available'}"
+                for c in sorted_communities[:3]
+            )
+            return SearchResult(
+                query=query,
+                answer=fallback_answer,
+                context_tokens=sum(
+                    len(c.full_content or c.summary or "") // 4 for c in sorted_communities
+                ),
+                sources=[],
+                entities=self._collect_entities(sorted_communities),
+                confidence=0.5,
+                metadata={
+                    "search_type": SearchMode.GLOBAL.value,
+                    "communities": len(sorted_communities),
+                    "llm_used": False,
+                    "timeout_fallback": True,
+                },
+            )
+
+        # Sort results by original index and extract data
+        for idx, answer, weight_info, tokens in sorted(results, key=lambda r: r[0]):
+            intermediate_answers.append(answer)
+            community_weights.append(weight_info)
+            total_tokens += tokens
+
+        return None, intermediate_answers, community_weights, total_tokens
+
+    async def _reduce_and_synthesize(
+        self,
+        query: str,
+        sorted_communities: list,
+        community_level: int,
+        intermediate_answers: list[str],
+        community_weights: list,
+        total_tokens: int,
+        start: float,
+    ) -> SearchResult:
+        """Reduce phase: synthesize final answer from community answers."""
+        # Reduce phase with timeout
+        reduce_prompt = self._build_reduce_prompt(query, intermediate_answers, community_weights)
+        try:
+            final_response = await asyncio.wait_for(
+                self._llm.call(
+                    label=self._llm.default_chat_label,
+                    call_point=CallPoint.SEARCH_GLOBAL,
+                    payload={
+                        "system_prompt": (
+                            "你是一个知识图谱分析专家，综合多个社区观点生成统一答案。请提供全面、平衡的回答，仅使用中文，不要包含任何英文或其他语言字符。"
+                        ),
+                        "user_content": reduce_prompt,
+                    },
+                ),
+                timeout=self._get_timeout("global_reduce_timeout", 15.0),
+            )
+            final_answer = (
+                final_response if isinstance(final_response, str) else str(final_response)
+            )
+            reduce_timeout_fallback = False
+        except TimeoutError:
+            log.warning("global_search_reduce_timeout", query=query[:50])
+            # Fallback: concatenate intermediate answers
+            final_answer = "\n\n".join(
+                f"**社区 {i + 1}观点:** {ans}" for i, ans in enumerate(intermediate_answers)
+            )
+            reduce_timeout_fallback = True
+
+        # Collect community scores for confidence estimation
+        community_scores = [c.similarity_score for c in sorted_communities]
+
+        return SearchResult(
+            query=query,
+            answer=final_answer,
+            context_tokens=total_tokens,
+            sources=[],
+            entities=self._collect_entities(sorted_communities),
+            confidence=self._estimate_confidence(intermediate_answers, community_scores),
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": len(sorted_communities),
+                "community_level": community_level,
+                "intermediate_count": len(intermediate_answers),
+                "llm_used": not reduce_timeout_fallback,
+                "reduce_timeout_fallback": reduce_timeout_fallback,
+                "hybrid_used": self._hybrid_engine is not None,
+                "search_method": "vector_similarity",
+                "top_community_score": community_scores[0] if community_scores else 0,
+                "avg_community_score": (
+                    sum(community_scores) / len(community_scores) if community_scores else 0
+                ),
+            },
+        )
+
+    async def _fallback_low_relevance(self, query: str, use_llm: bool) -> SearchResult:
+        """Fallback path when no community passes the relevance threshold."""
+        # Early return when no community passes relevance threshold
+        # Fall back to local search if available (short queries like "AI"
+        # often have low similarity with long community reports)
+        if self._local is not None:
+            log.info("global_search_fallback_to_local_low_relevance", query=query[:50])
+            try:
+                local_result = await self._local.search(query=query, use_llm=use_llm)
+                if isinstance(local_result, dict) or hasattr(local_result, "metadata"):
+                    return self._apply_local_fallback_metadata(
+                        local_result,
+                        fallback_reason="low_relevance_skip",
+                    )
+            except Exception as exc:
+                log.warning("global_search_local_fallback_failed", error=str(exc))
+
+        return SearchResult(
+            query=query,
+            answer="未找到与查询相关的社区信息。",
+            context_tokens=0,
+            sources=[],
+            entities=[],
+            confidence=0.0,
+            metadata={
+                "search_type": SearchMode.GLOBAL.value,
+                "communities": 0,
+                "llm_used": False,
+                "low_relevance_skip": True,
+            },
+        )
+
+    @staticmethod
+    def _apply_local_fallback_metadata(
+        local_result: Any,
+        fallback_reason: str | None = None,
+    ) -> Any:
+        """Tag a local-result fallback as originating from a global search.
+
+        Handles both dict-shaped and object-shaped results (``local_result``
+        may be either, depending on the local engine's implementation) and
+        returns it unchanged in shape so callers can return it directly.
+
+        Args:
+            local_result: Result returned by the local search engine.
+            fallback_reason: Optional reason marker for the fallback.
+
+        Returns:
+            ``local_result`` with global-fallback metadata applied.
+        """
+        extra: dict[str, Any] = {
+            "search_type": SearchMode.HYBRID.value,
+            "fallback_from_global": True,
+        }
+        if fallback_reason is not None:
+            extra["fallback_reason"] = fallback_reason
+
+        if isinstance(local_result, dict):
+            local_result["metadata"] = {**local_result.get("metadata", {}), **extra}
+        elif hasattr(local_result, "metadata"):
+            local_result.metadata.update(extra)
+
+        return local_result
 
     async def _get_community_contexts(
         self,
@@ -444,6 +555,9 @@ class GlobalSearchEngine:
             # Get entities for this community
             entities = await self._context_builder.get_community_entities(comm.get("id", ""))
 
+            similarity = comm.get("similarity_score")
+            if similarity is None:
+                similarity = (comm.get("rank") or 1.0) / 10.0
             contexts.append(
                 CommunityContext(
                     id=comm.get("id", ""),
@@ -451,8 +565,8 @@ class GlobalSearchEngine:
                     summary=comm.get("summary", ""),
                     entity_count=comm.get("entity_count", 0),
                     rank=comm.get("rank") or 1.0,
-                    similarity_score=comm.get("similarity_score")
-                    or (comm.get("rank") or 1.0) / 10.0,
+                    # Explicit None check: a genuine 0.0 score must be kept.
+                    similarity_score=similarity,
                     full_content=comm.get("full_content"),
                     key_entities=comm.get("key_entities", []),
                     entities=entities,

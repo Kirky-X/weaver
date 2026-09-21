@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test FK references point to articles_core table, not articles VIEW.
 
-Validates GAP-H05 fix: LLMFailureRecord, PendingSync, and
+Validates LLMFailureRecord, PendingSync, and
 DailyBriefingItem article_id FKs reference the physical table
 articles_core instead of the articles VIEW.
 """

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Crawler with per-host and global concurrency control."""
 
 from __future__ import annotations
@@ -91,10 +91,16 @@ class Crawler:
         smart_fetcher: BaseFetcher,
         default_per_host: int = 2,
         retry_queue: RetryQueue | None = None,
+        max_concurrency: int = GLOBAL_MAX_CONCURRENCY,
+        min_article_length: int = MIN_ARTICLE_LENGTH,
+        max_batch_time: float = MAX_CRAWL_BATCH_TIME,
     ) -> None:
         self._fetcher = smart_fetcher
         self._default_per_host = default_per_host
         self._retry_queue = retry_queue
+        self._max_concurrency = max_concurrency
+        self._min_article_length = min_article_length
+        self._max_batch_time = max_batch_time
 
     async def _fetch_html(self, url: str, force_browser: bool = False) -> tuple[str | None, int]:
         """Fetch HTML with HTTP status validation.
@@ -102,7 +108,7 @@ class Crawler:
         Returns (html, status_code). html is None when status >= 400 (error
         pages like 404/403 are not valid article content). This prevents
         error pages and login redirects from being persisted as articles
-        (R1 fix — previously status_code was discarded with ``_``).
+        (previously status_code was discarded with ``_``).
 
         Contract: on fetch exception or status >= 400, enqueues the URL
         to ``RetryQueue`` (if wired) for dead-letter retry, THEN
@@ -110,7 +116,7 @@ class Crawler:
         ``asyncio.gather(return_exceptions=True)``. Swallowing the
         exception here would cause ``crawl_one`` to return an empty
         ``RawArticle`` — silently masking the failure (pre-existing
-        test regression fixed here). See ``temp/report.md`` D4.
+        test regression fixed here).
         """
         try:
             status, html, _ = await self._fetcher.fetch(url, force_browser=force_browser)
@@ -134,7 +140,7 @@ class Crawler:
         return html, status
 
     async def _enqueue_retry(self, url: str) -> None:
-        """Enqueue URL to RetryQueue with host extracted from url (D4 fix).
+        """Enqueue URL to RetryQueue with host extracted from url (fix).
 
         No-op when retry_queue is not wired (backward compat).
         """
@@ -174,7 +180,7 @@ class Crawler:
 
         # Global concurrency = min(cpu, host_count, MAX)
         host_count = len({urlparse(i.url).netloc for i in items})
-        global_limit = min(os.cpu_count() or 1, host_count, GLOBAL_MAX_CONCURRENCY)
+        global_limit = min(os.cpu_count() or 1, host_count, self._max_concurrency)
         global_sem = asyncio.Semaphore(global_limit)
 
         # Per-host semaphores
@@ -195,14 +201,17 @@ class Crawler:
                 # Check if it's already plain text (no HTML tags) or HTML content.
                 # RSSParser._strip_html_tags produces plain text, so we should
                 # validate length directly instead of using trafilatura.extract().
-                if len(item.body) >= MIN_ARTICLE_LENGTH:
+                if len(item.body) >= self._min_article_length:
                     # Already sufficient plain text content
                     body = item.body
                 else:
                     # Body might be HTML (e.g., from other sources) or insufficient plain text.
-                    # Try trafilatura for HTML content.
-                    extracted = trafilatura.extract(item.body, include_comments=False)
-                    if extracted and len(extracted) >= MIN_ARTICLE_LENGTH:
+                    # Try trafilatura for HTML content. Offload to a thread:
+                    # trafilatura is CPU-bound and would stall the loop.
+                    extracted = await asyncio.to_thread(
+                        trafilatura.extract, item.body, include_comments=False
+                    )
+                    if extracted and len(extracted) >= self._min_article_length:
                         body = extracted
                     else:
                         log.debug(
@@ -216,16 +225,26 @@ class Crawler:
                             html, _ = await self._fetch_html(item.url, force_browser=True)
                             html_content = html
                             if html:
-                                body = trafilatura.extract(html, include_comments=False) or ""
+                                body = (
+                                    await asyncio.to_thread(
+                                        trafilatura.extract, html, include_comments=False
+                                    )
+                                    or ""
+                                )
             else:
                 # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:
                     html, _ = await self._fetch_html(item.url)
                     html_content = html
                     if html:
-                        body = trafilatura.extract(html, include_comments=False) or ""
+                        body = (
+                            await asyncio.to_thread(
+                                trafilatura.extract, html, include_comments=False
+                            )
+                            or ""
+                        )
 
-                if len(body) < MIN_ARTICLE_LENGTH:
+                if len(body) < self._min_article_length:
                     log.debug(
                         "first_fetch_insufficient",
                         url=item.url,
@@ -236,14 +255,21 @@ class Crawler:
                         html, _ = await self._fetch_html(item.url, force_browser=True)
                         html_content = html
                         if html:
-                            body = trafilatura.extract(html, include_comments=False) or ""
+                            body = (
+                                await asyncio.to_thread(
+                                    trafilatura.extract, html, include_comments=False
+                                )
+                                or ""
+                            )
 
             # Extract title from HTML if not provided by RSS/source
             title = item.title
             if not title and html_content:
                 # 1. Try trafilatura first (best quality when it works)
                 try:
-                    bare = trafilatura.bare_extraction(html_content, include_comments=False)
+                    bare = await asyncio.to_thread(
+                        trafilatura.bare_extraction, html_content, include_comments=False
+                    )
                     if bare and bare.title:
                         title = bare.title
                         log.debug(
@@ -279,30 +305,43 @@ class Crawler:
             )
 
         start_time = time.monotonic()
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*[crawl_one(i) for i in items], return_exceptions=True),
-                timeout=MAX_CRAWL_BATCH_TIME,
-            )
-        except TimeoutError:
+        wrapped_results: list[RawArticle | FetchError] = []
+        tasks = {asyncio.create_task(crawl_one(i)): i for i in items}
+        if not tasks:
+            return wrapped_results
+        done, pending = await asyncio.wait(tasks, timeout=self._max_batch_time)
+
+        if pending:
             elapsed = time.monotonic() - start_time
             log.warning(
                 "crawl_batch_timeout",
                 elapsed=round(elapsed, 1),
                 total=len(items),
+                completed=len(done),
+                cancelled=len(pending),
             )
-            # Return FetchError for all items on timeout
-            return [
-                FetchError(url=item.url, message=f"Batch timed out after {elapsed:.0f}s")
-                for item in items
-            ]
+            for task in pending:
+                task.cancel()
+            # Await cancellation so in-flight cleanup (semaphore release,
+            # retry-queue enqueue started before the timeout) can settle
+            # instead of being dropped silently.
+            await asyncio.gather(*pending, return_exceptions=True)
 
-        # Wrap non-FetchError exceptions with URL context
-        wrapped_results: list[RawArticle | FetchError] = []
-        for item, result in zip(items, results):
+        # Wrap results: completed tasks keep their outcome, timed-out items
+        # get a FetchError instead of discarding partial successes.
+        for task, item in tasks.items():
+            if task in pending:
+                wrapped_results.append(
+                    FetchError(
+                        url=item.url,
+                        message=f"Batch timed out after {time.monotonic() - start_time:.0f}s",
+                    )
+                )
+                continue
+            result = task.result() if task.exception() is None else task.exception()
             if isinstance(result, FetchError):
                 wrapped_results.append(result)
-            elif isinstance(result, Exception):
+            elif isinstance(result, BaseException):
                 wrapped_results.append(
                     FetchError(
                         url=item.url,

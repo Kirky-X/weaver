@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community management API endpoints."""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from api.dependencies import (
 )
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
-from core.constants import DatabaseType, GraphHealthStatus, ProcessingStatus
+from core.constants import DatabaseType, EntityType, ProcessingStatus
 from core.db import GraphDatabaseType
 from core.observability import get_logger
 from core.protocols import GraphPool
@@ -30,6 +30,7 @@ from modules.knowledge.graph import (
     Neo4jCommunityRepo,
     ReportGenerationResult,
 )
+from modules.knowledge.graph.community.health import score_health_overview
 
 log = get_logger("community_api")
 
@@ -240,7 +241,7 @@ async def rebuild_communities(
 
     except Exception as exc:
         log.error("community_rebuild_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Rebuild failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Rebuild failed: {exc!s}") from exc
 
 
 @router.post("/reports/generate", response_model=APIResponse[ReportGenerateResponse])
@@ -298,7 +299,7 @@ async def generate_all_reports(
 
     except Exception as exc:
         log.error("report_generation_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {exc!s}") from exc
 
 
 @router.post(
@@ -359,7 +360,7 @@ async def regenerate_report(
         raise
     except Exception as exc:
         log.error("report_regeneration_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Report regeneration failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Report regeneration failed: {exc!s}") from exc
 
 
 # ── Graph Community Endpoints (merged into main router) ─────────
@@ -432,7 +433,7 @@ async def list_communities(
 
     except Exception as exc:
         log.error("list_communities_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}") from exc
 
 
 # ── Health Check Endpoints ───────────────────────────────────────
@@ -459,49 +460,22 @@ async def get_health_overview(
 
     try:
         # Quick metrics check
-        metrics = await checker._repo.get_overall_metrics()
+        metrics = await checker.get_overall_metrics()
 
-        # Determine basic status from metrics
+        # Shared scoring heuristic (single source, also used by the
+        # /monitoring/communities/health endpoint).
+        status, score = score_health_overview(metrics)
         total = metrics.get("total_communities", 0)
         empty = metrics.get("empty_community_count", 0)
         with_reports = metrics.get("communities_with_reports", 0)
         stale = metrics.get("stale_report_count", 0)
 
-        if total == 0:
-            status = GraphHealthStatus.CRITICAL.value
-            score = 0.0
-        else:
-            empty_ratio = empty / total if total > 0 else 0
-            report_ratio = with_reports / total if total > 0 else 0
-
-            # Quick score calculation
-            score = 100.0
-            if empty_ratio > 0.10:
-                score -= 30
-            elif empty_ratio > 0.05:
-                score -= 15
-            if report_ratio < 0.7:
-                score -= 10
-            if stale > 0:
-                score -= 5
-
-            score = max(0.0, min(100.0, score))
-
-            if score >= 80:
-                status = GraphHealthStatus.HEALTHY.value
-            elif score >= 60:
-                status = GraphHealthStatus.MODERATE.value
-            elif score >= 40:
-                status = GraphHealthStatus.DEGRADED.value
-            else:
-                status = GraphHealthStatus.CRITICAL.value
-
         # Get hierarchy breaks count
-        hierarchy_breaks = await checker._repo.find_hierarchy_breaks()
+        hierarchy_breaks = await checker.find_hierarchy_breaks()
 
         return success_response(
             HealthOverviewResponse(
-                status=status,
+                status=status.value,
                 score=score,
                 total_communities=total,
                 communities_with_reports=with_reports,
@@ -514,7 +488,7 @@ async def get_health_overview(
 
     except Exception as exc:
         log.error("get_health_overview_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Health check failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {exc!s}") from exc
 
 
 @router.post("/health/diagnose", response_model=APIResponse[DiagnoseResponse])
@@ -573,7 +547,7 @@ async def diagnose_health(
 
     except Exception as exc:
         log.error("diagnose_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {exc!s}") from exc
 
 
 @router.post("/health/repair", response_model=APIResponse[RepairResponse])
@@ -608,8 +582,12 @@ async def repair_health(
     )
 
     # First diagnose to get issues
-    checker = CommunityHealthChecker(pool)
-    report = await checker.diagnose_all()
+    try:
+        checker = CommunityHealthChecker(pool)
+        report = await checker.diagnose_all()
+    except Exception as exc:
+        log.error("repair_health_diagnosis_failed", error=str(exc), exc_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail=f"Health diagnosis failed: {exc!s}") from exc
 
     # Filter to auto-repairable issues
     repairable_issues = [i for i in report.issues if i.auto_repairable]
@@ -677,7 +655,7 @@ async def repair_health(
 
     except Exception as exc:
         log.error("repair_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}") from exc
 
 
 @router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
@@ -718,7 +696,8 @@ async def get_community(
             {"community_id": community_id},
         )
         entities = [
-            {"name": r.get("name", ""), "type": r.get("type", "未知")} for r in entities_result
+            {"name": r.get("name", ""), "type": r.get("type", EntityType.UNKNOWN)}
+            for r in entities_result
         ]
 
         # Get children
@@ -762,4 +741,4 @@ async def get_community(
         raise
     except Exception as exc:
         log.error("get_community_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}") from exc

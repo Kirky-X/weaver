@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entry point for `python -m src.modules.management` CLI.
 
 Delegates to the appropriate command module based on sys.argv.
@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import sys
 
-# Add project root to path so submodules are importable
+# Add src dir to path so `from modules...` style imports resolve
 from pathlib import Path
 
-_project_root = Path(__file__).resolve().parents[3]
+_src_dir = Path(__file__).resolve().parents[2]
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
+
+# Also ensure project root is on path for `from src.modules.management` style imports
+_project_root = _src_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-
-# Also ensure 'src' parent is on path for `from src.modules.management` style imports
-_src_parent = _project_root.parent
-if str(_src_parent) not in sys.path:
-    sys.path.insert(0, str(_src_parent))
 
 
 def _resolve_subcommand() -> str:
@@ -38,14 +38,17 @@ def main() -> None:
     if subcommand == "repair-articles":
         from modules.management.commands.repair_articles import main as repair_main
 
-        # Strip the subcommand from sys.argv before delegating
-        # sys.argv[0] = __main__.py path, sys.argv[1] = subcommand
-        original_argv = sys.argv
+        # Strip the subcommand before delegating. Process is about to exit,
+        # so no restore is needed; catch unexpected errors to exit cleanly
+        # instead of dumping a raw traceback.
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         try:
             repair_main()
-        finally:
-            sys.argv = original_argv
+        except SystemExit:
+            raise
+        except Exception as exc:
+            print(f"repair-articles failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            sys.exit(1)
     elif subcommand == "help" or (len(sys.argv) > 1 and sys.argv[1] == "--help"):
         # Built-in help when no subcommand
         print("Available commands:")

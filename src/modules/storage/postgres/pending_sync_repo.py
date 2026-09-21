@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pending sync repository for tracking Neo4j sync operations."""
 
 from __future__ import annotations
@@ -89,35 +89,42 @@ class PendingSyncRepo:
             )
             return list(result.scalars().all())
 
-    async def mark_synced(self, id: int) -> None:
+    async def mark_synced(self, record_id: int) -> None:
         """Mark a sync record as successfully synced.
 
         Args:
-            id: The pending_sync record ID.
+            record_id: The pending_sync record ID.
         """
         async with self._pool.session() as session:
             await session.execute(
                 update(PendingSync)
-                .where(PendingSync.id == id)
-                .values(status="synced", synced_at=datetime.now(UTC))
+                .where(PendingSync.id == record_id)
+                .values(
+                    status=ProcessingStatus.SYNCED.value,
+                    synced_at=datetime.now(UTC),
+                )
             )
             await session.commit()
 
-    async def mark_failed(self, id: int, error: str) -> None:
+    async def mark_failed(self, record_id: int, error: str) -> None:
         """Mark a sync record as failed and increment retry count.
 
         Args:
-            id: The pending_sync record ID.
+            record_id: The pending_sync record ID.
             error: Error message describing the failure.
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(PendingSync).where(PendingSync.id == id))
+            result = await session.execute(select(PendingSync).where(PendingSync.id == record_id))
             record = result.scalar_one_or_none()
             if record:
                 record.status = ProcessingStatus.FAILED.value
                 record.error = error
                 record.retry_count = record.retry_count + 1
                 await session.commit()
+            else:
+                # A silently-missing record hides outbox loss; make the
+                # no-op observable so callers can reconcile.
+                log.warning("pending_sync_mark_failed_missing", record_id=record_id)
 
     async def cleanup_old_synced(self, days: int = 7) -> int:
         """Delete synced records older than the specified number of days.
@@ -133,7 +140,7 @@ class PendingSyncRepo:
             result = await session.execute(
                 delete(PendingSync).where(
                     and_(
-                        PendingSync.status == "synced",
+                        PendingSync.status == ProcessingStatus.SYNCED.value,
                         PendingSync.synced_at < cutoff,
                     )
                 )
@@ -144,24 +151,28 @@ class PendingSyncRepo:
         log.info("pending_sync_cleanup_done", days=days, removed=removed)
         return removed
 
-    async def get_stale_pending(self, hours: int = 1) -> list[PendingSync]:
+    async def get_stale_pending(self, hours: int = 1, limit: int = 1000) -> list[PendingSync]:
         """Get pending records older than specified hours (for consistency checking).
 
         Args:
             hours: Number of hours after which a pending record is considered stale.
+            limit: Maximum rows to load (a large stale backlog must
+                not be loaded into memory unbounded, mirroring get_pending).
 
         Returns:
-            List of stale pending records.
+            List of stale pending records (at most ``limit``).
         """
         threshold = datetime.now(UTC) - timedelta(hours=hours)
         async with self._pool.session() as session:
             result = await session.execute(
-                select(PendingSync).where(
+                select(PendingSync)
+                .where(
                     and_(
                         PendingSync.status == ProcessingStatus.PENDING.value,
                         PendingSync.created_at < threshold,
                     )
                 )
+                .limit(limit)
             )
             return list(result.scalars().all())
 

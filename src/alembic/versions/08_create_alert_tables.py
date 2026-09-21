@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Create alert_rules and alert_events tables.
 
 Revision ID: 08_create_alert_tables
 Revises: 07_create_api_keys_table
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §12.4:
+Changes:
 - Create alert_rules table with CHECK constraints on metric and operator
 - Create alert_events table with FK to alert_rules
 - Indexes on triggered_at DESC and (entity_name, triggered_at DESC)

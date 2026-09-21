@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for core.db.initializer module."""
@@ -315,7 +315,7 @@ class TestInitializeNeo4jConstraints:
     async def test_create_constraints(self):
         """Test creating Neo4j constraints.
 
-        D2 / Article slim-down: ``article_url_unique`` was replaced with
+        / Article slim-down: ``article_url_unique`` was replaced with
         ``article_pg_id_unique`` (pg_id is the only business key on the
         slim Article node). The mock must return the new constraint name.
         """
@@ -387,3 +387,129 @@ class TestDatabaseInitializerIntegration:
         assert "Host unreachable" in error_str
         assert "Check network" in error_str
         assert "Verify hostname" in error_str
+
+
+class TestWaitForPostgres:
+    """Tests for wait_for_postgres retry logic."""
+
+    @pytest.mark.asyncio
+    async def test_succeeds_immediately(self):
+        """wait_for_postgres returns when connection succeeds."""
+        from core.db.initializer import parse_dsn, wait_for_postgres
+
+        parsed = parse_dsn("postgresql://u:p@localhost:5432/db")
+
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
+
+            await wait_for_postgres(parsed, timeout=5.0)
+
+            mock_connect.assert_called_once()
+            mock_conn.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retries_then_succeeds(self):
+        """wait_for_postgres retries on connection failure."""
+        from core.db.initializer import parse_dsn, wait_for_postgres
+
+        parsed = parse_dsn("postgresql://u:p@localhost:5432/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.close = AsyncMock()
+
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_connect.side_effect = [
+                OSError("Connection refused"),
+                mock_conn,  # Second attempt succeeds
+            ]
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                await wait_for_postgres(parsed, timeout=30.0)
+
+            assert mock_connect.call_count == 2
+
+
+class TestInitializeNeo4j:
+    """Tests for initialize_neo4j."""
+
+    @pytest.mark.asyncio
+    async def test_all_constraints_exist(self):
+        """initialize_neo4j returns verified when all constraints exist."""
+        from core.db.initializer import initialize_neo4j
+
+        mock_pool = AsyncMock()
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {"name": "entity_name_type_unique"},
+                {"name": "article_pg_id_unique"},
+            ]
+        )
+
+        result = await initialize_neo4j(mock_pool)
+
+        assert result["constraints_verified"] is True
+        assert result["constraints_created"] == []
+
+    @pytest.mark.asyncio
+    async def test_creates_missing_constraints(self):
+        """initialize_neo4j creates missing constraints."""
+        from core.db.initializer import initialize_neo4j
+
+        mock_pool = AsyncMock()
+        # First call: SHOW CONSTRAINTS returns only one
+        # After creation: SHOW CONSTRAINTS returns both
+        mock_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"name": "entity_name_type_unique"}],  # Missing article_pg_id_unique
+                [],  # Create constraint
+                [{"name": "entity_name_type_unique"}, {"name": "article_pg_id_unique"}],  # Verify
+            ]
+        )
+
+        result = await initialize_neo4j(mock_pool, create_constraints=True)
+
+        assert "article_pg_id_unique" in result["constraints_created"]
+
+    @pytest.mark.asyncio
+    async def test_no_create_mode_reports_missing(self):
+        """initialize_neo4j with create_constraints=False reports missing."""
+        from core.db.initializer import initialize_neo4j
+
+        mock_pool = AsyncMock()
+        mock_pool.execute_query = AsyncMock(return_value=[{"name": "entity_name_type_unique"}])
+
+        result = await initialize_neo4j(mock_pool, create_constraints=False)
+
+        assert result["constraints_verified"] is False
+        assert any("Missing constraints" in e for e in result["errors"])
+
+
+class TestParseDSNAdvanced:
+    """Advanced DSN parsing tests."""
+
+    def test_parse_asyncpg_dsn(self):
+        """Parse DSN with asyncpg driver."""
+        from core.db.initializer import parse_dsn
+
+        parsed = parse_dsn("postgresql+asyncpg://user:pass@host:5432/weaver")
+
+        assert parsed.driver == "postgresql+asyncpg"
+        assert parsed.user == "user"
+        assert parsed.database == "weaver"
+
+    def test_parse_url_encoded_password(self):
+        """Parse DSN with URL-encoded special characters."""
+        from core.db.initializer import parse_dsn
+
+        parsed = parse_dsn("postgresql://user:p%40ss%23word@host:5432/db")
+
+        assert parsed.password == "p@ss#word"
+
+    def test_parse_default_port(self):
+        """Parse DSN without port defaults to 5432."""
+        from core.db.initializer import parse_dsn
+
+        parsed = parse_dsn("postgresql://user:pass@host/db")
+
+        assert parsed.port == 5432

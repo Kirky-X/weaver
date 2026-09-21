@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Web search module — Bing-backed fallback data source for search API.
 
 Public API:
@@ -10,8 +10,8 @@ Public API:
     - ``detect_three_tier_empty``: check if all three search layers are empty.
     - ``trigger_web_search``: invoke BingSearcher with graceful degradation.
     - ``schedule_pipeline_background``: fire-and-forget pipeline task creation.
-    - ``ScheduleResult``: outcome enum of ``schedule_pipeline_background``
-      (MEDIUM-1 / T051-B). Inspected by ``search_unified`` to set the
+    - ``ScheduleResult``: outcome enum of ``schedule_pipeline_background``;
+      inspected by ``search_unified`` to set the
       ``metadata.background_task_throttled`` flag.
 """
 

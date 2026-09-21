@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Integration tests for CORS configuration.
 
 This module tests the environment-aware CORS configuration:
@@ -156,10 +156,14 @@ class TestCORSProductionEnvironment:
                 ]
                 assert len(cors_warnings) == 0
 
-    def test_production_multiple_origins_truncates_and_warns(
+    def test_production_multiple_origins_fails_fast(
         self,
     ) -> None:
-        """Production with multiple origins should truncate to first and log WARNING."""
+        """Production with multiple origins must raise (fail-fast, no truncation).
+
+        With allow_credentials=True, silently truncating to the first origin
+        hides misconfiguration; #20 made this a hard ValueError instead.
+        """
         with (
             patch("main._ensure_spacy_models"),
             patch.dict(
@@ -172,30 +176,16 @@ class TestCORSProductionEnvironment:
                 },
             ),
         ):
-            from api.middleware.setup import log
             from main import create_app
 
             mock_settings = _make_mock_settings()
             mock_settings.environment = "production"
             with patch("main.Settings", return_value=mock_settings):
-                with patch.object(log, "warning") as mock_warning:
-                    app = create_app()
+                with pytest.raises(ValueError) as exc_info:
+                    create_app()
 
-                # Find CORS middleware
-                for middleware in app.user_middleware:
-                    if middleware.cls == CORSMiddleware:
-                        origins = middleware.kwargs.get("allow_origins", [])
-
-                        # Should only have first origin
-                        assert len(origins) == 1
-                        assert origins[0] == "https://app1.example.com"
-                        break
-
-                # Should generate WARNING about truncation
-                mock_warning.assert_called()
-                # Check that one of the calls contains the expected message
-                call_args = [str(call) for call in mock_warning.call_args_list]
-                assert any("Multiple CORS origins" in arg for arg in call_args)
+        assert "multiple origins" in str(exc_info.value)
+        assert "3 configured" in str(exc_info.value)
 
     def test_production_no_origins_disables_cors_and_warns(
         self,

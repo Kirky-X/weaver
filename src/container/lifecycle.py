@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Lifecycle management for the container — startup and shutdown orchestration."""
 
 from __future__ import annotations
@@ -56,6 +56,26 @@ async def _handle_llm_usage_metrics(event: Any) -> None:
             call_point=event.call_point,
             error=str(exc),
             exc_info=True,
+        )
+
+
+def _log_warmup_failure(task: Any) -> None:
+    """Done-callback for fire-and-forget warmup tasks.
+
+    Logs the failure instead of letting the exception surface only as an
+    "exception was never retrieved" warning at GC time.
+    """
+    from core.observability import get_logger
+
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        get_logger(__name__).warning(
+            "background_warmup_task_failed",
+            task=getattr(task, "get_name", lambda: "")(),
+            error=str(exc),
+            exc_type=type(exc).__name__,
         )
 
 
@@ -142,7 +162,6 @@ class ContainerLifecycleMixin:
 
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client with smart routing support."""
-        from core.event import EventBus
         from core.llm import LLMClient
         from core.observability import get_logger
 
@@ -150,8 +169,13 @@ class ContainerLifecycleMixin:
 
         if self._llm_client is None:
             if self._event_bus is None:
-                self._event_bus = EventBus()
-                log.info("event_bus_created_in_llm", event_bus_id=id(self._event_bus))
+                # Reuse the module-level singleton: sync emitters deep inside
+                # resilience (CircuitStateEvent) publish to it, so container
+                # subscriptions must live on the same bus to receive them.
+                from core.event import event_bus as _global_event_bus
+
+                self._event_bus = _global_event_bus
+                log.info("event_bus_reused_global", event_bus_id=id(self._event_bus))
 
             from core.llm.evaluation.experience import ExperienceStore
 
@@ -191,7 +215,7 @@ class ContainerLifecycleMixin:
                 event_bus=self._event_bus,
             )
             self._llm_client._smart_router = self._smart_router
-            # Inject GraphPool for schema-driven structured output (T024).
+            # Inject GraphPool for schema-driven structured output.
             # Mirrors _smart_router lazy-injection pattern. If graph_pool is
             # unavailable (e.g. both Neo4j and LadybugDB down at startup),
             # _graph_pool stays None — structured_call will raise ValueError
@@ -223,6 +247,18 @@ class ContainerLifecycleMixin:
         if self._llm_client is None:
             raise RuntimeError("LLM client not initialized. Call init_llm() first.")
         return self._llm_client
+
+    def embedding_service(self) -> Any:
+        """Return the embedding service instance."""
+        if self._embedding_service is None:
+            raise RuntimeError("Embedding service not initialized")
+        return self._embedding_service
+
+    def intent_classifier(self) -> Any:
+        """Return the intent classifier instance."""
+        if self._intent_classifier is None:
+            raise RuntimeError("Intent classifier not initialized")
+        return self._intent_classifier
 
     def _init_tiered_router(self) -> None:
         """Initialize TieredRouter from call-point configuration.
@@ -296,6 +332,7 @@ class ContainerLifecycleMixin:
     async def init_mc_sampler(self) -> Any:
         """Initialize the Monte Carlo sampler."""
         from core.evidence import MCSampler
+        from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
 
         log = get_logger(__name__)
@@ -304,9 +341,11 @@ class ContainerLifecycleMixin:
                 await self.init_llm()
             mc_config = self._settings.pipeline.monte_carlo
             if mc_config.enabled:
+                # 批量评分热路径依赖 truncate(EVIDENCE_SAMPLING 预算),
+                # 注入 None 会让超限文档的 MC 采样在主路径直接 AttributeError。
                 self._mc_sampler = MCSampler(
                     llm_client=self._llm_client,
-                    token_budget_manager=None,
+                    token_budget_manager=TokenBudgetManager(),
                     threshold=mc_config.threshold,
                     sample_size=mc_config.sample_size,
                     region_size=mc_config.region_size,
@@ -363,22 +402,31 @@ class ContainerLifecycleMixin:
             log.warning("gliner_extractor_init_failed", error=str(exc))
 
         # Fire-and-forget background warmup: shifts 7-20s model load
-        # from first user request to startup (Bug-D HIGH-2 mitigation).
+        # from first user request to startup.
         # Isolated from init try/except so mock/scheduling failures don't
         # null out the extractor (lazy init still works as fallback).
         # Store task ref to prevent GC (ruff RUF006).
         if self._gliner_extractor is not None:
             try:
                 self._gliner_warmup_task = asyncio.create_task(self._gliner_extractor.warmup())
+                # Surface warmup failures: an unretrieved task exception would
+                # otherwise only appear as a GC-time warning (or be dropped).
+                self._gliner_warmup_task.add_done_callback(_log_warmup_failure)
             except Exception as exc:
                 log.debug("gliner_warmup_scheduling_failed", error=str(exc))
 
         # MCSampler — already initialized in init_mc_sampler()
         if self._mc_sampler is None:
-            import contextlib
-
-            with contextlib.suppress(Exception):
+            try:
                 await self.init_mc_sampler()
+            except Exception as exc:
+                # 显性化失败 (Rule 12): 旧实现 contextlib.suppress 把
+                # 配置断裂 (如 monte_carlo 字段缺失) 吞成静默关闭。
+                log.warning(
+                    "mc_sampler_init_failed",
+                    exc_type=type(exc).__name__,
+                    error=str(exc),
+                )
         result["mc_sampler"] = self._mc_sampler is not None
 
         return result
@@ -387,9 +435,6 @@ class ContainerLifecycleMixin:
 
     def _setup_scheduler(self) -> None:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.date import DateTrigger
-        from apscheduler.triggers.interval import IntervalTrigger
 
         from core.observability import get_logger
 
@@ -400,6 +445,16 @@ class ContainerLifecycleMixin:
             log.info("scheduler_disabled")
             return
 
+        # Idempotency guard: startup() invoked twice without shutdown() must
+        # not re-register jobs (DuplicateJobError or duplicated background
+        # work). Mirrors the event-subscription dedup via _owned_event_handlers.
+        if self._scheduler is not None:
+            log.warning(
+                "scheduler_setup_skipped_already_running",
+                jobs=len(self._scheduler.get_jobs()),
+            )
+            return
+
         scheduler = AsyncIOScheduler(
             job_defaults={
                 "misfire_grace_time": settings.misfire_grace_time_seconds,
@@ -408,7 +463,30 @@ class ContainerLifecycleMixin:
             }
         )
         self._scheduler = scheduler
+
+        # Multi-replica safety: every registered job holds a Redis lock so
+        # only one replica executes each task per interval (no-op warning in
+        # degraded single-instance cache mode).
+        from core.cache.distributed_lock import wrap_scheduler_with_lock
+
+        try:
+            cache_pool = self.cache_client()
+        except Exception:
+            cache_pool = None
+        wrap_scheduler_with_lock(scheduler, cache_pool)
+
         jobs = self.scheduler_job_runner()
+
+        self._register_consistency_jobs(scheduler, jobs, settings)
+        self._register_maintenance_jobs(scheduler, jobs, settings)
+        self._register_analytics_jobs(scheduler, jobs, settings)
+        scheduler.start()
+        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
+
+    def _register_consistency_jobs(self, scheduler, jobs, settings) -> None:
+        """Register data sync / saga recovery / outbox dispatch jobs."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
 
         # Data Sync
         scheduler.add_job(
@@ -416,6 +494,24 @@ class ContainerLifecycleMixin:
             IntervalTrigger(minutes=settings.sync_pending_to_neo4j_interval_minutes),
             id="sync_pending_to_neo4j",
             name="Sync pending to Neo4j",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.recover_stale_sagas,
+            IntervalTrigger(minutes=settings.recover_stale_sagas_interval_minutes),
+            id="recover_stale_sagas",
+            name="Recover stale sagas",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # Transactional outbox dispatcher: at-least-once event delivery
+        scheduler.add_job(
+            jobs.dispatch_outbox_events,
+            IntervalTrigger(seconds=settings.dispatch_outbox_interval_seconds),
+            id="dispatch_outbox_events",
+            name="Dispatch outbox events",
             max_instances=1,
             coalesce=True,
         )
@@ -497,6 +593,10 @@ class ContainerLifecycleMixin:
                 max_instances=1,
             )
 
+    def _register_maintenance_jobs(self, scheduler, jobs, settings) -> None:
+        """Cleanup / archive / pipeline retry / enrichment / crawl retry job registration."""
+        from apscheduler.triggers.interval import IntervalTrigger
+
         # Pipeline Retry
         scheduler.add_job(
             jobs.retry_pipeline_processing,
@@ -526,6 +626,28 @@ class ContainerLifecycleMixin:
             max_instances=1,
             coalesce=True,
         )
+
+        # BM25 检索索引增量维护 (audit P0: incremental_update 此前零接线,
+        # 新入库文章在 BM25 检索路径上永远搜不到)
+        if settings.bm25_rebuild_enabled:
+            scheduler.add_job(
+                jobs.bm25_rebuild_index,
+                IntervalTrigger(seconds=settings.bm25_rebuild_interval_seconds),
+                id="bm25_rebuild_index",
+                name="BM25 index incremental rebuild",
+                max_instances=1,
+                coalesce=True,
+            )
+
+    def _register_analytics_jobs(self, scheduler, jobs, settings) -> None:
+        """LLM usage aggregation / briefing / sentiment / trend / causal job registration."""
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
 
         # LLM Usage Aggregation
         scheduler.add_job(
@@ -560,7 +682,7 @@ class ContainerLifecycleMixin:
         # API Key Rotation Check
         scheduler.add_job(
             jobs.check_expiring_api_keys,
-            CronTrigger(hour=2, minute=0),
+            CronTrigger(hour=settings.api_key_rotation_check_cron_hour, minute=0),
             id="check_expiring_api_keys",
             name="Check and rotate expiring API keys",
             max_instances=1,
@@ -601,16 +723,19 @@ class ContainerLifecycleMixin:
                 )
 
                 async def _ladybug_community_check() -> dict[str, object]:
+                    from core.observability import get_logger
+
+                    _log = get_logger(__name__)
                     try:
                         result = await detector.rebuild_communities()
-                        log.info(
+                        _log.info(
                             "ladybug_community_detection_complete",
                             communities=result.total_communities,
                             modularity=result.modularity,
                         )
                         return {"communities": result.total_communities}
                     except Exception as exc:
-                        log.error("ladybug_community_detection_failed", error=str(exc))
+                        _log.error("ladybug_community_detection_failed", error=str(exc))
                         return {"error": str(exc)}
 
                 scheduler.add_job(
@@ -626,7 +751,7 @@ class ContainerLifecycleMixin:
         if self.graph_pool() is not None:
             scheduler.add_job(
                 self._community_health_check,
-                IntervalTrigger(hours=6),
+                IntervalTrigger(hours=settings.community_health_check_interval_hours),
                 id="community_health_check",
                 name="Community health check and auto repair",
                 max_instances=1,
@@ -654,13 +779,17 @@ class ContainerLifecycleMixin:
                 coalesce=True,
             )
 
-        # Analytics - Daily Briefing Generation (T010 / R-briefing-006)
+        # Analytics - Daily Briefing Generation
         # Generates 4 category briefings (general/finance/tech/ai) at 08:00 Asia/Shanghai.
         from zoneinfo import ZoneInfo
 
         scheduler.add_job(
             jobs.generate_daily_briefing,
-            CronTrigger(hour=8, minute=0, timezone=ZoneInfo("Asia/Shanghai")),
+            CronTrigger(
+                hour=settings.briefing_cron_hour,
+                minute=0,
+                timezone=ZoneInfo(settings.briefing_timezone),
+            ),
             id="daily_briefing_generation",
             name="Generate daily briefings (4 categories)",
             max_instances=1,
@@ -670,7 +799,7 @@ class ContainerLifecycleMixin:
         # Analytics - Sentiment Shift Detection
         scheduler.add_job(
             jobs.detect_sentiment_shifts,
-            IntervalTrigger(minutes=60),
+            IntervalTrigger(minutes=settings.sentiment_shift_interval_minutes),
             id="shift_detection",
             name="Detect sentiment shifts",
             max_instances=1,
@@ -680,20 +809,20 @@ class ContainerLifecycleMixin:
         # Knowledge Cache - Daily Hotness Decay (凌晨 3 点执行)
         scheduler.add_job(
             jobs.daily_hotness_decay,
-            CronTrigger(hour=3, minute=0),
+            CronTrigger(hour=settings.hotness_decay_cron_hour, minute=0),
             id="daily_hotness_decay",
             name="Daily knowledge cache hotness decay",
             max_instances=1,
             coalesce=True,
         )
 
-        # Trend Alert Evaluation (T019 / R-alert-002) — hourly at minute=0.
+        # Trend Alert Evaluation — hourly at minute=0.
         # Evaluates trend_spike/trend_drop/sentiment_shift rules and inserts
         # alert_events with 24h dedup. Graceful skip when trend services
         # unavailable (returns 0, does not block scheduler).
         scheduler.add_job(
             jobs.evaluate_trend_alerts,
-            CronTrigger(minute=0),
+            CronTrigger(minute=settings.trend_alert_cron_minute),
             id="evaluate_trend_alerts",
             name="Evaluate trend alert rules (hourly)",
             max_instances=1,
@@ -705,7 +834,7 @@ class ContainerLifecycleMixin:
         if self._causal_inference_service is not None:
             scheduler.add_job(
                 self._causal_inference_service.infer_and_create_causal_edges,
-                IntervalTrigger(hours=2),
+                IntervalTrigger(hours=settings.causal_inference_interval_hours),
                 id="causal_inference",
                 name="Extract causal edges from graph",
                 max_instances=1,
@@ -720,9 +849,6 @@ class ContainerLifecycleMixin:
             id="startup_sync_pending_to_neo4j",
             replace_existing=True,
         )
-
-        scheduler.start()
-        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
     # ── Community Health Check ─────────────────────────────────
 
@@ -882,7 +1008,7 @@ class ContainerLifecycleMixin:
                 batch_size=self._settings.pipeline_process.worker_batch_size,
                 confidence_threshold=self._settings.memory.causal_confidence_threshold,
                 max_relations_per_entity=self._settings.memory.max_relations_per_entity,
-                llm_timeout_seconds=self._settings.pipeline_process.drain_timeout,
+                llm_timeout_seconds=self._settings.pipeline_process.causal_llm_timeout,
                 enable_parallel_inference=True,
             )
 
@@ -963,7 +1089,7 @@ class ContainerLifecycleMixin:
             except Exception as e:
                 log.warning("memory_ingest_failed", article_id=event.article_id, error=str(e))
 
-        self._event_bus.subscribe(MemoryIngestEvent, handle_memory_ingest)
+        self._subscribe(MemoryIngestEvent, handle_memory_ingest)
         log.info("memory_event_handler_registered")
 
     # ── Startup & Shutdown ──────────────────────────────────────
@@ -1001,6 +1127,7 @@ class ContainerLifecycleMixin:
             article_repo=self.article_repo(),
             deduplicator=self.deduplicator(),
             simhash_dedup=self.simhash_dedup(),
+            enable_simhash=self._settings.dedup.enable_simhash_dedup,
             processing_queue=self.processing_queue(),
         )
         await self.init_source_scheduler(processor.on_items_discovered)
@@ -1025,13 +1152,13 @@ class ContainerLifecycleMixin:
 
         # LLM failure logging
         self._llm_failure_repo = LLMFailureRepo(self.relational_pool())
-        self._event_bus.subscribe(
+        self._subscribe(
             LLMFailureEvent, lambda e: _handle_llm_failure_async(e, self._llm_failure_repo)
         )
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
         # LLM usage metrics
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
         log.info("llm_usage_metrics_subscribed", event_bus_id=id(self._event_bus))
 
         # LLM usage statistics
@@ -1078,8 +1205,8 @@ class ContainerLifecycleMixin:
                         exc_info=True,
                     )
 
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
-        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
+        self._subscribe(LLMUsageEvent, _handle_llm_usage_raw)
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         # LLM comparison buffer and handlers
@@ -1097,9 +1224,41 @@ class ContainerLifecycleMixin:
             repo = EvalCompareRepo(self.relational_pool())
             await repo.insert_raw(event)
 
-        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
-        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_raw)
+        self._subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
+        self._subscribe(LLMCompareEvent, _handle_eval_compare_raw)
         log.info("llm_compare_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        # Circuit breaker observability: the breakers already update their
+        # own gauges/counters; this handler is the central alert hook — a
+        # structured warning the alerting pipeline can match on.
+        from core.event import CircuitStateEvent, CredibilityComputedEvent
+        from core.observability.metrics import metrics
+
+        async def _handle_circuit_state(event: CircuitStateEvent) -> None:
+            if event.to_state == "open":
+                log.warning(
+                    "circuit_breaker_opened",
+                    provider=event.provider,
+                    from_state=event.from_state,
+                    threshold=event.threshold,
+                    timeout_secs=event.timeout_secs,
+                )
+            else:
+                log.info(
+                    "circuit_breaker_state_changed",
+                    provider=event.provider,
+                    from_state=event.from_state,
+                    to_state=event.to_state,
+                )
+
+        self._subscribe(CircuitStateEvent, _handle_circuit_state)
+        log.info("circuit_state_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        async def _handle_credibility_computed(event: CredibilityComputedEvent) -> None:
+            metrics.credibility_score_dist.observe(event.score)
+
+        self._subscribe(CredibilityComputedEvent, _handle_credibility_computed)
+        log.info("credibility_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         _ = self.pending_sync_repo()
 
@@ -1126,7 +1285,24 @@ class ContainerLifecycleMixin:
             except Exception as e:
                 log.error("live_config_watcher_start_failed", error=str(e), exc_info=True)
 
+        # Validate Protocol → implementation bindings (fail-fast on contract drift)
+        from container.protocol_registry import validate_protocol_bindings
+
+        unregistered = validate_protocol_bindings(self)
+        if unregistered:
+            log.debug("unregistered_protocols_summary", count=len(unregistered))
+
         log.info("container_started")
+
+    def _subscribe(self, event_type: type, handler: Any) -> None:
+        """Subscribe on the shared bus while recording the handler.
+
+        The bus is a process-wide singleton, so a same-process restart must
+        not accumulate duplicate handlers — shutdown() detaches the whole
+        list.
+        """
+        self._owned_event_handlers.append((event_type, handler))
+        self._event_bus.subscribe(event_type, handler)
 
     async def shutdown(self) -> None:
         """Clean up resources and stop background tasks."""
@@ -1140,6 +1316,13 @@ class ContainerLifecycleMixin:
 
         self._shutdown = True
         log.info("container_shutting_down")
+
+        # Detach event handlers registered during startup so repeated
+        # startup/shutdown cycles never double-dispatch events.
+        for event_type, handler in self._owned_event_handlers:
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(event_type, handler)
+        self._owned_event_handlers.clear()
 
         if self._scheduler:
             self._scheduler.shutdown(wait=False)

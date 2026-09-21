@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """BingSearcher — web search backend that reuses BaseFetcher for HTTP.
 
 Architecture:
@@ -86,9 +86,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-_BING_SEARCH_URL = "https://cn.bing.com/search"
-_BING_NEWS_SEARCH_URL = "https://cn.bing.com/news/search"
 _DEFAULT_QUERY_LOG_PREFIX = 50
+_MAX_PARALLEL_SUBSEARCHES = 8
+
 _MAX_QUERY_LEN = 500  # Bing accepts ~2KB URL; cap query at 500 chars to leave room for encoding
 # Default cache capacity (entries). Tuned for trending-topic working set
 # (a few hundred distinct queries per 30-minute TTL window).
@@ -148,6 +148,10 @@ class BingSearcher:
     ) -> None:
         self._fetcher = fetcher
         self._settings = settings
+        self._search_url = getattr(settings, "search_url", "https://cn.bing.com/search")
+        self._news_search_url = getattr(
+            settings, "news_search_url", "https://cn.bing.com/news/search"
+        )
         self._query_expander = query_expander
         # Cache injection point: when caller passes a cache, use it as-is
         # (tests inject a real TTLCache with a short TTL to verify expiry).
@@ -204,7 +208,9 @@ class BingSearcher:
             query = query[:_MAX_QUERY_LEN]
 
         # DRY: resolve effective max_results from settings when caller omits.
-        effective_max = max_results if max_results is not None else self._settings.max_results
+        effective_max = (
+            max_results if max_results is not None else getattr(self._settings, "max_results", 10)
+        )
 
         # Resolve effective mode (R-web-search-008). "auto" defers to
         # settings.news_enabled so legacy callers without explicit mode
@@ -250,6 +256,20 @@ class BingSearcher:
         # news search based on resolved_mode. Results are gathered via
         # asyncio.gather with return_exceptions=True so a single failure
         # doesn't sink the whole batch.
+        # Hard cap on parallel sub-searches: an expander returning many
+        # terms otherwise scales concurrent fetches linearly and can
+        # overwhelm the fetcher pool / Bing rate limiter.
+        max_parallel = int(
+            getattr(self._settings, "max_parallel_subsearches", _MAX_PARALLEL_SUBSEARCHES)
+        )
+        if len(queries) > max_parallel:
+            log.warning(
+                "bing_search_queries_truncated",
+                requested=len(queries),
+                kept=max_parallel,
+            )
+            queries = queries[:max_parallel]
+
         tasks: list[asyncio.Future] = []
         for q in queries:
             if resolved_mode in ("general", "all"):
@@ -327,7 +347,7 @@ class BingSearcher:
         # because the caller already has the correct result).
         if self._cache is not None:
             try:
-                self._cache[cache_key] = merged
+                self._cache[cache_key] = list(merged)
             except Exception as cache_exc:
                 log.warning(
                     "bing_search_cache_write_failed",
@@ -398,15 +418,26 @@ class BingSearcher:
         # Build URL: https://cn.bing.com/search?q=<quoted>&first=1[&filters=...]
         # ``first`` is 1-indexed offset (Bing convention). safe='' encodes
         # '/' to %2F to prevent path-separator interpretation in query value.
-        url = f"{_BING_SEARCH_URL}?q={quote(query, safe='')}&first=1"
+        url = f"{self._search_url}?q={quote(query, safe='')}&first=1"
         if time_filter != "none":
-            seconds, days = _TIME_FILTER_WINDOWS[time_filter]
-            # Bing syntax: filters=ex1:"ez5_<seconds>_<days>"
-            # quote with safe='' encodes ':' → %3A, '"' → %22
-            filter_value = f'ex1:"ez5_{seconds}_{days}"'
-            url += f"&filters={quote(filter_value, safe='')}"
+            # .get() (not []): effective_time_filter may come from untyped
+            # settings; an unknown literal must degrade to "no filter", never
+            # raise KeyError through the gather call site (R-web-search-005).
+            window = _TIME_FILTER_WINDOWS.get(time_filter)
+            if window is not None:
+                seconds, days = window
+                # Bing syntax: filters=ex1:"ez5_<seconds>_<days>"
+                # quote with safe='' encodes ':' → %3A, '"' → %22
+                filter_value = f'ex1:"ez5_{seconds}_{days}"'
+                url += f"&filters={quote(filter_value, safe='')}"
+            else:
+                log.warning(
+                    "bing_unknown_time_filter",
+                    time_filter=str(time_filter),
+                    vertical="general",
+                )
 
-        headers = {"User-Agent": self._settings.user_agent}
+        headers = {"User-Agent": getattr(self._settings, "user_agent", "weaver/bot")}
 
         try:
             status, html, _resp_headers = await asyncio.wait_for(
@@ -454,8 +485,8 @@ class BingSearcher:
         is already time-sorted by recency. Returns [] on HTTP error /
         non-200 / parse failure (per R-web-search-005 — never raise).
         """
-        url = f"{_BING_NEWS_SEARCH_URL}?q={quote(query, safe='')}&first=1"
-        headers = {"User-Agent": self._settings.user_agent}
+        url = f"{self._news_search_url}?q={quote(query, safe='')}&first=1"
+        headers = {"User-Agent": getattr(self._settings, "user_agent", "weaver/bot")}
 
         try:
             status, html, _resp_headers = await asyncio.wait_for(

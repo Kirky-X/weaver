@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Causal Graph Repository.
 
 Manages CAUSES, ENABLES, and PREVENTS edges representing causal relationships
@@ -11,6 +11,7 @@ and using appropriate query syntax.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from core.constants import DatabaseType
@@ -175,10 +176,11 @@ class CausalGraphRepo(BaseGraphRepo):
         query = f"""
         MATCH (source:EventNode {{id: $source_id}})
         MATCH (target:EventNode {{id: $target_id}})
-        CREATE (source)-[r:{rel_type}]->(target)
+        MERGE (source)-[r:{rel_type}]->(target)
         SET r.confidence = $confidence,
             r.evidence = $evidence,
-            r.created_at = $created_at
+            r.created_at = $created_at,
+            r.updated_at = $updated_at
         RETURN r
         """
 
@@ -188,6 +190,10 @@ class CausalGraphRepo(BaseGraphRepo):
             "confidence": confidence,
             "evidence": evidence,
             "created_at": now,
+            # LadybugDB MERGE lacks ON CREATE/ON MATCH split, so updated_at is
+            # also written on first insert — parity with the Neo4j ON MATCH
+            # path for confidence/evidence change auditing.
+            "updated_at": now,
         }
 
         try:
@@ -223,11 +229,16 @@ class CausalGraphRepo(BaseGraphRepo):
         Returns:
             List of events in the causal chain.
         """
+        try:
+            depth = int(max_depth)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"max_depth must be an integer, got {max_depth!r}") from exc
+        depth = max(1, min(depth, 10))
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
 
         query = f"""
-        MATCH path = (cause:EventNode)-[:CAUSES|ENABLES*1..{max_depth}]->(effect:EventNode {{id: $event_id}})
+        MATCH path = (cause:EventNode)-[:CAUSES|ENABLES|PREVENTS*1..{depth}]->(effect:EventNode {{id: $event_id}})
         UNWIND nodes(path) AS node
         WITH DISTINCT node
         RETURN node.id AS id,
@@ -249,33 +260,38 @@ class CausalGraphRepo(BaseGraphRepo):
         """
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
-
-        # For LadybugDB, when using pattern [r:CAUSES|ENABLES], edge_type is implicit
-        # LadybugDB may not have evidence property on edges
-        if self._is_ladybug:
-            query = f"""
-            MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
-            RETURN cause.id AS id,
-                   cause.content AS content,
-                   cause.{time_field} AS timestamp,
-                   'CAUSES' AS relation_type,
-                   r.confidence AS confidence,
-                   '' AS evidence
-            ORDER BY r.confidence DESC
-            """
-        else:
-            query = f"""
-            MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
-            RETURN cause.id AS id,
-                   cause.content AS content,
-                   cause.{time_field} AS timestamp,
-                   type(r) AS relation_type,
-                   r.confidence AS confidence,
-                   r.evidence AS evidence
-            ORDER BY r.confidence DESC
-            """
-
         params = {"event_id": event_id}
+
+        if self._is_ladybug:
+            # LadybugDB has no type(r) function and separate rel tables carry
+            # no edge_type property — query each rel table separately so the
+            # real relation type is returned instead of a hardcoded value.
+            rows: list[dict[str, Any]] = []
+            for rel in ("CAUSES", "ENABLES", "PREVENTS"):
+                query = f"""
+                MATCH (cause:EventNode)-[r:{rel}]->(effect:EventNode {{id: $event_id}})
+                RETURN cause.id AS id,
+                       cause.content AS content,
+                       cause.{time_field} AS timestamp,
+                       '{rel}' AS relation_type,
+                       r.confidence AS confidence,
+                       '' AS evidence
+                ORDER BY r.confidence DESC
+                """
+                rows.extend(await self._pool.execute_query(query, params))
+            return rows
+
+        query = f"""
+        MATCH (cause:EventNode)-[r:CAUSES|ENABLES|PREVENTS]->(effect:EventNode {{id: $event_id}})
+        RETURN cause.id AS id,
+               cause.content AS content,
+               cause.{time_field} AS timestamp,
+               type(r) AS relation_type,
+               r.confidence AS confidence,
+               r.evidence AS evidence
+        ORDER BY r.confidence DESC
+        """
+
         return await self._pool.execute_query(query, params)
 
     async def get_effects(self, event_id: str) -> list[dict[str, Any]]:
@@ -289,33 +305,38 @@ class CausalGraphRepo(BaseGraphRepo):
         """
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
-
-        # For LadybugDB, when using pattern [r:CAUSES|ENABLES], edge_type is implicit
-        # LadybugDB may not have evidence property on edges
-        if self._is_ladybug:
-            query = f"""
-            MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
-            RETURN effect.id AS id,
-                   effect.content AS content,
-                   effect.{time_field} AS timestamp,
-                   'CAUSES' AS relation_type,
-                   r.confidence AS confidence,
-                   '' AS evidence
-            ORDER BY r.confidence DESC
-            """
-        else:
-            query = f"""
-            MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
-            RETURN effect.id AS id,
-                   effect.content AS content,
-                   effect.{time_field} AS timestamp,
-                   type(r) AS relation_type,
-                   r.confidence AS confidence,
-                   r.evidence AS evidence
-            ORDER BY r.confidence DESC
-            """
-
         params = {"event_id": event_id}
+
+        if self._is_ladybug:
+            # LadybugDB has no type(r) function and separate rel tables carry
+            # no edge_type property — query each rel table separately so the
+            # real relation type is returned instead of a hardcoded value.
+            rows: list[dict[str, Any]] = []
+            for rel in ("CAUSES", "ENABLES", "PREVENTS"):
+                query = f"""
+                MATCH (cause:EventNode {{id: $event_id}})-[r:{rel}]->(effect:EventNode)
+                RETURN effect.id AS id,
+                       effect.content AS content,
+                       effect.{time_field} AS timestamp,
+                       '{rel}' AS relation_type,
+                       r.confidence AS confidence,
+                       '' AS evidence
+                ORDER BY r.confidence DESC
+                """
+                rows.extend(await self._pool.execute_query(query, params))
+            return rows
+
+        query = f"""
+        MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES|PREVENTS]->(effect:EventNode)
+        RETURN effect.id AS id,
+               effect.content AS content,
+               effect.{time_field} AS timestamp,
+               type(r) AS relation_type,
+               r.confidence AS confidence,
+               r.evidence AS evidence
+        ORDER BY r.confidence DESC
+        """
+
         return await self._pool.execute_query(query, params)
 
     async def count_causal_links(self) -> int:
@@ -324,6 +345,34 @@ class CausalGraphRepo(BaseGraphRepo):
         Returns:
             Total count of CAUSES, ENABLES, PREVENTS edges.
         """
+        if self._is_ladybug:
+            # LadybugDB keeps each relationship type in a separate rel table;
+            # a multi-type pattern may not be supported, so count per table.
+            total = 0
+            for rel in ("CAUSES", "ENABLES", "PREVENTS"):
+                query = f"""
+                MATCH ()-[r:{rel}]->()
+                RETURN count(r) as count
+                """
+                try:
+                    result = await self._pool.execute_query(query, {})
+                except Exception as exc:
+                    log.warning(
+                        "count_causal_links_failed",
+                        relation_type=rel,
+                        error=str(exc),
+                    )
+                    continue
+                if result:
+                    try:
+                        total += int(result[0].get("count", 0))
+                    except (TypeError, ValueError) as exc:
+                        log.warning(
+                            "count_causal_links_bad_count",
+                            relation_type=rel,
+                            error=str(exc),
+                        )
+            return total
         query = """
         MATCH ()-[r:CAUSES|ENABLES|PREVENTS]->()
         RETURN count(r) as count

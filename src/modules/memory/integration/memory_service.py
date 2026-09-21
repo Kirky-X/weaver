@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Memory Integration Service - Unified interface for MAGMA memory system.
 
 This service integrates all MAGMA components and provides a single entry point
@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from core.constants import EmbeddingModel
 from core.protocols import EmbeddingServiceProtocol
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import IntentType
@@ -44,7 +45,7 @@ _QUERY_INTENT_TO_MEMORY_INTENT: dict[str, IntentType] = {
     "when": IntentType.WHEN,
     "entity": IntentType.ENTITY,
     "open": IntentType.OPEN,
-    "multi_hop": IntentType.OPEN,  # Map MULTI_HOP to OPEN for now
+    "multi_hop": IntentType.MULTI_HOP,
 }
 
 
@@ -137,7 +138,7 @@ class MemoryIntegrationService:
         config: MemoryServiceConfig | None = None,
         vector_repo: VectorRepository | None = None,
         entity_repo: EntityRepository | None = None,
-        embedding_model: str = "Qwen3-Embedding-0.6B",
+        embedding_model: str = EmbeddingModel.DEFAULT,
     ) -> None:
         """Initialize the memory integration service.
 
@@ -193,10 +194,6 @@ class MemoryIntegrationService:
             default_anchor_limit=self._config.default_anchor_limit,
             event_lookup_limit=self._config.event_lookup_limit,
         )
-
-        # Store for retrieval components
-        self._llm_client = llm_client
-        self._entity_repo = entity_repo
 
         # Initialize retrieval components (optional)
         self._entity_aggregator: Any = None
@@ -351,12 +348,16 @@ class MemoryIntegrationService:
 
         from modules.memory.core.graph_types import OutputMode
 
+        if output_mode not in ("context", "narrative"):
+            raise ValueError(f"output_mode must be 'context' or 'narrative', got {output_mode!r}")
         mode = OutputMode.NARRATIVE if output_mode == "narrative" else OutputMode.CONTEXT
 
         return await self._response_builder.build(
             query=query,
             output_mode=mode,
             enrich_entities=enrich_entities,
+            anchors=anchors,
+            intent=intent,
         )
 
     async def get_queue_depth(self) -> int:

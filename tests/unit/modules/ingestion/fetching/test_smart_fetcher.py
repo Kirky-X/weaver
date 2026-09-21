@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SmartFetcher (ingestion module)."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -457,3 +457,55 @@ class TestSmartFetcherClose:
 
         mock_httpx_fetcher.close.assert_called_once()
         mock_crawl4ai_fetcher.close.assert_called_once()
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    @pytest.fixture
+    def smart_fetcher(self):
+        """Create SmartFetcher with mocked underlying fetchers."""
+        httpx_fetcher = MagicMock()
+        httpx_fetcher.fetch = AsyncMock()
+        httpx_fetcher.close = AsyncMock()
+        crawl4ai_fetcher = MagicMock()
+        crawl4ai_fetcher.fetch = AsyncMock()
+        crawl4ai_fetcher.close = AsyncMock()
+        return SmartFetcher(httpx_fetcher=httpx_fetcher, crawl4ai_fetcher=crawl4ai_fetcher)
+
+    @pytest.mark.asyncio
+    async def test_open_circuit_raises_without_recording_failure(self, smart_fetcher):
+        """#247: the pre-fetch circuit-open check still short-circuits silently."""
+        breaker = smart_fetcher._get_breaker("example.com")
+        with patch.object(breaker, "is_open", new=AsyncMock(return_value=True)):
+            with patch.object(breaker, "record_failure", new=AsyncMock()) as mock_record:
+                with pytest.raises(CircuitOpenError):
+                    await smart_fetcher.fetch("https://example.com/a")
+
+        mock_record.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_circuit_open_from_do_fetch_records_failure(self, smart_fetcher):
+        """#247: the redundant bypass clause is gone, so errors surfaced by
+        _do_fetch go through the normal failure-recording path."""
+        smart_fetcher._do_fetch = AsyncMock(side_effect=CircuitOpenError("example.com"))
+        breaker = smart_fetcher._get_breaker("example.com")
+        with patch.object(breaker, "record_failure", new=AsyncMock()) as mock_record:
+            with pytest.raises(CircuitOpenError):
+                await smart_fetcher.fetch("https://example.com/a")
+
+        mock_record.assert_awaited_once()
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    def test_dead_circuit_open_branch_removed_from_fetch_try(self):
+        """#247: the unreachable ``except CircuitOpenError: raise`` clause is gone."""
+        import inspect
+
+        from modules.ingestion.fetching.smart_fetcher import SmartFetcher
+
+        src = inspect.getsource(SmartFetcher.fetch)
+        assert "except CircuitOpenError" not in src
+        assert "record_failure" in src

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Data models for community detection and reports."""
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ class Community:
         children_ids: IDs of child communities in hierarchy (empty for leaf).
         entity_ids: List of entity IDs belonging to this community.
         entity_count: Number of entities in the community.
+        article_count: Number of articles mentioning this community's entities.
         relationship_ids: List of relationship IDs within the community.
         rank: Importance ranking score (higher = more important).
         period: Date when community was detected (YYYY-MM-DD).
@@ -127,11 +128,13 @@ class CommunityReport:
             title=data.get("title", ""),
             summary=data.get("summary", ""),
             full_content=data.get("full_content", ""),
-            key_entities=data.get("key_entities", []),
-            key_relationships=data.get("key_relationships", []),
-            rank=data.get("rank", 5.0),
+            # `or` defaults: queries without coalesce (LadybugDB) return an
+            # explicit None key, which dict.get would pass through.
+            key_entities=data.get("key_entities") or [],
+            key_relationships=data.get("key_relationships") or [],
+            rank=data.get("rank") or 5.0,
             full_content_embedding=data.get("full_content_embedding"),
-            stale=data.get("stale", False),
+            stale=bool(data.get("stale", False)),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )

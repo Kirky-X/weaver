@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Safe query utilities for preventing SQL and Cypher injection.
 
 This module provides validation functions and safe query building utilities
@@ -11,10 +11,6 @@ This is the canonical module for identifier validation.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 # ── Validation Patterns ─────────────────────────────────────────────────────
 
@@ -24,8 +20,21 @@ _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 # Valid Neo4j label: letters, digits, underscore, Chinese characters, must start with letter/underscore/Chinese
 _NEO4J_LABEL_RE = re.compile(r"^[a-zA-Z_\u4e00-\u9fff][a-zA-Z0-9_\u4e00-\u9fff]*$")
 
-# Valid edge type: uppercase letters, digits, underscore, Chinese characters
+# Valid edge type: uppercase letters, digits, underscore, Chinese characters.
+# NOTE: Neo4j relationship types are case-sensitive, so a lower-case or
+# mixed-case name (e.g. ``PartnersWith``) is legal in Neo4j but rejected here.
+# The repo only seeds all-caps ``name_en`` values plus CJK names, so this
+# constraint is safe today; relax the first-char class if that ever changes.
 _EDGE_TYPE_RE = re.compile(r"^[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*$")
+
+# Valid UUID string: 8-4-4-4-12 hex characters
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# Valid Cypher variable-length hop pattern: '*1..3', '*..2', '*', '*0..N'
+_HOP_PATTERN_RE = re.compile(r"^\*(?:\d+)?(?:\.\.\d*)?$")
 
 
 # ── Validation Exceptions ───────────────────────────────────────────────────
@@ -117,6 +126,31 @@ def validate_edge_type(edge_type: str) -> str:
     return edge_type
 
 
+def validate_hop_pattern(hop_pattern: str) -> str:
+    """Validate a Cypher variable-length path hop pattern.
+
+    Builder-layer defense in depth: hop patterns are interpolated into
+    Cypher strings (they cannot be parameterized), so anything reaching
+    a query builder must match the ``*`` / ``*N..M`` grammar.
+
+    Args:
+        hop_pattern: Pattern like ``*1..2``, ``*..3``, ``*``.
+
+    Returns:
+        The validated hop pattern (unchanged).
+
+    Raises:
+        InvalidIdentifierError: If the hop pattern is invalid.
+    """
+    if not hop_pattern:
+        raise InvalidIdentifierError(hop_pattern, "hop_pattern (empty)")
+
+    if not _HOP_PATTERN_RE.match(hop_pattern):
+        raise InvalidIdentifierError(hop_pattern, "hop pattern")
+
+    return hop_pattern
+
+
 def validate_uuid(uuid_str: str, name: str = "uuid") -> str:
     """Validate a UUID string format.
 
@@ -134,11 +168,7 @@ def validate_uuid(uuid_str: str, name: str = "uuid") -> str:
         raise InvalidIdentifierError(uuid_str, f"{name} (empty)")
 
     # Simple UUID format check: 8-4-4-4-12 hex characters
-    uuid_pattern = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        re.IGNORECASE,
-    )
-    if not uuid_pattern.match(uuid_str):
+    if not _UUID_RE.match(uuid_str):
         raise InvalidIdentifierError(uuid_str, name)
 
     return uuid_str

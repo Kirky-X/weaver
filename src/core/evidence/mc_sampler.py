@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Monte Carlo evidence sampler for long document processing.
 
 This module implements intelligent sampling of long documents using
@@ -9,11 +9,11 @@ relevant regions while staying within token budgets.
 
 from __future__ import annotations
 
-import asyncio
 import random
+import re
 from typing import TYPE_CHECKING
 
-from core.evidence.models import EvidenceScoreOutput
+from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
 from core.llm.types import CallPoint
 from core.observability import get_logger
 
@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from core.llm.config.token_budget import TokenBudgetManager
 
 log = get_logger(__name__)
+
+# Pre-compiled tokenizer patterns: ``_tokenize`` is invoked on
+# every fuzz-anchor step, so keep the patterns out of the per-call path.
+_WORD_RE = re.compile(r"[a-zA-Z]+")
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
 
 
 class MCSampler:
@@ -100,41 +105,11 @@ class MCSampler:
         # Step 2: Extract regions around anchor points
         regions = self._extract_regions(document, anchors)
 
-        # Step 3: Score all regions concurrently using LLM (P1-2 fix).
-        # Previously a sequential for-loop: N regions x LLM latency
-        # (e.g. 5 x 0.3s = 1.5s). Now asyncio.gather runs them in
-        # parallel, cutting total time to ~max(single_region_time).
-        async def _safe_score(idx: int, region: str) -> tuple[str, EvidenceScoreOutput]:
-            try:
-                score = await self._score_region(region, title)
-                log.debug(
-                    "region_scored",
-                    region_index=idx,
-                    relevance=score.relevance_score,
-                    density=score.information_density,
-                    confidence=score.confidence,
-                )
-                return region, score
-            except Exception as e:
-                log.warning(
-                    "region_scoring_failed",
-                    region_index=idx,
-                    error=str(e),
-                )
-                # Use default low score for failed regions
-                return (
-                    region,
-                    EvidenceScoreOutput(
-                        relevance_score=0.3,
-                        information_density=0.3,
-                        confidence=0.0,
-                        key_facts=[],
-                    ),
-                )
-
-        scored_regions = list(
-            await asyncio.gather(*[_safe_score(i, r) for i, r in enumerate(regions)])
-        )
+        # Step 3: Score all regions in a single batched LLM call.
+        # Previously N parallel calls (asyncio.gather, one per region) — each
+        # carried full prompt overhead and multiplied rate-limit pressure on
+        # the free tier (rpm=5). One batched call amortizes the fixed cost.
+        scored_regions = await self._score_regions_batch(regions, title)
 
         # Step 4: Calculate overall confidence
         if not scored_regions:
@@ -216,13 +191,16 @@ class MCSampler:
 
         # Limit to sample_size most relevant anchors
         if len(anchors) > self._sample_size:
-            # Prioritize fuzz anchors (content change points)
+            # Prioritize fuzz anchors (content change points); ties broken by
+            # position so the selection is deterministic for a given anchor
+            # set (the set itself is already randomly sampled above).
+            # frozenset for O(1) membership instead of O(n) list scan.
+            fuzz_anchors_set = frozenset(fuzz_anchors)
             anchors = sorted(
                 anchors,
-                # 非密码学排序用途
                 key=lambda x: (
-                    x not in fuzz_anchors,  # Fuzz anchors first
-                    random.random(),  # nosec B311
+                    x not in fuzz_anchors_set,  # Fuzz anchors first
+                    x,
                 ),
             )[: self._sample_size]
 
@@ -249,6 +227,10 @@ class MCSampler:
             List of anchor indices at content change points.
         """
         text_len = len(text)
+        # Short documents (text_len < 10) yield window == 0; slicing then
+        # produces empty strings and every step is flagged as a change point.
+        if window <= 0:
+            return []
         anchors: list[int] = []
         step = max(100, window // 2)  # Step size for scanning
 
@@ -268,7 +250,7 @@ class MCSampler:
         return anchors
 
     def _simple_similarity(self, text1: str, text2: str) -> float:
-        """Calculate word-level similarity ratio (P1-2 fix).
+        """Calculate word-level similarity ratio (fix).
 
         Uses word-level tokenization instead of character-level:
         - English: ``[a-zA-Z]+`` word tokens
@@ -301,7 +283,7 @@ class MCSampler:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Tokenize text into word-level tokens (P1-2 fix).
+        """Tokenize text into word-level tokens (fix).
 
         - English / Latin: ``re.findall(r'[a-zA-Z]+', text)``
         - Chinese (CJK): 2-gram sliding window over each CJK run
@@ -317,15 +299,13 @@ class MCSampler:
         Returns:
             List of tokens.
         """
-        import re
-
         tokens: list[str] = []
 
         # English / Latin words
-        tokens.extend(re.findall(r"[a-zA-Z]+", text))
+        tokens.extend(_WORD_RE.findall(text))
 
         # Chinese 2-grams: for each CJK run, slide a 2-char window
-        for cjk_run in re.findall(r"[\u4e00-\u9fff]+", text):
+        for cjk_run in _CJK_RUN_RE.findall(text):
             if len(cjk_run) < 2:
                 # Single CJK char — treat as a token
                 tokens.append(cjk_run)
@@ -373,38 +353,95 @@ class MCSampler:
 
         return regions
 
-    async def _score_region(
+    async def _score_regions_batch(
         self,
-        region: str,
+        regions: list[str],
         title: str,
-    ) -> EvidenceScoreOutput:
-        """Score a text region using LLM.
+    ) -> list[tuple[str, EvidenceScoreOutput]]:
+        """Score all sampled regions in a single LLM call.
+
+        Payload carries numbered regions (R1..Rn); the LLM returns one JSON
+        object whose ``scores`` elements echo ``region_id``. Alignment uses
+        region_id when the model echoes them all, else falls back to array
+        order. Length mismatch retries once; any failure degrades ALL
+        regions to default low scores — the caller's low-confidence
+        fallback (truncate original) then applies.
 
         Args:
-            region: The text region to score.
+            regions: Sampled text regions.
             title: Document title for context.
 
         Returns:
-            EvidenceScoreOutput with relevance, density, and confidence.
+            List of (region, EvidenceScoreOutput) tuples, index-aligned.
         """
-        try:
-            result: EvidenceScoreOutput = await self._llm.call_at(
-                CallPoint.EVIDENCE_SAMPLING,
-                {
-                    "title": title,
-                    "sample_text": region,
-                },
-                output_model=EvidenceScoreOutput,
+        regions_payload = {
+            f"R{i}": self._budget.truncate(region, CallPoint.EVIDENCE_SAMPLING)
+            for i, region in enumerate(regions, start=1)
+        }
+
+        scores: list[EvidenceScoreOutput] | None = None
+        for attempt in (1, 2):
+            try:
+                result: EvidenceBatchScoreOutput = await self._llm.call_at(
+                    CallPoint.EVIDENCE_SAMPLING,
+                    {
+                        "title": title,
+                        "regions": regions_payload,
+                    },
+                    output_model=EvidenceBatchScoreOutput,
+                )
+                scores = list(result.scores)
+            except Exception:
+                log.warning(
+                    "batch_region_scoring_failed",
+                    attempt=attempt,
+                    exc_info=True,
+                )
+                scores = None
+            if scores is not None and len(scores) == len(regions):
+                break
+            log.warning(
+                "region_scores_length_mismatch",
+                attempt=attempt,
+                expected=len(regions),
+                got=len(scores) if scores is not None else -1,
             )
-            return result
-        except Exception:
-            log.warning("LLM evidence scoring failed, returning fallback scores", exc_info=True)
-            return EvidenceScoreOutput(
-                relevance_score=0.3,
-                information_density=0.3,
-                confidence=0.0,
-                key_facts=[],
-            )
+            scores = None
+
+        if scores is None:
+            return [(region, self._default_score()) for region in regions]
+        return self._align_scores(regions, scores)
+
+    @staticmethod
+    def _align_scores(
+        regions: list[str],
+        scores: list[EvidenceScoreOutput],
+    ) -> list[tuple[str, EvidenceScoreOutput]]:
+        """Align batch scores to regions: by echoed region_id when complete.
+
+        LLM batch outputs can arrive out of order — array order is only a
+        fallback for models that skip the region_id echo. If region_ids are
+        present but don't cover exactly R1..Rn, degrade to defaults rather
+        than risk attributing a score to the wrong region.
+        """
+        expected_ids = [f"R{i}" for i in range(1, len(regions) + 1)]
+        echoed = [s.region_id for s in scores]
+        if all(echoed) and sorted(echoed) == sorted(expected_ids):
+            by_id = {s.region_id: s for s in scores}
+            return [(region, by_id[rid]) for region, rid in zip(regions, expected_ids, strict=True)]
+        if any(echoed):
+            log.warning("region_id_echo_incomplete", echoed=sum(1 for e in echoed if e))
+        return list(zip(regions, scores, strict=True))
+
+    @staticmethod
+    def _default_score() -> EvidenceScoreOutput:
+        """Default low-confidence score for degraded regions."""
+        return EvidenceScoreOutput(
+            relevance_score=0.3,
+            information_density=0.3,
+            confidence=0.0,
+            key_facts=[],
+        )
 
     def _synthesize_regions(
         self,

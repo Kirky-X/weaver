@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Admin endpoints for memory system diagnostics.
 
 Endpoints:
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.endpoints.admin.admin import _get_container
-from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -23,50 +23,21 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # ── Memory System Diagnostics ─────────────────────────────────────
 
+# The diagnostics implementation and its response model live once in
+# api.endpoints.monitoring.memory; the admin path registers the same
+# handler (identical admin-key auth, identical payload).
+from api.endpoints.monitoring.memory import (  # noqa: E402
+    MemoryDiagnosticResponse,
+    memory_diagnostics,
+)
 
-class MemoryDiagnosticResponse(BaseModel):
-    """Response model for memory system diagnostics."""
-
-    memory_service_initialized: bool
-    temporal_event_count: int
-    causal_link_count: int
-    pending_consolidation: int
-    slow_path_enabled: bool
-    scheduler_job_registered: bool
-
-
-@router.get("/memory/diagnostics", response_model=APIResponse[MemoryDiagnosticResponse])
-async def memory_diagnostics(
-    request: Request,
-    _: str = Depends(verify_api_key),
-    container: Any = Depends(_get_container),
-) -> APIResponse[MemoryDiagnosticResponse]:
-    """Diagnostic endpoint for memory system health.
-
-    Returns status of memory service initialization, event counts,
-    and scheduler registration for troubleshooting.
-
-    Args:
-        _: Verified API key.
-        container: Application container.
-
-    Returns:
-        Memory system diagnostic data.
-
-    """
-    diagnostics = await container.memory_diagnostics()
-    scheduler_registered = container.is_job_registered("memory_consolidation")
-
-    return success_response(
-        MemoryDiagnosticResponse(
-            memory_service_initialized=diagnostics["service_initialized"],
-            temporal_event_count=diagnostics["temporal_event_count"],
-            causal_link_count=diagnostics["causal_link_count"],
-            pending_consolidation=diagnostics["pending_consolidation"],
-            slow_path_enabled=diagnostics["slow_path_enabled"],
-            scheduler_job_registered=scheduler_registered,
-        )
-    )
+router.add_api_route(
+    "/memory/diagnostics",
+    memory_diagnostics,
+    methods=["GET"],
+    response_model=APIResponse[MemoryDiagnosticResponse],
+    name="admin_memory_diagnostics",
+)
 
 
 class ConsolidationResult(BaseModel):
@@ -110,5 +81,78 @@ async def trigger_consolidation(
         ConsolidationResult(
             processed=len(results),
             event_ids=[r.event_id for r in results if hasattr(r, "event_id")],
+        )
+    )
+
+
+# ── Memory Search (MAGMA read path) ───────────────────────────────
+
+
+class MemorySearchResponse(BaseModel):
+    """Response model for memory search."""
+
+    query: str
+    intent: str | None = None
+    results: list[dict[str, Any]]
+    total: int
+
+
+@router.get(
+    "/memory/search",
+    response_model=APIResponse[MemorySearchResponse],
+)
+async def memory_search(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=500, description="Search query"),
+    intent: str | None = Query(
+        None, description="Optional intent (WHY/WHEN/ENTITY/OPEN/MULTI_HOP)"
+    ),
+    _: str = Depends(verify_admin_api_key),
+    container: Any = Depends(_get_container),
+) -> APIResponse[MemorySearchResponse]:
+    """Search the MAGMA memory graph with intent-aware beam retrieval.
+
+    Exposes the write-only memory system's read path: adaptive beam search
+    across temporal/causal/entity graph views, with knowledge-cache reuse.
+
+    Args:
+        request: Incoming request.
+        q: Natural-language query.
+        intent: Optional intent override; classified from the query when omitted.
+        _: Verified API key.
+        container: Application container.
+
+    Returns:
+        Scored memory events. A result with ``cache_hit=true`` carries a
+        score of 1.0 that is not comparable to fresh normalized scores.
+
+    """
+    ms = container.memory_service
+    if ms is None:
+        raise HTTPException(status_code=503, detail="Memory service not initialized")
+
+    intent_enum = None
+    if intent is not None:
+        from modules.memory.core.graph_types import IntentType
+
+        try:
+            intent_enum = IntentType(intent.upper())
+        except ValueError:
+            valid = [m.value for m in IntentType]
+            raise HTTPException(
+                status_code=422, detail=f"Invalid intent {intent!r}. Valid: {valid}"
+            ) from None
+
+    try:
+        results = await ms.search(q, intent=intent_enum)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Memory search failed: {exc}") from exc
+
+    return success_response(
+        MemorySearchResponse(
+            query=q,
+            intent=intent_enum.value if intent_enum else None,
+            results=results,
+            total=len(results),
         )
     )

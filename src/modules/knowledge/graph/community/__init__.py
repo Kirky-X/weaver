@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 """Community sub-package - community detection, management, and reporting."""
 
@@ -8,6 +8,7 @@ from modules.knowledge.graph.community.enums import ModularityMetric
 from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,
+    CommunityReport,
     HierarchicalCluster,
 )
 from modules.knowledge.graph.community.modularity import (
@@ -33,6 +34,7 @@ __all__ = [
     "CommunityDetectionResult",
     "CommunityDetector",
     "CommunityRepairService",
+    "CommunityReport",
     "CommunityReportGenerator",
     "CommunityReportOutput",
     "CommunityStats",

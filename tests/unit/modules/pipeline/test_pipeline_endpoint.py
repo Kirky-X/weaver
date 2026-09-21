@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for pipeline endpoints — beyond the model/basic tests in test_api.py."""
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+
+from core.exceptions import BusinessError
 
 
 class TestGetTaskStatusWithStats:
@@ -258,7 +260,7 @@ class TestTriggerPipelineEdgeCases:
 
 
 class TestTriggerPipelineSourceDedup:
-    """Tests for per-source dedup lock on POST /pipeline/trigger (vuln-0002 fix)."""
+    """Tests for per-source dedup lock on POST /pipeline/trigger."""
 
     @pytest.mark.asyncio
     async def test_trigger_returns_409_when_source_already_locked(self):
@@ -279,7 +281,7 @@ class TestTriggerPipelineSourceDedup:
 
         request = TriggerRequest(source_id="test-source")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -288,7 +290,7 @@ class TestTriggerPipelineSourceDedup:
             )
 
         assert exc_info.value.status_code == 409
-        assert "already being processed" in exc_info.value.detail
+        assert "already being processed" in exc_info.value.message
         # No task should be queued
         assert mock_cache.hset.call_count == 0
         # set_nx must have been attempted (atomic acquire)
@@ -298,8 +300,8 @@ class TestTriggerPipelineSourceDedup:
     async def test_trigger_sets_source_lock_when_not_locked(self):
         """If source is not locked, trigger acquires the lock atomically via set_nx."""
         from api.endpoints.content.pipeline import (
-            _SOURCE_LOCK_TTL_SECONDS,
             TriggerRequest,
+            _source_lock_ttl,
             trigger_pipeline,
         )
 
@@ -333,7 +335,7 @@ class TestTriggerPipelineSourceDedup:
         mock_cache.set_nx.assert_called()
         nx_call = mock_cache.set_nx.call_args
         assert "pipeline:source:lock:test-source" in nx_call.args[0]
-        assert nx_call.kwargs.get("ex") == _SOURCE_LOCK_TTL_SECONDS
+        assert nx_call.kwargs.get("ex") == _source_lock_ttl()
 
     @pytest.mark.asyncio
     async def test_background_task_releases_lock_on_completion(self):
@@ -344,6 +346,9 @@ class TestTriggerPipelineSourceDedup:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
         mock_cache.set_nx = AsyncMock(return_value=True)
+        # Compare-and-delete release: get(key) must return our task_id for
+        # the lock to be considered owned by this task and deleted.
+        mock_cache.get = AsyncMock(return_value=str(task_uuid))
         mock_cache.delete = AsyncMock()
 
         mock_source = MagicMock()

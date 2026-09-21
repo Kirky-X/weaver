@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Flashrank reranker for cross-encoder re-ranking.
 
 Flashrank uses lightweight ONNX models for fast CPU-based re-ranking,
@@ -130,18 +130,27 @@ class FlashrankReranker:
             Re-ranked candidates sorted by relevance score.
         """
         if not self._available or not candidates:
-            return candidates[:top_k] if top_k else candidates
+            return candidates if top_k is None else candidates[:top_k]
 
         try:
             from flashrank import RerankRequest
 
-            # Prepare passages for flashrank
+            # Prepare passages for flashrank. Ids must be unique — missing
+            # ids fall back to the index, collisions get a positional suffix,
+            # so re-ranked output can never collapse two candidates.
             passages = []
+            original_positions: dict[str, int] = {}
+            seen_ids: set[str] = set()
             for i, cand in enumerate(candidates):
+                pid = str(cand.get("id", i))
+                if pid in seen_ids:
+                    pid = f"{pid}#{i}"
+                seen_ids.add(pid)
+                original_positions[pid] = i
                 text = cand.get("content") or cand.get("text") or cand.get("title", "")
                 passages.append(
                     {
-                        "id": cand.get("id", str(i)),
+                        "id": pid,
                         "text": text,
                         **{k: v for k, v in cand.items() if k not in ("id", "text", "content")},
                     }
@@ -158,12 +167,13 @@ class FlashrankReranker:
 
             # Build output with new scores
             results = []
-            for i, item in enumerate(ranked[:top_k] if top_k else ranked):
+            for i, item in enumerate(ranked if top_k is None else ranked[:top_k]):
+                pid = str(item.get("id", i))
                 result = {
-                    "id": item.get("id", str(i)),
+                    "id": pid,
                     "text": item.get("text", ""),
                     "rerank_score": item.get("score", 0.0),
-                    "original_rank": i,
+                    "original_rank": original_positions.get(pid, i),
                     "new_rank": i,
                 }
                 # Copy other fields
@@ -183,7 +193,7 @@ class FlashrankReranker:
 
         except Exception as exc:
             log.error("flashrank_rerank_failed", error=str(exc), fallback="pass_through")
-            return candidates[:top_k] if top_k else candidates
+            return candidates if top_k is None else candidates[:top_k]
 
     def rerank_with_metadata(
         self,
@@ -203,7 +213,7 @@ class FlashrankReranker:
         """
         if not self._available or not candidates:
             results = []
-            for i, cand in enumerate(candidates[:top_k] if top_k else candidates):
+            for i, cand in enumerate(candidates if top_k is None else candidates[:top_k]):
                 results.append(
                     RerankResult(
                         doc_id=cand.get("id", str(i)),

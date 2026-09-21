@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Analytics storage — persist shift points to database."""
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from core.constants import BRIEFING_CATEGORIES
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ class AnalyticsStorage:
                     before_avg=shift.get("before_avg"),
                     after_avg=shift.get("after_avg"),
                     trigger_article_ids=shift.get("trigger_article_ids", []),
-                    # Migration 30: article-level tracking fields (T003).
+                    # Migration 30: article-level tracking fields.
                     # Optional — community-level shifts leave these None.
                     article_id=shift.get("article_id"),
                     entity_name=shift.get("entity_name"),
@@ -79,7 +80,7 @@ class AnalyticsStorage:
                 caller; SentimentTrackerNode._track_single_entity catches
                 and marks ``sentiment_shift`` in degraded_fields. Returning
                 None on error would be misread as "no previous article"
-                and trigger an incorrect seed record (T003-sub4 H2).
+                and trigger an incorrect seed record.
         """
         async with self._pool.session_context() as session:
             from sqlalchemy import select
@@ -122,7 +123,7 @@ class AnalyticsStorage:
             scope: Which shifts to return. Defaults to ``"community"`` to
                 preserve the historical API behavior (community-level only,
                 i.e. article_id IS NULL) and avoid polluting community
-                queries with T003 article-level records (Rule 14).
+                queries with article-level records (Rule 14).
                 - ``"community"``: only community-level shifts (article_id IS NULL)
                 - ``"article"``: only article-level shifts (article_id IS NOT NULL)
                 - ``"all"``: both (back-compat for callers that want everything)
@@ -156,26 +157,30 @@ class AnalyticsStorage:
                     "community_title": r.community_title,
                     "shift_type": r.shift_type,
                     "direction": r.direction,
-                    "magnitude": float(r.magnitude) if r.magnitude else 0.0,
-                    "confidence": float(r.confidence) if r.confidence else 0.0,
+                    "magnitude": float(r.magnitude) if r.magnitude is not None else 0.0,
+                    "confidence": float(r.confidence) if r.confidence is not None else 0.0,
                     "detected_at": r.detected_at.isoformat() if r.detected_at else None,
                     "window_start": r.window_start.isoformat() if r.window_start else None,
                     "window_end": r.window_end.isoformat() if r.window_end else None,
-                    "before_avg": float(r.before_avg) if r.before_avg else None,
-                    "after_avg": float(r.after_avg) if r.after_avg else None,
+                    "before_avg": float(r.before_avg) if r.before_avg is not None else None,
+                    "after_avg": float(r.after_avg) if r.after_avg is not None else None,
+                    # Article-level identity: without these, scope="article"
+                    # callers cannot tell which article/entity a shift belongs to.
+                    "article_id": str(r.article_id) if r.article_id is not None else None,
+                    "entity_name": r.entity_name,
                 }
                 for r in rows
             ]
 
     async def get_briefings_with_items(
         self,
-        date: str | None = None,
+        briefing_date: str | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Get daily briefings with their items eagerly loaded.
 
         Args:
-            date: Optional date filter in YYYY-MM-DD format.
+            briefing_date: Optional date filter in YYYY-MM-DD format.
             limit: Maximum number of briefings to return.
 
         Returns:
@@ -187,7 +192,7 @@ class AnalyticsStorage:
                 returns an empty list to the client.
         """
         async with self._pool.session_context() as session:
-            from datetime import date as date_type
+            from datetime import date
 
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
@@ -195,8 +200,8 @@ class AnalyticsStorage:
             from core.db import DailyBriefing
 
             query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
-            if date:
-                target_date = date_type.fromisoformat(date)
+            if briefing_date:
+                target_date = date.fromisoformat(briefing_date)
                 query = query.where(DailyBriefing.briefing_date == target_date)
             query = query.order_by(DailyBriefing.generated_at.desc()).limit(limit)
             result = await session.execute(query)
@@ -216,7 +221,9 @@ class AnalyticsStorage:
                             "rank": item.rank,
                             "article_id": str(item.article_id),
                             "category": item.category,
-                            "score": float(item.score) if item.score else None,
+                            # score=0.0 is legitimate (zero relevance), not
+                            # missing data — use `is not None`.
+                            "score": float(item.score) if item.score is not None else None,
                             "score_breakdown": item.score_breakdown,
                             "reason": item.reason,
                         }
@@ -226,7 +233,7 @@ class AnalyticsStorage:
                 for r in rows
             ]
 
-    # ── T004: BriefingGenerator support ────────────────────────────────────
+    # ── BriefingGenerator support ─────────────────────────────────────────
 
     # Briefing category → articles_core.category mapping.
     # - finance → 经济 (CategoryType.ECONOMY)
@@ -261,8 +268,7 @@ class AnalyticsStorage:
         - ai → title OR body contains any AI_KEYWORDS (case-insensitive)
         - general → no category filter (all articles on that date)
 
-        Body is fetched via LEFT JOIN to article_bodies (vertical split per
-        Weaver-数据库设计文档 §9.1). Required by spec R-briefing-003 — LLM
+        Body is fetched via LEFT JOIN to article_bodies (vertical split). Required by spec — LLM
         summary needs article body, not just title (Rule 24 — no simplified
         implementation).
 
@@ -273,15 +279,16 @@ class AnalyticsStorage:
             category: Briefing category — one of {finance, tech, ai, general}.
 
         Returns:
-            List of article dicts with article_id/title/body/category/score/
-            sentiment_score/credibility_score/quality_score/publish_time.
+            List of article dicts with article_id/title/body/summary/category/
+            score/sentiment_score/credibility_score/quality_score/publish_time.
+            summary may be None (articles not yet analyzed).
 
         Raises:
             ValueError: If category is not in {finance, tech, ai, general}.
             Exception: On DB error (Rule 12). BriefingGenerator propagates
                 to caller.
         """
-        if category not in {"finance", "tech", "ai", "general"}:
+        if category not in BRIEFING_CATEGORIES:
             raise ValueError(
                 f"Invalid briefing category '{category}'. Valid: finance/tech/ai/general"
             )
@@ -300,10 +307,12 @@ class AnalyticsStorage:
             end_dt = dt(briefing_date.year, briefing_date.month, briefing_date.day, 23, 59, 59)
 
             # LEFT JOIN article_bodies to fetch body in the same query
-            # (vertical split per §9.1). Body is required by spec R-briefing-003
-            # for LLM summary input — returning body="" was a Rule 24 violation.
+            # (vertical split). Body serves the AI-category keyword
+            # filter below; ArticleBody.summary (written by analyze) is the
+            # primary LLM input for briefing generation — supersedes
+            # full-body input (token optimization).
             query = (
-                select(ArticleCore, ArticleBody.body)
+                select(ArticleCore, ArticleBody.body, ArticleBody.summary)
                 .outerjoin(ArticleBody, ArticleBody.article_id == ArticleCore.id)
                 .where(
                     ArticleCore.publish_time >= start_dt,
@@ -333,6 +342,7 @@ class AnalyticsStorage:
                     "article_id": str(r.ArticleCore.id),
                     "title": r.ArticleCore.title,
                     "body": r.body or "",
+                    "summary": r.summary,
                     "category": r.ArticleCore.category,
                     "score": float(r.ArticleCore.score) if r.ArticleCore.score else 0.0,
                     "sentiment_score": (
@@ -362,7 +372,7 @@ class AnalyticsStorage:
 
         Idempotent: if a briefing with the same (briefing_date, category)
         already exists, it is replaced (delete + insert). This matches the
-        spec R-briefing-002 'same-day same-category 覆盖' semantics.
+        spec 'same-day same-category 覆盖' semantics.
 
         Args:
             briefing_date: Briefing date.
@@ -375,8 +385,35 @@ class AnalyticsStorage:
 
         Raises:
             Exception: On DB error (Rule 12). BriefingGenerator propagates
-                to caller (T010 scheduler / T009 endpoint).
+                to caller (scheduler / endpoint).
         """
+        # The SELECT-then-DELETE-INSERT sequence is not atomic: two concurrent
+        # writers for the same (date, category) can both pass the SELECT and
+        # the loser hits the UNIQUE(briefing_date, category) constraint on
+        # INSERT. Retry once in a fresh session — the second attempt
+        # observes the winner's row and deletes it before re-inserting.
+        # (Portable across PG/DuckDB; no SELECT ... FOR UPDATE on DuckDB.)
+        from sqlalchemy.exc import IntegrityError
+
+        try:
+            return await self._save_briefing_once(briefing_date, category, summary, items)
+        except IntegrityError as exc:
+            log.warning(
+                "save_briefing_conflict_retry",
+                briefing_date=str(briefing_date),
+                category=category,
+                error=str(exc),
+            )
+            return await self._save_briefing_once(briefing_date, category, summary, items)
+
+    async def _save_briefing_once(
+        self,
+        briefing_date: date,
+        category: str,
+        summary: str | None,
+        items: list[dict[str, Any]],
+    ) -> int:
+        """Single delete-then-insert pass for save_briefing (see retry above)."""
         async with self._pool.session_context() as session:
             from sqlalchemy import delete, select
 
@@ -426,7 +463,7 @@ class AnalyticsStorage:
             await session.commit()
             return int(briefing.id)
 
-    # ── T008: DailyBriefingService query support ────────────────────────
+    # ── DailyBriefingService query support ──────────────────────────────
 
     async def get_briefing(
         self,
@@ -524,7 +561,8 @@ class AnalyticsStorage:
                     "rank": item.rank,
                     "article_id": str(item.article_id),
                     "category": item.category,
-                    "score": float(item.score) if item.score else None,
+                    # Same 0.0-vs-None distinction as get_briefings_with_items.
+                    "score": float(item.score) if item.score is not None else None,
                     "reason": item.reason,
                 }
                 for item in row.items

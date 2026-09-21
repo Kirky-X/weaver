@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for modules.knowledge.graph.community.health.checker module."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -379,6 +379,55 @@ class TestCalculateHealthScore:
 
         assert score == 0.0
 
+    def test_mismatch_ratio_at_threshold_applies_penalty(self, checker):
+        """#187: hitting the mismatch ratio exactly must penalise (inclusive >=)."""
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.ENTITY_COUNT_MISMATCH,
+                severity="medium",
+                description="Mismatch",
+                suggestion="Recount",
+            )
+        ] * 2
+        score = checker._calculate_health_score(
+            issues,
+            {"total_communities": 10, "empty_community_count": 0, "stale_report_count": 0},
+        )
+
+        expected = 100.0 - CommunityHealthChecker.PENALTY_ENTITY_MISMATCH
+        assert score == expected
+
+    def test_missing_report_ratio_at_threshold_applies_penalty(self, checker):
+        """#187: hitting the missing-report ratio exactly must penalise."""
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.MISSING_REPORT,
+                severity="medium",
+                description="Missing",
+                suggestion="Generate",
+            )
+        ] * 3
+        score = checker._calculate_health_score(
+            issues,
+            {"total_communities": 10, "empty_community_count": 0, "stale_report_count": 0},
+        )
+
+        expected = 100.0 - CommunityHealthChecker.PENALTY_REPORT_MISSING
+        assert score == expected
+
+
+class TestModularityCalculatorContract:
+    """#186: the injected calculator is typed as ModularityCalculator."""
+
+    def test_accepts_modularity_calculator_instance(self) -> None:
+        """A real ModularityCalculator satisfies the declared parameter type."""
+        from modules.knowledge.graph.community.updater_modularity import ModularityCalculator
+
+        calculator = ModularityCalculator(pool=AsyncMock())
+        checker = CommunityHealthChecker(AsyncMock(), modularity_calculator=calculator)
+
+        assert checker._modularity_calculator is calculator
+
 
 class TestDetermineStatus:
     """Test _determine_status method."""
@@ -479,3 +528,48 @@ class TestHealthIssue:
         assert issue.severity == "high"
         assert issue.community_id == "123"
         assert issue.auto_repairable is True
+
+
+class TestModularityPenaltyOrdering:
+    """Regression: modularity penalty must be applied even when the issue
+    list contains other issue types before the modularity issue —
+    the old loop-level ``break`` fired after the first issue of any type."""
+
+    def _make_checker(self):
+        return CommunityHealthChecker(MagicMock())
+
+    def test_penalty_applied_when_modularity_issue_not_first(self):
+        checker = self._make_checker()
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.MISSING_REPORT,
+                severity="high",
+                description="missing report",
+                suggestion="generate",
+            ),
+            HealthIssue(
+                issue_type=IssueType.LOW_MODULARITY,
+                severity="medium",
+                description="low modularity",
+                suggestion="rebuild",
+            ),
+        ]
+        metrics = {"total_communities": 10}
+        score = checker._calculate_health_score(issues, metrics)
+
+        assert score == 100 - checker.PENALTY_LOW_MODULARITY
+
+    def test_critical_modularity_penalty_applied(self):
+        checker = self._make_checker()
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.LOW_MODULARITY,
+                severity="high",
+                description="low modularity",
+                suggestion="rebuild",
+            ),
+        ]
+        metrics = {"total_communities": 10}
+        score = checker._calculate_health_score(issues, metrics)
+
+        assert score == 100 - checker.PENALTY_CRITICAL_MODULARITY

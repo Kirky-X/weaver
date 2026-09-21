@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for Pipeline ML component pass-through (3.1) and Container ML init (3.2).
 
-Task 3.1 — Verify that Pipeline.__init__ passes cascade_classifier, gliner_extractor,
+Verify that Pipeline.__init__ passes cascade_classifier, gliner_extractor,
 and mc_sampler through to their respective nodes.
 
-Task 3.2 — Verify that Container.init_ml_components() gracefully degrades when
+Verify that Container.init_ml_components() gracefully degrades when
 ML model loading fails (fasttext, GLiNER) and logs warnings.
 """
 
@@ -22,7 +22,7 @@ from modules.processing.pipeline.deps import (
 )
 
 # ---------------------------------------------------------------------------
-# Task 3.1 — Pipeline ML component pass-through tests
+# Pipeline ML component pass-through tests
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +395,7 @@ class TestPipelineNoMlComponentsDefaultsToNone:
 
 
 # ---------------------------------------------------------------------------
-# Task 3.2 — Container ML component initialization tests
+# Container ML component initialization tests
 # ---------------------------------------------------------------------------
 
 

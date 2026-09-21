@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB global context builder for community-based search.
 
 Builds context using community reports and hierarchical structure,
@@ -10,13 +10,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.db.graph_query_builders import create_graph_query_builder
+import numpy as np
+
+from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder
 
 log = get_logger(__name__)
+
+# Upper bound on CommunityReport candidates pulled for in-process cosine
+# scoring (each row carries a ~1024-dim float embedding). Keeps memory and
+# event-loop latency bounded on large graphs.
+# NOTE: this is a PRE-rank cap, not a post-rank cap — the Cypher below applies
+# ``ORDER BY c.rank DESC LIMIT $candidate_cap`` *before* any embedding
+# similarity is computed, so a low-ranked but semantically close report that
+# falls outside the top-N is never scored.
+_EMBEDDING_CANDIDATE_CAP = 500
 
 
 class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
@@ -42,6 +53,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
         max_entities_per_community: int = 5,
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(
             graph_pool=graph_pool,
@@ -51,8 +63,9 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
             max_entities_per_community=max_entities_per_community,
             llm_client=llm_client,
             fallback_enabled=fallback_enabled,
+            similarity_threshold=similarity_threshold,
         )
-        self._query_builder = create_graph_query_builder("ladybug")
+        self._query_builder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
 
     def _should_skip_supplementary(self, used_fallback: bool) -> bool:
         """LadybugDB skips supplementary queries for fallback results.
@@ -71,7 +84,14 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
         query: str,
         level: int,
     ) -> list[dict[str, Any]]:
-        """LadybugDB doesn't support vector search, falls back to text search."""
+        """Vector search via in-process cosine re-ranking.
+
+        LadybugDB lacks ``vector.similarity.cosine``, but CommunityReport
+        nodes persist ``full_content_embedding`` — so fetch candidates with
+        embeddings and score them in Python. This keeps parity with the
+        Neo4j builder instead of silently degrading to text search (and
+        paying for a query embedding that is then thrown away).
+        """
         if not self._llm_client:
             return []
 
@@ -79,10 +99,71 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
             embeddings = await self._llm_client.embed_default([query])
             if not embeddings or not embeddings[0]:
                 return []
+            query_embedding = embeddings[0]
 
-            # LadybugDB doesn't support vector.similarity.cosine
-            # Fall back to text search for now
-            return await self._text_search_communities(query, level)
+            cypher = """
+            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+            WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
+            RETURN c.id AS id,
+                   c.title AS title,
+                   COALESCE(r.summary, '') AS summary,
+                   c.rank AS rank,
+                   c.entity_count AS entity_count,
+                   r.full_content AS full_content,
+                   r.key_entities AS key_entities,
+                   r.full_content_embedding AS embedding
+            ORDER BY c.rank DESC
+            LIMIT $candidate_cap
+            """
+
+            results = await self._pool.execute_query(
+                cypher, {"level": level, "candidate_cap": _EMBEDDING_CANDIDATE_CAP}
+            )
+
+            # Batched numpy cosine (single matmul) — pure-Python loops cost
+            # 100ms+ per 1k communities and block the event loop.
+            # Build (row, embedding) pairs in ONE pass so the score index is
+            # guaranteed to line up with the result row it belongs to.
+            candidates = [
+                (r, r["embedding"])
+                for r in results
+                if isinstance(r.get("embedding"), list) and r.get("embedding")
+            ]
+            if not candidates:
+                return []
+            emb_matrix = np.array([emb for _, emb in candidates], dtype=np.float32)
+            query_vec = np.array(query_embedding, dtype=np.float32)
+            norms = np.linalg.norm(emb_matrix, axis=1) * np.linalg.norm(query_vec)
+            norms[norms == 0.0] = 1e-9
+            sims = (emb_matrix @ query_vec) / norms
+
+            scored: list[tuple[float, dict[str, Any]]] = [
+                (float(sim), r)
+                for sim, (r, _) in zip(sims, candidates)
+                if float(sim) > self._similarity_threshold
+            ]
+
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+
+            if scored:
+                log.debug(
+                    "ladybug_vector_search_communities_found",
+                    count=len(scored),
+                    top_score=scored[0][0],
+                )
+            return [
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title", ""),
+                    "summary": r.get("summary", ""),
+                    "rank": r.get("rank", 1.0),
+                    "entity_count": r.get("entity_count", 0),
+                    "full_content": r.get("full_content", ""),
+                    "key_entities": r.get("key_entities", []),
+                    "similarity_score": round(sim, 4),
+                }
+                for sim, r in scored[: self._max_communities]
+            ]
 
         except Exception as exc:
             log.warning("vector_search_communities_failed", error=str(exc))

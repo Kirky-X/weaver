@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Create api_keys table.
 
 Revision ID: 07_create_api_keys_table
 Revises: 06_vertical_split_articles
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §1.6.3:
+Changes:
 - Create api_keys table with bcrypt hash storage
 - Partial index on expires_at WHERE is_revoked = false
 """

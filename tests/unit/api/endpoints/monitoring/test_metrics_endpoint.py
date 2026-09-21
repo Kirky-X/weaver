@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test /metrics endpoint has only one handler.
 
-Validates GAP-M04 fix: duplicate /metrics route registration removed,
+Validates duplicate /metrics route registration removed,
 keeping only the version with optional authentication.
 """
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for EntityResolutionRules (knowledge module)."""
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from modules.knowledge.graph.resolution_rules import (
     EntityType,
     MatchType,
     ResolutionResult,
+    ResolutionRule,
 )
 
 
@@ -284,3 +285,69 @@ class TestAddRule:
 
         result = rules.resolve("special", "概念", [{"canonical_name": "special"}])
         assert result.reason == "Custom rule"
+
+
+class TestResolveRulePriorityAcrossCandidates:
+    """Regression: rule priority must be respected ACROSS candidates —
+    a high-priority rule match on a later candidate wins over a
+    low-priority rule match on an earlier one."""
+
+    def test_exact_beats_fuzzy_across_candidates(self) -> None:
+        rules = EntityResolutionRules()
+        candidates = [
+            {"canonical_name": "OpenAI公司"},  # matches via case-insensitive-ish rules only
+            {"canonical_name": "OpenAI"},  # exact match
+        ]
+        result = rules.resolve("OpenAI", "组织机构", candidates)
+        assert result.match_type == MatchType.EXACT
+        assert result.canonical_name == "OpenAI"
+
+    def test_high_priority_custom_rule_wins_over_later_default(self) -> None:
+        rules = EntityResolutionRules()
+
+        def always_exact(name, canonical, entity_type):
+            return ResolutionResult(
+                match_type=MatchType.EXACT,
+                confidence=1.0,
+                canonical_name=canonical,
+                should_merge=True,
+                reason="Priority custom",
+            )
+
+        rules.add_rule(
+            ResolutionRule(
+                name="priority_custom",
+                entity_types=None,
+                priority=-1,
+                matcher=always_exact,
+            )
+        )
+
+        candidates = [
+            {"canonical_name": "anything-else"},
+            {"canonical_name": "target"},
+        ]
+        result = rules.resolve("target", "概念", candidates)
+        assert result.reason == "Priority custom"
+
+
+class TestLocationVariantCrossSuffix:
+    """Regression: different suffix types must not merge."""
+
+    def test_cross_suffix_collision_rejected(self) -> None:
+        """北京市 and 北京州 both strip to 北京 but must NOT merge."""
+        rules = EntityResolutionRules()
+        result = rules.resolve("北京市", "地点", [{"canonical_name": "北京州"}])
+        assert result is None or result.match_type == MatchType.NONE
+
+    def test_same_suffix_variant_still_matches(self) -> None:
+        """北京市 vs 北京 (one stripped, one bare) still matches."""
+        rules = EntityResolutionRules()
+        result = rules.resolve("北京市", "地点", [{"canonical_name": "北京"}])
+        assert result is not None and result.match_type == MatchType.ALIAS
+
+    def test_person_cross_title_collision_rejected(self) -> None:
+        """王总 and 王董 must not merge (different titles)."""
+        rules = EntityResolutionRules()
+        result = rules.resolve("王总", "人物", [{"canonical_name": "王董"}])
+        assert result is None or result.match_type == MatchType.NONE

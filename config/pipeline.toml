@@ -2,16 +2,34 @@
 # ============================================================
 # News processing pipeline configuration
 # Environment variables can override any value:
-#   WEAVER__PIPELINE__PHASE1__CONCURRENCY=10
+#   WEAVER_PIPELINE__PHASE1__CONCURRENCY=10
 # ------------------------------------------------------------
-# DEPRECATED NOTICE (audit-cleanup-optimal):
-# Only [phase1].concurrency / [phase3].concurrency are consumed
-# (see Pipeline.read from PipelineSettings). All [[stages]].class_path
-# and [batch].merger_class entries below are DEAD CONFIG — kept only
-# for backward compatibility, editing them has no effect.
+# Consumed at runtime:
+#   - [phase1].concurrency / [phase3].concurrency
+#   - per-stage `enabled` flags (a false flag disables that stage;
+#     only phase3 stages support disabling, see Pipeline disabled set)
+#   - [monte_carlo] evidence sampling
+#   - [phase3].merge_analyze_narrative (LLM call merge toggle)
+#   - content_hash_version (config-driven snapshot invalidation)
+# Stage node wiring is hard-coded in modules/processing/pipeline/graph.py
+# (no dynamic class loading) — this file intentionally carries no
+# class_path entries.
 # ============================================================
 
 version = "1.0"
+
+# Content-hash 处理结果缓存版本。prompt/输出结构变更时 +1，旧快照立即
+# 全部失效（否则 7 天 TTL 内新旧结果混杂）。本次 2→3：analyze_narrative
+# 合并 prompt 上线 + narrative payload 移除 entities。
+content_hash_version = 3
+# Content-hash snapshot TTL in seconds (default 7 days); snapshots older
+# than this are treated as misses even when the version matches.
+content_hash_cache_ttl_seconds = 604800
+# ConflictDetectorNode similar-article similarity cutoff (0-1).
+conflict_similarity_threshold = 0.7
+# BatchMergerNode entity-merge similarity cutoff (0-1; more conservative
+# than entity resolution — wrong merges are costly to undo).
+merge_similarity_threshold = 0.8
 
 # ============================================================
 # Phase 1: Initial Processing
@@ -22,22 +40,18 @@ concurrency = 5
 
 [[phase1.stages]]
 name = "classifier"
-class_path = "modules.processing.pipeline.nodes.classifier.ClassifierNode"
 enabled = true
 
 [[phase1.stages]]
 name = "cleaner"
-class_path = "modules.processing.pipeline.nodes.cleaner.CleanerNode"
 enabled = true
 
 [[phase1.stages]]
 name = "categorizer"
-class_path = "modules.processing.pipeline.nodes.categorizer.CategorizerNode"
 enabled = true
 
 [[phase1.stages]]
 name = "vectorize"
-class_path = "modules.processing.pipeline.nodes.vectorize.VectorizeNode"
 enabled = true
 
 # ============================================================
@@ -46,60 +60,51 @@ enabled = true
 
 [phase3]
 concurrency = 5
+# analyze + narrative_schema 合并调用（LLM 调用优化：必调 chat 3→2 次/篇）。
+# 回滚置 false 即可，无需改代码。注意：narrative_schema 阶段若被
+# enabled=false 关闭，本开关应同时置 false。开启前建议先用最小评测集
+# 对比合并前后的摘要与叙事抽取质量。
+merge_analyze_narrative = true
 
 [[phase3.stages]]
 name = "re_vectorize"
-class_path = "modules.processing.pipeline.nodes.re_vectorize.ReVectorizeNode"
 enabled = true
 
 [[phase3.stages]]
 name = "analyze"
-class_path = "modules.processing.pipeline.nodes.analyze.AnalyzeNode"
 enabled = true
 
 [[phase3.stages]]
 name = "quality_scorer"
-class_path = "modules.processing.pipeline.nodes.quality_scorer.QualityScorerNode"
 enabled = true
 
 [[phase3.stages]]
 name = "credibility"
-class_path = "modules.processing.pipeline.nodes.credibility_checker.CredibilityCheckerNode"
 enabled = true
 
 [[phase3.stages]]
 name = "entity_extractor"
-class_path = "modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode"
+enabled = true
+
+[[phase3.stages]]
+name = "fake_news_detector"
 enabled = true
 
 [[phase3.stages]]
 name = "conflict_detector"
-class_path = "modules.processing.nodes.quality.conflict_detector.ConflictDetectorNode"
 enabled = true
 
 [[phase3.stages]]
 name = "narrative_schema"
-class_path = "modules.processing.nodes.extraction.narrative_schema_extractor.NarrativeSchemaExtractorNode"
 enabled = true
 
 [[phase3.stages]]
 name = "sentiment_tracker"
-class_path = "modules.processing.nodes.extraction.sentiment_tracker.SentimentTrackerNode"
 enabled = true
 
-# T004 BriefingGenerator is NOT registered here — it is an independent
-# generator class (user decision on T004 integration path) invoked by
-# T010 scheduler (daily 08:00) + T009 POST endpoint + T008 service, not
-# as a per-article pipeline node. See specmark tasks.md T004 for details.
-
-# ============================================================
-# Batch Processing
-# ============================================================
-
-[batch]
-merger_class = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
-enabled = true
-timeout = 180
+# BriefingGenerator is NOT registered here — it is an independent
+# generator class invoked by scheduler (daily 08:00) + POST endpoint +
+# service, not as a per-article pipeline node.
 
 # ============================================================
 # Monte Carlo Sampling Configuration

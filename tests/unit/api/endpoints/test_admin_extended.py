@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Comprehensive unit tests for admin API endpoints.
 
 Tests cover:
@@ -795,7 +795,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=False)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -821,7 +820,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=True)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -851,7 +849,6 @@ class TestMemoryDiagnostics:
         mock_container.is_job_registered = MagicMock(return_value=False)
 
         response = await memory_diagnostics(
-            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -1045,7 +1042,6 @@ class TestResponseModels:
             provider="openai",
             error_type="timeout",
             error_message="Request timed out",
-            status="timeout",
             attempt=2,
             fallback_tried=True,
             created_at="2024-01-15T10:30:00",
@@ -1089,3 +1085,90 @@ class TestResponseModels:
         )
         assert response.sources_updated == 10
         assert response.sources_updated == 10
+
+
+class TestMemorySearch:
+    """Tests for GET /admin/memory/search (MAGMA read path)."""
+
+    @pytest.mark.asyncio
+    async def test_search_service_not_initialized(self, mock_api_key, mock_request, mock_container):
+        """503 when the memory service is not initialized."""
+        from api.endpoints.admin.memory import memory_search
+
+        mock_container.memory_service = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await memory_search(
+                request=mock_request,
+                q="test query",
+                intent=None,
+                _=mock_api_key,
+                container=mock_container,
+            )
+        assert exc_info.value.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_search_returns_results(self, mock_api_key, mock_request, mock_container):
+        """Results are wrapped in the unified envelope with total count."""
+        from api.endpoints.admin.memory import memory_search
+
+        ms = MagicMock()
+        ms.search = AsyncMock(
+            return_value=[
+                {"id": "e1", "content": "event body", "score": 0.87, "source": "graph"},
+            ]
+        )
+        mock_container.memory_service = ms
+
+        response = await memory_search(
+            request=mock_request,
+            q="中美经贸",
+            intent=None,
+            _=mock_api_key,
+            container=mock_container,
+        )
+
+        assert response.data.total == 1
+        assert response.data.results[0]["id"] == "e1"
+        assert response.data.intent is None
+        ms.search.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_search_invalid_intent_422(self, mock_api_key, mock_request, mock_container):
+        """An unknown intent value is a 422, not a silent fallback."""
+        from api.endpoints.admin.memory import memory_search
+
+        ms = MagicMock()
+        ms.search = AsyncMock()
+        mock_container.memory_service = ms
+
+        with pytest.raises(HTTPException) as exc_info:
+            await memory_search(
+                request=mock_request,
+                q="query",
+                intent="NOT_AN_INTENT",
+                _=mock_api_key,
+                container=mock_container,
+            )
+        assert exc_info.value.status_code == 422
+        ms.search.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_valid_intent_forwarded(self, mock_api_key, mock_request, mock_container):
+        """A valid intent string is converted to the enum and forwarded."""
+        from api.endpoints.admin.memory import memory_search
+        from modules.memory.core.graph_types import IntentType
+
+        ms = MagicMock()
+        ms.search = AsyncMock(return_value=[])
+        mock_container.memory_service = ms
+
+        await memory_search(
+            request=mock_request,
+            q="why did X happen",
+            intent="why",
+            _=mock_api_key,
+            container=mock_container,
+        )
+
+        assert ms.search.await_args.kwargs["intent"] == IntentType.WHY

@@ -1,20 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Graph API endpoints for entity and relationship queries."""
 
 from __future__ import annotations
 
+
+import asyncio
+
 import time
-import urllib.parse
+
 from collections import deque
+
 from typing import Any
 
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+
 from pydantic import BaseModel
 
+
 from api.dependencies import get_graph_pool, get_graph_pool_type, get_graph_repo
+
 from api.middleware.auth import verify_api_key
+
 from api.schemas.response import APIResponse, success_response
+
 from api.schemas.traverse import (
     EdgeResponse,
     PathNode,
@@ -24,8 +36,13 @@ from api.schemas.traverse import (
     TraverseResultItem,
     TraverseStatistics,
 )
+
+from core.constants import EntityType
+
 from core.protocols import GraphPool
+
 from modules.storage.graph_repo import GraphRepository
+
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -37,10 +54,15 @@ class EntityResponse(BaseModel):
     """Response model for entity."""
 
     id: str
+
     canonical_name: str
+
     type: str
+
     aliases: list[str] | None
+
     description: str | None
+
     updated_at: str | None
 
 
@@ -48,8 +70,11 @@ class EntityRelationship(BaseModel):
     """Response model for entity relationship."""
 
     target: str
+
     relation_type: str
+
     source_article_id: str | None
+
     created_at: str | None
 
 
@@ -57,8 +82,11 @@ class EntityWithRelations(BaseModel):
     """Response model for entity with relationships."""
 
     entity: EntityResponse
+
     relationships: list[EntityRelationship]
+
     related_entities: list[EntityResponse]
+
     mentioned_in_articles: list[dict[str, Any]]
 
 
@@ -66,9 +94,13 @@ class ArticleGraphNode(BaseModel):
     """Node in article graph."""
 
     id: str
+
     title: str
+
     category: str | None
+
     publish_time: str | None
+
     score: float | None
 
 
@@ -76,8 +108,11 @@ class ArticleGraphRelationship(BaseModel):
     """Relationship in article graph."""
 
     source_id: str
+
     target_id: str
+
     relation_type: str
+
     properties: dict[str, Any] | None
 
 
@@ -85,8 +120,11 @@ class ArticleGraphResponse(BaseModel):
     """Response model for article graph."""
 
     article: ArticleGraphNode
+
     entities: list[EntityResponse]
+
     relationships: list[ArticleGraphRelationship]
+
     related_articles: list[ArticleGraphNode]
 
 
@@ -94,7 +132,9 @@ class RelationTypeSummary(BaseModel):
     """Layer 1: Summary of a relation type for an entity."""
 
     relation_type: str
+
     target_count: int
+
     primary_direction: str
 
 
@@ -102,10 +142,15 @@ class RelatedEntityResult(BaseModel):
     """Layer 2: Related entity matched by relation type."""
 
     relation_type: str
+
     direction: str
+
     target_name: str
+
     target_type: str
+
     target_description: str | None = None
+
     weight: float = 1.0
 
 
@@ -131,55 +176,84 @@ async def list_entities(
     """List entities with optional type filter.
 
     Returns a paginated list of entities from the graph database.
+
     Works with both Neo4j and LadybugDB backends.
+
+
 
     Args:
         entity_type: Optional entity type filter.
+
         limit: Maximum number of results (1-100).
+
         offset: Result offset for pagination.
+
         _: Verified API key.
+
         pool: GraphPool connection pool.
+
         pool_type: Graph database type ('neo4j' or 'ladybug').
+
+
 
     Returns:
         List of entities with id, name, entity_type, and mention_count.
 
+
+
     """
     # Build query conditionally based on entity_type filter.
+
     # Use undirected MENTIONS pattern to count article mentions across
+
     # both Neo4j (Entity->Article) and LadybugDB (Article->Entity) directions.
+
     where_clause = "WHERE e.type = $entity_type" if entity_type is not None else ""
+
     query = f"""
+
         MATCH (e:Entity)
+
         {where_clause}
+
         OPTIONAL MATCH (a:Article)-[m:MENTIONS]-(e)
+
         WITH e, count(DISTINCT a) AS mention_count
+
         RETURN e.id AS id, e.canonical_name AS name, e.type AS entity_type,
+
                mention_count
+
         ORDER BY mention_count DESC, e.canonical_name ASC
+
         SKIP $offset LIMIT $limit
+
     """
+
     params: dict[str, Any] = {"limit": limit, "offset": offset}
+
     if entity_type is not None:
         params["entity_type"] = entity_type
 
     try:
         rows = await pool.execute_query(query, params)
+
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list entities: {exc!s}",
+            detail="Internal error while listing entities.",
         ) from exc
 
     entities = [
         {
             "id": str(row.get("id") or ""),
             "name": row.get("name") or "",
-            "entity_type": row.get("entity_type") or "未知",
+            "entity_type": row.get("entity_type") or EntityType.UNKNOWN,
             "mention_count": int(row.get("mention_count") or 0),
         }
         for row in rows
     ]
+
     return success_response(entities)
 
 
@@ -194,28 +268,50 @@ async def get_entity(
 
     Args:
         name: Entity canonical name (URL encoded).
+
         limit: Maximum number of related entities to return.
+
         _: Verified API key.
+
         graph_repo: Graph repository (database-agnostic).
+
+
 
     Returns:
         Entity with relationships wrapped in APIResponse.
 
+
+
     """
-    canonical_name = urllib.parse.unquote(name)
+    # Starlette already percent-decodes path parameters; an extra
+
+    # unquote double-decodes (e.g. "A%252FB" → "A/B") and can produce a
+
+    # canonical_name that never matches the graph or smuggle encoded
+
+    # traversal sequences into downstream queries.
+
+    canonical_name = name
 
     # Get entity
+
     entity = await graph_repo.get_entity(canonical_name)
+
     if entity is None:
         raise HTTPException(
             status_code=404,
             detail=f"Entity '{canonical_name}' not found",
         )
 
-    # Get relationships in parallel
-    relationships = await graph_repo.get_entity_relations(canonical_name, limit)
-    related_entities = await graph_repo.get_related_entities(canonical_name, limit)
-    mentioned_articles = await graph_repo.get_entity_articles(canonical_name, limit)
+    # Fetch relationships concurrently: three independent queries on
+
+    # disjoint data; each call opens its own pool session.
+
+    relationships, related_entities, mentioned_articles = await asyncio.gather(
+        graph_repo.get_entity_relations(canonical_name, limit),
+        graph_repo.get_related_entities(canonical_name, limit),
+        graph_repo.get_entity_articles(canonical_name, limit),
+    )
 
     return success_response(
         EntityWithRelations(
@@ -237,15 +333,23 @@ async def get_article_graph(
 
     Args:
         article_id: The article UUID (Postgres ID).
+
         _: Verified API key.
+
         graph_repo: Graph repository (database-agnostic).
+
+
 
     Returns:
         Article graph with entities and relationships wrapped in APIResponse.
 
+
+
     """
     # Get article node
+
     article = await graph_repo.get_article(article_id)
+
     if article is None:
         raise HTTPException(
             status_code=404,
@@ -253,8 +357,11 @@ async def get_article_graph(
         )
 
     # Get entities and relationships
+
     entities = await graph_repo.get_article_entities(article_id)
+
     relationships = await graph_repo.get_article_relationships(article_id)
+
     related_articles = await graph_repo.get_related_articles(article_id)
 
     return success_response(
@@ -288,20 +395,32 @@ async def get_entity_relations(
 
     Args:
         entity: Entity canonical name.
+
         entity_type: Entity type (e.g. '组织机构', '人物').
+
         _: Verified API key.
+
         graph_repo: Graph repository (database-agnostic).
+
+
 
     Returns:
         List of relation type summaries wrapped in APIResponse.
 
+
+
     Raises:
         HTTPException: 404 if entity does not exist in the graph.
 
+
+
     """
-    # Verify entity exists before listing relation types (P0-1: return 404
+    # Verify entity exists before listing relation types (return 404
+
     # for non-existent entities instead of empty 200 array).
+
     existing = await graph_repo.get_entity(entity)
+
     if existing is None:
         raise HTTPException(
             status_code=404,
@@ -309,6 +428,7 @@ async def get_entity_relations(
         )
 
     rows = await graph_repo.get_relation_types(entity, entity_type)
+
     return success_response(
         [
             RelationTypeSummary(
@@ -341,20 +461,31 @@ async def search_relations(
 
     Args:
         entity: Entity canonical name.
+
         entity_type: Entity type.
+
         relation_types: Optional comma-separated list of relation types to filter.
+
         limit: Maximum number of results (1-200).
+
         _: Verified API key.
+
         graph_repo: Graph repository (database-agnostic).
+
+
 
     Returns:
         List of related entities wrapped in APIResponse.
+
+
 
     """
     types_list = (
         [t.strip() for t in relation_types.split(",") if t.strip()] if relation_types else None
     )
+
     rows = await graph_repo.find_by_relation_types(entity, entity_type, types_list, limit)
+
     return success_response(
         [
             RelatedEntityResult(
@@ -382,19 +513,30 @@ async def traverse_graph(
     """Multi-hop graph traversal from a starting entity.
 
     Supports relation type filtering, depth limiting, timeout control,
+
     path return mode, aggregate mode, and confidence filtering.
+
+
 
     Args:
         request: Traverse request parameters.
+
         _: Verified API key.
+
         graph_repo: Graph repository (database-agnostic).
+
+
 
     Returns:
         Traversal results wrapped in APIResponse.
 
+
+
     """
     # Capture start time just before traversal to compute execution_time_ms.
+
     _traversal_start_ms = int(time.perf_counter() * 1000)
+
     results = await graph_repo.traverse(
         start_entity=request.start_entity,
         max_depth=request.max_depth,
@@ -405,15 +547,23 @@ async def traverse_graph(
         mode=request.mode,
         min_confidence=request.min_confidence,
     )
+
     # Measure actual traversal wall-clock time (ms) for observability.
+
     # Computed here rather than in the repo so the value reflects end-to-end
+
     # traversal including any retry/fallback overhead in the graph layer.
+
     _traversal_end_ms = int(time.perf_counter() * 1000) - _traversal_start_ms
 
     result_items = []
+
     total_nodes = 0
+
     total_edges = 0
+
     max_depth_found = 0
+
     for item in results:
         nodes = [
             PathNode(
@@ -424,6 +574,7 @@ async def traverse_graph(
             )
             for n in item.get("nodes", [])
         ]
+
         edges = [
             EdgeResponse(
                 source=e.get("source", ""),
@@ -433,7 +584,9 @@ async def traverse_graph(
             )
             for e in item.get("edges", [])
         ]
+
         paths = None
+
         if item.get("paths"):
             paths = [
                 PathResponse(
@@ -442,12 +595,17 @@ async def traverse_graph(
                 )
                 for p in item["paths"]
             ]
+
         total_nodes += len(nodes)
+
         total_edges += len(edges)
+
         # Track max depth from paths
+
         if paths:
             for p in paths:
                 max_depth_found = max(max_depth_found, len(p.nodes) - 1)
+
         result_items.append(
             TraverseResultItem(
                 nodes=nodes,
@@ -458,25 +616,38 @@ async def traverse_graph(
         )
 
     # Compute depth_reached: from paths if available, otherwise BFS from start entity
+
     if max_depth_found == 0 and total_edges > 0:
         # Build adjacency list from all result edges for BFS
+
         adj: dict[str, set[str]] = {}
+
         for item in results:
             for e in item.get("edges", []):
                 src = e.get("source", "")
+
                 tgt = e.get("target", "")
+
                 if src and tgt:
                     adj.setdefault(src, set()).add(tgt)
+
                     adj.setdefault(tgt, set()).add(src)
+
         # BFS from start entity to find actual depth reached
+
         visited = {request.start_entity}
+
         queue = deque([(request.start_entity, 0)])
+
         while queue:
             node, depth = queue.popleft()
+
             max_depth_found = max(max_depth_found, depth)
+
             for neighbor in adj.get(node, set()):
                 if neighbor not in visited:
                     visited.add(neighbor)
+
                     queue.append((neighbor, depth + 1))
 
     statistics = TraverseStatistics(

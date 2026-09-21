@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """API Key management service.
 
 Provides:
@@ -7,8 +7,6 @@ Provides:
 - bcrypt-hashed key storage
 - Key creation, validation, and revocation
 - Rate limit configuration per key
-
-Implements: Weaver-数据库设计文档 §1.6.3
 """
 
 from __future__ import annotations
@@ -40,7 +38,7 @@ class KeyOpStatus(str, Enum):
 
     Replaces the previous bool/dict return types so callers can distinguish
     not_found / forbidden / already_revoked / ok without raising HTTPException
-    inside the service layer (vuln-0009 fix).
+    inside the service layer.
     """
 
     OK = "ok"
@@ -99,10 +97,7 @@ def _prehash_key(key_value: str) -> bytes:
 
 
 class ApiKeyManager:
-    """API Key lifecycle management with bcrypt hashing and ORM.
-
-    Implements: Weaver-数据库设计文档 §1.6.3
-    """
+    """API Key lifecycle management with bcrypt hashing and ORM."""
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
@@ -121,7 +116,12 @@ class ApiKeyManager:
             if session.get_bind().dialect.name != "duckdb":
                 stmt = stmt.with_for_update()
         except AttributeError:
-            pass
+            # Non-SQLAlchemy session (or mock) without get_bind(): the row
+            # lock is skipped, which must not fail the operation silently.
+            log.warning(
+                "for_update_lock_skipped",
+                reason="session has no get_bind(); proceeding without row-level lock",
+            )
         return stmt
 
     @staticmethod
@@ -328,7 +328,7 @@ class ApiKeyManager:
             }
 
     async def revoke_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
-        """Revoke an API key with ownership check (vuln-0009 fix: CWE-639).
+        """Revoke an API key with ownership check (CWE-639).
 
         Only the key's creator (``created_by``) or a super-admin
         (``env-admin`` / ``system``) can revoke a key. This closes the IDOR
@@ -348,7 +348,7 @@ class ApiKeyManager:
         """
         async with self._pool.session() as session:
             # Using FOR UPDATE to align with rotate_key and prevent concurrent
-            # revoke+rotate from producing misleading OK status (MED-004 fix).
+            # revoke+rotate from producing misleading OK status.
             # DuckDB 下降级为普通 SELECT（单写者模型已保证串行）。
             fetch_result = await session.execute(self._select_key_for_update(session, key_id))
             target = fetch_result.scalar_one_or_none()
@@ -359,7 +359,7 @@ class ApiKeyManager:
             if target.is_revoked:
                 return KeyOpResult(status=KeyOpStatus.ALREADY_REVOKED)
 
-            # Ownership check (vuln-0009): super-admins bypass; otherwise
+            # Ownership check: super-admins bypass; otherwise
             # actor must match the key's created_by.
             if actor not in _SUPER_ADMIN_ACTORS and target.created_by != actor:
                 log.warning(
@@ -369,6 +369,17 @@ class ApiKeyManager:
                     owner=target.created_by,
                 )
                 return KeyOpResult(status=KeyOpStatus.FORBIDDEN)
+
+            rotated_to = getattr(target, "rotated_to", None)
+            if rotated_to:
+                # Distinguish "explicitly revoked" from "rotated, then also
+                # revoked" in audit trails — the key is dead either way.
+                log.warning(
+                    "api_key_revoke_after_rotation",
+                    key_id=key_id,
+                    actor=actor,
+                    rotated_to=str(rotated_to),
+                )
 
             await session.execute(
                 update(ApiKey).where(ApiKey.key_id == key_id).values(is_revoked=True)
@@ -415,22 +426,6 @@ class ApiKeyManager:
                 for k in keys
             ]
 
-    async def get_rate_limit(self, key_id: str) -> int:
-        """Get the rate limit for a specific key.
-
-        Args:
-            key_id: The key ID.
-
-        Returns:
-            Max requests per minute.
-        """
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(ApiKey.rate_limit_per_min).where(ApiKey.key_id == key_id)
-            )
-            row = result.scalar_one_or_none()
-            return row if row is not None else 100
-
     async def _fetch_key(self, key_id: str) -> ApiKey | None:
         """Fetch an API key by key_id.
 
@@ -445,7 +440,7 @@ class ApiKeyManager:
             return result.scalar_one_or_none()
 
     async def rotate_key(self, key_id: str, actor: str = "env-admin") -> KeyOpResult:
-        """Rotate an API key with ownership check (vuln-0009 fix: CWE-639).
+        """Rotate an API key with ownership check (CWE-639).
 
         Creates a new key with the same scopes and rate limit as the old key
         and atomically marks the old key as rotated+revoked in a single
@@ -461,7 +456,7 @@ class ApiKeyManager:
         first commits, then observes ``is_revoked=True`` / ``rotated_to != None``
         and bails out cleanly.
 
-        Ownership check (vuln-0009): only the key's creator or a super-admin
+        Ownership check: only the key's creator or a super-admin
         (``env-admin`` / ``system``) can rotate a key. The ownership check runs
         AFTER the FOR UPDATE lock is acquired, so a concurrent caller that
         passes ownership cannot race with one that fails it.
@@ -501,7 +496,7 @@ class ApiKeyManager:
                 log.warning("api_key_rotation_failed_not_found", key_id=key_id)
                 return KeyOpResult(status=KeyOpStatus.NOT_FOUND)
 
-            # Ownership check (vuln-0009): runs after FOR UPDATE so the
+            # Ownership check: runs after FOR UPDATE so the
             # ownership decision is consistent with the row state being
             # rotated. Super-admins bypass; otherwise actor must match
             # created_by.
@@ -597,7 +592,7 @@ class ApiKeyManager:
         for key in expiring_keys:
             try:
                 # Auto-rotation runs as the "system" super-admin so it can
-                # rotate any key regardless of created_by (vuln-0009).
+                # rotate any key regardless of created_by.
                 result = await self.rotate_key(key.key_id, actor="system")
                 if result.status is KeyOpStatus.OK:
                     rotated_count += 1

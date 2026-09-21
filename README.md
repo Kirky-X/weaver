@@ -1,31 +1,14 @@
-<span id="top"></span>
-
 <div align="center">
 
-<p align="center">
-  <img src="docs/asserts/logo.png" alt="Weaver Logo" width="150">
-</p>
+<img src="docs/assets/logo.png" alt="Weaver Logo" width="180">
 
-<p align="center">
-  <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
-</p>
+[![Version](https://img.shields.io/github/v/release/Kirky-X/weaver.svg)](https://github.com/Kirky-X/weaver/releases) [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE) [![FastAPI](https://img.shields.io/badge/fastapi-%E2%89%A50.135.1-teal.svg)](https://fastapi.tiangolo.com/)
 
-<p>
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/license-Apache--2.0-yellow.svg" alt="License" style="display:inline; margin:0 4px">
-  <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
-</p>
+**中文** | [English](README_EN.md)
 
+**智能新闻采集、分析与知识图谱构建平台**
 
-<p align="center">
-  <a href="#features" style="color:#3B82F6">✨ 功能特性</a> •
-  <a href="#quick-start" style="color:#3B82F6">🚀 快速开始</a> •
-  <a href="#architecture" style="color:#3B82F6">🏗️ 架构设计</a> •
-  <a href="#api" style="color:#3B82F6">📡 API 文档</a> •
-  <a href="#scheduler-config" style="color:#3B82F6">📅 调度器配置</a> •
-  <a href="#contributing" style="color:#3B82F6">🤝 参与贡献</a>
-</p>
+[✨ 功能特性](#-功能特性) • [🚀 快速开始](#-快速开始) • [📚 文档](#-文档) • [💻 示例](#-示例) • [🤝 参与贡献](#-参与贡献)
 
 </div>
 
@@ -33,60 +16,134 @@
 
 ## 📋 目录
 
-<details open style="padding:16px">
-<summary style="cursor:pointer; font-weight:600; color:#1E293B">📑 目录（点击展开）</summary>
+<details open>
+<summary>📑 目录</summary>
 
-- [✨ 功能特性](#features)
-- [🚀 快速开始](#quick-start)
-    - [📦 环境要求](#requirements)
-    - [🔧 安装](#installation)
-    - [⚙️ 配置](#configuration)
-    - [📅 调度器配置](#scheduler-config)
-    - [🗄️ 数据库迁移](#migration)
-    - [▶️ 启动服务](#start)
-- [🏗️ 架构设计](#architecture)
-- [📡 API 文档](#api)
-- [🔄 Pipeline 流程](#pipeline)
-- [📊 可信度评分](#credibility)
-- [🤖 LLM 调用点](#llm-callpoints)
-- [⏰ 定时任务](#scheduled-jobs)
-- [🧪 开发指南](#development)
-- [🤝 参与贡献](#contributing)
-- [📄 许可证](#license)
+- [✨ 功能特性](#-功能特性)
+- [🚀 快速开始](#-快速开始)
+- [📚 文档](#-文档)
+- [💻 示例](#-示例)
+- [🏗️ 架构](#️-架构)
+- [🧪 测试](#-测试)
+- [📊 性能](#-性能)
+- [🔒 安全](#-安全)
+- [🗺️ 开发路线图](#️-开发路线图)
+- [🤝 参与贡献](#-参与贡献)
+- [📋 更新日志](#-更新日志)
+- [📄 许可证](#-许可证)
+- [🙏 致谢](#-致谢)
+- [📞 联系与支持](#-联系与支持)
+- [⭐ Star 历史](#-star-历史)
 
 </details>
 
 ---
 
-## <span id="features">✨ 功能特性</span>
+## ✨ 功能特性
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
-### 🎯 核心功能
+### 🕷️ 智能采集
 
-| 状态 | 功能                   | 描述                             |
-|:--:|----------------------|--------------------------------|
-| ✅  | **RSS 源管理**          | 订阅、调度、解析 RSS/Atom 源，支持增量抓取     |
-| ✅  | **智能爬取**             | 自动选择 HTTPX 或 Crawl4AI，支持动态页面渲染 |
-| ✅  | **LLM 处理流水线**        | 分类、清洗、摘要、情感分析、实体提取             |
-| ✅  | **知识图谱**             | Neo4j/LadybugDB 存储实体关系，支持图谱查询  |
-| ✅  | **向量检索**             | pgvector 支持语义相似度搜索             |
-| ✅  | **可信度评估**            | 多维度信号聚合计算新闻可信度                 |
-| ✅  | **REST API**         | FastAPI 提供完整 API 接口            |
-| ✅  | **Smart LLM Router** | 智能 LLM 路由 + Fallback + 使用统计    |
-| ✅  | **Memory Service**   | MAGMA 记忆集成，支持快速检索和因果推理         |
-| ✅  | **事件驱动架构**           | Blinker 事件总线，组件松耦合通信           |
-| ✅  | **蒙特卡洛采样**           | 长文档智能采样，节省 60%+ token          |
-| ✅  | **知识簇缓存**            | 语义搜索结果缓存，命中率 40-70%            |
-| ✅  | **SSE 流式 API**       | 实时 Pipeline 进度反馈               |
-| ✅  | **多模式搜索**            | Fast/Deep 双模式处理                |
+RSS/Atom 源订阅、调度与增量抓取，HTTPX / Crawl4AI 按站点自动选择，支持动态页面渲染与两级 URL 去重
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
-### ⚡ 技术栈
+### ⚙️ LLM 处理流水线
+
+三阶段 Pipeline 完成分类、清洗、摘要、情感分析与实体提取，支持 SSE 实时进度推送与失败重试
+
+</td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🕸️ 知识图谱
+
+Neo4j / LadybugDB 存储实体关系，Leiden 社区检测、社区报告生成与图谱可视化查询
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🔍 四模式搜索
+
+`local` / `global` / `drift` / `hybrid` 四种搜索引擎，RRF 融合排序，auto 模式基于意图自动路由
+
+</td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🎯 向量检索
+
+pgvector + HNSW 索引支撑语义相似度搜索，1024 维向量毫秒级查询
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### ✅ 可信度评估
+
+多维度信号聚合计算新闻可信度，内置虚假新闻检测与声明抽取
+
+</td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🧠 MAGMA 记忆
+
+多图记忆服务，时序图演化、自适应检索与因果推理
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🔀 Smart LLM Router
+
+25 个调用点级 primary/fallback 路由，熔断保护、热重载与用量统计
+
+</td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🎲 蒙特卡洛采样
+
+长文档多锚点智能采样 + 置信度加权，节省 30%+ 输入 token
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 💾 知识簇缓存
+
+语义搜索结果持久化缓存（DuckDB + Parquet），FIFO + 热度评分 + TTL 淘汰
+
+</td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🔒 多层 URL 安全
+
+SSRF 防护、URLhaus、PhishTank、启发式分析、SSL 验证五层检查，风险五级分级
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 📊 可观测性
+
+Prometheus 指标、OpenTelemetry 追踪、LLM 用量聚合与告警系统
+
+</td>
+</tr>
+</table>
+
+除上述核心能力外，REST API 全套端点、事件驱动总线（Blinker）、双数据库故障转移（PostgreSQL ↔ DuckDB、Neo4j ↔ LadybugDB）、每日简报与趋势告警等能力也均开箱可用：完整的端点清单见 [📘 API 参考](docs/API.md)，模块职责与设计决策见 [🏗️ 架构文档](docs/ARCHITECTURE.md)。
+
+<details>
+<summary>🧱 技术栈一览</summary>
 
 |    类别     | 技术                                  |
 |:---------:|-------------------------------------|
@@ -94,7 +151,7 @@
 | 🌐 Web 框架 | FastAPI + Uvicorn                   |
 | 🐘 关系数据库  | PostgreSQL + pgvector / DuckDB (备选) |
 |  🔵 图数据库  | Neo4j 5+ / LadybugDB (嵌入式备选)        |
-|   🔴 缓存   | Redis 7+ / Cashews (备选)             |
+|   🔴 缓存   | Redis 7+ / Cashews (可选备选)           |
 | 🕷️ 动态页面  | Crawl4AI                            |
 | 🤖 LLM 框架 | LiteLLM (统一 LLM 接口 + Smart Router)  |
 |  📝 NLP   | spaCy                               |
@@ -102,15 +159,13 @@
 |  📈 可观测性  | Prometheus + OpenTelemetry          |
 |  🔔 事件总线  | Blinker (事件驱动架构)                    |
 
-</td>
-</tr>
-</table>
+</details>
 
 ---
 
-## <span id="quick-start">🚀 快速开始</span>
+## 🚀 快速开始
 
-### <span id="requirements">📦 环境要求</span>
+### 📦 环境要求
 
 | 依赖         | 版本    | 说明                                |
 |------------|-------|-----------------------------------|
@@ -119,7 +174,33 @@
 | Neo4j      | 5+    | 图数据库 (或使用 LadybugDB 作为嵌入式备选)      |
 | Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选)        |
 
-### <span id="installation">🔧 安装</span>
+### 🔧 安装
+
+#### 一键初始化（推荐）
+
+```bash
+# 1. 生成配置（复制模板，不覆盖已有文件）+ 提示模型安装
+uv run python scripts/bootstrap.py
+
+# 2. 启动基础设施（或加 --profile full 连应用一起起）
+docker compose -f docker/docker-compose.yml up -d
+
+# 3. 安装模型后执行迁移并启动
+uv run alembic upgrade head
+uv run uvicorn src.main:get_app --factory --reload
+```
+
+<details>
+<summary>Docker 一体化启动（含应用，无需本地 Python 环境）</summary>
+
+```bash
+docker compose -f docker/docker-compose.yml --profile full up -d --build
+# 应用启动前自动执行 alembic upgrade head；API 在 http://localhost:8000
+```
+
+</details>
+
+#### 手动安装
 
 ```bash
 # 克隆项目
@@ -162,7 +243,7 @@ uv run python -m spacy download en_core_web_lg
 
 </details>
 
-### <span id="configuration">⚙️ 配置</span>
+### ⚙️ 配置
 
 Weaver 使用分层配置策略，支持环境变量和 TOML 文件：
 
@@ -191,8 +272,8 @@ WEAVER_REDIS__PASSWORD=
 WEAVER_API__API_KEY=your_secure_api_key_at_least_32_characters_long
 
 # LLM API Keys (供 llm.toml 引用)
-WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
-WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=your_openai_api_key
+WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY=your_anthropic_api_key
 ```
 
 3. **配置 LLM 提供商**(`config/llm.toml`):
@@ -265,7 +346,6 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 | `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式     |
 | `crawl4ai_timeout`                         | float  | `30.0`                  | Crawl4AI 超时时间（秒）  |
 | `default_per_host_concurrency`             | int    | 2                       | 每主机默认并发数          |
-| `global_max_concurrency`                   | int    | 32                      | 全局最大并发数           |
 | `httpx_timeout`                            | float  | 15.0                    | HTTPX 超时时间（秒）     |
 | **Scheduler**                              |        |                         |                   |
 | `pipeline_retry_interval_minutes`          | int    | 15                      | Pipeline 重试间隔（分钟） |
@@ -278,7 +358,7 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 
 </details>
 
-#### <span id="scheduler-config">📅 调度器配置</span>
+#### 📅 调度器配置
 
 Pipeline 处理失败后支持智能重试机制：
 
@@ -295,7 +375,7 @@ Pipeline 处理失败后支持智能重试机制：
 - 成功率 ≥ 阈值：批次大小不变或增加
 - 成功率 < 阈值：批次大小减半，避免大量任务连续失败
 
-#### <span id="entity-config">🏷️ 实体提取配置</span>
+#### 🏷️ 实体提取配置
 
 控制实体提取阶段的行为：
 
@@ -320,7 +400,7 @@ disable_data_metrics_nodes = true
 - **LLM 阶段**：过滤 LLM 返回的"数据指标"类型实体
 - **Resolver 阶段**：阻止"数据指标"实体的创建和合并
 
-#### <span id="url-security-config">🔒 URL 安全配置</span>
+#### 🔒 URL 安全配置
 
 多层 URL 安全检查，保护爬虫免受恶意 URL 攻击：
 
@@ -330,7 +410,6 @@ disable_data_metrics_nodes = true
 | `urlhaus_api_key`               | string | `""`    | URLhaus API 密钥（为空则跳过 API 检查） |
 | `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API 超时（秒）            |
 | `phishtank_enabled`             | bool   | `true`  | 启用 PhishTank 钓鱼数据库检查         |
-| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank 数据同步间隔（小时）         |
 | `heuristic_enabled`             | bool   | `true`  | 启用启发式 URL 分析                 |
 | `ssl_verify_enabled`            | bool   | `true`  | 启用 SSL 证书验证                  |
 | `cache_safe_ttl_seconds`        | int    | `21600` | 安全结果缓存 TTL（6 小时）             |
@@ -360,14 +439,14 @@ cache_safe_ttl_seconds = 21600
 
 ---
 
-### <span id="migration">🗄️ 数据库迁移</span>
+### 🗄️ 数据库迁移
 
 ```bash
 # 运行迁移
 uv run alembic upgrade head
 ```
 
-### <span id="start">▶️ 启动服务</span>
+### ▶️ 启动服务
 
 ```bash
 # 开发模式
@@ -377,9 +456,157 @@ uv run uvicorn src.main:get_app --factory --reload --host 0.0.0.0 --port 8000
 uv run python -m src.main
 ```
 
+### 🧭 核心概念
+
+- **三阶段 Pipeline**：Phase 1 单文章并发（分类 / 清洗 / 向量化）→ Phase 2 批量合并 → Phase 3 后处理（分析 / 可信度 / 实体抽取）
+- **调用点路由**：每个 LLM 调用点（`CallPoint`）独立配置 primary/fallback 模型，熔断器保护、支持热重载
+- **双数据库故障转移**：PostgreSQL ↔ DuckDB、Neo4j ↔ LadybugDB 启动时自动降级，Protocol 抽象统一接口
+- **四模式搜索**：local（实体邻域）/ global（社区报告）/ drift（自适应）/ hybrid（RRF 融合），auto 意图自动路由
+
 ---
 
-## <span id="architecture">🏗️ 架构设计</span>
+## 📚 文档
+
+| 文档 | 说明 |
+|------|------|
+| [📖 用户指南](docs/USER_GUIDE.md) | 从安装到进阶的完整使用教程 |
+| [📘 API 参考](docs/API.md) | 全部 API 端点的详细说明 |
+| [🏗️ 架构文档](docs/ARCHITECTURE.md) | 设计原则、模块划分与数据流 |
+| [🚀 部署指南](docs/DEPLOYMENT.md) | Docker 部署与生产环境配置 |
+| [🤝 贡献指南](docs/CONTRIBUTING.md) | 如何参与项目开发 |
+| [📋 更新日志](docs/CHANGELOG.md) | 每个版本的变更记录 |
+| [🛠️ 脚本工具](scripts/README.md) | scripts/ 目录子命令用法详解 |
+
+---
+
+## 💻 示例
+
+Weaver 提供多种使用方式，从 API 调用到命令行工具。
+
+### 🔌 API 示例
+
+所有 API 请求需要在 Header 中携带 API Key：`X-API-Key: your-api-key`
+
+```bash
+# 获取文章列表
+curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20" \
+  -H "X-API-Key: your-api-key"
+
+# 处理单个 URL
+curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/article"}'
+
+# 异步批量触发 Pipeline（立即返回 task_id，可轮询任务状态）
+curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"source_ids": ["<source-uuid>"], "force": false}'
+
+# 查询任务状态
+curl -X GET "http://localhost:8000/api/v1/pipeline/tasks/<task_id>" \
+  -H "X-API-Key: your-api-key"
+
+# 查询实体
+curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
+  -H "X-API-Key: your-api-key"
+```
+
+完整端点列表与详细参数见 [📡 API 文档](docs/API.md)。
+
+### 🛠️ CLI 工具
+
+`scripts/` 目录提供 argparse 子命令式工具集（完整用法见 [scripts/README.md](scripts/README.md)）：
+
+```bash
+# 管道测试：fast 处理模式（仅 Phase 1，约 1-2 分钟）
+uv run python scripts/pipeline.py test --processing-mode fast --max-items 5
+
+# 管道测试：deep 处理模式（全部阶段，约 5-10 分钟）
+uv run python scripts/pipeline.py test --processing-mode deep --max-items 5
+
+# 数据库统计
+uv run python scripts/db.py stats
+
+# 初始化示例源
+uv run python scripts/pipeline.py seed-sources
+```
+
+### 🤖 LLM 调用点
+
+全部 25 个调用点定义于 `src/core/llm/types.py` 的 `CallPoint` 枚举，通过 `llm.toml` 的 `[call-points.*]` 段为每个调用点配置 primary/fallback 模型：
+
+| 调用点                 | 类型        | 说明     |
+|---------------------|-----------|--------|
+| classifier          | CHAT      | 新闻分类   |
+| cleaner             | CHAT      | 内容清洗   |
+| categorizer         | CHAT      | 分类识别   |
+| merger              | CHAT      | 文章合并   |
+| analyze             | CHAT      | 摘要分析   |
+| analyze_narrative   | CHAT      | 分析+叙事合并调用 |
+| credibility_checker | CHAT      | 可信度检查  |
+| quality_scorer      | CHAT      | 质量评分   |
+| entity_extractor    | CHAT      | 实体提取   |
+| entity_resolver     | CHAT      | 实体消歧   |
+| search_local        | CHAT      | 本地搜索问答 |
+| search_global       | CHAT      | 全局搜索问答 |
+| causal_inference    | CHAT      | 因果推理   |
+| community_report    | CHAT      | 社区报告生成 |
+| community_title     | CHAT      | 社区标题生成 |
+| entity_facts        | CHAT      | 事实验证   |
+| narrative_synthesis | CHAT      | 叙述合成   |
+| narrative_schema    | CHAT      | 叙事模式抽取 |
+| evidence_sampling   | CHAT      | 证据采样   |
+| sentiment           | CHAT      | 情感分析   |
+| claim_extraction    | CHAT      | 声明抽取   |
+| briefing            | CHAT      | 日报生成   |
+| query_expander      | CHAT      | 查询扩展   |
+| embedding           | EMBEDDING | 向量生成   |
+| rerank              | RERANK    | 重排序    |
+
+### ⏰ 定时任务
+
+全部定时任务注册于 `src/container/lifecycle.py`，标注（条件）的任务仅在对应配置开启时注册：
+
+| 任务                            | 间隔       | 说明                            |
+|-------------------------------|----------|-------------------------------|
+| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                      |
+| dispatch_outbox_events        | 30秒      | 派发 Outbox 事件                  |
+| process_pending_enrichment    | 5分钟      | 处理待 enrichment 的文章            |
+| llm_usage_aggregate           | 5分钟      | LLM 使用量 Redis → PostgreSQL 聚合 |
+| llm_compare_aggregate         | 5分钟      | LLM 对比评估数据聚合                  |
+| update_persist_status_metrics | 5分钟      | 更新持久化状态 Prometheus 指标（支撑告警）   |
+| bm25_rebuild_index            | 5分钟 (条件) | BM25 全文索引重建                   |
+| sync_pending_to_neo4j         | 10分钟     | 同步待处理记录到 Neo4j                |
+| recover_stale_sagas           | 10分钟     | 恢复卡死的 Saga 事务                 |
+| retry_neo4j_writes            | 10分钟     | 重试失败的 Neo4j 写入                |
+| retry_pipeline_processing     | 15分钟     | 重试失败的 Pipeline 处理             |
+| sync_neo4j_with_postgres      | 1小时      | 全量 Neo4j ↔ PostgreSQL 同步      |
+| community_auto_check          | 30分钟 (条件) | 社区检测自动检查（基于实体变化阈值触发重建）        |
+| memory_consolidation          | 30分钟 (条件) | Memory 慢路径整合                  |
+| shift_detection               | 60分钟     | 情感/叙事偏移检测                     |
+| community_health_check        | 6小时 (条件) | 社区健康检查和自动修复                   |
+| sync_phishtank_data           | 6小时      | PhishTank 钓鱼库同步（URL 精确 + 域名模糊双索引） |
+| llm_usage_raw_cleanup         | 6小时      | 清理 LLM 使用原始记录 (保留 2 天)        |
+| causal_inference              | 2小时 (条件) | 批量因果推理                        |
+| evaluate_trend_alerts         | 每小时      | 趋势告警评估                        |
+| check_expiring_api_keys       | 每天 2:00  | 检查即将过期的 API Key               |
+| daily_hotness_decay           | 每天 3:00  | 文章热度衰减                        |
+| consistency_check             | 每天 3:00  | 数据一致性检查                       |
+| update_source_auto_scores     | 每天 3:00  | 更新源权威度                        |
+| cleanup_old_synced            | 每天 3:30  | 清理旧同步记录 (保留 7 天)              |
+| daily_briefing_generation     | 每天 8:00  | 生成每日简报 (Asia/Shanghai)        |
+| archive_old_neo4j_nodes       | 每周六 2:00 (条件) | 归档旧 Neo4j 节点 (90 天)           |
+| cleanup_orphan_entity_vectors | 每周六 3:00 (条件) | 清理孤立实体向量                      |
+| llm_failure_cleanup           | 24小时     | 清理 LLM 失败记录 (保留 3 天)          |
+| startup_sync_pending_to_neo4j | 启动时      | 启动时立即执行一次同步                   |
+
+---
+
+## 🏗️ 架构
+
+核心数据流遵循 **URL → 采集 → 处理 → 知识图谱 → 搜索**：存储层通过 Protocol 抽象隔离数据库方言差异，PostgreSQL ↔ DuckDB、Neo4j ↔ LadybugDB 在启动时自动故障转移。
 
 ### 系统架构
 
@@ -393,13 +620,12 @@ graph TB
     subgraph Collector ["🔄 采集层"]
         C[SourceScheduler]
         D[Deduplicator]
-        E[Interleaver]
         F[SmartFetcher<br/>HTTPX / Crawl4AI]
     end
 
     subgraph Pipeline ["⚙️ 处理流水线"]
         G[Phase 1: 单文章并发<br/>Classifier → Cleaner → Categorizer → Vectorize]
-        H[Phase 2: 批量合并<br/>BatchMerger]
+        H[Phase 2: 批量合并<br/>BatchMergerNode]
         I[Phase 3: 后处理<br/>ReVectorize → Analyze → Credibility → EntityExtractor]
     end
 
@@ -424,6 +650,42 @@ graph TB
     style Storage fill:#DCFCE7,stroke:#166534
     style API fill:#FEE2E2,stroke:#991B1B
 ```
+
+> 完整的模块职责、Protocol 体系、LLM 客户端与调度设计见 [🏗️ 架构文档](docs/ARCHITECTURE.md)。
+
+### 🔄 核心流程
+
+<details>
+<summary>📝 查看端到端时序（从源调度到可检索）</summary>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as SourceScheduler
+    participant F as SmartFetcher
+    participant P as Pipeline
+    participant PG as PostgreSQL + pgvector
+    participant G as Neo4j / LadybugDB
+    participant Q as Search API
+
+    S->>F: 触发源抓取
+    F->>F: URL 安全五层检查 + 两级去重
+    F->>P: 新文章入队
+    P->>P: Phase 1 分类 / 清洗 / 向量化
+    P->>P: Phase 2 批量合并
+    P->>P: Phase 3 分析 / 可信度 / 实体抽取
+    P->>PG: 文章与向量持久化
+    P->>G: 实体关系写入（pending 异步同步）
+    Q->>PG: 向量 / 关键词检索
+    Q->>G: 图谱邻域与社区查询
+    Q->>Q: RRF 融合排序，三层全空时 Bing 回填
+```
+
+抓取结果先落 PostgreSQL（单一真源），图数据库通过 pending 队列异步同步；
+查询侧将关系库检索与图谱检索融合，三层结果全空时触发 Bing 网络搜索回填并
+后台入库。
+
+</details>
 
 ### 组件状态
 
@@ -456,303 +718,34 @@ Neo4j / LadybugDB 的 `Article` 节点收敛为仅存储 `{id, pg_id}`，业务�
 （`title` / `category` / `publish_time` / `score`）由 `GraphArticleReader`
 通过 `ArticleRepository.fetch_titles_by_pg_ids()` 批量回查 PostgreSQL /
 DuckDB。此设计消除了图数据库与关系数据库之间的字段冗余，所有业务字段以 PG
-为单一真源，图节点仅保留跨库 ID 链接。详见
-[CLAUDE.md](CLAUDE.md) "数据库 Schema" 章节。
+为单一真源，图节点仅保留跨库 ID 链接。
 
 ---
 
-## <span id="api">📡 API 文档</span>
+## 🧪 测试
 
-### 认证
-
-所有 API 请求需要在 Header 中携带 API Key：
-
-```
-X-API-Key: your-api-key
-```
-
-### 端点列表
-
-| 端点                                                 | 方法     | 描述                                                                        |
-|----------------------------------------------------|--------|---------------------------------------------------------------------------|
-| `/health`                                          | GET    | 健康检查（无需认证）                                                                |
-| `/api/v1/status`                                   | GET    | 系统状态（需认证）                                                                 |
-| `/api/v1/config`                                   | GET    | 系统配置（需认证）                                                                 |
-| `/api/v1/sources`                                  | GET    | 获取源列表                                                                     |
-| `/api/v1/sources/{source_id}`                      | GET    | 获取指定源                                                                     |
-| `/api/v1/sources`                                  | POST   | 添加新源                                                                      |
-| `/api/v1/sources/{source_id}`                      | PUT    | 更新源配置                                                                     |
-| `/api/v1/sources/{source_id}`                      | DELETE | 删除源                                                                       |
-| `/api/v1/pipeline/trigger`                         | POST   | 触发 Pipeline 任务（异步 fire-and-forget，返回 task_id 用于轮询）                       |
-| `/api/v1/pipeline/tasks/{task_id}`                 | GET    | 获取任务状态                                                                    |
-| `/api/v1/pipeline/queue/stats`                     | GET    | 获取队列统计                                                                    |
-| `/api/v1/pipeline/status`                          | GET    | 获取整体 Pipeline 状态（running/idle + 队列统计）                                    |
-| `/api/v1/pipeline/url`                             | POST   | 处理单个 URL                                                                  |
-| `/api/v1/pipeline/url/stream`                      | POST   | 处理单个 URL（SSE 流式响应，3 并发上限）                                                |
-| `/api/v1/articles`                                 | GET    | 查询文章列表（支持分页、过滤、排序）                                                        |
-| `/api/v1/articles/{id}`                            | GET    | 获取文章详情                                                                    |
-| `/api/v1/search`                                   | GET    | 统一搜索（mode 参数路由：local/global/articles）                                     |
-| `/api/v1/search/drift`                             | POST   | DRIFT 迭代式探索搜索                                                             |
-| `/api/v1/search/causal`                            | POST   | 因果关系搜索                                                                    |
-| `/api/v1/search/temporal`                          | POST   | 时间推理搜索                                                                    |
-| `/api/v1/graph/entities/{name}`                    | GET    | 查询实体及其关系                                                                  |
-| `/api/v1/graph/articles/{id}/graph`                | GET    | 获取文章的知识图谱                                                                 |
-| `/api/v1/graph/relations`                          | GET    | 查询实体关系                                                                    |
-| `/api/v1/graph/relations/search`                   | GET    | 搜索实体关系                                                                    |
-| `/api/v1/graph/metrics`                            | GET    | 图谱指标（health/full/components/orphans/high-degree/modularity/distributions） |
-| `/api/v1/graph/visualization`                      | GET    | 获取图谱可视化数据                                                                 |
-| `/api/v1/graph/visualization`                      | POST   | 获取子图数据                                                                    |
-| `/api/v1/admin/authorities`                        | GET    | 获取源权威度列表                                                                  |
-| `/api/v1/admin/authorities/{host}`                 | PATCH  | 更新源权威度                                                                    |
-| `/api/v1/monitoring/llm/failures`                  | GET    | LLM 失败记录查询                                                                |
-| `/api/v1/monitoring/llm/failures/stats`            | GET    | LLM 失败统计                                                                  |
-| `/api/v1/monitoring/llm/usage`                     | GET    | LLM 使用统计（支持多维度分组查询）                                                       |
-| `/api/v1/admin/articles/deduplicate`               | POST   | 文章去重                                                                      |
-| `/api/v1/admin/communities`                        | GET    | 社区列表查询                                                                    |
-| `/api/v1/admin/communities/{id}`                   | GET    | 社区详情                                                                      |
-| `/api/v1/admin/communities/rebuild`                | POST   | 重建社区                                                                      |
-| `/api/v1/admin/communities/health`                 | GET    | 社区健康概览                                                                    |
-| `/api/v1/admin/communities/health/diagnose`        | POST   | 社区健康诊断                                                                    |
-| `/api/v1/admin/communities/health/repair`          | POST   | 社区健康修复                                                                    |
-| `/api/v1/admin/communities/reports/generate`       | POST   | 生成社区报告                                                                    |
-| `/api/v1/admin/communities/{id}/report/regenerate` | POST   | 重新生成社区报告                                                                  |
-| `/api/v1/briefings/daily`                          | GET    | 按日期 + category 获取日报（不存在返回 data=null,非 404）                              |
-| `/api/v1/briefings/daily/generate`                 | POST   | 按需生成日报（narrative_mode 可选,已存在返回 409 Conflict）                            |
-| `/api/v1/analytics/shifts`                         | GET    | 情感时序变化点查询                                                                 |
-| `/api/v1/analytics/briefings`                      | GET    | 历史日报列表查询                                                                  |
-| `/api/v1/trends/sentiment`                         | GET    | 情感趋势分析                                                                    |
-| `/api/v1/trends/detection`                         | GET    | 趋势检测                                                                      |
-| `/api/v1/saga/{saga_id}`                           | GET    | 获取 Saga 状态                                                                |
-| `/api/v1/saga/{saga_id}/compensate`                | POST   | 触发手动补偿                                                                    |
-| `/api/v1/saga/{saga_id}/retry`                     | POST   | 重试失败的 Saga                                                                |
-| `/api/v1/saga/article/{article_id}`                | GET    | 获取文章关联 Saga                                                               |
-| `/api/v1/saga/failed/list`                         | GET    | 列出失败 Saga                                                                 |
-| `/api/v1/monitoring/alerts/rules`                  | GET/POST | 告警规则查询/创建                                                                |
-| `/api/v1/monitoring/alerts/rules/{rule_id}`        | GET/PATCH/DELETE | 告警规则详情/更新/删除（删除事务化级联清理 events,F2）                              |
-| `/api/v1/monitoring/alerts/events`                 | GET    | 告警事件查询                                                                    |
-| `/metrics`                                         | GET    | Prometheus 指标                                                             |
-
-<details style="padding:16px; margin: 16px 0">
-<summary style="cursor:pointer; font-weight:600; color:#166534">📖 API 示例</summary>
-
-#### 获取文章列表
-
-```bash
-curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7&sort_by=publish_time&sort_order=desc" \
-  -H "X-API-Key: your-api-key"
-```
-
-#### 创建源
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/sources" \
-  -H "X-API-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "xinhua-news",
-    "name": "新华社",
-    "url": "http://www.xinhuanet.com/politics/news_politics.xml",
-    "source_type": "rss",
-    "enabled": true,
-    "interval_minutes": 30,
-    "credibility": 0.98,
-    "tier": 1
-  }'
-```
-
-**新字段说明**：
-
-- `credibility`: 预设可信度 (0.0-1.0)，用于可信度评估的来源权威度信号
-- `tier`: 来源层级 (1=权威, 2=可信, 3=普通)
-
-#### 查询实体
-
-```bash
-curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
-  -H "X-API-Key: your-api-key"
-```
-
-</details>
-
----
-
-## <span id="pipeline">🔄 Pipeline 流程</span>
-
-### Phase 1: 单文章并发处理
-
-```mermaid
-flowchart LR
-    A[Raw Article] --> B[Classifier]
-    B --> C[Cleaner]
-    C --> D[Categorizer]
-    D --> E[Vectorize]
-
-    B -->|非新闻| F[终止]
-```
-
-- **Classifier**: 判断是否为新闻，非新闻直接终止
-- **Cleaner**: 清洗 HTML、提取正文
-- **Categorizer**: 分类（政治/军事/经济/科技等）、语言、地区
-- **Vectorize**: 生成内容向量 (1024维)
-
-### Phase 2: 批量合并
-
-```
-BatchMerger (Union-Find 相似度聚类)
-```
-
-- 相似度阈值: 0.80
-- 合并相似文章，保留最完整版本
-
-### Phase 3: 单文章后处理 (并发执行)
-
-```mermaid
-flowchart LR
-    A[Merged Article] --> B[ReVectorize]
-    B --> C[Analyze]
-    B --> D[QualityScorer]
-    C --> E[Credibility]
-    D --> E
-    E --> F[EntityExtractor]
-    F --> G[fake_news_detector]
-    F --> H[conflict_detector]
-    F --> I[narrative_generator]
-    F --> J[schema_extractor]
-    G --> K[sentiment_tracker]
-    H --> K
-    I --> K
-    J --> K
-    K --> L[EntityResolver]
-```
-
-- **ReVectorize**: 合并后重新生成向量 (对 terminal 文章跳过)
-- **Analyze + QualityScorer**: 并行执行 - 摘要/情感分析/关键数据提取 + 内容质量评分
-- **Credibility**: 可信度评分 (依赖 Analyze 结果)
-- **EntityExtractor**: spaCy + LLM 实体提取
-- **fake_news_detector**: 假新闻检测
-- **conflict_detector**: 数据冲突检测
-- **narrative_generator**: 叙述生成
-- **schema_extractor**: 结构化数据提取
-- **sentiment_tracker**: 实体级别情感偏移计算
-- **EntityResolver**: 实体消歧和合并
-
----
-
-## <span id="credibility">📊 可信度评分</span>
-
-采用三信号类别自适应可信度评估算法：
-
-| 信号    | 说明                            |
-|-------|-------------------------------|
-| 来源权威性 | 三级优先级：预设值 > 历史自动计算 > 默认值 0.50 |
-| 内容核查  | 基于正文长度的启发式评分                   |
-| 时效性   | 发布时间与事件时间差                    |
-
-### 类别自适应权重
-
-权重根据文章类型动态调整：
-
-| 类别       | 来源       | 内容       | 时效性      | 特点       |
-|----------|----------|----------|----------|----------|
-| 政治/国际/军事 | 0.25     | 0.25     | **0.50** | 突发新闻时效优先 |
-| 经济       | **0.45** | 0.35     | 0.20     | 来源权威优先   |
-| 科技       | 0.30     | **0.50** | 0.20     | 内容质量优先   |
-| 社会/文化/体育 | 0.40     | 0.40     | 0.20     | 均衡分布     |
-
-### 时效性评分规则
-
-| 时间差    | 评分   |
-|--------|------|
-| ≤6小时   | 1.00 |
-| ≤24小时  | 0.85 |
-| ≤72小时  | 0.65 |
-| ≤168小时 | 0.45 |
-| >168小时 | 0.30 |
-
-### 来源权威度三级优先级
-
-1. **预设可信度**：通过 API 为权威来源（央视、新华社等）预设可信度
-2. **历史自动计算**：基于历史文章平均分自动计算
-3. **默认值**：新来源默认 0.50
-
----
-
-## <span id="llm-callpoints">🤖 LLM 调用点</span>
-
-| 调用点                 | 类型        | 说明     |
-|---------------------|-----------|--------|
-| classifier          | CHAT      | 新闻分类   |
-| cleaner             | CHAT      | 内容清洗   |
-| categorizer         | CHAT      | 分类识别   |
-| merger              | CHAT      | 文章合并   |
-| analyze             | CHAT      | 摘要分析   |
-| credibility_checker | CHAT      | 可信度检查  |
-| quality_scorer      | CHAT      | 质量评分   |
-| entity_extractor    | CHAT      | 实体提取   |
-| entity_resolver     | CHAT      | 实体消歧   |
-| search_local        | CHAT      | 本地搜索问答 |
-| search_global       | CHAT      | 全局搜索问答 |
-| causal_inference    | CHAT      | 因果推理   |
-| community_report    | CHAT      | 社区报告生成 |
-| community_title     | CHAT      | 社区标题生成 |
-| entity_facts        | CHAT      | 事实验证   |
-| narrative_synthesis | CHAT      | 叙述合成   |
-| evidence_sampling   | CHAT      | 证据采样   |
-| roi_summary         | CHAT      | ROI 总结 |
-| embedding           | EMBEDDING | 向量生成   |
-| rerank              | RERANK    | 重排序    |
-
----
-
-## <span id="scheduled-jobs">⏰ 定时任务</span>
-
-| 任务                            | 间隔       | 说明                            |
-|-------------------------------|----------|-------------------------------|
-| sync_pending_to_neo4j         | 10分钟     | 同步待处理记录到 Neo4j                |
-| retry_neo4j_writes            | 10分钟     | 重试失败的 Neo4j 写入                |
-| sync_neo4j_with_postgres      | 1小时      | 全量 Neo4j ↔ PostgreSQL 同步      |
-| consistency_check             | 每天 3:00  | 数据一致性检查                       |
-| cleanup_old_synced            | 每天 3:30  | 清理旧同步记录 (保留 7 天)              |
-| llm_failure_cleanup           | 24小时     | 清理 LLM 失败记录 (保留 3 天)          |
-| llm_usage_raw_cleanup         | 6小时      | 清理 LLM 使用原始记录 (保留 2 天)        |
-| archive_old_neo4j_nodes       | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天)           |
-| cleanup_orphan_entity_vectors | 每周六 3:00 | 清理孤立实体向量                      |
-| retry_pipeline_processing     | 15分钟     | 重试失败的 Pipeline 处理             |
-| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                      |
-| llm_usage_aggregate           | 5分钟      | LLM 使用量 Redis → PostgreSQL 聚合 |
-| update_source_auto_scores     | 每天 3:00  | 更新源权威度                        |
-| community_auto_check          | 30分钟     | 社区检测自动检查（基于实体变化阈值触发重建）        |
-| community_health_check        | 6小时      | 社区健康检查和自动修复                   |
-| update_persist_status_metrics | 5分钟      | 更新持久化状态 Prometheus 指标（支撑告警）   |
-| memory_consolidation          | 30分钟     | Memory 慢路径整合 (条件性)            |
-| startup_sync_pending_to_neo4j | 启动时      | 启动时立即执行一次同步                   |
-
----
-
-## <span id="development">🧪 开发指南</span>
-
-### 测试概述
+### 📈 测试概述
 
 Weaver 使用分层测试策略：
 
-| 层级     | 位置                   | 数量   | 特点             |
-|--------|----------------------|------|----------------|
-| 单元测试   | `tests/unit/`        | ~245 | Mock 外部依赖，快速执行 |
-| 集成测试   | `tests/integration/` | ~18  | 测试多组件交互        |
-| E2E 测试 | `tests/e2e/`         | ~16  | 完整 API 流程，真实服务 |
-| 性能测试   | `tests/performance/` | ~8   | HNSW 向量索引性能基准  |
+| 层级     | 位置                   | 数量    | 特点             |
+|--------|----------------------|-------|----------------|
+| 单元测试   | `tests/unit/`        | ~8700 | Mock 外部依赖，快速执行 |
+| 集成测试   | `tests/integration/` | ~420  | 测试多组件交互        |
+| E2E 测试 | `tests/e2e/`         | ~80   | 完整 API 流程，真实服务 |
+| 性能测试   | `tests/performance/` | ~60   | HNSW/社区检测/检索/LLM 成本基准 |
 
-### 运行测试
+### ▶️ 运行测试
 
 ```bash
-# 运行所有测试（不包括 E2E）
+# 运行默认测试集（addopts 排除 integration/e2e/performance，主要运行单元测试；含覆盖率门禁 --cov-fail-under=80）
 uv run pytest
 
 # 运行单元测试
 uv run pytest tests/unit/ -v
 
-# 运行集成测试
-uv run pytest tests/integration/ -v
+# 运行集成测试（-m integration 覆盖 addopts 的排除过滤）
+uv run pytest tests/integration/ -v -m integration
 
 # 运行带标记的测试
 uv run pytest -m unit -v
@@ -763,15 +756,9 @@ uv run pytest --cov=src --cov-report=html
 
 # 跳过慢速测试
 uv run pytest -m "not slow"
-
-# E2E 测试（需要 Docker）
-cd tests/e2e
-docker compose up -d
-pytest tests/e2e/ -v
-docker compose down
 ```
 
-### 测试覆盖率
+### 📊 测试覆盖率
 
 项目要求 80% 覆盖率阈值。查看详细报告：
 
@@ -784,33 +771,33 @@ open htmlcov/index.html
 uv run pytest --cov=src --cov-report=term-missing
 ```
 
-### 测试目录结构
+### 📁 测试目录结构
 
 ```
 tests/
 ├── unit/                    # 单元测试
-│   ├── test_analyze.py     # Analyze 节点
-│   ├── test_categorizer.py # Categorizer 节点
-│   ├── test_classifier.py  # Classifier 节点
-│   ├── test_vectorize.py   # Vectorize 节点
-│   ├── test_global_search.py
-│   ├── test_local_search.py
-│   └── ...
+│   ├── conftest.py          # Mock fixtures 定义
+│   ├── core/                # core 层（db / llm / security / evidence ...）
+│   ├── modules/             # 业务模块（ingestion / processing / knowledge / memory / storage ...）
+│   └── api/                 # API 端点测试
 ├── integration/            # 集成测试
-│   ├── test_pipeline_integration.py
-│   ├── test_search_integration.py
-│   └── test_source_integration.py
+│   ├── api/                 # API 集成
+│   ├── core/                # core 集成
+│   ├── modules/             # 模块集成
+│   ├── cross_db/            # 双数据库兼容
+│   └── fast/ deep/          # 快慢分级集成
 ├── e2e/                    # E2E 测试
-│   ├── conftest.py        # Docker fixtures
-│   ├── base/client.py     # API 客户端
-│   ├── test_health.py
-│   ├── test_sources.py
-│   └── test_workflows.py
-└── performance/           # 性能测试
-    └── test_hnsw_performance.py
+│   ├── docker-compose.yml  # 隔离服务环境
+│   ├── endpoints/          # 端点流程
+│   ├── flows/              # 完整业务流程
+│   └── pipeline/           # Pipeline 流程
+└── performance/            # 性能测试
+    ├── test_hnsw_performance.py
+    ├── test_community_detection_performance.py
+    └── test_search_benchmark.py
 ```
 
-### E2E 测试环境
+### 🐳 E2E 测试环境
 
 E2E 测试使用隔离的 Docker 服务：
 
@@ -821,41 +808,41 @@ docker compose -f tests/e2e/docker-compose.yml up -d
 # 等待服务就绪
 docker compose -f tests/e2e/docker-compose.yml ps
 
-# 运行 E2E 测试
-uv run pytest tests/e2e/ -v
+# 运行 E2E 测试（-o addopts="" 覆盖 addopts 的 --ignore）
+uv run pytest tests/e2e/ -v -o addopts=""
 
 # 清理
 docker compose -f tests/e2e/docker-compose.yml down -v
 ```
 
-### Mock Fixtures
+### 🧩 Mock Fixtures
 
-常用测试 fixtures（定义在 `tests/conftest.py`）：
+常用测试 fixtures（定义在 `tests/unit/conftest.py`）：
 
 | Fixture                | 描述           |
 |------------------------|--------------|
 | `mock_redis`           | Redis mock   |
-| `mock_relational_pool` | 关系型数据库 mock  |
+| `mock_postgres_pool`   | PostgreSQL 连接池 mock |
 | `mock_graph_pool`      | 图数据库 mock    |
-| `mock_llm_client`      | LLM 客户端 mock |
+| `mock_llm`             | LLM 客户端 mock |
 | `mock_settings`        | 配置对象 mock    |
 | `sample_article`       | 示例文章数据       |
 
-### 测试数据工厂
+### 🏭 测试数据工厂
 
 使用 `tests/factories.py` 中的工厂类生成测试数据：
 
 ```python
-from tests.factories import ArticleRawFactory, SourceConfigFactory
+from tests.factories import RawArticleFactory, SourceConfigFactory
 
 # 创建单个对象
-article = ArticleRawFactory.create()
+article = RawArticleFactory.create()
 
 # 批量创建
-articles = ArticleRawFactory.create_batch(10)
+articles = RawArticleFactory.create_batch(10)
 ```
 
-### 数据库迁移
+### 🗄️ 数据库迁移
 
 ```bash
 # 创建新迁移
@@ -868,7 +855,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-### 代码风格
+### 🎨 代码风格
 
 - 使用 `ruff` 进行代码格式化和 lint
 - 类型注解必须完整
@@ -876,7 +863,79 @@ uv run alembic downgrade -1
 
 ---
 
-## <span id="contributing">🤝 参与贡献</span>
+## 📊 性能
+
+> 以下数据来自 `tests/performance/` 基准测试（HNSW 默认参数 M=16、ef_construction=64，1024 维向量）。绝对数值因机器与数据规模而异，请以本地复测为准。
+
+Weaver 的性能关键路径经过优化：
+
+| 路径 | 说明 | 备注 |
+|------|------|------|
+| Pipeline 处理 | Phase 1 单文章并发，Phase 3 后处理并发 | 受 LLM 调用延迟影响 |
+| 向量检索 | HNSW 索引，pgvector 后端 | 1024 维向量，毫秒级查询 |
+| 知识簇缓存 | 语义搜索持久化缓存（DuckDB + Parquet） | FIFO + 热度评分，TTL 保护 |
+| 蒙特卡洛采样 | 长文档智能采样 | 节省 30%+ 输入 token |
+| 连接池 | SQLAlchemy AsyncPG + Neo4j 连接池 | 默认 pool_size=20 |
+
+### ⚡ 性能设计要点
+
+- Pipeline 按阶段并发执行，LLM 调用点级超时与熔断控制，瓶颈通常在 LLM 调用环节（建议配置多 Provider Fallback）
+- pgvector HNSW 索引加速近邻查询，`HNSW_M` / `HNSW_EF_CONSTRUCTION` 环境变量可调优（迁移时生效）
+- 知识簇缓存命中时跳过 LLM 调用，FIFO + 热度评分淘汰，TTL 保护时效性
+- 蒙特卡洛采样将长文档 LLM 输入压缩至高相关片段，降低输入 token 成本
+- SQLAlchemy AsyncPG + Neo4j 连接池复用后端连接，减少握手开销
+
+---
+
+## 🔒 安全
+
+### 🛡️ 安全设计
+
+Weaver 的安全设计覆盖多层防护：URL 安全多层检查（SSRF 防护、URLhaus API、PhishTank 钓鱼数据库、启发式分析、SSL 验证）、API Key 认证、环境变量注入敏感配置（密码、API 密钥不硬编码）、启动时安全配置审计（扫描 f-string SQL/Cypher 注入）。
+
+### ⛓️ 供应链与门禁
+
+- `bandit -r src/`：安全漏洞扫描，无 HIGH/CRITICAL 问题
+- CodeQL SAST 扫描：代码级安全检查
+- pre-commit 钩子：提交前自动安全审查
+
+### 🚨 报告安全漏洞
+
+请勿通过公开 issue 报告安全漏洞。请使用 GitHub [Security Advisories](https://github.com/Kirky-X/weaver/security/advisories/new) 私密披露通道提交报告。
+
+---
+
+## 🗺️ 开发路线图
+
+<table style="width:100%; border-collapse: collapse">
+<tr><th style="text-align:center">状态</th><th style="text-align:left">方向</th><th style="text-align:left">条目</th></tr>
+<tr><td align="center">✅</td><td>核心引擎</td><td>RSS/Atom 源管理、智能爬取、LLM Pipeline、知识图谱构建</td></tr>
+<tr><td align="center">✅</td><td>搜索与检索</td><td>四模式搜索（local/global/drift/hybrid）、向量检索、知识簇缓存</td></tr>
+<tr><td align="center">✅</td><td>安全与可信度</td><td>URL 多层安全检查、三信号可信度评估、启动安全审计</td></tr>
+<tr><td align="center">✅</td><td>可观测性</td><td>Prometheus 指标、OpenTelemetry、LLM 使用统计、告警系统</td></tr>
+<tr><td align="center">✅</td><td>记忆系统</td><td>MAGMA 多图记忆、时序图演化、自适应检索（演化/集成子模块持续实验性改进）</td></tr>
+<tr><td align="center">📋</td><td>性能优化</td><td>大规模知识图谱查询优化、缓存命中率提升、并发处理增强</td></tr>
+</table>
+
+---
+
+## 🤝 参与贡献
+
+开发相关的一切规范（环境搭建、提交信息、审查流程）见 [🤝 贡献指南](docs/CONTRIBUTING.md)。
+
+### 🛠️ 开发环境
+
+| 项 | 要求 |
+|---|------|
+| Python | 3.12+ |
+| 包管理 | [uv](https://docs.astral.sh/uv/) |
+| Lint / 格式化 | `ruff check` + `ruff format` |
+| 类型检查 | `mypy` |
+| 测试 | `pytest`（覆盖率门禁 80%） |
+| Git 钩子 | pre-commit |
+| 提交规范 | Conventional Commits (commitizen) |
+
+### 💖 贡献方式
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
@@ -919,7 +978,7 @@ uv run alembic downgrade -1
 5. **测试** 修改：
    ```bash
    uv run pytest tests/unit/ -v
-   uv run pytest tests/integration/ -v
+   uv run pytest tests/integration/ -v -m integration
    ```
 6. **检查** 覆盖率：
    ```bash
@@ -956,18 +1015,80 @@ uv run alembic downgrade -1
 
 </details>
 
----
+### ⭐ Contributors
 
-## <span id="license">📄 许可证</span>
-
-本项目采用 **Apache-2.0 许可证**：
-
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-yellow.svg)](LICENSE)
+<a href="https://github.com/Kirky-X/weaver/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Kirky-X/weaver" />
+</a>
 
 ---
 
-**[⬆ 返回顶部](#top)**
+## 📋 更新日志
+
+完整版本历史见 [📋 更新日志](docs/CHANGELOG.md)（Keep a Changelog 格式 + 语义化版本）。
+
+| 版本 | 日期 | 要点 |
+|------|------|------|
+| v0.2.0 | 2026-07-21 | 首个公开 Release：采集 → LLM 流水线 → 知识图谱 → 搜索全链路 |
 
 ---
 
-<sub>© 2026 WEAVER. 保留所有权利。</sub>
+## 📄 许可证
+
+本项目采用 **Apache-2.0 许可证**，详见 [LICENSE](LICENSE)。
+
+---
+
+## 🙏 致谢
+
+### 🌟 核心依赖
+
+Weaver 站在以下优秀开源项目的肩膀上：
+
+| 依赖 | 用途 |
+|------|------|
+| [FastAPI](https://github.com/tiangolo/fastapi) | Web 框架 |
+| [LiteLLM](https://github.com/BerriAI/litellm) | 统一 LLM 接口 |
+| [spaCy](https://github.com/explosion/spaCy) | NLP 实体识别 |
+| [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) | 异步 ORM |
+| [Crawl4AI](https://github.com/unclecode/crawl4ai) | 动态网页爬取 |
+| [APScheduler](https://github.com/agronholm/apscheduler) | 定时任务调度 |
+
+### 💝 特别感谢
+
+感谢 Python 社区与所有 [贡献者](https://github.com/Kirky-X/weaver/graphs/contributors)。
+
+---
+
+## 📞 联系与支持
+
+<table style="width:100%; max-width: 600px">
+<tr>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/issues"><b style="color:#991B1B">Issues</b></a><br>
+<span style="color:#64748B">报告问题和 Bug</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver/discussions"><b style="color:#1E40AF">讨论区</b></a><br>
+<span style="color:#64748B">提问和分享想法</span>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/Kirky-X/weaver"><b style="color:#1E293B">GitHub</b></a><br>
+<span style="color:#64748B">查看源代码</span>
+</td>
+</tr>
+</table>
+
+---
+
+## ⭐ Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/weaver&type=Date)](https://star-history.com/#Kirky-X/weaver&Date)
+
+如果这个项目对您有帮助，请考虑给它一个 ⭐️！
+
+**由 Kirky.X 构建**
+
+---
+
+<sub>© 2026 Kirky.X. 保留所有权利。</sub>

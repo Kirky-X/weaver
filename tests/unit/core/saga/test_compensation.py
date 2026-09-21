@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for Saga compensation command models."""
 
 from __future__ import annotations
@@ -411,3 +411,49 @@ class TestBatchMergerCompensationDataFormat:
         assert isinstance(cmd, PostgresCompensation)
         assert cmd.article_id == ""
         assert cmd.article_ids == ["a1"]
+
+
+class TestArticleIdSerialization:
+    """``article_id`` 必须是 JSON 可序列化的字符串。
+
+    字段声明为 ``str``，但上游可能传入 ``uuid.UUID``；序列化前必须字符串化，
+    否则 ``json.dumps`` 会抛 ``TypeError``。
+    """
+
+    def test_postgres_compensation_serializes_uuid_article_id(self) -> None:
+        import json
+
+        aid = uuid.uuid4()
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id=aid,  # type: ignore[arg-type]
+            step_name="pg_insert",
+            operation="insert",
+        )
+        data = cmd.serialize()
+        assert data["article_id"] == str(aid)
+        # 证明它确实可 JSON 序列化（此前会抛 TypeError）。
+        json.dumps(data)
+
+    def test_neo4j_compensation_serializes_uuid_article_id(self) -> None:
+        import json
+
+        aid = uuid.uuid4()
+        cmd = Neo4jCompensation(
+            saga_id="saga-1",
+            article_id=aid,  # type: ignore[arg-type]
+            step_name="neo4j_write",
+            operation="insert",
+        )
+        data = cmd.serialize()
+        assert data["article_id"] == str(aid)
+        json.dumps(data)
+
+    def test_empty_article_id_stays_falsy(self) -> None:
+        cmd = PostgresCompensation(
+            saga_id="saga-1",
+            article_id="",
+            step_name="pg_insert",
+            operation="insert",
+        )
+        assert cmd.serialize()["article_id"] == ""

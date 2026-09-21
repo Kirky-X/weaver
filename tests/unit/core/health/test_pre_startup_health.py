@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for pre-startup health checking functionality."""
 
 from __future__ import annotations
@@ -496,3 +496,31 @@ class TestHealthCheckAdvanced:
 
                     assert summary["required_services_healthy"] is False
                     assert "redis" in summary["failed_required_services"]
+
+
+class TestUriCredentialRedaction:
+    """Health-check details must redact credentials embedded in URIs."""
+
+    def test_redacts_uri_password(self) -> None:
+        from core.health.pre_startup import _redact_uri_credentials
+
+        raw = "bolt://admin:s3cret@neo4j.internal:7687"
+        redacted = _redact_uri_credentials(raw)
+
+        assert "s3cret" not in redacted
+        assert redacted == "bolt://admin:***@neo4j.internal:7687"
+
+    def test_leaves_uri_without_credentials_untouched(self) -> None:
+        from core.health.pre_startup import _redact_uri_credentials
+
+        raw = "bolt://localhost:7687"
+        assert _redact_uri_credentials(raw) == raw
+
+    def test_redacts_exception_text_containing_uri(self) -> None:
+        from core.health.pre_startup import _redact_uri_credentials
+
+        exc = ConnectionError("failed to connect to redis://:hunter2@redis.internal:6379/0")
+        redacted = _redact_uri_credentials(str(exc))
+
+        assert "hunter2" not in redacted
+        assert "***" in redacted

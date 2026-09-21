@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM usage statistics API schemas."""
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class LLMUsageSummary(BaseModel):
     avg_latency_ms: RoundedFloat = Field(description="Average latency in milliseconds")
     max_latency_ms: RoundedFloat = Field(default=0.0, description="Maximum latency in milliseconds")
     min_latency_ms: RoundedFloat = Field(default=0.0, description="Minimum latency in milliseconds")
-    success_rate: RoundedFloat = Field(description="Success rate (0.0 to 1.0)")
+    success_rate: RoundedFloat = Field(ge=0, le=1, description="Success rate (0.0 to 1.0)")
     error_types: dict[str, int] = Field(
         default_factory=dict,
         description="Error type breakdown",
@@ -69,7 +69,9 @@ class LLMUsageByProvider(BaseModel):
     total_tokens: int = Field(description="Total tokens")
     cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    success_rate: RoundedFloat = Field(
+        default=1.0, ge=0, le=1, description="Success rate (0.0 to 1.0)"
+    )
 
 
 class LLMUsageByModel(BaseModel):
@@ -83,7 +85,9 @@ class LLMUsageByModel(BaseModel):
     total_tokens: int = Field(description="Total tokens")
     cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    success_rate: RoundedFloat = Field(
+        default=1.0, ge=0, le=1, description="Success rate (0.0 to 1.0)"
+    )
 
 
 class LLMUsageByCallPoint(BaseModel):
@@ -94,4 +98,6 @@ class LLMUsageByCallPoint(BaseModel):
     total_tokens: int = Field(description="Total tokens")
     cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    success_rate: RoundedFloat = Field(
+        default=1.0, ge=0, le=1, description="Success rate (0.0 to 1.0)"
+    )

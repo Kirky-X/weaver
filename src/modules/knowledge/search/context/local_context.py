@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Neo4j local context builder for entity-based neighborhood search.
 
 Builds context by:
@@ -33,14 +33,13 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     - MENTIONS edges for article-entity linking
     - Direction indicators in relationship display
 
-    Cross-database divergence (intentional, see design.md §H1):
+    Cross-database divergence (intentional):
     This class does NOT override ``_handle_no_entities`` and uses the base
     behavior (relational DB text search, matching title + body) directly.
     LadybugDB ``LadybugLocalContextBuilder`` overrides it to add a graph
     Article node search path (title-only match) before the relational
     fallback. The two backends are NOT semantically equivalent in the
-    no-entities path — accepted trade-off, see H1 in
-    ``specmark/changes/db-consistency-verify/design.md``.
+    no-entities path — an accepted trade-off.
 
     Implements: ContextBuilder (via BaseLocalContextBuilder)
     """
@@ -50,13 +49,20 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         return True
 
     async def _find_query_entities(self, query: str) -> list[str]:
-        """Find entities mentioned in the query using alias search."""
+        """Find entities mentioned in the query using alias search.
+
+        Bidirectional CONTAINS: natural-language queries contain entity
+        names ("华为的芯片战略" ⊃ 华为), while short queries equal to the
+        entity name itself rely on the legacy direction.
+        """
         query_lower = query.lower()
 
         cypher = """
         MATCH (e:Entity)
         WHERE toLower(e.canonical_name) CONTAINS $query
-           OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query)
+           OR $query CONTAINS toLower(e.canonical_name)
+           OR any(alias IN e.aliases WHERE toLower(alias) CONTAINS $query
+                                    OR $query CONTAINS toLower(alias))
         RETURN e.canonical_name AS name
         LIMIT $limit
         """
@@ -111,7 +117,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         rel_clause = self._build_rel_match_clause(relation_types)
 
         cypher = f"""
-        MATCH (e:Entity)-{rel_clause}(related:Entity)
+        MATCH (e:Entity){rel_clause}(related:Entity)
         WHERE e.canonical_name IN $names
         RETURN DISTINCT related.canonical_name AS canonical_name,
                related.type AS type,
@@ -157,6 +163,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
                            e2.canonical_name AS target_name,
                            '{rt_name_en}' AS relation_type,
                            true AS is_symmetric
+                    LIMIT $limit
                 """)
             cypher = "\n UNION ALL \n".join(queries) + "\n LIMIT $limit"
         else:
@@ -188,7 +195,7 @@ class LocalContextBuilder(BaseLocalContextBuilder):
     ) -> list[dict[str, Any]]:
         """Get articles mentioning the query entities via MENTIONS edges.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id``. Title / publish_time are
         batch-fetched from PostgreSQL via ``enrich_articles_with_titles``
         when ``self._article_repo`` is available; article bodies are
@@ -204,6 +211,9 @@ class LocalContextBuilder(BaseLocalContextBuilder):
         ORDER BY a.pg_id
         LIMIT $limit
         """
+        # `ORDER BY a.pg_id` is deliberate but not a relevance sort: pg_id is an
+        # arbitrary UUID, ordered only to make the deterministic LIMIT selection
+        # (and therefore caching/diff-testing) reproducible.
 
         try:
             results = await self._pool.execute_query(

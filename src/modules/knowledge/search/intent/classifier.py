@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM-based intent classifier following MAGMA intent taxonomy."""
 
 from core.llm.client import LLMClient
@@ -43,13 +43,16 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个查询意图分类器。分析用�
 class IntentClassifier:
     """LLM-based intent classifier following MAGMA intent taxonomy."""
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(self, llm: LLMClient, timeout: float = 20.0) -> None:
         """Initialize intent classifier.
 
         Args:
             llm: LLM client for classification.
         """
         self._llm = llm
+        # 意图分类是低价值辅助调用：上游挂死时快速超时，
+        # 让 search 降级到 fallback_mode（local）而非拖住整个请求。
+        self._timeout = timeout
 
     async def classify(self, query: str) -> IntentClassification:
         """Classify query intent with confidence and extract signals.
@@ -61,13 +64,20 @@ class IntentClassifier:
             IntentClassification with detected intent, confidence, and extracted signals.
         """
         try:
+            # Substitute the placeholder into the prompt. The constant also
+            # contains literal JSON braces, so str.format() is not usable
+            # here — replace() targets only the {query} marker. The query is
+            # injected exclusively inside <user_query> tags; no duplicate
+            # suffix outside the tags (prompt-injection isolation).
+            user_content = INTENT_CLASSIFICATION_PROMPT.replace("{query}", query)
             response = await self._llm.call(
-                label="chat.agnes.agnes-2.0-flash",
+                label=self._llm.default_chat_label,
                 call_point=CallPoint.SEARCH_LOCAL,
                 payload={
                     "system_prompt": "You are a query intent classifier. Return valid JSON only.",
-                    "user_content": f"{INTENT_CLASSIFICATION_PROMPT}\n\nQuery: {query}",
+                    "user_content": user_content,
                 },
+                timeout=self._timeout,
             )
 
             # Parse LLM JSON response — robust extraction
@@ -98,9 +108,22 @@ class IntentClassifier:
             )
 
     def _extract_temporal_signals(self, signals: list) -> list[TemporalSignal]:
-        """Extract temporal signals from LLM response."""
+        """Extract temporal signals from LLM response.
+
+        Malformed signals are skipped with a warning instead of failing the
+        whole classification — one bad field from the LLM should not wipe
+        out otherwise-valid intent output.
+        """
         temporal_signals = []
         for signal in signals:
             if isinstance(signal, dict):
-                temporal_signals.append(TemporalSignal(**signal))
+                try:
+                    temporal_signals.append(TemporalSignal(**signal))
+                except (TypeError, ValueError) as exc:
+                    log.warning(
+                        "temporal_signal_invalid_skipped",
+                        error=str(exc),
+                        exc_type=type(exc).__name__,
+                        signal=signal,
+                    )
         return temporal_signals

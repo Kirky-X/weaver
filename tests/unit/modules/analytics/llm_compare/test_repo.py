@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for EvalCompareRepo - Repository for LLM comparison statistics."""
 
 from datetime import UTC, datetime, timedelta
@@ -24,7 +24,7 @@ class TestEvalCompareRepoInit:
 
 
 class TestEvalCompareRepoInsertRaw:
-    """Test insert_raw method."""
+    """Test insert_raw method (accumulating upsert semantics)."""
 
     # Uses conftest.py fixtures: mock_relational_pool, repo, sample_event
 
@@ -43,20 +43,41 @@ class TestEvalCompareRepoInsertRaw:
         )
 
     @pytest.mark.asyncio
-    async def test_insert_raw_creates_record(
+    async def test_insert_raw_executes_upsert(
         self,
         repo,
         mock_relational_pool,
         sample_event,
     ):
-        """Test insert_raw creates LLMCompareHourly record."""
+        """Test insert_raw executes an accumulating upsert, not a plain INSERT."""
         await repo.insert_raw(sample_event)
 
-        # Should call session.add
-        mock_relational_pool.session.return_value.add.assert_called_once()
+        # Should execute statement (not session.add — plain INSERT would hit
+        # the uq_llm_compare_hourly UNIQUE constraint on the 2nd event)
+        mock_relational_pool.session.return_value.execute.assert_called_once()
 
         # Should commit
         mock_relational_pool.session.return_value.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_insert_raw_uses_conflict_accumulation(
+        self,
+        repo,
+        mock_relational_pool,
+        sample_event,
+    ):
+        """Test insert_raw SQL carries ON CONFLICT DO UPDATE with increments."""
+        from sqlalchemy.dialects import postgresql
+
+        await repo.insert_raw(sample_event)
+
+        stmt = mock_relational_pool.session.return_value.execute.call_args[0][0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+
+        assert "ON CONFLICT" in sql
+        assert "DO UPDATE SET" in sql
+        # Conflict branch must accumulate from the existing row, not overwrite
+        assert "comparison_count" in sql
 
     @pytest.mark.asyncio
     async def test_insert_raw_truncates_time_to_hour(
@@ -65,15 +86,15 @@ class TestEvalCompareRepoInsertRaw:
         mock_relational_pool,
         sample_event,
     ):
-        """Test insert_raw truncates timestamp to hour bucket."""
+        """Test insert_raw truncates timestamp to hour bucket in the insert values."""
         await repo.insert_raw(sample_event)
 
-        # Get the added record
-        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
+        stmt = mock_relational_pool.session.return_value.execute.call_args[0][0]
 
-        # Time should be truncated to hour
+        # Time should be truncated to hour in the INSERT values clause
         expected_time = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
-        assert added_record.time_bucket == expected_time
+        insert_values = stmt.compile().params
+        assert insert_values["time_bucket"] == expected_time
 
     @pytest.mark.asyncio
     async def test_insert_raw_populates_all_fields(
@@ -82,19 +103,20 @@ class TestEvalCompareRepoInsertRaw:
         mock_relational_pool,
         sample_event,
     ):
-        """Test insert_raw populates all record fields."""
+        """Test insert_raw inserts this event's values as the initial row."""
         await repo.insert_raw(sample_event)
 
-        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
+        stmt = mock_relational_pool.session.return_value.execute.call_args[0][0]
+        params = stmt.compile().params
 
-        assert added_record.call_point == "classifier"
-        assert added_record.primary_model == "gpt-4"
-        assert added_record.candidate_model == "claude-3"
-        assert added_record.comparison_count == 1
-        assert added_record.primary_latency_sum == 150.5
-        assert added_record.candidate_latency_sum == 200.3
-        assert added_record.primary_success_count == 1
-        assert added_record.candidate_success_count == 0
+        assert params["call_point"] == "classifier"
+        assert params["primary_model"] == "gpt-4"
+        assert params["candidate_model"] == "claude-3"
+        assert params["comparison_count"] == 1
+        assert params["primary_latency_sum"] == 150.5
+        assert params["candidate_latency_sum"] == 200.3
+        assert params["primary_success_count"] == 1
+        assert params["candidate_success_count"] == 0
 
     @pytest.mark.asyncio
     async def test_insert_raw_success_false(
@@ -116,10 +138,11 @@ class TestEvalCompareRepoInsertRaw:
 
         await repo.insert_raw(event)
 
-        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
+        stmt = mock_relational_pool.session.return_value.execute.call_args[0][0]
+        params = stmt.compile().params
 
-        assert added_record.primary_success_count == 0
-        assert added_record.candidate_success_count == 0
+        assert params["primary_success_count"] == 0
+        assert params["candidate_success_count"] == 0
 
 
 class TestEvalCompareRepoUpsertHourly:
@@ -528,7 +551,7 @@ class TestEvalCompareRepoIntegration:
         )
 
         await repo.insert_raw(event)
-        assert session.add.called
+        assert session.execute.called
 
         # Upsert hourly
         await repo.upsert_hourly(

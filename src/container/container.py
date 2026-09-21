@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Container class — dependency injection facade combining four mixins."""
 
 from __future__ import annotations
@@ -66,6 +66,7 @@ class Container(
         self._simhash_dedup: Any = None
         self._retry_queue: Any = None
         self._event_bus: Any = None
+        self._owned_event_handlers: list[tuple[type, Any]] = []
         self._llm_failure_repo: Any = None
         self._llm_usage_buffer: Any = None
         self._llm_experience: Any = None

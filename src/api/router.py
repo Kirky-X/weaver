@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unified API router."""
 
 from __future__ import annotations
@@ -54,10 +54,10 @@ api_router.include_router(saga_router)
 # Analytics endpoints
 api_router.include_router(analytics_router)
 
-# Briefings endpoints (T009 / R-briefing-004, R-briefing-005)
+# Briefings endpoints
 api_router.include_router(briefings_router)
 
-# Trends endpoints (T013 / R-sentiment-003)
+# Trends endpoints
 api_router.include_router(trends_router)
 
 # Monitoring endpoints (read-only observation)
@@ -67,3 +67,28 @@ api_router.include_router(memory_router)
 api_router.include_router(causal_router)
 api_router.include_router(graph_monitoring_router)
 api_router.include_router(communities_monitoring_router)
+
+
+def _assert_no_duplicate_routes() -> None:
+    """Fail fast when two sub-routers register the same (method, path).
+
+    FastAPI matches the first registered route, so a duplicate silently
+    shadows the later one. Surfacing the collision at import time keeps
+    inclusion order intentional rather than incidental.
+    """
+    from fastapi.routing import APIRoute
+
+    seen: set[tuple[str, str]] = set()
+    for route in api_router.routes:
+        if isinstance(route, APIRoute):
+            for method in route.methods:
+                key = (method, route.path)
+                if key in seen:
+                    raise RuntimeError(
+                        f"Duplicate route registered: {method} {route.path} "
+                        f"(first match wins in FastAPI; later router is shadowed)"
+                    )
+                seen.add(key)
+
+
+_assert_no_duplicate_routes()

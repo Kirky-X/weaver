@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pydantic models for pipeline state validation.
 
 This module provides Pydantic models for type-safe pipeline state handling.
@@ -20,8 +20,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from core.constants import ArticleProcessingState
-from modules.ingestion.domain.models import RawArticle
+from core.constants import LanguageCode
+from core.types.ingestion_models import RawArticle
 
 
 class CredibilityModel(BaseModel):
@@ -87,7 +87,7 @@ class ValidatedPipelineState(BaseModel):
     Can be converted to/from dict for compatibility with existing code.
     """
 
-    model_config = {"extra": "allow", "populate_by_name": True}
+    model_config = {"extra": "allow"}
 
     # Input (required)
     raw: RawArticle | None = None
@@ -103,7 +103,7 @@ class ValidatedPipelineState(BaseModel):
 
     # Categorizer
     category: str = "unknown"
-    language: str = "zh"
+    language: str = LanguageCode.ZH.value
     region: str = "unknown"
 
     # Vectorize
@@ -136,9 +136,6 @@ class ValidatedPipelineState(BaseModel):
     # Prompt version tracking
     prompt_versions: dict[str, str] = Field(default_factory=dict)
 
-    # Internal tracking
-    _current_stage: ArticleProcessingState = ArticleProcessingState.RAW
-
     @field_validator("category")
     @classmethod
     def validate_category(cls, v: str) -> str:
@@ -146,12 +143,6 @@ class ValidatedPipelineState(BaseModel):
         if not v or not v.strip():
             return "unknown"
         return v.strip().lower()
-
-    @field_validator("score", "quality_score")
-    @classmethod
-    def validate_scores(cls, v: float) -> float:
-        """Ensure scores are in valid range."""
-        return max(0.0, min(1.0, v))
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
@@ -202,7 +193,11 @@ class ValidatedPipelineState(BaseModel):
         if isinstance(self.vectors, VectorData):
             return self.vectors.content
         if isinstance(self.vectors, dict):
-            return self.vectors.get("content")
+            # The dict fallback is unvalidated — a partial/corrupted payload
+            # could hold a non-list here, which would violate the declared
+            # return type and only blow up deep inside numeric consumers.
+            value = self.vectors.get("content")
+            return value if isinstance(value, list) else None
         return None
 
     def get_title_vector(self) -> list[float] | None:

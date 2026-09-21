@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB schema initialization.
 
 LadybugDB requires explicit schema definition before data insertion.
@@ -9,6 +9,37 @@ Uses CREATE NODE TABLE and CREATE REL TABLE syntax.
 from core.observability import get_logger
 
 log = get_logger(__name__)
+
+# Canonical graph table vocabulary. ``SCHEMA_QUERIES`` below is the DDL
+# authority (order-sensitive); scripts/data_io.py and scripts/db.py derive
+# their verification vocabularies from these two tuples, so new tables must
+# be added to both places. Guarded by
+# tests/unit/core/db/test_ladybug_schema_vocab.py.
+NODE_TABLES: tuple[str, ...] = (
+    "Entity",
+    "Article",
+    "Community",
+    "CommunityReport",
+    "EventNode",
+    "NarrativeNode",
+    "SchemaNode",
+    "_CommunityMetadata",
+)
+REL_TABLES: tuple[str, ...] = (
+    "MENTIONS",
+    "FOLLOWED_BY",
+    "EVENT_FOLLOWED_BY",
+    "CAUSES",
+    "ENABLES",
+    "PREVENTS",
+    "RELATED_TO",
+    "HAS_ENTITY",
+    "REPORTS_ON",
+    "HAS_PARTICIPANT",
+    "HAS_SUB_EVENT",
+    "HAS_NARRATIVE",
+    "HAS_EVENT",
+)
 
 # Schema queries for LadybugDB
 SCHEMA_QUERIES = [
@@ -30,21 +61,20 @@ SCHEMA_QUERIES = [
         pg_id STRING
     )
     """,
-    # D2 / Article slim-down: secondary index on Article.pg_id so that
+    # Article slim-down: secondary index on Article.pg_id so that
     # MATCH (a:Article {pg_id: $pg_id}) uses an index lookup instead of
     # a full table scan. Kùzu (LadybugDB) supports CREATE INDEX via
     # Cypher since 0.4.0; older deployments skip silently via the
     # try/except in initialize_ladybug_schema. The PRIMARY KEY on `id`
     # does not cover pg_id lookups.
     "CREATE INDEX IF NOT EXISTS article_pg_id_idx FOR (a:Article) ON (a.pg_id)",
-    # D2 / Article node slim-down: backfill existing LadybugDB databases
+    # Article node slim-down: backfill existing LadybugDB databases
     # by dropping the legacy business fields. New databases pick up the
     # slim schema from CREATE NODE TABLE above; existing databases need
     # ALTER TABLE DROP COLUMN. Wrapped in try/except by
     # initialize_ladybug_schema so already-migrated databases skip
     # silently. Title/category/publish_time/score are now batch-fetched
-    # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids
-    # (design.md §D2).
+    # from PostgreSQL via ArticleRepository.fetch_titles_by_pg_ids.
     "ALTER TABLE Article DROP COLUMN title",
     "ALTER TABLE Article DROP COLUMN category",
     "ALTER TABLE Article DROP COLUMN publish_time",
@@ -66,7 +96,7 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
-    # R3 fix: backfill article_count on pre-existing Community tables.
+    # backfill article_count on pre-existing Community tables.
     # New databases pick up the column from CREATE NODE TABLE above; existing
     # databases need ALTER TABLE. Wrapped in try/except by initialize_ladybug_schema.
     "ALTER TABLE Community ADD COLUMN article_count INT64",
@@ -99,7 +129,7 @@ SCHEMA_QUERIES = [
         embedding DOUBLE[]
     )
     """,
-    # D2 / Task 6.4: backfill embedding column on pre-existing EventNode tables.
+    # Backfill embedding column on pre-existing EventNode tables.
     # New databases pick up the column from CREATE NODE TABLE above; existing
     # databases need ALTER TABLE. Wrapped in try/except by initialize_ladybug_schema
     # so already-migrated databases skip silently. LadybugDB supports DOUBLE[]
@@ -222,15 +252,26 @@ SCHEMA_QUERIES = [
 async def initialize_ladybug_schema(pool) -> None:
     """Initialize LadybugDB schema with all node and relationship tables.
 
+    Best-effort by design: statements that fail because the target object
+    already exists (or the engine predates the syntax, e.g. ALTER/DROP on
+    older deployments) are skipped so reruns stay idempotent. Failures are
+    logged at WARNING with context — never silently dropped.
+
     Args:
         pool: LadybugPool instance with execute_query method.
     """
+    skipped = 0
     for query in SCHEMA_QUERIES:
         try:
             await pool.execute_query(query)
             log.info("ladybug_schema_created", query=query[:50])
         except Exception as exc:
-            # Table may already exist
-            log.debug("ladybug_schema_check", error=str(exc))
+            skipped += 1
+            log.warning(
+                "ladybug_schema_statement_skipped",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                query=query[:80],
+            )
 
-    log.info("ladybug_schema_initialized")
+    log.info("ladybug_schema_initialized", total=len(SCHEMA_QUERIES), skipped=skipped)

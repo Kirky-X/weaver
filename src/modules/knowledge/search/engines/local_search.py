@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Local search engine for entity-based neighborhood search.
 
 Performs targeted searches around specific entities, suitable for
@@ -8,6 +8,7 @@ precise, factual queries that require detailed entity information.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -101,30 +102,63 @@ class LocalSearchEngine:
 
         start = time.monotonic()
         try:
-            context = await self._context_builder.build(
-                query=query,
-                max_tokens=min(max_tokens, self._max_context_tokens),
-                entity_names=entity_names,
-                relation_types=relation_types,
-            )
-
-            sources = self._extract_sources_from_context(context)
+            context: Any | None = None
+            sources: list[dict[str, Any]] = []
+            try:
+                context = await self._context_builder.build(
+                    query=query,
+                    max_tokens=min(max_tokens, self._max_context_tokens),
+                    entity_names=entity_names,
+                    relation_types=relation_types,
+                )
+                sources = self._extract_sources_from_context(context)
+            except Exception as exc:
+                log.warning(
+                    "local_context_build_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
 
             # If use_llm=False, return context without LLM generation
             if not use_llm:
-                entities = self._extract_entities_from_context(context)
+                entities = self._extract_entities_from_context(context) if context else []
+                metadata = {
+                    "context_sections": len(context.sections) if context else 0,
+                    "search_type": SearchMode.LOCAL.value,
+                    "llm_used": False,
+                    "hybrid_used": self._hybrid_engine is not None,
+                }
+                if context is None:
+                    metadata["degraded"] = True
                 return SearchResult(
                     query=query,
-                    answer="Context built successfully. LLM generation skipped.",
-                    context_tokens=context.total_tokens,
+                    answer=(
+                        "Context built successfully. LLM generation skipped."
+                        if context
+                        else "Context build failed. LLM generation skipped."
+                    ),
+                    context_tokens=context.total_tokens if context else 0,
                     sources=sources,
                     entities=entities,
-                    confidence=self._estimate_confidence(context),
+                    confidence=self._estimate_confidence(context) if context else 0.0,
+                    metadata=metadata,
+                )
+
+            if context is None:
+                # No grounded context — degrade like the LLM-failure path
+                # instead of calling the LLM ungrounded or raising a 500.
+                return SearchResult(
+                    query=query,
+                    answer="Search failed: context build failed.",
+                    context_tokens=0,
+                    sources=[],
+                    entities=[],
+                    confidence=0.0,
                     metadata={
-                        "context_sections": len(context.sections),
                         "search_type": SearchMode.LOCAL.value,
                         "llm_used": False,
                         "hybrid_used": self._hybrid_engine is not None,
+                        "degraded": True,
                     },
                 )
 
@@ -199,11 +233,11 @@ class LocalSearchEngine:
 
 回答要求：
 1. 仅基于提供的上下文回答
-2. Cite specific entities and relationships when relevant
-3. If information is incomplete, acknowledge the limitations
-4. Be concise but comprehensive
+2. 引用上下文中出现的具体实体和关系
+3. 如果上下文信息不完整，明确说明局限
+4. 回答简洁但内容全面
 
-Answer:"""
+回答："""
 
     def _extract_entities_from_context(self, context: Any) -> list[str]:
         """Extract entity names from context.
@@ -223,13 +257,13 @@ Answer:"""
             )
             if count:
                 content = section.content
-                log.info("extract_entities_content", content_preview=content[:200])
+                log.debug("extract_entities_content", content_preview=content[:200])
                 for line in content.split("\n"):
                     if line.startswith("- ") and "(" in line:
                         name = line[2:].split("(")[0].strip()
                         if name:
                             entities.append(name)
-                            log.info("entity_extracted", name=name)
+                            log.debug("entity_extracted", name=name)
         log.info("entities_extracted_total", count=len(entities), entities=entities[:5])
         return list(set(entities))[:20]
 
@@ -248,8 +282,10 @@ Answer:"""
         if not context.sections:
             return 0.0
 
-        entity_count = context.metadata.get("total_entities", 0)
-        rel_count = context.metadata.get("total_relationships", 0)
+        # Guard against a None metadata mapping on degraded contexts.
+        meta = context.metadata or {}
+        entity_count = meta.get("total_entities", 0)
+        rel_count = meta.get("total_relationships", 0)
 
         confidence = 0.5
 
@@ -278,7 +314,37 @@ Answer:"""
         Returns:
             List of SearchResults.
         """
-        import asyncio
-
         tasks = [self.search(query, max_tokens=max_tokens) for query in queries]
-        return await asyncio.gather(*tasks)
+        # return_exceptions=True: one failing query must not discard the
+        # results of the others; failures degrade to per-query error results.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        final: list[SearchResult] = []
+        for query, res in zip(queries, results):
+            if isinstance(res, BaseException):
+                log.error(
+                    "local_search_batch_item_failed",
+                    query=query[:50],
+                    error=str(res),
+                    error_type=type(res).__name__,
+                )
+                final.append(
+                    SearchResult(
+                        query=query,
+                        answer=f"Search failed: {res!s}",
+                        context_tokens=0,
+                        sources=[],
+                        entities=[],
+                        confidence=0.0,
+                        metadata={
+                            "search_type": SearchMode.LOCAL.value,
+                            "llm_used": False,
+                            "hybrid_used": self._hybrid_engine is not None,
+                            "error": str(res),
+                            "degraded": True,
+                        },
+                    )
+                )
+            else:
+                final.append(res)
+        return final

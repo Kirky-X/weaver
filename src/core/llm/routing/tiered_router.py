@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """TieredRouter: difficulty-based tiered LLM routing.
 
 Routes based on difficulty score to tiered LLM providers using
@@ -50,7 +50,7 @@ class TieredRouter:
     def _find_tier(self, call_point: str, difficulty: float) -> TierConfig | None:
         """Find the matching tier for a given difficulty."""
         tiers = self._get_tiers(call_point)
-        if tiers is None:
+        if not tiers:
             return None
         for tier in tiers:
             if difficulty < tier.max_difficulty:

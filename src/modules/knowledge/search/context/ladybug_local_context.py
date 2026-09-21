@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB local context builder for entity-based neighborhood search.
 
 Builds context by:
@@ -16,6 +16,7 @@ from typing import Any
 
 from core.db.graph_query_builders import (
     EntitySearchConfig,
+    GraphDatabaseType,
     GraphQueryBuilder,
     RelatedEntitiesConfig,
     create_graph_query_builder,
@@ -62,7 +63,9 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
             max_relationships=max_relationships,
             max_hops=max_hops,
         )
-        self._query_builder: GraphQueryBuilder = create_graph_query_builder("ladybug")
+        self._query_builder: GraphQueryBuilder = create_graph_query_builder(
+            GraphDatabaseType.LADYBUG
+        )
 
     def _should_validate_entity_names(self) -> bool:
         """LadybugDB validates entity names because data model may differ."""
@@ -78,15 +81,14 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         Tries graph-based Article node search first, then falls back to
         relational DB (DuckDB/PostgreSQL) text search.
 
-        Cross-database divergence (intentional, see design.md §H1):
+        Cross-database divergence (intentional):
         This override exists to exercise LadybugDB's Cypher dialect for
         Article node queries. The graph path matches title only (Python-side
         filter after PG enrichment); the relational fallback matches title
         and body. Neo4j ``LocalContextBuilder`` does NOT override this
         method and uses the base behavior (relational DB search) directly.
         The two backends are therefore NOT semantically equivalent in the
-        no-entities path — accepted trade-off, see H1 in
-        ``specmark/changes/db-consistency-verify/design.md``.
+        no-entities path — an accepted trade-off.
         """
         context.add_content(
             name="Search Note",
@@ -172,11 +174,12 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
 
         cypher = self._query_builder.build_related_entities_query(config)
 
+        params: dict[str, Any] = {"names": entity_names, "limit": self._max_entities}
+        if relation_types:
+            params["relation_types"] = relation_types
+
         try:
-            results = await self._pool.execute_query(
-                cypher,
-                {"names": entity_names, "limit": self._max_entities},
-            )
+            results = await self._pool.execute_query(cypher, params)
             return [dict(r) for r in results]
         except Exception as exc:
             log.warning("get_related_entities_failed", error=str(exc))
@@ -215,7 +218,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
     ) -> list[dict[str, Any]]:
         """Get articles mentioning the query entities.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id``. Title / category / publish_time /
         score are batch-fetched from PostgreSQL via
         ``enrich_articles_with_titles`` when ``self._article_repo`` is
@@ -267,7 +270,7 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         This is a fallback when no entities are found.
         Uses parameterized query via GraphQueryBuilder.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down, the graph query
         returns only ``a.pg_id AS id`` and does NOT filter by query text
         (Article nodes no longer store titles). Titles are batch-fetched
         from PostgreSQL via ``enrich_articles_with_titles`` when

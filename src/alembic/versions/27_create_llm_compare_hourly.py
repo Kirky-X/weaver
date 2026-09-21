@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Create llm_compare_hourly table for LLM shadow evaluation comparison.
 
 Revision ID: 27_create_llm_compare_hourly

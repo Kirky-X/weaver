@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Shadow evaluation runner for model comparison.
 
 Issues parallel shadow calls to candidate models without
@@ -59,6 +59,9 @@ class EvalRunner:
         self._config = config
         self._llm_client = llm_client
         self._event_bus = event_bus
+        # Strong refs: CPython may GC unreferenced tasks mid-flight, and a
+        # done-callback is needed to surface exceptions nobody awaits.
+        self._background_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def from_eval_config(
@@ -123,8 +126,9 @@ class EvalRunner:
         if not self._config.candidate_labels:
             return
 
-        # Fire and forget — run in background task
-        asyncio.create_task(
+        # Fire and forget — keep a strong reference so the task cannot be
+        # GC'd before completion, and log any unretrieved exception.
+        task = asyncio.create_task(
             self._run_shadow(
                 call_point=call_point,
                 primary_label=primary_label,
@@ -136,6 +140,17 @@ class EvalRunner:
             ),
             name=f"shadow_eval_{call_point}",
         )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_shadow_done)
+
+    @staticmethod
+    def _on_shadow_done(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            log.error(
+                "shadow_eval_task_failed",
+                error=str(task.exception()),
+                exc_type=type(task.exception()).__name__,
+            )
 
     async def _run_shadow(
         self,
@@ -170,7 +185,17 @@ class EvalRunner:
                     candidate_output=str(candidate_result) if candidate_result else "",
                     primary_tokens=primary_tokens,
                 )
-                await self._event_bus.publish(event)
+                try:
+                    await self._event_bus.publish(event)
+                except Exception:
+                    # Publishing failure must not be reported as a shadow-call
+                    # failure, nor silently lost.
+                    log.warning(
+                        "eval_shadow_publish_failed",
+                        call_point=call_point,
+                        candidate=str(candidate_label),
+                        exc_info=True,
+                    )
 
                 log.info(
                     "eval_shadow_complete",
@@ -198,4 +223,14 @@ class EvalRunner:
                     candidate_success=False,
                     primary_output=str(primary_result) if primary_result else "",
                 )
-                await self._event_bus.publish(event)
+                try:
+                    await self._event_bus.publish(event)
+                except Exception:
+                    # Fire-and-forget callers never await this coroutine, so an
+                    # escaping exception here would vanish without a trace.
+                    log.warning(
+                        "eval_shadow_publish_failed",
+                        call_point=call_point,
+                        candidate=str(candidate_label),
+                        exc_info=True,
+                    )

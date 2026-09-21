@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Location name resolver using ISO 3166 standards.
 
 Provides canonical name normalization and ISO code mapping
@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pycountry
-from geonamescache import GeonamesCache
 from rapidfuzz import fuzz, process
 
 from core.observability import get_logger
@@ -33,16 +32,15 @@ class LocationResult:
 class LocationResolver:
     """Resolve and normalize location names to ISO 3166 standard.
 
-    Uses pycountry and geonamescache for comprehensive coverage,
-    with rapidfuzz for fuzzy matching fallback.
+    Uses pycountry for the canonical country index, with rapidfuzz for
+    fuzzy matching fallback.
     """
 
     def __init__(self) -> None:
         """Initialize location resolver with multilingual index."""
         self._countries = pycountry.countries
-        self._gc = GeonamesCache()
-        self._country_data = self._gc.get_countries()
         self._name_to_iso: dict[str, str] = {}
+        self._normalize_cache: dict[str, LocationResult] = {}
         self._build_multilingual_index()
 
     def _build_multilingual_index(self) -> None:
@@ -100,12 +98,27 @@ class LocationResolver:
     def normalize(self, name: str) -> LocationResult:
         """Normalize a location name to canonical form.
 
+        Results are memoized: ``normalize`` is a pure function of the
+        multilingual index, and the same location pair is re-normalized by
+        several resolution rules in sequence (each call would otherwise pay a
+        rapidfuzz fuzzy search).
+
         Args:
             name: Location name to normalize.
 
         Returns:
             LocationResult with canonical name and ISO codes.
         """
+        cached = self._normalize_cache.get(name)
+        if cached is not None:
+            return cached
+
+        result = self._normalize_uncached(name)
+        self._normalize_cache[name] = result
+        return result
+
+    def _normalize_uncached(self, name: str) -> LocationResult:
+        """Compute the normalization result for ``name`` (see ``normalize``)."""
         # Exact match
         iso_code = self._name_to_iso.get(name.lower())
         if iso_code:
@@ -159,33 +172,3 @@ class LocationResolver:
                 if predicate is None or predicate(name):
                     return name
         return None
-
-    def is_location(self, name: str) -> bool:
-        """Check if a name is a known location.
-
-        Args:
-            name: Name to check.
-
-        Returns:
-            True if name is a known location.
-        """
-        return name.lower() in self._name_to_iso
-
-    def get_hierarchy(self, iso_code: str) -> dict:
-        """Get location hierarchy information.
-
-        Args:
-            iso_code: ISO 3166 alpha-2 country code.
-
-        Returns:
-            Dictionary with hierarchy information.
-        """
-        country = self._country_data.get(iso_code)
-        if not country:
-            return {}
-
-        return {
-            "name": country.get("name"),
-            "iso_code": iso_code,
-            "continent": country.get("continent"),
-        }

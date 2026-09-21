@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RuleBasedCredibilityCheckerNode._calc_timeliness.
 
-Regression tests for Bug-A: TypeError when publish_time is str (not datetime).
+Regression tests for TypeError when publish_time is str (not datetime).
 
 Root cause: cleaner.py backfills publish_time as str(date), but _calc_timeliness
 expected datetime. Fix: defensive _to_datetime helper handles str/datetime/None.
@@ -47,7 +47,7 @@ class TestCalcTimeliness:
                 0.85,
                 "datetime_within_24h",
             ),
-            # Bug-A regression: publish_time as str (from cleaner.py backfill)
+            # Regression: publish_time as str (from cleaner.py backfill)
             # Before fix: TypeError: unsupported operand type(s) for -: 'str' and 'datetime.datetime'
             # After fix: should return 1.00 (within 6h)
             (
@@ -125,7 +125,7 @@ class TestCalcTimeliness:
     ):
         """Test _calc_timeliness handles str/datetime/None inputs defensively.
 
-        Regression: Bug-A TypeError when publish_time is str.
+        Regression: TypeError when publish_time is str.
         """
         score = RuleBasedCredibilityCheckerNode._calc_timeliness(publish_time, event_time)
         assert expected_min <= score <= expected_max, (

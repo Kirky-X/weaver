@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SmartRouter: unified routing facade for LLM model selection.
 
 Coordinates the RoutingPipeline (rule-based filtering) and
@@ -9,11 +9,11 @@ list of candidate labels for each call point.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core.llm.routing.model_selector import ModelSelector
 from core.llm.routing.router import LabelRouter
-from core.llm.types import GlobalConfig, Label, RoutingMode
+from core.llm.types import GlobalConfig, Label, LLMType, RoutingMode
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -61,15 +61,27 @@ class SmartRouter:
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
                 circuit_breaker_timeout=settings.circuit_breaker_timeout,
                 default_timeout=settings.default_timeout,
+                request_delay_enabled=settings.request_delay_enabled,
+                request_delay_min=settings.request_delay_min,
+                request_delay_max=settings.request_delay_max,
                 defaults=settings.defaults,
                 call_points=settings.call_points,
             )
         )
 
+        # Build ModelSelector, wiring the configured cost rates into the
+        # cost dimension — without this the routing weights' cost component
+        # silently scored every candidate at 0.0.
+        cost_per_model: dict[str, float] = {}
+        rates = getattr(getattr(settings, "cost", None), "rates", None)
+        if isinstance(rates, dict):
+            cost_per_model = {label: rate.input + rate.output for label, rate in rates.items()}
+
         # Build ModelSelector
         self._selector = ModelSelector(
             experience=experience,
             circuit_breakers=circuit_breakers,
+            cost_per_model=cost_per_model,
         )
 
     def route(
@@ -118,6 +130,7 @@ class SmartRouter:
                 "smart_router_fallback",
                 call_point=call_point,
                 error=str(exc),
+                exc_type=type(exc).__name__,
             )
             return static_labels
 
@@ -134,10 +147,8 @@ class SmartRouter:
                 return []
 
     @staticmethod
-    def _infer_llm_type(call_point: str) -> Any:
+    def _infer_llm_type(call_point: str) -> LLMType:
         """Infer LLMType from call point name."""
-        from core.llm.types import LLMType
-
         if "embedding" in call_point:
             return LLMType.EMBEDDING
         if "rerank" in call_point:

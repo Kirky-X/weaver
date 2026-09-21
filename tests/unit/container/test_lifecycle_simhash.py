@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T001 RED: lifecycle.py must wire simhash_dedup into DiscoveryProcessor.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED: lifecycle.py must wire simhash_dedup into DiscoveryProcessor.
 
-Bug report (D1 dead code):
+Bug report (dead code):
     src/container/lifecycle.py:1023-1028 instantiates DiscoveryProcessor
     without the ``simhash_dedup`` kwarg, leaving
     ``DiscoveryProcessor._simhash_dedup = None`` and disabling cross-source
@@ -47,6 +47,8 @@ def _stub_startup_dependencies(container) -> None:
     container.init_bing_searcher = AsyncMock()
     container.init_source_scheduler = AsyncMock()
     container.init_ml_components = AsyncMock()
+    # KnowledgeCache touches the real filesystem; stub it
+    container.init_knowledge_cache = AsyncMock()
     container.init_pipeline = AsyncMock()
     container.init_memory_service = AsyncMock()
     container.init_conflict_detector = AsyncMock()
@@ -60,7 +62,7 @@ def _stub_startup_dependencies(container) -> None:
     container.deduplicator = MagicMock(return_value=MagicMock(name="deduplicator"))
     container.processing_queue = MagicMock(return_value=MagicMock(name="processing_queue"))
 
-    # T002 will add simhash_dedup() factory to services.py.
+    # SimHash dedup factory
     simhash_instance = MagicMock(name="simhash_dedup_instance")
     container.simhash_dedup = MagicMock(return_value=simhash_instance)
 
@@ -92,11 +94,12 @@ async def test_discovery_processor_receives_simhash_dedup() -> None:
 
     with patch("modules.ingestion.domain.processor.DiscoveryProcessor", CapturingProcessor):
         with patch("api.endpoints.deps_registry.Endpoints.initialize"):
-            await container.startup()
+            with patch("container.protocol_registry.validate_protocol_bindings", return_value=[]):
+                await container.startup()
 
     instance = captured.get("instance")
     assert instance is not None, "lifecycle.py must instantiate DiscoveryProcessor"
     assert instance._simhash_dedup is not None, (
         "DiscoveryProcessor._simhash_dedup must not be None after startup() — "
-        "lifecycle.py:1023-1028 must pass simhash_dedup=self.simhash_dedup() (D1 dead code)"
+        "lifecycle.py:1023-1028 must pass simhash_dedup=self.simhash_dedup() (dead code)"
     )

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 """
 内容处理域模块
@@ -16,7 +16,7 @@
 """
 
 from modules.processing.nlp.spacy_extractor import SpacyEntity, SpacyExtractor
-from modules.processing.pipeline.graph import Pipeline
+from modules.processing.pipeline import Pipeline
 
 __all__ = [
     "Pipeline",

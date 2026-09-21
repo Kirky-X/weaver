@@ -3,7 +3,7 @@
 # Stop:  docker compose -f docker/docker-compose.verify.yml down
 # Clean: docker compose -f docker/docker-compose.verify.yml down -v
 #
-# Phase H 验证栈：第二组 PG + Neo4j 实例，用于 T035 反向导入验证。
+# Phase H 验证栈：第二组 PG + Neo4j 实例，用于反向导入验证。
 # 端口与 docker-compose.test.yml 错开：PG2=5433、Neo4j2 HTTP=7475/Bolt=7688。
 # Redis 复用 test 栈的 6379，不重复部署。
 

@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Source configuration repository for database operations."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from core.db import SourceConfig as SourceConfigRow
+from core.db import SourceAuthority as SourceAuthorityRow, SourceConfig as SourceConfigRow
 from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
 
@@ -73,7 +74,13 @@ class SourceConfigRepo:
     async def get_credibility(self, host: str) -> float | None:
         """Get preset credibility for a host.
 
-        Looks up source by extracting host from stored URLs.
+        Primary lookup is the ``source_authorities`` table, which stores a
+        unique ``host`` column — an exact, index-friendly match. Falls back
+        to scanning ``source_configs`` whose URL authority equals ``host``
+        (URLs are parsed in Python; a substring ``contains`` match would
+        false-positive on hosts embedded in paths, e.g.
+        ``https://a.com/b.github.com/feed``).
+
         This is used by CredibilityCheckerNode for the priority hierarchy.
 
         Args:
@@ -83,22 +90,41 @@ class SourceConfigRepo:
             Preset credibility score if found, None otherwise.
         """
         async with self._pool.session() as session:
-            # Match sources where URL contains the host
             result = await session.execute(
-                select(SourceConfigRow).where(
-                    SourceConfigRow.url.contains(host), SourceConfigRow.credibility.is_not(None)
-                )
+                select(SourceAuthorityRow.authority).where(SourceAuthorityRow.host == host)
             )
-            source = result.scalar_one_or_none()
-            if source and source.credibility is not None:
-                return float(source.credibility)
+            authority = result.scalar_one_or_none()
+            if authority is not None:
+                return float(authority)
+
+            # Fallback: match SourceConfig rows by parsed URL authority.
+            # Order deterministically and use first() — multiple sources may
+            # carry a credibility value and scalar_one_or_none would raise.
+            rows = await session.execute(
+                select(SourceConfigRow)
+                .where(SourceConfigRow.credibility.is_not(None))
+                .order_by(SourceConfigRow.updated_at.desc())
+            )
+            for source in rows.scalars():
+                try:
+                    if urlparse(source.url or "").netloc.lower() == host.lower():
+                        return float(source.credibility) if source.credibility is not None else None
+                except ValueError:
+                    continue
             return None
 
-    async def list_sources(self, enabled_only: bool = True) -> list[SourceConfig]:
-        """List all sources.
+    async def list_sources(
+        self,
+        enabled_only: bool = True,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[SourceConfig]:
+        """List all sources with optional pagination.
 
         Args:
             enabled_only: If True, only return enabled sources.
+            limit: Maximum number of results (None = no limit).
+            offset: Result offset (None = start from beginning).
 
         Returns:
             List of source configurations.
@@ -107,8 +133,29 @@ class SourceConfigRepo:
             query = select(SourceConfigRow)
             if enabled_only:
                 query = query.where(SourceConfigRow.enabled.is_(True))
-            result = await session.execute(query.order_by(SourceConfigRow.name))
+            query = query.order_by(SourceConfigRow.name)
+            if limit is not None:
+                query = query.limit(limit)
+            if offset is not None:
+                query = query.offset(offset)
+            result = await session.execute(query)
             return [self._to_config(s) for s in result.scalars().all()]
+
+    async def count_sources(self, enabled_only: bool = True) -> int:
+        """Count sources matching the filter.
+
+        Args:
+            enabled_only: If True, only count enabled sources.
+
+        Returns:
+            Number of matching sources.
+        """
+        async with self._pool.session() as session:
+            query = select(func.count(SourceConfigRow.id))
+            if enabled_only:
+                query = query.where(SourceConfigRow.enabled.is_(True))
+            result = await session.execute(query)
+            return result.scalar() or 0
 
     async def upsert(self, config: SourceConfig) -> SourceConfig:
         """Create or update a source configuration.
@@ -154,14 +201,17 @@ class SourceConfigRepo:
                     "updated_at": stmt.excluded.updated_at,
                 },
             )
-            await session.execute(stmt)
+            # RETURNING reads the row written by this very statement — a
+            # separate SELECT could race with a concurrent upsert and read
+            # a snapshot without the row (NoResultFound) or stale data.
+            stmt = stmt.returning(SourceConfigRow)
+            result = await session.execute(stmt)
+            # Consume the row BEFORE commit: commit releases the underlying
+            # connection/result set, and the DuckDB driver then fails the
+            # deferred scalar_one() with "No open result set".
+            config = self._to_config(result.scalar_one())
             await session.commit()
-
-            # Fetch the persisted record
-            result = await session.execute(
-                select(SourceConfigRow).where(SourceConfigRow.id == config.id)
-            )
-            return self._to_config(result.scalar_one())
+            return config
 
     async def delete(self, source_id: str) -> bool:
         """Delete a source configuration.

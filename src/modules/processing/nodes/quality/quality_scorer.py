@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Rule-based quality scorer — no LLM dependency."""
 
 from __future__ import annotations
@@ -17,6 +17,11 @@ QUALITY_WEIGHTS = {
     "originality": 0.15,
     "timeliness": 0.10,
 }
+
+# Originality: a body at least this long is treated as fully original.
+MIN_BODY_LEN_FULL_ORIGINAL = 100
+# Timeliness: neutral score when no event_time/publish_time is available.
+DEFAULT_TIMELINESS_SCORE = 0.5
 
 
 class RuleBasedQualityScorerNode:
@@ -54,7 +59,7 @@ class RuleBasedQualityScorerNode:
         return state
 
     def _compute_score(self, state: PipelineState) -> float:
-        si = state.get("summary_info", {})
+        si = state.get("summary_info") or {}
 
         # 1. Completeness (0.30)
         completeness_fields = [
@@ -66,7 +71,7 @@ class RuleBasedQualityScorerNode:
         completeness = sum(completeness_fields) / len(completeness_fields)
 
         # 2. Credibility (0.25)
-        cred = state.get("credibility", {})
+        cred = state.get("credibility") or {}
         credibility_fields = [
             cred.get("score") is not None,
             cred.get("source_credibility") is not None,
@@ -85,8 +90,8 @@ class RuleBasedQualityScorerNode:
         # 4. Originality (0.15)
         originality = 0.0
         if not state.get("is_merged"):
-            body = state.get("cleaned", {}).get("body", "")
-            if body and len(body) > 100:
+            body = (state.get("cleaned") or {}).get("body", "")
+            if body and len(body) > MIN_BODY_LEN_FULL_ORIGINAL:
                 originality = 1.0
             elif body:
                 originality = 0.5
@@ -97,10 +102,10 @@ class RuleBasedQualityScorerNode:
 
         # 5. Timeliness (0.10)
         timeliness = 0.0
-        if si.get("event_time") or state.get("cleaned", {}).get("publish_time"):
+        if si.get("event_time") or (state.get("cleaned") or {}).get("publish_time"):
             timeliness = 1.0
         else:
-            timeliness = 0.5
+            timeliness = DEFAULT_TIMELINESS_SCORE
 
         return (
             completeness * QUALITY_WEIGHTS["completeness"]

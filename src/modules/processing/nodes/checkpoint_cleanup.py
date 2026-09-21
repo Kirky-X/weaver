@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Checkpoint cleanup pipeline node — clean up pipeline checkpoints after completion."""
 
 from __future__ import annotations
@@ -42,7 +42,11 @@ class CheckpointCleanupNode:
             return state
 
         try:
-            url = state["raw"].url
+            raw = state.get("raw")
+            url = getattr(raw, "url", None)
+            if not url:
+                log.debug("checkpoint_cleanup_skipped_no_url")
+                return state
             url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
             checkpoint_key = f"{self.CHECKPOINT_KEY_PREFIX}:{url_hash}"
 
@@ -54,10 +58,13 @@ class CheckpointCleanupNode:
                 checkpoint_key=checkpoint_key,
             )
         except Exception as exc:
+            # Do not touch state/raw here: the failing access may be the very
+            # expression that raised, so re-accessing it in the handler could
+            # mask the original failure with a second exception.
             log.warning(
                 "checkpoint_cleanup_failed",
-                url=state["raw"].url if "raw" in state else "unknown",
                 error=str(exc),
+                exc_type=type(exc).__name__,
             )
 
         return state

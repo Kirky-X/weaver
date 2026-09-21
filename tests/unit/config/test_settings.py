@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test configuration settings."""
 
 from unittest.mock import MagicMock, patch
@@ -271,3 +271,111 @@ class TestAPISettingsPortDetection:
 
             with pytest.raises(PortExhaustionError):
                 APISettings(port=8000)
+
+
+class TestApiKeyGenerationCaching:
+    """lazily generated API key must be cached per instance."""
+
+    def test_generated_key_is_stable(self) -> None:
+        """Repeated get_api_key() calls return the same generated key."""
+        settings = APISettings(api_key="")
+
+        first = settings.get_api_key()
+        second = settings.get_api_key()
+
+        assert first == second
+        assert first  # non-empty
+
+    def test_token_generated_once_per_instance(self) -> None:
+        """secrets.token_urlsafe is called at most once (log-flood fix)."""
+        settings = APISettings(api_key="")
+
+        with patch("secrets.token_urlsafe", return_value="cached-key") as mock_gen:
+            settings.get_api_key()
+            settings.get_api_key()
+            settings.get_api_key()
+
+        assert mock_gen.call_count == 1
+
+    def test_configured_key_takes_precedence(self) -> None:
+        """Explicitly configured key is returned without generation."""
+        settings = APISettings(api_key="configured-key-value")
+
+        with patch("secrets.token_urlsafe") as mock_gen:
+            assert settings.get_api_key() == "configured-key-value"
+            mock_gen.assert_not_called()
+
+    def test_cache_is_per_instance(self) -> None:
+        """Two instances generate independent keys (no cross-instance sharing)."""
+        first_settings = APISettings(api_key="")
+        second_settings = APISettings(api_key="")
+
+        assert first_settings.get_api_key() != second_settings.get_api_key()
+
+
+class TestHmacSecretIndependence:
+    """production forbids HMAC secret fallback to API key."""
+
+    def test_production_hmac_enabled_without_secret_raises(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret=None,
+        )
+        with pytest.raises(ValueError, match="WEAVER_API__HMAC_SECRET"):
+            settings.validate_security(environment="production")
+
+    def test_development_hmac_enabled_without_secret_warns(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret=None,
+        )
+        warnings = settings.validate_security(environment="development")
+        assert any("HMAC" in w for w in warnings)
+
+    def test_production_with_secret_passes(self) -> None:
+        settings = APISettings(
+            api_key="a" * 40,
+            hmac_signing_enabled=True,
+            hmac_secret="h" * 40,
+        )
+        warnings = settings.validate_security(environment="production")
+        assert not any("HMAC" in w for w in warnings)
+
+
+class TestSettingsSecurityRedis:
+    """Settings.validate_security must cover Redis credentials."""
+
+    @staticmethod
+    def _make_settings(password: str, environment: str) -> "Settings":
+        from config.settings import Settings
+        from config.subconfigs import APISettings, RedisSettings
+
+        return Settings.model_construct(
+            environment=environment,
+            api=APISettings(api_key="a" * 40),
+            redis=RedisSettings(password=password),
+            neo4j=MagicMock(password="strong-neo4j-pass"),
+            postgres=MagicMock(password="strong-pg-pass"),
+        )
+
+    def test_production_empty_redis_password_raises(self) -> None:
+        settings = self._make_settings(password="", environment="production")
+        with pytest.raises(ValueError, match="WEAVER_REDIS__PASSWORD"):
+            settings.validate_security()
+
+    def test_production_weak_redis_password_raises(self) -> None:
+        settings = self._make_settings(password="password", environment="production")
+        with pytest.raises(ValueError, match="WEAVER_REDIS__PASSWORD"):
+            settings.validate_security()
+
+    def test_development_empty_redis_password_warns(self) -> None:
+        settings = self._make_settings(password="", environment="development")
+        warnings = settings.validate_security()
+        assert any("Redis" in w for w in warnings)
+
+    def test_production_strong_redis_password_passes(self) -> None:
+        settings = self._make_settings(password="x" * 32, environment="production")
+        warnings = settings.validate_security()
+        assert not any("Redis" in w for w in warnings)

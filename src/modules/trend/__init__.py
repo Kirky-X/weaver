@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Trend module — sentiment time-series analysis and trend detection.
 
 This package groups trend-related services:
-- models: SentimentTrendResult dataclass (T011) and TrendDetectionResult (T014)
-- sentiment: SentimentTrendAnalyzer implementing SentimentTrendProtocol (T012)
-- detection: TrendDetector implementing TrendDetectionProtocol (T015)
+- models: SentimentTrendResult dataclass and TrendDetectionResult
+- sentiment: SentimentTrendAnalyzer implementing SentimentTrendProtocol
+- detection: TrendDetector implementing TrendDetectionProtocol
 """
 
 from __future__ import annotations

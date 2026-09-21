@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for StructuralConsolidationWorker (Slow Path)."""
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class TestSlowPathProcessEvent:
                 "causal_edges": [
                     {
                         "source_id": "event-1",
-                        "target_id": "event-2",
+                        "target_id": "neighbor-1",
                         "relation_type": "CAUSES",
                         "confidence": 0.8,
                         "evidence": "test evidence",
@@ -116,7 +116,7 @@ class TestSlowPathProcessEvent:
                 "causal_edges": [
                     {
                         "source_id": "event-1",
-                        "target_id": "event-2",
+                        "target_id": "neighbor-1",
                         "relation_type": "CAUSES",
                         "confidence": 0.3,
                         "evidence": "low confidence",
@@ -167,10 +167,9 @@ class TestSlowPathProcessEvent:
             llm_client=mock_llm,
         )
 
-        result = await worker.process_event("event-1")
-
-        assert result.causal_edges_added == 0
-        assert result.entity_links_added == 0
+        # process_event re-raises so the batch driver can requeue
+        with pytest.raises(Exception, match="DB error"):
+            await worker.process_event("event-1")
 
     @pytest.mark.asyncio
     async def test_process_event_with_entity_links(
@@ -239,7 +238,7 @@ class TestSlowPathInferCausalRelations:
             }
         )
 
-        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}])
+        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}, {"id": "e2"}])
 
         assert len(result) == 1
         assert result[0]["source_id"] == "e1"
@@ -263,7 +262,7 @@ class TestSlowPathInferCausalRelations:
         )
         worker._llm.call = AsyncMock(return_value=response)
 
-        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}])
+        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}, {"id": "e2"}])
 
         assert len(result) == 1
 
@@ -299,6 +298,8 @@ class TestSlowPathProcessBatch:
     def mock_queue(self):
         queue = MagicMock()
         queue.dequeue = AsyncMock(side_effect=["event-1", "event-2", None])
+        queue.ack = AsyncMock()
+        queue.enqueue = AsyncMock()
         return queue
 
     @pytest.fixture
@@ -427,3 +428,131 @@ class TestSlowPathDiscoverEntityLinks:
         result = await worker._discover_entity_links("event-1", [{"content": "test"}])
 
         assert result == 0
+
+
+class TestSlowPathSecurityAndReliability:
+    """New-behavior tests: causal-edge whitelist + requeue."""
+
+    @pytest.mark.asyncio
+    async def test_infer_rejects_unknown_event_ids(self):
+        """LLM edges referencing ids outside the neighborhood are dropped."""
+        worker = StructuralConsolidationWorker(
+            temporal_repo=MagicMock(),
+            causal_repo=MagicMock(),
+            consolidation_queue=MagicMock(),
+            llm_client=MagicMock(),
+        )
+        worker._llm.call = AsyncMock(
+            return_value={
+                "causal_edges": [
+                    {
+                        "source_id": "evil-injected-id",
+                        "target_id": "another-unknown",
+                        "relation_type": "CAUSES",
+                        "confidence": 0.99,
+                        "evidence": "injected",
+                    },
+                    {
+                        "source_id": "center-1",
+                        "target_id": "e1",
+                        "relation_type": "CAUSES",
+                        "confidence": 0.9,
+                        "evidence": "legit",
+                    },
+                ]
+            }
+        )
+
+        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}, {"id": "e2"}])
+
+        assert len(result) == 1
+        assert result[0]["source_id"] == "center-1"
+
+    @pytest.mark.asyncio
+    async def test_infer_rejects_invalid_relation_type(self):
+        worker = StructuralConsolidationWorker(
+            temporal_repo=MagicMock(),
+            causal_repo=MagicMock(),
+            consolidation_queue=MagicMock(),
+            llm_client=MagicMock(),
+        )
+        worker._llm.call = AsyncMock(
+            return_value={
+                "causal_edges": [
+                    {
+                        "source_id": "center-1",
+                        "target_id": "e1",
+                        "relation_type": "HACKED",
+                        "confidence": 0.9,
+                    }
+                ]
+            }
+        )
+
+        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}])
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_infer_rejects_non_dict_response(self):
+        """A JSON list response must not raise AttributeError."""
+        import json as _json
+
+        worker = StructuralConsolidationWorker(
+            temporal_repo=MagicMock(),
+            causal_repo=MagicMock(),
+            consolidation_queue=MagicMock(),
+            llm_client=MagicMock(),
+        )
+        worker._llm.call = AsyncMock(return_value=_json.dumps(["positive", 0.9]))
+
+        result = await worker._infer_causal_relations("center-1", [{"id": "e1"}])
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_process_batch_requeues_failed_event(self):
+        """A failing event is requeued; successful ones are acked."""
+        queue = MagicMock()
+        queue.dequeue = AsyncMock(side_effect=["bad", "good", None])
+        queue.ack = AsyncMock()
+        queue.enqueue = AsyncMock()
+
+        worker = StructuralConsolidationWorker(
+            temporal_repo=MagicMock(),
+            causal_repo=MagicMock(),
+            consolidation_queue=queue,
+            llm_client=MagicMock(),
+        )
+
+        async def fake_process(event_id: str):
+            if event_id == "bad":
+                raise RuntimeError("LLM blew up")
+            return ConsolidationResult(event_id=event_id)
+
+        worker.process_event = fake_process
+
+        results = await worker.process_batch(batch_size=5)
+
+        assert [r.event_id for r in results] == ["good"]
+        queue.ack.assert_awaited_once_with("good")
+        queue.enqueue.assert_awaited_once_with("bad")
+
+    @pytest.mark.asyncio
+    async def test_process_batch_backend_error_returns_empty(self):
+        """A Redis failure must not look like an empty queue."""
+        queue = MagicMock()
+        queue.dequeue = AsyncMock(side_effect=RuntimeError("redis down"))
+        queue.ack = AsyncMock()
+        queue.enqueue = AsyncMock()
+
+        worker = StructuralConsolidationWorker(
+            temporal_repo=MagicMock(),
+            causal_repo=MagicMock(),
+            consolidation_queue=queue,
+            llm_client=MagicMock(),
+        )
+
+        results = await worker.process_batch(batch_size=5)
+
+        assert results == []

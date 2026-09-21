@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community report generator using LLM."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from core.constants import DatabaseType
+from core.constants import DatabaseType, EntityType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
@@ -73,6 +73,10 @@ class ReportGenerationResult:
     success: bool
     report_id: str | None = None
     error: str | None = None
+    # True when the report was persisted to the graph DB but the PostgreSQL
+    # community_vectors sync failed — vector similarity search will miss this
+    # community until the next successful run (data-integrity visibility).
+    degraded: bool = False
 
 
 class CommunityReportGenerator:
@@ -176,7 +180,7 @@ class CommunityReportGenerator:
             )
 
             # Step 5: Generate and store embedding
-            await self._store_report_embedding(
+            embedding_ok = await self._store_report_embedding(
                 report_id,
                 report_output.full_content,
                 community_id=community_id,
@@ -192,12 +196,14 @@ class CommunityReportGenerator:
                 community_id=community_id,
                 report_id=report_id,
                 title=report_output.title,
+                embedding_stored=embedding_ok,
             )
 
             return ReportGenerationResult(
                 community_id=community_id,
                 success=True,
                 report_id=report_id,
+                degraded=not embedding_ok,
             )
 
         except Exception as exc:
@@ -322,15 +328,28 @@ class CommunityReportGenerator:
         Returns:
             Community data dict or None.
         """
-        query = """
-        MATCH (c:Community {id: $community_id})
-        RETURN c.id AS id, c.level AS level,
-               c.entity_count AS entity_count,
-               coalesce(c.article_count, 0) AS article_count
-        """
+        if self._is_ladybug:
+            # LadybugDB: No coalesce support, normalize nulls in Python
+            # (same pattern as Neo4jCommunityRepo.get_report)
+            query = """
+            MATCH (c:Community {id: $community_id})
+            RETURN c.id AS id, c.level AS level,
+                   c.entity_count AS entity_count,
+                   c.article_count AS article_count
+            """
+        else:
+            query = """
+            MATCH (c:Community {id: $community_id})
+            RETURN c.id AS id, c.level AS level,
+                   c.entity_count AS entity_count,
+                   coalesce(c.article_count, 0) AS article_count
+            """
         result = await self._pool.execute_query(query, {"community_id": community_id})
         if result:
-            return dict(result[0])
+            data = dict(result[0])
+            if self._is_ladybug:
+                data["article_count"] = data.get("article_count") or 0
+            return data
         return None
 
     async def _get_community_entities(self, community_id: str) -> list[dict[str, str]]:
@@ -352,7 +371,7 @@ class CommunityReportGenerator:
         return [
             {
                 "name": r.get("name", ""),
-                "type": r.get("type", "未知"),
+                "type": r.get("type", EntityType.UNKNOWN),
                 "description": r.get("description", "")[:200] if r.get("description") else "",
             }
             for r in results
@@ -400,7 +419,7 @@ class CommunityReportGenerator:
                 "source": r.get("source", ""),
                 "relation_type": r.get("relation_type", "相关"),
                 "target": r.get("target", ""),
-                "weight": r.get("weight", 1.0),
+                "weight": r.get("weight") or 1.0,
             }
             for r in results
         ]
@@ -425,23 +444,33 @@ class CommunityReportGenerator:
         Returns:
             CommunityReportOutput or None on failure.
         """
-        # Format entities for prompt
+        # Format entities for prompt. Entity text originates from crawled
+        # content and is untrusted — wrap it in explicit delimiters so the
+        # model treats it as data only (prompt-injection hardening,
+        # mirrors memory/evolution/slow_path).
         entities_text = "\n".join(
             f"- {e['name']} ({e['type']}): {e['description']}"
             for e in entities[:30]  # Limit to avoid token overflow
         )
+        entities_text = "<<<COMMUNITY_DATA\n" + entities_text + "\nCOMMUNITY_DATA>>>"
 
-        # Format relationships for prompt
+        # Format relationships for prompt (same untrusted-data treatment)
         relationships_text = "\n".join(
             f"- {r['source']} --[{r['relation_type']}]--> {r['target']}"
             for r in relationships[:20]  # Limit to avoid token overflow
         )
         if not relationships_text:
             relationships_text = "（无关系数据）"
+        else:
+            relationships_text = "<<<COMMUNITY_DATA\n" + relationships_text + "\nCOMMUNITY_DATA>>>"
 
         try:
             # Build user prompt from template
             prompt_loader = self._llm._prompts
+            if prompt_loader is None:
+                # Explicit failure instead of AttributeError deep in .get()
+                log.error("prompt_loader_not_configured", community_id=community_id)
+                return None
             user_template = prompt_loader.get("community_report", "user")
             user_content = user_template.format(
                 community_id=community_id,
@@ -533,11 +562,16 @@ class CommunityReportGenerator:
                             community_id=community_id,
                         )
                     except Exception as exc:
-                        log.warning(
+                        # PG community_vectors sync failure leaves the report
+                        # searchable only via the graph — surface at ERROR so
+                        # the gap is visible (callers also see degraded=True).
+                        log.error(
                             "community_vector_sync_failed",
                             community_id=community_id,
                             error=str(exc),
+                            exc_type=type(exc).__name__,
                         )
+                        return False
                 return True
         except Exception as exc:
             log.warning(
@@ -546,27 +580,3 @@ class CommunityReportGenerator:
                 error=str(exc),
             )
         return False
-
-    async def mark_stale_reports(self) -> int:
-        """Mark reports as stale when community entity count changed significantly.
-
-        Returns:
-            Number of reports marked as stale.
-        """
-        query = """
-        MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
-        WHERE r.stale = false
-        WITH r, c,
-             c.entity_count AS current_count,
-             size([(c)-[:HAS_ENTITY]->(e) | e]) AS actual_count
-        WHERE abs(current_count - actual_count) > current_count * 0.2
-        SET r.stale = true
-        RETURN count(r) AS stale_count
-        """
-        result = await self._pool.execute_query(query)
-        if result:
-            stale_count = result[0].get("stale_count", 0)
-            if stale_count > 0:
-                log.info("reports_marked_stale", count=stale_count)
-            return stale_count
-        return 0

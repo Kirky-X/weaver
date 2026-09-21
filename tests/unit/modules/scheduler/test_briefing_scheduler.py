@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for daily briefing scheduler job (T010 / R-briefing-006).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Unit tests for daily briefing scheduler job.
 
 Covers:
 - AnalyticsJobs.generate_daily_briefing generates 4 categories (general/finance/tech/ai)
 - Error isolation: single category failure doesn't block others
 - Service unavailable (LLM/pool missing) returns error dict, doesn't raise
 - Cron registration in lifecycle._setup_scheduler: hour=8, minute=0,
-  Asia/Shanghai, job name mentions "4 categories" (spec R-briefing-006)
+  Asia/Shanghai, job name mentions "4 categories" (spec)
 
 The cron registration test uses source inspection (``inspect.getsource``)
 because ``_setup_scheduler`` requires a full container to invoke. Source
-inspection directly verifies spec R-briefing-006 (`0 8 * * *` Asia/Shanghai)
+inspection directly verifies spec (`0 8 * * *` Asia/Shanghai)
 and acts as a regression guard.
 """
 
@@ -47,7 +47,7 @@ def _make_mock_briefing_result(*, category: str = "general", briefing_id: int = 
 
 
 class TestGenerateDailyBriefingJob:
-    """Tests for AnalyticsJobs.generate_daily_briefing (T010)."""
+    """Tests for AnalyticsJobs.generate_daily_briefing."""
 
     @pytest.mark.asyncio
     async def test_generates_4_categories(self) -> None:
@@ -74,7 +74,7 @@ class TestGenerateDailyBriefingJob:
 
     @pytest.mark.asyncio
     async def test_error_isolation_single_category_failure(self) -> None:
-        """One category failing does NOT block other categories (Rule 12 + R-briefing-006)."""
+        """One category failing does NOT block other categories (Rule 12 +)."""
         jobs = _make_analytics_jobs()
         mock_service = MagicMock()
 
@@ -104,7 +104,7 @@ class TestGenerateDailyBriefingJob:
         """When _build_briefing_service returns None, job returns error dict, doesn't raise.
 
         Scheduler must not be blocked by missing LLM/pool dependencies
-        (R-briefing-006: failure logs error, doesn't block next execution).
+        (failure logs error, doesn't block next execution).
         """
         jobs = _make_analytics_jobs()
 
@@ -165,7 +165,7 @@ class TestGenerateDailyBriefingJob:
 
 
 class TestBriefingSchedulerCronRegistration:
-    """Tests for cron registration in lifecycle._setup_scheduler (R-briefing-006).
+    """Tests for cron registration in lifecycle._setup_scheduler.
 
     Uses source inspection because _setup_scheduler requires a full container.
     The test verifies the daily_briefing_generation job block uses:
@@ -173,7 +173,7 @@ class TestBriefingSchedulerCronRegistration:
     - Job name mentions "4 categories"
     - max_instances=1, coalesce=True
 
-    Spec R-briefing-006: cron `0 8 * * *` Asia/Shanghai.
+    Spec cron `0 8 * * *` Asia/Shanghai.
 
     Block extraction uses ``split("scheduler.add_job(")`` rather than regex
     because CronTrigger args contain nested parens (ZoneInfo("...")) which
@@ -209,14 +209,16 @@ class TestBriefingSchedulerCronRegistration:
         assert block, "daily_briefing_generation job not found in lifecycle._setup_scheduler"
 
     def test_cron_trigger_uses_hour_8(self) -> None:
-        """CronTrigger for daily_briefing_generation uses hour=8 (not hour=7)."""
+        """CronTrigger reads briefing_cron_hour; the settings default is 8."""
+        from config.subconfigs import SchedulerSettings
+
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert "hour=8" in block, (
-            f"CronTrigger must use hour=8 per spec R-briefing-006. Block: {block[:200]}"
+        assert "briefing_cron_hour" in block, (
+            f"CronTrigger must read briefing_cron_hour from settings. Block: {block[:200]}"
         )
-        assert "hour=7" not in block, (
-            "CronTrigger must NOT use hour=7 (old value, spec requires hour=8)"
+        assert SchedulerSettings().briefing_cron_hour == 8, (
+            "briefing_cron_hour default must be 8 per spec"
         )
 
     def test_cron_trigger_uses_minute_0(self) -> None:
@@ -226,12 +228,15 @@ class TestBriefingSchedulerCronRegistration:
         assert "minute=0" in block
 
     def test_cron_trigger_uses_asia_shanghai_timezone(self) -> None:
-        """CronTrigger uses Asia/Shanghai timezone per spec R-briefing-006."""
+        """CronTrigger reads briefing_timezone; the settings default is Asia/Shanghai."""
+        from config.subconfigs import SchedulerSettings
+
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
-        assert "Asia/Shanghai" in block, (
-            f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
-        )
+        assert "briefing_timezone" in block, "CronTrigger must read briefing_timezone from settings"
+        assert (
+            "Asia/Shanghai" in block or SchedulerSettings().briefing_timezone == "Asia/Shanghai"
+        ), f"CronTrigger must use Asia/Shanghai timezone. Block: {block[:200]}"
 
     def test_job_name_mentions_4_categories(self) -> None:
         """Job name mentions '4 categories' to reflect the 4-briefing generation."""
@@ -245,7 +250,7 @@ class TestBriefingSchedulerCronRegistration:
         )
 
     def test_job_uses_max_instances_1_and_coalesce(self) -> None:
-        """Job uses max_instances=1 + coalesce=True per spec R-briefing-006."""
+        """Job uses max_instances=1 + coalesce=True per spec."""
         block = self._find_briefing_job_block()
         assert block, "daily_briefing_generation job block not found"
         assert "max_instances=1" in block
@@ -253,7 +258,7 @@ class TestBriefingSchedulerCronRegistration:
 
 
 class TestBriefingServiceBuilder:
-    """Tests for AnalyticsJobs._build_briefing_service helper (T010)."""
+    """Tests for AnalyticsJobs._build_briefing_service helper."""
 
     def test_build_briefing_service_returns_none_when_container_unavailable(self) -> None:
         """_build_briefing_service returns None (not raise) when container/LLM unavailable."""

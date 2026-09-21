@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SSRF protection integration tests at the API endpoint layer (S-01~S-12).
 
 Covers 12 SSRF protection test cases via POST /api/v1/pipeline/url/stream

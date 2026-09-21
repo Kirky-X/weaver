@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """BM25 retriever for lexical search using bm25s library.
 
 This module provides high-performance BM25 text retrieval with:
@@ -14,6 +14,7 @@ Security Note:
 from __future__ import annotations
 
 import hashlib
+import threading
 
 # BM25 索引持久化，已用 RestrictedUnpickler 加固防 RCE
 import pickle  # nosec B403
@@ -24,7 +25,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import bm25s
+import numpy as np
 
+from core.constants import LanguageCode
 from core.observability import get_logger
 from core.security.crypto.signing import (
     IntegrityError,
@@ -91,24 +94,29 @@ class RestrictedUnpickler(pickle.Unpickler):
         )
 
 
+_pickle_lock = threading.Lock()
+
+
 @contextmanager
 def _secure_pickle_load() -> Generator[None, None, None]:
     """Context manager that patches pickle.load to use RestrictedUnpickler.
 
     This prevents arbitrary code execution when loading bm25s index files
     that use pickle internally. The patch is scoped to the context manager
-    lifetime only.
+    lifetime only. A module-level lock serializes concurrent callers so
+    the global monkey-patch cannot race.
     """
-    _original_load = pickle.load
+    with _pickle_lock:
+        _original_load = pickle.load
 
-    def _restricted_load(f, **kwargs):
-        return RestrictedUnpickler(f, **kwargs).load()
+        def _restricted_load(f, **kwargs):
+            return RestrictedUnpickler(f, **kwargs).load()
 
-    pickle.load = _restricted_load  # type: ignore[assignment]
-    try:
-        yield
-    finally:
-        pickle.load = _original_load  # type: ignore[assignment]
+        pickle.load = _restricted_load  # type: ignore[assignment]
+        try:
+            yield
+        finally:
+            pickle.load = _original_load  # type: ignore[assignment]
 
 
 def _compute_file_hash(path: Path) -> str:
@@ -143,6 +151,39 @@ def _compute_file_hash(path: Path) -> str:
 
 
 log = get_logger(__name__)
+
+
+def _contains_cjk_runs(text: str) -> bool:
+    """Whether ``text`` contains at least one CJK ideograph run."""
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _cjk_bigram_tokens(text: str) -> list[str]:
+    """Cut ``text`` into tokens: ASCII/other runs stay whole, CJK runs are
+    split into sliding character bigrams (last odd character kept whole).
+    """
+    tokens: list[str] = []
+    run: list[str] = []
+
+    def flush_cjk_run() -> None:
+        if not run:
+            return
+        if len(run) == 1:
+            tokens.append(run[0])
+        else:
+            tokens.extend("".join(run[i : i + 2]) for i in range(len(run) - 1))
+        run.clear()
+
+    for ch in text:
+        if "\u4e00" <= ch <= "\u9fff":
+            run.append(ch)
+        else:
+            flush_cjk_run()
+            if not ch.isspace():
+                tokens.append(ch)
+    flush_cjk_run()
+    return tokens
+
 
 # Optional stemmer for English text
 try:
@@ -206,8 +247,11 @@ class BM25Retriever:
         signing_key: Optional signing key for index integrity.
     """
 
-    # Stemmer is not needed for Chinese, only for English
-    SUPPORTED_LANGUAGES = {"zh": "zh_core_web_lg", "en": "en_core_web_lg"}
+    # Stemmer is not needed for Chinese, only for English.
+    # Language → primary spaCy model map is derived from LanguageCode
+    # (single source shared with spacy_extractor), so model-name strings
+    # are defined in exactly one place.
+    SUPPORTED_LANGUAGES = {code.value: code.primary_spacy_model for code in LanguageCode}
 
     # File names
     INDEX_FILE = "bm25_index"
@@ -215,7 +259,7 @@ class BM25Retriever:
 
     def __init__(
         self,
-        language: str = "zh",
+        language: str = LanguageCode.ZH.value,
         index_dir: str | None = None,
         k1: float = 1.5,
         b: float = 0.75,
@@ -246,7 +290,7 @@ class BM25Retriever:
         self._needs_reindex: bool = False  # Flag to track if index needs rebuilding
 
         # Initialize stemmer for English
-        if language == "en" and STEMMER_AVAILABLE and Stemmer is not None:
+        if language == LanguageCode.EN.value and STEMMER_AVAILABLE:
             self._stemmer = Stemmer.Stemmer("english")
 
         log.info(
@@ -280,7 +324,7 @@ class BM25Retriever:
             log.warning("spacy_model_not_found", model=model_name, fallback="simple_tokenizer")
 
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize text using spacy or simple whitespace tokenization.
+        """Tokenize text using spacy or a CJK-aware fallback.
 
         Args:
             text: Text to tokenize.
@@ -297,8 +341,16 @@ class BM25Retriever:
                 token.text.lower() for token in doc if not token.is_space and not token.is_punct
             ]
         else:
-            # Fallback: simple whitespace tokenization
-            tokens = text.lower().split()
+            # Fallback without spaCy. Whitespace splitting alone collapses
+            # each CJK sentence into a single token (Chinese has no spaces),
+            # so contiguous CJK runs are cut into character bigrams — the
+            # standard fallback for Chinese IR without a segmenter.
+            tokens = []
+            for chunk in text.lower().split():
+                if _contains_cjk_runs(chunk):
+                    tokens.extend(_cjk_bigram_tokens(chunk))
+                else:
+                    tokens.append(chunk)
 
         # Apply stemming for English
         if self._stemmer is not None and tokens:
@@ -352,9 +404,14 @@ class BM25Retriever:
         if not documents:
             return
 
-        # Append to existing documents
+        # Skip doc_ids already in the index: overwriting the map would orphan
+        # the old corpus slot (still scoring in BM25) while pointing at the
+        # new position — duplicate slots skew idf/scores.
+        added = 0
         start_idx = len(self._documents)
         for doc in documents:
+            if doc.doc_id in self._doc_id_to_idx:
+                continue
             self._doc_id_to_idx[doc.doc_id] = start_idx
             self._documents.append(doc)
             start_idx += 1
@@ -363,11 +420,22 @@ class BM25Retriever:
             combined_text = f"{doc.title} {doc.content}"
             tokens = self._tokenize(combined_text)
             self._corpus.append(tokens)
+            added += 1
 
-        # Mark that index needs rebuilding before next search
-        self._needs_reindex = True
+        if added:
+            # Mark that index needs rebuilding before next search
+            self._needs_reindex = True
 
-        log.info("bm25_documents_added", count=len(documents), total=len(self._documents))
+        skipped = len(documents) - added
+        if skipped:
+            log.info(
+                "bm25_documents_added",
+                count=added,
+                skipped_duplicates=skipped,
+                total=len(self._documents),
+            )
+        else:
+            log.info("bm25_documents_added", count=added, total=len(self._documents))
 
     def _ensure_indexed(self) -> None:
         """Rebuild BM25 index if documents have been added since last index.
@@ -415,8 +483,6 @@ class BM25Retriever:
         scores = self._retriever.get_scores(query_tokens)
 
         # Get top-k indices
-        import numpy as np
-
         top_k_indices = np.argsort(scores)[-top_k:][::-1]
 
         # Build result objects
@@ -527,10 +593,15 @@ class BM25Retriever:
         # Restore state from data
         self._documents = [BM25Document.from_dict(d) for d in data["documents"]]
         self._doc_id_to_idx = data["doc_id_to_idx"]
-        self._language = data.get("language", "zh")
+        self._language = data.get("language", LanguageCode.ZH.value)
         self._k1 = data.get("k1", 1.5)
         self._b = data.get("b", 0.75)
-        # Corpus is loaded with bm25s index, mark as not needing reindex
+        # Rebuild the tokenized corpus from the restored documents. Without
+        # this, a later add_documents() incremental rebuild would build the
+        # index from the newly added tokens only, silently dropping every
+        # loaded document from the searchable index.
+        self._corpus = [self._tokenize(f"{d.title} {d.content}") for d in self._documents]
+        # Index on disk matches the corpus above, mark as not needing reindex
         self._needs_reindex = False
 
         log.info("bm25_index_loaded", path=str(load_dir), num_documents=len(self._documents))

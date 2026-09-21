@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Articles API endpoints."""
 
 from __future__ import annotations
@@ -15,11 +15,18 @@ from sqlalchemy import asc, desc, nullslast, select
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
-from api.schemas.response import APIResponse, success_response
+from api.schemas.response import APIResponse, ResponseCode, success_response
+from core.constants import LanguageCode
 from core.db import Article, CategoryType, PersistStatus
+from core.exceptions import BusinessError
 from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.security import AuditLogService
+
+# Precompute the constant set of "completed" persist statuses once at import
+# time instead of rebuilding the frozenset on every _map_processing_status()
+# call (hot path: invoked per article in list responses).
+_COMPLETED_PERSIST_STATUSES = PersistStatus.completed_statuses()
 
 log = get_logger("articles_api")
 
@@ -81,7 +88,7 @@ class ArticleDetailResponse(BaseModel):
 def _map_processing_status(persist_status: PersistStatus | str | None) -> str:
     """Map PersistStatus enum to simplified processing_status string.
 
-    Aggregation rules (per design.md Decision 2):
+    Aggregation rules:
     - "pending"    ← PersistStatus.PENDING
     - "processing" ← PersistStatus.PROCESSING and non-terminal SAGA_* states
     - "completed"  ← PersistStatus.completed_statuses()
@@ -104,7 +111,7 @@ def _map_processing_status(persist_status: PersistStatus | str | None) -> str:
         PersistStatus.SAGA_COMPENSATED,
     }:
         return "failed"
-    if persist_status in PersistStatus.completed_statuses():
+    if persist_status in _COMPLETED_PERSIST_STATUSES:
         return "completed"
     return "processing"
 
@@ -154,7 +161,6 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
 
 @router.get("", response_model=APIResponse[ArticleListResponse])
 async def list_articles(
-    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     category: str | None = Query(None, description="Filter by category"),
@@ -203,12 +209,12 @@ async def list_articles(
             try:
                 cat = CategoryType(category)
                 filters.append(Article.category == cat)
-            except ValueError:
+            except ValueError as _exc:
                 raise HTTPException(
                     status_code=422,
                     detail=f"Invalid category '{category}'. Valid categories: "
                     f"{[c.value for c in CategoryType]}",
-                )
+                ) from _exc
         if source_host:
             filters.append(Article.source_host == source_host)
         if source_id:
@@ -216,7 +222,15 @@ async def list_articles(
         if is_news is not None:
             filters.append(Article.is_news == is_news)
         if language:
-            filters.append(Article.language == language)
+            try:
+                lang = LanguageCode(language)
+                filters.append(Article.language == lang)
+            except ValueError as _exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid language '{language}'. Valid languages: "
+                    f"{[c.value for c in LanguageCode]}",
+                ) from _exc
         if min_score is not None:
             filters.append(Article.score >= min_score)
         if min_credibility is not None:
@@ -278,10 +292,10 @@ async def get_article(
     Articles are system-level public content (aggregated news, not user-private
     data), so all authenticated users can read all articles by design. However,
     every article access is recorded in the audit log for security monitoring
-    and breach detection (vuln-0003 mitigation: CWE-639).
+    and breach detection (CWE-639).
 
     True multi-tenant isolation (tenant_id on Article + query filtering) is an
-    architecture-level change tracked separately — see fix_report.md §6.
+    architecture-level change tracked separately.
 
     Args:
         request: FastAPI request (for client IP / user agent in audit log).
@@ -298,31 +312,32 @@ async def get_article(
     """
     try:
         article_uuid = uuid.UUID(article_id)
-    except ValueError:
+    except ValueError as _exc:
         raise HTTPException(
             status_code=400,
             detail="Invalid article ID format",
-        )
+        ) from _exc
 
     async with pool.session() as session:
         result = await session.execute(select(Article).where(Article.id == article_uuid))
         article = result.scalar_one_or_none()
 
         if article is None:
-            raise HTTPException(
+            raise BusinessError(
                 status_code=404,
-                detail=f"Article '{article_id}' not found",
+                code=ResponseCode.ERR_ARTICLE_NOT_FOUND,
+                message=f"Article '{article_id}' not found",
             )
 
         # Extract data while session is open — article ORM object's attribute
         # access is bound to the session lifecycle.
         article_dict = _article_to_dict(article)
 
-    # Audit log: record article access for security monitoring (vuln-0003
-    # mitigation). Written OUTSIDE the session block to avoid nested sessions
-    # / double connection exhaustion under high concurrency (H-1).
+    # Audit log: record article access for security monitoring. Written
+    # OUTSIDE the session block to avoid nested sessions / double
+    # connection exhaustion under high concurrency.
     # Fire-and-forget via create_task so the audit write does not block the
-    # response (LOW-001). AuditLogService.log_event swallows errors internally
+    # response. AuditLogService.log_event swallows errors internally
     # so audit failure never breaks the request.
     audit = AuditLogService(pool)
     audit_task = asyncio.create_task(

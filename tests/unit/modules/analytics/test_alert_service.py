@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for AlertService."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -52,7 +52,7 @@ class TestCreateAlertRule:
         )
 
         mock_session.add.assert_called_once()
-        mock_session.commit.assert_called_once()
+        mock_pool.session_context.assert_called_once()
         assert rule is not None
 
 
@@ -170,7 +170,7 @@ class TestTriggerAlertCreatesEvent:
         )
 
         mock_session.add.assert_called_once()
-        mock_session.commit.assert_called_once()
+        mock_pool.session_context.assert_called_once()
         assert event is not None
 
 
@@ -237,7 +237,7 @@ class TestAcknowledgeAlert:
         result = await service.acknowledge_event(event_id=1)
 
         assert mock_event.acknowledged_at is not None
-        mock_session.commit.assert_called_once()
+        mock_pool.session_context.assert_called_once()
         assert result is True
 
     @pytest.mark.asyncio
@@ -317,7 +317,7 @@ class TestDeleteAlertRule:
         assert result is True
         # SELECT + DELETE events + DELETE rule = 3 execute calls
         assert mock_session.execute.call_count == 3
-        mock_session.commit.assert_called_once()
+        mock_pool.session_context.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_rule_with_events_deletes_events_before_rule(self, service, mock_pool):
@@ -363,7 +363,7 @@ class TestDeleteAlertRule:
         # 3rd execute must be DELETE FROM alert_rules
         assert "delete from alert_rules" in rule_sql
 
-        mock_session.commit.assert_called_once()
+        mock_pool.session_context.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_rule_db_exception_propagates_without_commit(self, service, mock_pool):
@@ -384,3 +384,349 @@ class TestDeleteAlertRule:
             await service.delete_rule(rule_id=11)
 
         mock_session.commit.assert_not_called()
+
+
+# ── 8. Get Rule ──────────────────────────────────────────────────
+
+
+class TestGetRule:
+    """Tests for AlertService.get_rule()."""
+
+    @pytest.mark.asyncio
+    async def test_get_rule_found(self, service, mock_pool):
+        """get_rule returns dict when rule exists."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_rule = MagicMock()
+        mock_rule.id = 42
+        mock_rule.entity_name = "TestEntity"
+        mock_rule.metric = "reference_count"
+        mock_rule.operator = "z_score>"
+        mock_rule.threshold = 2.5
+        mock_rule.channel = "webhook"
+        mock_rule.cooldown_minutes = 30
+        mock_rule.enabled = True
+        mock_rule.trigger_type = None
+        mock_rule.trend_window_days = None
+        mock_rule.trend_threshold = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_rule
+        mock_session.execute.return_value = mock_result
+
+        result = await service.get_rule(42)
+
+        assert result is not None
+        assert result["id"] == 42
+        assert result["entity_name"] == "TestEntity"
+        assert result["threshold"] == 2.5
+
+    @pytest.mark.asyncio
+    async def test_get_rule_not_found(self, service, mock_pool):
+        """get_rule returns None when rule doesn't exist."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await service.get_rule(999)
+
+        assert result is None
+
+
+# ── 9. List Rules ────────────────────────────────────────────────
+
+
+class TestListRules:
+    """Tests for AlertService.list_rules()."""
+
+    @pytest.mark.asyncio
+    async def test_list_rules_no_filter(self, service, mock_pool):
+        """list_rules returns all rules when no filter."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_rule = MagicMock()
+        mock_rule.id = 1
+        mock_rule.entity_name = "Entity1"
+        mock_rule.metric = "reference_count"
+        mock_rule.operator = "z_score>"
+        mock_rule.threshold = 2.0
+        mock_rule.channel = "webhook"
+        mock_rule.cooldown_minutes = 60
+        mock_rule.enabled = True
+        mock_rule.trigger_type = None
+        mock_rule.trend_window_days = None
+        mock_rule.trend_threshold = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_rule]
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_rules()
+
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_list_rules_with_entity_filter(self, service, mock_pool):
+        """list_rules filters by entity_name."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_rules(entity_name="NonExistent")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_rules_enabled_only(self, service, mock_pool):
+        """list_rules filters enabled only."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_rules(enabled_only=True)
+
+        assert result == []
+
+
+# ── 10. Update Rule ──────────────────────────────────────────────
+
+
+class TestUpdateRule:
+    """Tests for AlertService.update_rule()."""
+
+    @pytest.mark.asyncio
+    async def test_update_rule_found(self, service, mock_pool):
+        """update_rule updates fields and returns dict."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session.commit = AsyncMock()
+
+        mock_rule = MagicMock()
+        mock_rule.id = 1
+        mock_rule.entity_name = "Updated"
+        mock_rule.metric = "reference_count"
+        mock_rule.operator = "z_score>"
+        mock_rule.threshold = 3.0
+        mock_rule.channel = "webhook"
+        mock_rule.cooldown_minutes = 60
+        mock_rule.enabled = True
+        mock_rule.trigger_type = None
+        mock_rule.trend_window_days = None
+        mock_rule.trend_threshold = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_rule
+        mock_session.execute.return_value = mock_result
+
+        result = await service.update_rule(1, threshold=3.0, enabled=False)
+
+        assert result is not None
+        assert result["id"] == 1
+        mock_pool.session_context.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_rule_not_found(self, service, mock_pool):
+        """update_rule returns None when rule doesn't exist."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await service.update_rule(999, threshold=3.0)
+
+        assert result is None
+
+
+# ── 11. Trigger Alert — disabled rule ────────────────────────────
+
+
+class TestTriggerAlertDisabledRule:
+    """Tests for trigger_alert with disabled/missing rules."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_alert_disabled_rule_returns_none(self, service, mock_pool):
+        """Disabled rule should not trigger an alert."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_rule = MagicMock()
+        mock_rule.enabled = False
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_rule
+        mock_session.execute.return_value = mock_result
+
+        result = await service.trigger_alert(rule_id=1, metric_value=5.0)
+
+        assert result is None
+        mock_session.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trigger_alert_missing_rule_returns_none(self, service, mock_pool):
+        """Missing rule should return None."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await service.trigger_alert(rule_id=999, metric_value=5.0)
+
+        assert result is None
+
+
+# ── 12. List Events ──────────────────────────────────────────────
+
+
+class TestListEvents:
+    """Tests for AlertService.list_events()."""
+
+    @pytest.mark.asyncio
+    async def test_list_events_no_filter(self, service, mock_pool):
+        """list_events returns all events."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_event = MagicMock()
+        mock_event.id = 1
+        mock_event.rule_id = 1
+        mock_event.entity_name = "TestEntity"
+        mock_event.metric_value = 3.5
+        mock_event.triggered_at = datetime(2026, 1, 1, tzinfo=UTC)
+        mock_event.acknowledged_at = None
+        mock_event.detail = {"z_score": 3.5}
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_event]
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_events()
+
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+        assert result[0]["acknowledged_at"] is None
+
+    @pytest.mark.asyncio
+    async def test_list_events_with_rule_id_filter(self, service, mock_pool):
+        """list_events filters by rule_id."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_events(rule_id=42)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_events_with_entity_filter(self, service, mock_pool):
+        """list_events filters by entity_name."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_events(entity_name="TestEntity")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_events_acknowledged_filter(self, service, mock_pool):
+        """list_events filters by acknowledged status."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_events(acknowledged=True)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_events_unacknowledged_filter(self, service, mock_pool):
+        """list_events filters by unacknowledged status."""
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+
+        result = await service.list_events(acknowledged=False)
+
+        assert result == []
+
+
+# ── 13. Evaluate unknown operator ────────────────────────────────
+
+
+class TestEvaluateUnknownOperator:
+    """Tests for evaluate_condition with unknown operators."""
+
+    def test_unknown_operator_returns_false(self, service):
+        """Unknown operator should never trigger."""
+        result = service.evaluate_condition(
+            operator="unknown_op",
+            threshold=1.0,
+            current_value=100.0,
+        )
+        assert result is False
+
+
+# ── Update Rule Field Whitelist ───────────────────────────────────
+
+
+class TestUpdateRuleFieldWhitelist:
+    """update_rule must restrict setattr to an explicit field allowlist."""
+
+    @pytest.fixture
+    def mock_update_session(self, mock_pool):
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_rule = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_rule
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        return mock_session, mock_rule
+
+    @pytest.mark.asyncio
+    async def test_updatable_field_is_set(self, service, mock_pool, mock_update_session):
+        mock_session, mock_rule = mock_update_session
+        mock_rule.id = 1
+
+        await service.update_rule(1, enabled=False, threshold=5.0)
+
+        assert mock_rule.enabled is False
+        assert mock_rule.threshold == 5.0
+        mock_pool.session_context.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_non_whitelisted_field_rejected(self, service, mock_pool, mock_update_session):
+        mock_session, mock_rule = mock_update_session
+        sentinel = object()
+        mock_rule.id = sentinel
+        mock_rule.attribute_set = MagicMock()
+
+        with patch("modules.analytics.alert_service.log") as mock_log:
+            await service.update_rule(1, attribute_set="evil", enabled=True)
+
+        mock_rule.attribute_set.assert_not_called()
+        assert mock_rule.enabled is True
+        mock_log.warning.assert_called()
+        mock_pool.session_context.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_nonexistent_rule_returns_none(self, service, mock_pool):
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        assert await service.update_rule(42, enabled=False) is None

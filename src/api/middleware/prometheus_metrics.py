@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Prometheus metrics middleware for API monitoring.
 
 Exposes metrics at /metrics endpoint for Prometheus scraping.
@@ -12,17 +12,7 @@ Tracks:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from prometheus_client import Counter, Histogram, generate_latest
-from starlette.responses import Response
-
-from core.observability import get_logger
-
-if TYPE_CHECKING:
-    from starlette.requests import Request
-
-log = get_logger(__name__)
+from prometheus_client import Counter, Histogram
 
 # Prometheus metrics
 HTTP_REQUEST_DURATION = Histogram(
@@ -50,22 +40,6 @@ SLOW_QUERIES_TOTAL = Counter(
     "Total slow database queries",
     labelnames=["threshold_ms"],
 )
-
-
-async def metrics_endpoint(request: Request) -> Response:
-    """Expose Prometheus metrics.
-
-    Args:
-        request: HTTP request.
-
-    Returns:
-        Prometheus metrics in text format.
-
-    """
-    return Response(
-        content=generate_latest(),
-        media_type="text/plain; version=0.0.4; charset=utf-8",
-    )
 
 
 def record_http_request(method: str, path: str, status: int, duration_seconds: float) -> None:

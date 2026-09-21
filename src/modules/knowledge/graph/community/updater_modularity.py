@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Modularity calculator collaborator for the incremental community updater.
 
 Extracted from ``IncrementalCommunityUpdater`` to give modularity scoring a
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.knowledge.graph.community.modularity import _compute_modularity
 
@@ -32,8 +33,6 @@ class ModularityCalculator:
     """
 
     def __init__(self, pool: GraphPool, database_type: str | None = None) -> None:
-        from core.constants import DatabaseType
-
         self._pool = pool
         self._database_type = database_type or DatabaseType.NEO4J.value
 
@@ -72,7 +71,17 @@ class ModularityCalculator:
             if not results:
                 return None
 
-            edges = [(r["source"], r["target"], r["weight"]) for r in results]
+            # Canonicalize undirected edges (dedupe both-direction rows and
+            # accidental duplicates, keep max weight) so _compute_modularity's
+            # undirected formulation counts each edge exactly once.
+            edge_map: dict[tuple[str, str], float] = {}
+            for r in results:
+                source, target = r["source"], r["target"]
+                weight = r["weight"]
+                lo, hi = (source, target) if source < target else (target, source)
+                if (lo, hi) not in edge_map or weight > edge_map[(lo, hi)]:
+                    edge_map[(lo, hi)] = weight
+            edges = [(lo, hi, w) for (lo, hi), w in edge_map.items()]
             if not edges:
                 return None
 

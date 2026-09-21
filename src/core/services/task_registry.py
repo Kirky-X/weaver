@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """In-memory task registry for background task tracking."""
 
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
-from core.constants import TaskStatus
+from core.constants import Status
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -49,7 +50,7 @@ class InMemoryTaskRegistry:
         self._tasks[task_id] = {
             "task": async_task,
             "metadata": metadata or {},
-            "status": TaskStatus.RUNNING.value,
+            "status": Status.RUNNING.value,
             "result": None,
             "error": None,
         }
@@ -61,25 +62,45 @@ class InMemoryTaskRegistry:
             entry = self._tasks.get(task_id)
             if entry is None:
                 return
-            import time
-
             completed_at = time.time()
             try:
                 entry["result"] = t.result()
-                entry["status"] = TaskStatus.DONE.value
+                entry["status"] = Status.COMPLETED.value
                 entry["completed_at"] = completed_at
                 log.debug("task_completed", task_id=task_id)
             except asyncio.CancelledError:
-                entry["status"] = TaskStatus.CANCELLED.value
+                entry["status"] = Status.CANCELLED.value
                 entry["completed_at"] = completed_at
                 log.debug("task_cancelled", task_id=task_id)
             except Exception as e:
                 entry["error"] = str(e)
-                entry["status"] = TaskStatus.FAILED.value
+                entry["status"] = Status.FAILED.value
                 entry["completed_at"] = completed_at
                 log.error("task_failed", task_id=task_id, error=str(e))
 
         async_task.add_done_callback(on_done)
+        # Bound memory: production never calls cleanup_completed(), so prune
+        # the oldest terminal-state entries here or the dict grows forever.
+        self._prune_terminal_entries()
+
+    def _prune_terminal_entries(self, max_terminal: int = 500) -> int:
+        """Drop oldest COMPLETED/CANCELLED/FAILED entries beyond ``max_terminal``."""
+        terminal_states = (
+            Status.COMPLETED.value,
+            Status.CANCELLED.value,
+            Status.FAILED.value,
+        )
+        terminal_ids = [
+            tid for tid, entry in self._tasks.items() if entry.get("status") in terminal_states
+        ]
+        overflow = len(terminal_ids) - max_terminal
+        if overflow <= 0:
+            return 0
+        # Dict preserves insertion order — oldest registrations come first.
+        for tid in terminal_ids[:overflow]:
+            self._tasks.pop(tid, None)
+        log.debug("task_registry_pruned", count=overflow)
+        return overflow
 
     async def get_status(self, task_id: str) -> dict[str, Any]:
         """Get the status of a registered task.
@@ -93,7 +114,7 @@ class InMemoryTaskRegistry:
         entry = self._tasks.get(task_id)
         if entry is None:
             return {
-                "status": TaskStatus.NOT_FOUND.value,
+                "status": Status.NOT_FOUND.value,
                 "result": None,
                 "error": None,
                 "metadata": {},
@@ -124,7 +145,7 @@ class InMemoryTaskRegistry:
             return False
 
         task.cancel()
-        entry["status"] = TaskStatus.CANCELLED.value
+        entry["status"] = Status.CANCELLED.value
         log.info("task_cancelled_by_request", task_id=task_id)
         return True
 
@@ -136,7 +157,9 @@ class InMemoryTaskRegistry:
         """List registered tasks.
 
         Args:
-            status: Filter by status (pending, running, done, cancelled, failed).
+            status: Filter by status (running, completed, cancelled, failed).
+                ``pending`` 不是合法取值——Status 不产出 PENDING，任务注册时
+                直接处于 RUNNING 状态。
             limit: Maximum number of tasks to return.
 
         Returns:
@@ -167,14 +190,12 @@ class InMemoryTaskRegistry:
             Number of tasks removed.
         """
         # Remove done/cancelled/failed tasks older than max_age_seconds
-        import time
-
         current_time = time.time()
         to_remove = [
             tid
             for tid, entry in self._tasks.items()
             if entry["status"]
-            in (TaskStatus.DONE.value, TaskStatus.CANCELLED.value, TaskStatus.FAILED.value)
+            in (Status.COMPLETED.value, Status.CANCELLED.value, Status.FAILED.value)
             and (current_time - entry.get("completed_at", current_time)) > max_age_seconds
         ]
         for tid in to_remove:

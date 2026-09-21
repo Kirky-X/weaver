@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
-"""Tests for EventView.participants and narratives structure (GAP-W03).
+"""Tests for EventView.participants and narratives structure.
 
 Verifies that participants and narratives are list[dict[str, Any]] type,
 aligned with EventGraph.get_participants() and get_narratives() return types.
@@ -116,7 +116,7 @@ class TestEventViewBackwardCompatibility:
     """Verify that list[str] values are no longer accepted for participants/narratives."""
 
     def test_participants_rejects_list_of_strings(self):
-        """After GAP-W03 fix, participants should not accept list[str]."""
+        """After the fix, participants should not accept list[str]."""
         with pytest.raises(ValidationError):
             EventView(
                 id="evt_001",
@@ -126,7 +126,7 @@ class TestEventViewBackwardCompatibility:
             )
 
     def test_narratives_rejects_list_of_strings(self):
-        """After GAP-W03 fix, narratives should not accept list[str]."""
+        """After the fix, narratives should not accept list[str]."""
         with pytest.raises(ValidationError):
             EventView(
                 id="evt_001",

@@ -1,20 +1,68 @@
-# Weaver 部署指南
+# 🚀 Weaver 部署指南
 
 本文档详细说明 Weaver 应用的部署流程、环境变量配置、数据库迁移和监控集成。
 
-## 目录
+## 📋 目录
 
-- [环境要求](#环境要求)
-- [环境变量配置](#环境变量配置)
-- [数据库迁移](#数据库迁移)
-- [健康检查端点](#健康检查端点)
-- [Prometheus 指标端点](#prometheus-指标端点)
-- [监控系统集成](#监控系统集成)
-- [故障排查](#故障排查)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [环境要求](#-环境要求)
+- [环境变量配置](#️-环境变量配置)
+- [数据库迁移](#-数据库迁移)
+- [健康检查端点](#-健康检查端点)
+- [Prometheus 指标端点](#-prometheus-指标端点)
+- [监控系统集成](#-监控系统集成)
+- [故障排查](#-故障排查)
+- [安全建议](#-安全建议)
+- [联系与支持](#-联系与支持)
+
+</details>
 
 ---
 
-## 环境要求
+## 🎯 概述
+
+部署前请确认以下环境要求：
+
+| 组件 | 必需 | 版本要求 | 说明 |
+|:-----|:----:|:---------|:-----|
+| **PostgreSQL** | ✅ | 16+ | 带 pgvector 扩展 |
+| **Neo4j** | ✅ | 5.x | 推荐使用 5.25 |
+| **Redis** | ✅ | 7.x | 推荐使用 7.2 |
+| **Python** | ✅ | 3.12+ | 运行时环境 |
+| **Prometheus** | 🔘 可选 | — | 指标收集和告警 |
+| **Grafana** | 🔘 可选 | — | 可视化监控 |
+
+> 💡 **提示**：PostgreSQL 请使用 `pgvector/pgvector:pg16` 镜像。
+
+### 部署架构
+
+```mermaid
+graph TB
+    subgraph App ["Weaver 应用"]
+        API["FastAPI Server<br/>:8000"]
+    end
+
+    subgraph Required ["必需服务"]
+        PG["PostgreSQL 16+<br/>pgvector"]
+        Neo4j["Neo4j 5.x<br/>知识图谱"]
+        Redis["Redis 7.x<br/>缓存/队列"]
+    end
+
+    subgraph Monitoring ["监控 (可选)"]
+        Prom["Prometheus<br/>/metrics"]
+        Grafana["Grafana<br/>可视化"]
+        OTel["OTel Collector<br/>追踪"]
+    end
+
+    API --> PG
+    API --> Neo4j
+    API --> Redis
+    Prom -.->|"拉取"| API
+    Grafana -.->|"查询"| Prom
+    OTel -.->|"接收"| API
+```
 
 ### 必需服务
 
@@ -29,9 +77,23 @@
 - **Grafana** - 用于可视化监控
 - **OpenTelemetry Collector** - 用于分布式追踪
 
+### Docker Compose 快速部署
+
+仓库提供 `docker/docker-compose.yml`，默认只启动基础设施（PostgreSQL / Neo4j / Redis）：
+
+```bash
+# 仅启动基础服务
+docker compose -f docker/docker-compose.yml up -d
+
+# 一体化部署（含应用，--profile full；应用启动前自动执行 alembic upgrade head）
+docker compose -f docker/docker-compose.yml --profile full up -d --build
+```
+
+应用容器内通过 `uv` 运行，API 默认监听 `8000` 端口。敏感配置（数据库密码、API Key、LLM Key）通过 `.env` 注入，见下文环境变量配置。
+
 ---
 
-## 环境变量配置
+## ⚙️ 环境变量配置
 
 ### 核心环境变量
 
@@ -39,7 +101,7 @@
 
 ```bash
 # 应用基础配置
-export ENVIRONMENT=production  # production | development
+export WEAVER_ENVIRONMENT=production  # production | development
 
 # API 配置
 export WEAVER_API__API_KEY=<your-secure-api-key>  # 最少 32 字符
@@ -96,8 +158,8 @@ db = 0
 
 ```bash
 # LLM Provider API Keys（通过环境变量覆盖 llm.toml 中的配置，env > TOML）
-export WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
-export WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+export WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=your_openai_api_key
+export WEAVER_LLM__PROVIDERS__ANTHROPIC__API_KEY=your_anthropic_api_key
 # Ollama 不需要真实 API Key
 # export WEAVER_LLM__PROVIDERS__OLLAMA__API_KEY=ollama
 ```
@@ -223,11 +285,23 @@ export HNSW_EF_CONSTRUCTION=64        # 构建时的候选列表大小 (默认: 
 
 ---
 
-## 数据库迁移
+## 🗄️ 数据库迁移
 
 ### Alembic 迁移工具
 
 Weaver 使用 Alembic 进行数据库版本管理。迁移脚本位于 `src/alembic/versions/` 目录。
+
+**迁移流程：**
+
+```mermaid
+graph LR
+    A["检查当前版本<br/>alembic current"] --> B["查看迁移历史<br/>alembic history"]
+    B --> C["执行迁移<br/>alembic upgrade head"]
+    C --> D{"迁移成功?"}
+    D -->|"✅ 是"| E["验证索引<br/>pg_indexes"]
+    D -->|"❌ 否"| F["回滚<br/>alembic downgrade -1"]
+    F --> C
+```
 
 #### 查看当前迁移状态
 
@@ -346,15 +420,27 @@ LIMIT 10;
 - **中型数据集 (100K - 1M)**: 低峰期执行，建议维护窗口 1 小时
 - **大型数据集 (> 1M)**: 专门维护窗口，提前通知用户
 
-> 注意：迁移使用 `CONCURRENTLY` 选项，不会阻塞读写操作，但会增加系统负载。
+> 注意：`upgrade` 路径中的 `CREATE INDEX` 为普通构建方式，执行期间会持有锁并阻塞写入（读取不受影响），大表迁移请安排维护窗口执行；仅 `downgrade` 回滚 HNSW 索引时使用 `DROP INDEX CONCURRENTLY`，不阻塞并发读写。
 
 ---
 
-## 健康检查端点
+## ✅ 健康检查端点
 
 ### `/health` 端点
 
-Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；明细请调用 `GET /api/v1/health/dependencies`（需 Admin API Key，返回 `data.dependencies`）。
+Weaver 提供公开健康检查端点（无需认证），仅返回整体状态，不暴露各依赖明细（CWE-200）。返回体包装在 `APIResponse`（`{code, message, data}`，成功时 `code` 为 `0`）中，始终 HTTP 200；基础明细请调用 `GET /api/v1/health/dependencies`（需普通 API Key），完整明细（含 LLM、spaCy、BM25）请调用 `GET /api/v1/system/health/dependencies`（需 Admin API Key）。
+
+**健康检查流程：**
+
+```mermaid
+graph LR
+    LB["负载均衡器"] -->|"GET /health"| APP["Weaver"]
+    APP -->|"检查 PG"| PG["PostgreSQL"]
+    APP -->|"检查 Neo4j"| Neo4j["Neo4j"]
+    APP -->|"检查 Redis"| Redis["Redis"]
+    APP -->|"HTTP 200"| LB
+    LB -->|"healthy / unhealthy"| Client["客户端"]
+```
 
 #### 请求示例
 
@@ -395,7 +481,7 @@ curl http://localhost:8000/health
 | `timeout`     | 5 秒超时   | 检查服务性能和网络延迟 |
 | `unavailable` | 连接池未初始化 | 检查应用启动日志    |
 
-（以上明细状态仅出现在 `GET /api/v1/health/dependencies`（Admin Key，返回 `data.dependencies`，不存在 `/api/v1/system/health/dependencies`）返回中；公开 `/health` 仅返回整体 `healthy/unhealthy`。明细失败项仅暴露 `error_type`（异常类名），完整错误仅记服务端日志。）
+（以上明细状态出现在 `GET /api/v1/health/dependencies`（普通 API Key，返回基础 `data.checkes`）或 `GET /api/v1/system/health/dependencies`（Admin Key，返回完整 `data.dependencies` 含 LLM/spaCy/BM25）返回中；公开 `/health` 仅返回整体 `healthy/unhealthy`。明细失败项仅暴露 `error_type`（异常类名），完整错误仅记服务端日志。）
 
 #### 超时配置
 
@@ -456,7 +542,7 @@ healthcheck:
 
 ---
 
-## Prometheus 指标端点
+## 📈 Prometheus 指标端点
 
 ### `/metrics` 端点
 
@@ -465,8 +551,10 @@ Weaver 暴露 Prometheus 标准格式的指标端点。
 #### 请求示例
 
 ```bash
-curl http://localhost:8000/metrics
+curl -H "X-API-Key: your-api-key" http://localhost:8000/metrics
 ```
+
+> `/metrics` 默认要求认证（`WEAVER_API__REQUIRE_AUTH_FOR_METRICS` 默认为 `true`），请求时需携带 `X-API-Key` 请求头。内网监控等场景可通过设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证——**注意：关闭后端点完全公开，任何人均可读取系统指标，仅在可信网络内使用**。
 
 #### 响应格式
 
@@ -508,9 +596,9 @@ circuit_breaker_state{provider="ollama"} 0
 
 # HELP db_pool_size 数据库连接池大小
 # TYPE db_pool_size gauge
-db_pool_size{pool="postgres"} 20
-db_pool_size{pool="neo4j"} 10
 ```
+
+> 注：`db_pool_size` 指标已定义但当前版本未采集数据，实际响应中无该指标的时间序列。
 
 #### Content-Type
 
@@ -532,9 +620,11 @@ scrape_configs:
     scrape_timeout: 10s
 ```
 
+> 注意：默认 `/metrics` 需要认证，Prometheus 抓取需在抓取配置中携带 API Key 请求头 `X-API-Key`（Prometheus 2.47+ 可通过 `http_headers` 配置），或设置 `WEAVER_API__REQUIRE_AUTH_FOR_METRICS=false` 关闭认证，否则抓取将返回 401。
+
 ---
 
-## 监控系统集成
+## 📊 监控系统集成
 
 ### Prometheus 集成
 
@@ -547,9 +637,6 @@ docker run -d \
   -p 9090:9090 \
   -v /path/to/prometheus.yml:/etc/prometheus/prometheus.yml \
   prom/prometheus
-
-# Kubernetes
-kubectl apply -f monitoring/prometheus/
 ```
 
 #### 2. 配置告警规则
@@ -561,7 +648,7 @@ kubectl apply -f monitoring/prometheus/
 - API 性能告警 (2 条)
 - 数据库连接池告警 (2 条)
 - 健康检查告警 (3 条)
-- 数据一致性告警 (5 条)
+- 数据一致性告警 (6 条)
 
 **启用告警规则:**
 
@@ -628,6 +715,7 @@ docker run -d \
 - `system-health-overview.json` - 系统健康概览
 - `circuit-breaker-status.json` - Circuit Breaker 状态
 - `database-consistency.json` - 数据库一致性状态
+- `performance.json` - 性能监控
 
 **导入方式:**
 
@@ -693,7 +781,7 @@ http://jaeger:16686
 
 ---
 
-## 故障排查
+## 🔧 故障排查
 
 ### 常见问题
 
@@ -701,7 +789,7 @@ http://jaeger:16686
 
 **症状:** `/health` 返回的 `data.status` 为 `unhealthy`
 
-> **注意**: `/health` 端点始终返回 HTTP 200 状态码，且仅返回整体状态。需要检查响应体中的 `data.status` 字段；各依赖明细请调用需认证的 `/api/v1/health/dependencies`。
+> **注意**: `/health` 端点始终返回 HTTP 200 状态码，且仅返回整体状态。需要检查响应体中的 `data.status` 字段；基础明细请调用 `/api/v1/health/dependencies`（普通 Key），完整明细请调用 `/api/v1/system/health/dependencies`（Admin Key）。
 
 #### 诊断步骤:
 
@@ -709,8 +797,11 @@ http://jaeger:16686
 # 检查整体状态
 curl -s http://localhost:8000/health | jq '.data.status'
 
-# 检查各依赖明细（需 Admin API Key）
-curl -s http://localhost:8000/api/v1/health/dependencies -H "X-API-Key: $WEAVER_API__ADMIN_API_KEY" | jq '.data.dependencies'
+# 检查各依赖明细（普通 API Key — 基础聚合）
+curl -s http://localhost:8000/api/v1/health/dependencies -H "X-API-Key: $WEAVER_API__API_KEY" | jq '.data'
+
+# 检查各依赖明细（Admin API Key — 完整明细，含 LLM/spaCy/BM25）
+curl -s http://localhost:8000/api/v1/system/health/dependencies -H "X-API-Key: $WEAVER_API__ADMIN_API_KEY" | jq '.data.dependencies'
 
 # 检查 PostgreSQL 连接
 psql -h localhost -U postgres -d weaver -c "SELECT 1"
@@ -739,11 +830,11 @@ redis-cli -h localhost -p 6379 ping
 # 查看当前迁移状态
 uv run alembic current
 
-# 检查数据库连接
-uv run alembic show current
+# 检查数据库连接（需读取 alembic_version 表，连接失败会报错）
+uv run alembic current
 
-# 查看详细错误日志
-uv run alembic upgrade head --sql
+# 查看详细错误日志（--sql 离线模式需显式指定版本范围）
+uv run alembic upgrade base:head --sql
 ```
 
 **常见错误:**
@@ -795,8 +886,8 @@ ANALYZE article_vectors;
 **诊断步骤:**
 
 ```bash
-# 测试 /metrics 端点
-curl http://localhost:8000/metrics
+# 测试 /metrics 端点（默认需认证，见上文 /metrics 端点说明）
+curl -H "X-API-Key: your-api-key" http://localhost:8000/metrics
 
 # 检查 Prometheus 配置
 curl http://prometheus:9090/api/v1/targets
@@ -838,7 +929,7 @@ docker logs otel-collector
 
 ```bash
 # Docker 方式
-docker logs weaver-app
+docker logs weaver_app
 
 # Kubernetes 方式
 kubectl logs -f deployment/weaver
@@ -851,7 +942,7 @@ journalctl -u weaver -f
 
 ```bash
 # 实时监控资源使用
-docker stats weaver-app
+docker stats weaver_app
 
 # 监控数据库连接数
 psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='weaver';"
@@ -862,7 +953,7 @@ redis-cli info memory
 
 ---
 
-## 安全建议
+## 🔒 安全建议
 
 ### 生产环境检查清单
 
@@ -872,7 +963,7 @@ redis-cli info memory
 - [ ] PostgreSQL 密码已设置 (通过 `WEAVER_POSTGRES__PASSWORD` 设置)
 - [ ] 数据库连接使用 SSL/TLS
 - [ ] Neo4j 认证已启用
-- [ ] Redis 设置密码 (可选)
+- [ ] Redis 设置密码（生产环境必需，为空将启动失败）
 - [ ] 防火墙规则已配置
 - [ ] 定期备份数据库
 - [ ] 监控和告警已配置
@@ -893,12 +984,12 @@ export $(cat .env | xargs)
 
 ---
 
-## 联系与支持
+## 📞 联系与支持
 
 如遇到问题，请参考：
 
-- [API 文档](./API.md)
-- [架构文档](./ARCHITECTURE.md)
-- [用户指南](./USER_GUIDE.md)
-- [项目 README](../README.md)
+- [API 文档](API.md) — 完整 API 接口参考
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [项目 README](../README.md) — 返回首页
 - 项目 Issues: https://github.com/Kirky-X/weaver/issues

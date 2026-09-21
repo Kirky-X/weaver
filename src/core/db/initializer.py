@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Database initializer for automatic database creation and migration."""
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ REQUIRED_NEO4J_CONSTRAINTS = [
         "description": "Unique constraint on Entity canonical_name and type",
     },
     {
-        # D2 / Article node slim-down: pg_id is now the only business key
+        # Article node slim-down: pg_id is now the only business key
         # on Article (alongside the Neo4j-internal elementId). Replacing
         # the stale `article_url_unique` (Article.url never existed in
         # the slim schema) with `article_pg_id_unique` so MERGE/MATCH
@@ -94,7 +94,7 @@ REQUIRED_NEO4J_CONSTRAINTS = [
             FOR (a:Article) REQUIRE a.pg_id IS UNIQUE
         """
         ),
-        "description": "Unique constraint on Article pg_id (slim-down §D2)",
+        "description": "Unique constraint on Article pg_id (slim-down)",
     },
 ]
 
@@ -179,9 +179,12 @@ async def create_database(parsed: ParsedDSN) -> None:
         database="postgres",
     )
     try:
-        # Database name from parsed DSN config - settings controlled, not user input
+        # Quote-escape both identifiers so embedded quotes cannot break out
+        # of the statement even though the DSN is settings-controlled.
+        database_ident = '"' + parsed.database.replace('"', '""') + '"'
+        owner_ident = '"' + parsed.user.replace('"', '""') + '"'
         await conn.execute(  # nosemgrep: formatted-sql-query, asyncpg-sqli, sqlalchemy-execute-raw-query
-            f"CREATE DATABASE \"{parsed.database}\" OWNER {parsed.user} ENCODING 'UTF8'"
+            f"CREATE DATABASE {database_ident} OWNER {owner_ident} ENCODING 'UTF8'"
         )
         log.info("database_created", database=parsed.database)
     except asyncpg.DuplicateDatabaseError:
@@ -368,12 +371,35 @@ async def initialize_database(
     tables_ok = await verify_tables(dsn)
     if not tables_ok:
         log.info("running_migrations")
-        run_migrations(alembic_ini_path, script_location, dsn)
+        # Alembic migrations are synchronous and blocking; run them on a
+        # worker thread so the event loop stays responsive.
+        await asyncio.to_thread(run_migrations, alembic_ini_path, script_location, dsn)
         result["migrations_run"] = True
 
         tables_ok = await verify_tables(dsn)
         if not tables_ok:
-            raise RuntimeError("Tables still missing after migration")
+            # _diagnose_missing_tables 此前定义后从未被调用：迁移后仍缺表
+            # 时把诊断结论接入失败路径，便于直接定位根因。诊断自身失败
+            # 不得掩盖原始的「迁移后缺表」错误。
+            detail = ""
+            try:
+                diagnostics = await _diagnose_missing_tables(dsn)
+                log.error(
+                    "tables_missing_after_migration",
+                    missing_tables=diagnostics.get("missing_tables"),
+                    alembic_version=diagnostics.get("alembic_version"),
+                    suggestions=diagnostics.get("suggestions"),
+                )
+                suggestions = diagnostics.get("suggestions") or []
+                if suggestions:
+                    detail = f" Suggestions: {'; '.join(str(s) for s in suggestions)}"
+            except Exception as exc:
+                log.warning(
+                    "table_diagnostics_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+            raise RuntimeError(f"Tables still missing after migration.{detail}")
 
     result["tables_verified"] = tables_ok
 

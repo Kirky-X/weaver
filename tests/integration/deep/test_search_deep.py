@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """D-S-01~12: Search API Deep 阶段集成测试。
 
 覆盖端点（src/api/endpoints/content/search.py + briefings.py + articles.py + communities.py）：

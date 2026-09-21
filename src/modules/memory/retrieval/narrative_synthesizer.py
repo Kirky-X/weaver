@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Narrative Synthesizer for MAGMA multi-graph memory.
 
 Synthesizes retrieved context into coherent narratives using LLM.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.llm.types import CallPoint
 from core.observability import get_logger
 from modules.memory.core.graph_types import OutputMode, SynthesisResult
 
@@ -79,7 +80,6 @@ class NarrativeSynthesizer:
         try:
             if mode == OutputMode.CONTEXT:
                 return await self._synthesize_context(
-                    query=query,
                     context_nodes=context_nodes,
                     include_provenance=include_provenance,
                 )
@@ -98,23 +98,28 @@ class NarrativeSynthesizer:
                 )
 
         except Exception as exc:
-            log.error("synthesis_failed", query=query[:50], error=str(exc))
+            #: never echo the raw exception into the output — it may
+            # carry internal paths/SQL. Full detail goes to the error log only.
+            log.error(
+                "synthesis_failed",
+                query=query[:50],
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
             return SynthesisResult(
-                output=f"Synthesis failed: {exc}",
+                output="Synthesis failed due to an internal error.",
                 mode=mode,
                 node_count=len(context_nodes),
             )
 
     async def _synthesize_context(
         self,
-        query: str,
         context_nodes: list[dict[str, Any]],
         include_provenance: bool,
     ) -> SynthesisResult:
         """Synthesize context mode: return formatted snippets.
 
         Args:
-            query: The original query.
             context_nodes: Retrieved context nodes.
             include_provenance: Whether to include source references.
 
@@ -123,7 +128,6 @@ class NarrativeSynthesizer:
         """
         parts: list[str] = []
         included_nodes: list[str] = []
-        total_tokens = 0
         current_tokens = 0
 
         for node in context_nodes:
@@ -148,18 +152,34 @@ class NarrativeSynthesizer:
             parts.append("\n".join(snippet_parts))
             included_nodes.append(node_id)
             current_tokens += node_tokens
-            total_tokens = current_tokens
+
+        if not parts and context_nodes:
+            # First node alone exceeds the token budget: include it truncated
+            # instead of returning a misleading empty output with node_count=0.
+            first = context_nodes[0]
+            first_id = first.get("id", "unknown")
+            budget_chars = max(self._max_context_tokens * 4, 200)
+            truncated = first.get("content", "")[:budget_chars]
+            log.warning(
+                "context_budget_overflow",
+                node_id=first_id,
+                max_context_tokens=self._max_context_tokens,
+            )
+            parts.append(f"[Score: {first.get('score', 0.0):.2f}]\n{truncated}\n[truncated]")
+            included_nodes.append(first_id)
+            current_tokens = len(truncated) // 4
 
         output = "\n\n---\n\n".join(parts)
 
         # Nodes not included due to budget
         all_ids = [n.get("id", "unknown") for n in context_nodes]
-        summarized_nodes = [nid for nid in all_ids if nid not in included_nodes]
+        included_set = set(included_nodes)
+        summarized_nodes = [nid for nid in all_ids if nid not in included_set]
 
         return SynthesisResult(
             output=output,
             mode=OutputMode.CONTEXT,
-            total_tokens=total_tokens,
+            total_tokens=current_tokens,
             node_count=len(included_nodes),
             included_nodes=included_nodes,
             summarized_nodes=summarized_nodes,
@@ -204,12 +224,27 @@ class NarrativeSynthesizer:
             included_nodes.append(node_id)
             current_tokens += node_tokens
 
+        if not context_parts and context_nodes:
+            first = context_nodes[0]
+            first_id = first.get("id", "unknown")
+            budget_chars = max(self._max_context_tokens * 4, 200)
+            truncated = first.get("content", "")[:budget_chars]
+            log.warning(
+                "narrative_budget_overflow",
+                node_id=first_id,
+                max_context_tokens=self._max_context_tokens,
+            )
+            context_parts.append(f"{truncated}\n[truncated]")
+            included_nodes.append(first_id)
+            current_tokens = len(truncated) // 4
+
         context_str = "\n\n".join(context_parts)
 
         # Call LLM for synthesis
+        fallback = False
         try:
             response = await self._llm.call_at(
-                call_point="narrative_synthesis",
+                call_point=CallPoint.NARRATIVE_SYNTHESIS,
                 payload={
                     "query": query,
                     "context": context_str,
@@ -218,24 +253,39 @@ class NarrativeSynthesizer:
             )
 
             if isinstance(response, dict):
-                narrative = response.get("answer", str(response))
+                narrative = response.get("answer")
+                if not isinstance(narrative, str):
+                    # Missing/odd "answer" key must not stringify the whole
+                    # payload (context, tokens…) into user-visible output.
+                    log.warning(
+                        "narrative_answer_key_missing",
+                        response_keys=sorted(response.keys()),
+                    )
+                    narrative = ""
                 tokens_used = response.get("tokens_used", current_tokens)
             else:
                 narrative = str(response)
                 tokens_used = current_tokens
 
         except Exception as exc:
-            log.warning("narrative_llm_failed", error=str(exc))
-            # Fallback to context mode
+            log.warning(
+                "narrative_llm_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+            # Fallback serves raw context, so label it CONTEXT — callers
+            # expecting a synthesized narrative must not mistake it.
             narrative = context_str
             tokens_used = current_tokens
+            fallback = True
 
         all_ids = [n.get("id", "unknown") for n in context_nodes]
-        summarized_nodes = [nid for nid in all_ids if nid not in included_nodes]
+        included_set = set(included_nodes)
+        summarized_nodes = [nid for nid in all_ids if nid not in included_set]
 
         return SynthesisResult(
             output=narrative,
-            mode=OutputMode.NARRATIVE,
+            mode=OutputMode.CONTEXT if fallback else OutputMode.NARRATIVE,
             total_tokens=tokens_used,
             node_count=len(included_nodes),
             included_nodes=included_nodes,

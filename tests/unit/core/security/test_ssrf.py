@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for SSRFChecker."""
 
+import ipaddress
+import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -317,9 +319,15 @@ class TestSSRFRedirectTracking:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
+        fake_loop = MagicMock()
+        fake_loop.getaddrinfo = AsyncMock(
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80))]
+        )
         with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(SSRFError, match="blocked"):
-                await checker.validate("http://legit-looking.com/path")
+            # ssrf.py resolves via asyncio.get_running_loop()
+            with patch("asyncio.get_running_loop", return_value=fake_loop):
+                with pytest.raises(SSRFError, match="blocked"):
+                    await checker.validate("http://legit-looking.com/path")
 
     @pytest.mark.asyncio
     async def test_no_redirect_passes(self, checker: SSRFChecker) -> None:
@@ -350,3 +358,32 @@ class TestSSRFRedirectTracking:
             with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
                 # Should NOT raise - network errors during redirect check are logged but not blocking
                 await checker.validate("http://unreachable.example.com/path")
+
+
+class TestBlockedNetworkGrouping:
+    """封锁网段按地址族预分组后，IPv4/IPv6 私有地址仍必须被拦截。
+
+    把 13 个网络拆成 IPv4/IPv6 两组，检查时只扫描同族列表，
+    行为必须与全量线性扫描等价。
+    """
+
+    @pytest.fixture
+    def checker(self) -> SSRFChecker:
+        return SSRFChecker()
+
+    def test_networks_grouped_by_version(self, checker: SSRFChecker) -> None:
+        assert checker._blocked_ipv4_networks
+        assert checker._blocked_ipv6_networks
+        assert all(n.version == 4 for n in checker._blocked_ipv4_networks)
+        assert all(n.version == 6 for n in checker._blocked_ipv6_networks)
+
+    def test_ipv4_private_ip_blocked(self, checker: SSRFChecker) -> None:
+        with pytest.raises(SSRFError):
+            checker._check_blocked_ip(ipaddress.ip_address("192.168.1.1"), "http://x/")
+
+    def test_ipv6_loopback_blocked(self, checker: SSRFChecker) -> None:
+        with pytest.raises(SSRFError):
+            checker._check_blocked_ip(ipaddress.ip_address("::1"), "http://x/")
+
+    def test_public_ipv4_allowed(self, checker: SSRFChecker) -> None:
+        checker._check_blocked_ip(ipaddress.ip_address("93.184.216.34"), "http://x/")

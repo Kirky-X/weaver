@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unified decorator for APScheduler tasks: timeout, logging, metrics."""
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
 
     Returns:
         -1 on timeout, -2 on error, otherwise the wrapped function's return value.
+        Cancellation is never suppressed: CancelledError is logged and
+        re-raised so APScheduler / shutdown logic can cancel the task.
     """
 
     def decorator(func):
@@ -63,7 +65,7 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     span.set_attribute("duration_seconds", duration)
                     return result
 
-                except TimeoutError:
+                except TimeoutError as exc:
                     duration = time.monotonic() - start
                     log.error(
                         "scheduler_task_timeout",
@@ -77,7 +79,9 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     metrics.scheduler_job_total.labels(job=job_id, status="timeout").inc()
                     span.set_attribute("success", False)
                     span.set_attribute("error", "timeout")
-                    span.record_exception(Exception("Timeout"))
+                    # Record the real TimeoutError so the span keeps the
+                    # traceback/exception type instead of a synthetic one.
+                    span.record_exception(exc)
                     return -1
 
                 except asyncio.CancelledError:
@@ -89,7 +93,9 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     )
                     span.set_attribute("success", False)
                     span.set_attribute("error", "cancelled")
-                    return -2
+                    # Never suppress cancellation (CancelledError is a
+                    # BaseException): re-raise so the task actually stops.
+                    raise
 
                 except Exception as exc:
                     duration = time.monotonic() - start

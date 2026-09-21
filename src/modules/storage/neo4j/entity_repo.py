@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Neo4j entity repository for entity graph operations."""
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
         pool: Graph database pool (Neo4j or LadybugDB).
     """
 
-    MAX_MERGE_RETRIES = 3
     DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:
@@ -50,7 +49,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         creation under concurrent calls). SchemaNode.event_type is unique to
         support idempotent MERGE in GraphWriter.merge_schema.
 
-        D2 / Article slim-down: Article.pg_id is now the only business key
+        / Article slim-down: Article.pg_id is now the only business key
         on the Article node. The unique constraint enables MERGE/MATCH to
         use an index lookup instead of a full label scan, which is critical
         for the pipeline write hot path (create_article, find_article_by_id,
@@ -62,7 +61,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             CREATE CONSTRAINT entity_name_type_unique IF NOT EXISTS
             FOR (e:Entity) REQUIRE (e.canonical_name, e.type) IS UNIQUE
             """,
-            # Article pg_id uniqueness — added in D2 slim-down
+            # Article pg_id uniqueness — added in slim-down
             """
             CREATE CONSTRAINT article_pg_id_unique IF NOT EXISTS
             FOR (a:Article) REQUIRE a.pg_id IS UNIQUE
@@ -88,9 +87,21 @@ class Neo4jEntityRepo(BaseEntityRepo):
             try:
                 await self._pool.execute_query(constraint)
                 log.info("neo4j_constraint_created", constraint=constraint[:50])
-            except Exception as exc:
-                # Constraint may already exist
+            except ConstraintError as exc:
+                # Constraint already exists (IF NOT EXISTS not supported
+                # on older Neo4j versions) — expected, low noise.
                 log.debug("neo4j_constraint_check", error=str(exc))
+            except Exception as exc:
+                # Unexpected failure (connection drop, syntax error for the
+                # Neo4j version in use): surface at WARNING so a missing
+                # uniqueness constraint cannot silently cause duplicates
+                # . The constraint error itself is preserved.
+                log.warning(
+                    "neo4j_constraint_failed",
+                    constraint=constraint[:50],
+                    error=str(exc),
+                    exc_info=True,
+                )
 
     async def merge_entity(
         self,
@@ -424,8 +435,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         validate_edge_type(edge_type)
 
         query = f"""
-        MATCH (from) WHERE elementId(from) = $from_id
-        MATCH (to) WHERE elementId(to) = $to_id
+        MATCH (from:Entity) WHERE elementId(from) = $from_id
+        MATCH (to:Entity) WHERE elementId(to) = $to_id
         MERGE (from)-[r:{edge_type}]->(to)
         ON CREATE SET r.created_at = datetime(), r.updated_at = datetime(), r.weight = 1.0
         ON MATCH SET r.updated_at = datetime(), r.weight = r.weight + 0.1
@@ -491,7 +502,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
     async def list_all_entity_names(self) -> set[str]:
         """List all entity canonical names.
 
-        REM-001: entity_vectors.neo4j_id stores entity names (not graph IDs),
+        entity_vectors.neo4j_id stores entity names (not graph IDs),
         so cleanup_orphan_entity_vectors must compare by name, not by ID.
 
         Returns:
@@ -515,22 +526,24 @@ class Neo4jEntityRepo(BaseEntityRepo):
         This should be called after article cleanup to remove orphan entities.
 
         Returns:
-            Number of entities deleted.
+            Actual number of entities deleted.
         """
-        # Get count first, then delete
-        count = await self.count_orphan_entities()
-        if count == 0:
-            return 0
-
+        # Single atomic statement: the old count-then-delete in
+        # two round-trips had a TOCTOU gap and could return a stale count.
+        # Collect + size() reports the ACTUAL number deleted (same pattern
+        # as Neo4jArticleRepo.delete_orphan_articles).
         query = """
         MATCH (e:Entity)
         WHERE NOT ()-[:MENTIONS]->(e)
           AND NOT (e)-[:RELATED_TO]-()
           AND NOT ()-[:RELATED_TO]->(e)
-        DETACH DELETE e
+        WITH collect(e) AS orphans
+        UNWIND orphans AS o
+        DETACH DELETE o
+        RETURN size(orphans) AS deleted
         """
-        await self._pool.execute_query(query)
-        return count
+        result = await self._pool.execute_query(query)
+        return result[0].get("deleted", 0) if result else 0
 
     async def count_orphan_entities(self) -> int:
         """Count entities that have no MENTIONS or RELATED_TO relationships.
@@ -671,12 +684,12 @@ class Neo4jEntityRepo(BaseEntityRepo):
             for rt in relation_types:
                 validate_edge_type(rt)
 
-            # Build dynamic query with type-specific patterns.
-            # Each type matches as undirected so we capture both directions.
-            type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
+            # Filter via a list parameter: no edge-type text is
+            # interpolated into the Cypher, so the query shape cannot change
+            # even if the validator regex is relaxed in the future.
             query = f"""
             MATCH (e:Entity {type_clause})-[r]-(other:Entity)
-            WHERE ({type_filters})
+            WHERE type(r) IN $types
               AND type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
               AND NOT other.pruned = true
             RETURN type(r) AS relation_type,
@@ -688,7 +701,11 @@ class Neo4jEntityRepo(BaseEntityRepo):
             ORDER BY weight DESC
             LIMIT $limit
             """
-            params = {"name": canonical_name, "limit": limit}
+            params = {
+                "name": canonical_name,
+                "limit": limit,
+                "types": list(relation_types),
+            }
             if entity_type is not None:
                 params["type"] = entity_type
 
@@ -906,7 +923,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             MATCH (e:Entity {canonical_name: m.entity_name, type: m.entity_type})
             MERGE (a)-[r:MENTIONS]->(e)
             ON CREATE SET r.created_at = datetime()
-            SET r.role = m.role
+            SET r.role = CASE WHEN m.role IS NOT NULL THEN m.role ELSE r.role END
             RETURN count(r) AS total
             """
 
@@ -1062,8 +1079,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
             entity = await self._find_entity_by_name_only(entity_name)
         if not entity:
             return None
-
-        center_id = entity.id
 
         # Get events that mention this entity
         events_query = """

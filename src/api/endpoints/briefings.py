@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Briefings API endpoints (T009 / T022 / R-briefing-004, R-briefing-005).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Briefings API endpoints.
 
 Endpoints:
 - GET  /api/v1/briefings/daily          — fetch existing briefing by date + category
 - POST /api/v1/briefings/daily/generate — on-demand generation with narrative_mode
 
-narrative_mode forwarding (T022):
+narrative_mode forwarding:
     POST /daily/generate transparently forwards narrative_mode to
     DailyBriefingService.generate_briefing(narrative_mode=...). The 501 挡板
-    introduced in T009 is removed. narrative_mode=True routes to
+    introduced in is removed. narrative_mode=True routes to
     NarrativeBriefingGenerator (injected by _get_briefing_service); on
     InsufficientNarrativeError the service degrades to template mode
     (BriefingResult.narrative_mode=False, summary still produced).
@@ -21,7 +21,7 @@ Service construction (lazy pattern, mirrors analytics.py + trends.py):
     - NarrativeBriefingGenerator needs (graph_pool, llm, budget,
       prompt_loader, storage) — graph_pool is required for narrative mode;
       when graph_pool is unavailable, narrative_generator is None and
-      narrative_mode=True will raise HTTP 503 (R-briefing-008 fail-loud).
+      narrative_mode=True will raise HTTP 503 (fail-loud).
     Tests patch ``api.endpoints.briefings._get_briefing_service``.
 """
 
@@ -34,8 +34,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import BRIEFING_CATEGORIES
 from core.observability import get_logger
-from modules.briefing.service import BriefingAlreadyExistsError
+from modules.briefing.service import BriefingAlreadyExistsError, NarrativeGeneratorUnavailableError
 
 if TYPE_CHECKING:
     from modules.briefing.models import BriefingResult
@@ -44,12 +45,13 @@ router = APIRouter(prefix="/briefings", tags=["briefings"])
 
 log = get_logger(__name__)
 
-# Category whitelist (spec R-briefing-001: finance/tech/ai/general).
+# Category whitelist derived from the shared vocabulary.
 # None means "综合" (general) and is handled by the service layer.
-_CATEGORY_PATTERN = r"^(finance|tech|ai|general)$"
+_CATEGORY_ALTS = "|".join(sorted(BRIEFING_CATEGORIES))
+_CATEGORY_PATTERN = f"^(?:{_CATEGORY_ALTS})$"
 
 # Module-level reference to date.today to avoid parameter name shadowing.
-# spec R-briefing-001 mandates parameter name `date`, which shadows the
+# The spec mandates parameter name `date`, which shadows the
 # `date` class inside handler bodies (Rule 7 — exposed conflict). Capturing
 # `date.today` at module scope lets handlers compute today without referencing
 # the shadowed class.
@@ -66,7 +68,7 @@ def _get_briefing_service():
     - NarrativeBriefingGenerator needs (graph_pool, llm, budget,
       prompt_loader, storage) — graph_pool is optional; when None,
       narrative_generator is None and narrative_mode=True raises
-      ValueError in service layer (R-briefing-008 fail-loud). The endpoint
+      ValueError in service layer (fail-loud). The endpoint
       handler surfaces ValueError as HTTP 503.
 
     Returns:
@@ -106,7 +108,7 @@ def _get_briefing_service():
 
     # Narrative generator is optional: graph_pool may be unavailable
     # (degraded mode). When None, narrative_mode=True raises ValueError
-    # in service layer (R-briefing-008 fail-loud) — handler maps to 503.
+    # in service layer (fail-loud) — handler maps to 503.
     narrative_generator = None
     graph_pool = container.graph_pool()
     if graph_pool is not None:
@@ -156,7 +158,7 @@ async def get_daily_briefing(
     ),
     _: str = Depends(verify_api_key),
 ) -> APIResponse[dict]:
-    """Get a daily briefing by date + category (R-briefing-004).
+    """Get a daily briefing by date + category.
 
     Returns ``data: null`` when no briefing exists for the given date + category
     (HTTP 200, not 404 — briefings are generated asynchronously by the scheduler
@@ -184,7 +186,10 @@ async def get_daily_briefing(
             error=str(exc),
             exc_type=type(exc).__name__,
         )
-        raise HTTPException(status_code=500, detail=f"Failed to fetch briefing: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail="Internal error while fetching briefing.",
+        ) from exc
 
     if result is None:
         return success_response(None)
@@ -202,28 +207,28 @@ async def generate_daily_briefing(
     narrative_mode: bool = Query(
         False,
         description=(
-            "If true, generate via NarrativeBriefingGenerator (T020/T021). "
+            "If true, generate via NarrativeBriefingGenerator. "
             "Degrades to template mode when NarrativeNode count < 3 "
-            "(BriefingResult.narrative_mode=False on degradation, R-briefing-008)."
+            "(BriefingResult.narrative_mode=False on degradation,)."
         ),
     ),
     _: str = Depends(verify_api_key),
 ) -> APIResponse[dict]:
-    """Generate (or regenerate) a daily briefing on demand (R-briefing-005).
+    """Generate (or regenerate) a daily briefing on demand.
 
     Idempotent: same (date, category) replaces any existing briefing.
 
-    Existence check (R-briefing-005 fix — Duplicate key 500 → 409 Conflict):
+    Existence check (fix — Duplicate key 500 → 409 Conflict):
         当日已有同 category 简报时, service 层抛 BriefingAlreadyExistsError,
         本 handler 捕获并返回 HTTP 409 Conflict + 错误详情(含 date + category),
         避免 DuckDB ConstraintException 被错误映射为 500.
 
-    narrative_mode forwarding (T022):
+    narrative_mode forwarding:
         narrative_mode=true transparently forwards to
         DailyBriefingService.generate_briefing(narrative_mode=True). When
         narrative_generator is not injected (graph_pool unavailable), the
-        service raises ValueError — handler maps to HTTP 503 (fail-loud,
-        R-briefing-008). When NarrativeNode count < 3, the service catches
+        service raises ValueError — handler maps to HTTP 503 (fail-loud).
+        When NarrativeNode count < 3, the service catches
         InsufficientNarrativeError internally and degrades to template mode
         (BriefingResult.narrative_mode=False, summary still produced).
 
@@ -260,8 +265,7 @@ async def generate_daily_briefing(
         # 兜底(generator INSERT 触发 IntegrityError)都会抛此异常.
         # Detail 包含冲突的 date + category, 便于客户端识别冲突资源.
         # Note: briefings 路由没有 DELETE 端点, 不会自动覆盖已存在的简报,
-        # 所以提示客户端使用不同的 date 或等待次日 (LOW-3: 移除误导性的
-        # "Use DELETE" 建议).
+        # 所以提示客户端使用不同的 date 或等待次日.
         log.warning(
             "briefings_generate_already_exists",
             date=str(exc.briefing_date),
@@ -274,24 +278,24 @@ async def generate_daily_briefing(
                 f"category={exc.category}. Use a different date or wait for next day."
             ),
         ) from exc
-    except ValueError as exc:
+    except NarrativeGeneratorUnavailableError as exc:
         # narrative_mode=True without narrative_generator (Rule 12 fail-loud).
         # Map to 503: caller can retry with narrative_mode=false, or admin
         # must start graph_pool. Distinguish from 500 (programming bug).
-        if "narrative_generator" in str(exc):
-            log.warning(
-                "briefings_generate_narrative_mode_unavailable",
-                date=str(target_date),
-                category=category,
-                error=str(exc),
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "narrative mode unavailable: graph pool not initialized. "
-                    "Retry with narrative_mode=false or start graph pool."
-                ),
-            ) from exc
+        log.warning(
+            "briefings_generate_narrative_mode_unavailable",
+            date=str(target_date),
+            category=category,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "narrative mode unavailable: graph pool not initialized. "
+                "Retry with narrative_mode=false or start graph pool."
+            ),
+        ) from exc
+    except ValueError as exc:
         # Other ValueError (invalid category) → 400.
         raise HTTPException(status_code=400, detail=f"Invalid request: {exc}") from exc
     except Exception as exc:
@@ -303,7 +307,10 @@ async def generate_daily_briefing(
             error=str(exc),
             exc_type=type(exc).__name__,
         )
-        raise HTTPException(status_code=500, detail=f"Failed to generate briefing: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail="Internal error while generating briefing.",
+        ) from exc
 
     return success_response(_serialize_briefing_result(result))
 

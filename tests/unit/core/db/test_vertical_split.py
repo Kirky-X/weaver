@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for Articles vertical split: articles_core + article_bodies + article_analysis.
-
-Design doc reference: Weaver-数据库设计文档 §9.1
 
 The vertical split separates the monolithic 45-column articles table into:
 - articles_core: high-frequency query columns (~500 bytes/row, ~16 rows/page)

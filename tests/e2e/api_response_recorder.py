@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """API response recorder for comprehensive endpoint testing.
 
 Records all HTTP requests and responses to JSON files for later analysis
@@ -105,7 +105,9 @@ class APIResponseRecorder:
         filename = f"{safe_name}_{ts}.json"
         filepath = endpoint_dir / filename
 
-        filepath.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str))
+        filepath.write_text(
+            json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+        )
 
         return filepath
 
@@ -152,7 +154,7 @@ class APIResponseRecorder:
         else:
             filepath = Path(filepath)
 
-        filepath.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+        filepath.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         return summary
 
     def _sanitize_headers(self, headers: dict[str, str]) -> dict[str, str]:

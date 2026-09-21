@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Global application settings using pydantic-settings + TOML.
 
 Configuration Priority (highest to lowest):
@@ -23,8 +23,13 @@ Examples:
 
 from __future__ import annotations
 
+import tomllib
+from pathlib import Path
+from types import UnionType
+from typing import Any, Union, get_args, get_origin
+
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -36,7 +41,7 @@ from pydantic_settings import (
 from config.subconfigs import (
     APISettings,
     BingSettings,
-    DailyBriefingSettings,
+    DedupSettings,
     DuckDBSettings,
     EntitySettings,
     FakeNewsDetectorSettings,
@@ -57,6 +62,7 @@ from config.subconfigs import (
     SagaSettings,
     SchedulerSettings,
     SearchSettings,
+    SecuritySettings,
     SpacySettings,
     TemporalMemorySettings,
     TrafficAnomalySettings,
@@ -68,6 +74,55 @@ from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+def _unknown_toml_keys(toml_path: Path, settings_cls: type[BaseModel]) -> list[tuple[str, str]]:
+    """Return (section, key) pairs present in the TOML but absent from the model.
+
+    Root Settings uses extra="ignore", so a typo'd TOML key is silently
+    dropped — exactly how zombie config survives. Sections are walked
+    recursively through BaseModel-typed fields (Optional unwrapped); the
+    section label is a dotted path, "<root>" for top-level scalars.
+    """
+    try:
+        with open(toml_path, "rb") as f:
+            data = tomllib.load(f)
+    except FileNotFoundError:
+        return []
+
+    unknown: list[tuple[str, str]] = []
+    _collect_unknown_keys(data, settings_cls, "", unknown)
+    return unknown
+
+
+def _base_model_annotation(annotation: Any) -> type[BaseModel] | None:
+    """Unwrap ``Optional[X]`` and return X when it is a BaseModel subclass."""
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        non_none = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(non_none) != 1:
+            return None
+        annotation = non_none[0]
+    return (
+        annotation if isinstance(annotation, type) and issubclass(annotation, BaseModel) else None
+    )
+
+
+def _collect_unknown_keys(
+    section: dict[str, Any],
+    model: type[BaseModel],
+    path: str,
+    unknown: list[tuple[str, str]],
+) -> None:
+    known_fields = model.model_fields
+    for key, value in section.items():
+        field_info = known_fields.get(key)
+        if field_info is None:
+            unknown.append((path or "<root>", key))
+            continue
+        sub_model = _base_model_annotation(field_info.annotation)
+        if sub_model is not None and isinstance(value, dict):
+            _collect_unknown_keys(value, sub_model, f"{path}.{key}" if path else key, unknown)
 
 
 class Settings(BaseSettings):
@@ -100,6 +155,7 @@ class Settings(BaseSettings):
     ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     api: APISettings = Field(default_factory=APISettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     fetcher: FetcherSettings = Field(default_factory=FetcherSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
@@ -117,8 +173,8 @@ class Settings(BaseSettings):
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
 
     # Analytics settings (loaded from TOML)
-    daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
     saga: SagaSettings = Field(default_factory=SagaSettings)
+    dedup: DedupSettings = Field(default_factory=DedupSettings)
     paddlenlp_sentiment: PaddleNLPSentimentSettings = Field(
         default_factory=PaddleNLPSentimentSettings
     )
@@ -134,6 +190,21 @@ class Settings(BaseSettings):
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Log settings.toml keys that no config model declares.
+
+        Non-blocking: unknown keys keep being ignored, but a typo now
+        surfaces as a startup warning instead of never.
+        """
+        unknown = _unknown_toml_keys(PROJECT_ROOT / "config" / "settings.toml", type(self))
+        if not unknown:
+            return
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+        for section, key in unknown:
+            log.warning("settings_toml_unknown_key", section=section, key=key)
 
     @classmethod
     def settings_customise_sources(
@@ -197,6 +268,20 @@ class Settings(BaseSettings):
                 "Using default PostgreSQL password. Set WEAVER_POSTGRES__PASSWORD for production."
             )
 
+        # Check Redis credentials (empty password = unauthenticated Redis)
+        if not self.redis.password or self.redis.password in ["redis", "password"]:
+            if environment == "production":
+                raise ValueError(
+                    "Production environment requires a secure Redis password. "
+                    "Set WEAVER_REDIS__PASSWORD environment variable."
+                )
+            warnings.append(
+                "Using default/empty Redis password. Set WEAVER_REDIS__PASSWORD for production."
+            )
+
+        # DuckDB and PgBouncer have no password fields (file DB / infra-level
+        # proxy reusing PostgreSQL credentials), so no checks are possible.
+
         # Check LLM API keys
         warnings.append(
             "LLM API keys should be configured via WEAVER_LLM__PROVIDERS__<NAME>__API_KEY environment variable."
@@ -214,16 +299,20 @@ def get_settings() -> Settings:
     Returns:
         Settings instance.
     """
+    # Only fall back when the container module itself is not importable
+    # (circular import / missing package). container.get_settings() builds its
+    # own instance when uninitialized instead of raising, so any other error
+    # (e.g. config validation) must surface rather than be masked.
     try:
         from container import get_settings as container_get_settings
 
         return container_get_settings()
-    except Exception:
+    except ImportError:
         from core.observability import get_logger
 
         log = get_logger(__name__)
         log.warning(
-            "settings_container_not_initialized",
-            message="Container not initialized when get_settings() called. Creating standalone Settings instance.",
+            "settings_container_module_unavailable",
+            message="Container module unavailable when get_settings() called. Creating standalone Settings instance.",
         )
         return Settings()

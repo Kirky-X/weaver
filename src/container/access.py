@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Thread-safe global access to Container and Settings instances."""
 
 from __future__ import annotations
@@ -38,8 +38,6 @@ def get_settings() -> Settings:
     global _settings_instance
     with _settings_lock:
         if _settings_instance is None:
-            from config.settings import Settings
-
             _settings_instance = Settings()
         return _settings_instance
 

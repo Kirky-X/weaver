@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Fetcher-specific exception classes for type-safe error handling."""
 
 from __future__ import annotations
@@ -25,6 +25,12 @@ class FetchError(Exception):
         self.url = url
         self.message = message
         self.cause = cause
+        if cause is not None:
+            # Link the original exception into Python's exception-chaining
+            # machinery so tracebacks/log aggregators show the cause chain
+            # the same way ``raise ... from cause`` would.
+            self.__cause__ = cause
+            self.__suppress_context__ = True
         super().__init__(f"{url}: {message}")
 
     def __repr__(self) -> str:

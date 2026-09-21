@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T021 RED: ArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED: ArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
 
-When the graph DB Article node is slimmed down to only ``id`` + ``pg_id``
-(see design.md §D2), any caller that previously read ``title`` /
+When the graph DB Article node is slimmed down to only ``id`` + ``pg_id``, any caller that previously read ``title`` /
 ``category`` / ``publish_time`` / ``score`` from the graph node must now
 batch-fetch those fields from the relational DB (PostgreSQL or DuckDB)
 via ``pg_id``. This test asserts the contract of that batch lookup.
@@ -42,7 +41,7 @@ def _make_row(
 
 
 class TestFetchTitlesByPgIds:
-    """Tests for ArticleRepo.fetch_titles_by_pg_ids (T021)."""
+    """Tests for ArticleRepo.fetch_titles_by_pg_ids."""
 
     @pytest.fixture
     def mock_pool(self):

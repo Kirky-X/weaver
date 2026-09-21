@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Structured output validation and Pydantic output models for LLM responses."""
@@ -27,7 +27,7 @@ class CleanerContent(BaseModel):
 
     title/body are `str | None` (not `str`) to align with cleaner prompt which
     explicitly tells the LLM to fill missing fields with null. Callers must
-    apply `or ""` fallback when a non-None string is required (Bug-C HIGH-1).
+    apply `or ""` fallback when a non-None string is required.
     """
 
     title: str | None = None
@@ -55,7 +55,7 @@ def _coerce_str_field(val: Any, sub_keys: tuple[str, ...] = ()) -> str | None:
 
     Prevents data corruption from str(dict)/str(list) producing Python repr
     strings (e.g., \"{'text': '...'}\") that silently pollute downstream fields
-    (Bug-C HIGH-2 fix).
+    (fix).
 
     - None/str → preserved as-is
     - bool → None (avoid \"True\"/\"False\" polluting str fields)
@@ -91,19 +91,19 @@ class CleanerOutput(BaseModel):
 
     Implements: 容错解析 LLM 返回的不完整 JSON
 
-    model_validator (Bug-C 修复) 处理 4 大类 LLM 输出异常:
+    model_validator (修复) 处理 4 大类 LLM 输出异常:
     1. content 字段类型异常 → content=None 从顶层重建; content 非 dict 重置为空;
        content 子字段非 str|None 用 _coerce_str_field 安全转换 (不 str() dict/list)
     2. publish_time/author 非 str|None → 用 _coerce_str_field 安全转换
     3. tags 非 list → 置空; 过滤 None/dict/list/bool 项, 数值项转 str
     4. entities 非 list → 置空; 过滤畸形项 (需含 name 和 type)
 
-    根因 (Bug-C HIGH-1): cleaner prompt 显式要求 LLM "缺失字段填 null", 但
+    根因: cleaner prompt 显式要求 LLM "缺失字段填 null", 但
     CleanerContent.title/body 原类型为 str (非 Optional), 导致 Pydantic 验证失败
     → provider_call_failed → cleaner 重试和降级 → 17 篇文章 pending.
     修复: title/body 改为 str | None = None 对齐 prompt 契约, 调用方用 `or ""` 兜底.
 
-    数据腐败防护 (Bug-C HIGH-2): _coerce_str_field 永不 str(dict)/str(list),
+    数据腐败防护: _coerce_str_field 永不 str(dict)/str(list),
     避免垃圾字符串 (如 \"{'text': '...'}\") 静默污染下游字段.
     """
 
@@ -127,11 +127,14 @@ class CleanerOutput(BaseModel):
         # 修复 1: content 字段类型异常
         content_val = data.get("content")
         if content_val is None:
-            # content=None → 从顶层 title/subtitle/summary/body 重建
+            # content=None → 从顶层 title/subtitle/summary/body 重建。
+            # Read (not pop) the top-level keys: this validator runs on the
+            # caller's raw LLM output dict, and callers may reuse it (retry,
+            # logging) after validation.
             content: dict[str, Any] = {}
             for key in ("title", "subtitle", "summary", "body"):
                 if key in data:
-                    content[key] = data.pop(key)
+                    content[key] = data[key]
             data["content"] = content
         elif isinstance(content_val, dict):
             # content 是 dict → 修复子字段类型 (str | None)
@@ -205,7 +208,11 @@ class AnalyzeOutput(BaseModel):
     impact: str = ""
     has_data: bool = False
     sentiment: str = SentimentType.NEUTRAL.value
-    sentiment_score: float = Field(ge=-1, le=1, default=0.5)
+    # Prompt convention (analyze.toml) and the articles_core CHECK constraint
+    # both define sentiment_score on [0, 1] (0 = negative, 0.5 = neutral,
+    # 1 = positive). Allowing negative values would let an off-prompt LLM
+    # response violate the DB constraint at persist time.
+    sentiment_score: float = Field(ge=0, le=1, default=0.5)
     primary_emotion: str = "客观"
     emotion_targets: list[str] = Field(default_factory=list)
     score: float = Field(ge=0, le=1, default=0.5)
@@ -340,6 +347,27 @@ class SchemaExtractorOutput(BaseModel):
         return self
 
 
+def _validate_pattern_is_json_schema(pattern: str, context: str) -> None:
+    """Validate that ``pattern`` is a legal object-type JSON Schema.
+
+    Requires ``type == "object"`` and ``properties`` as a dict — the stored
+    SchemaNode.pattern is consumed by SchemaDrivenStructuredOutput as a
+    response_format schema, so weaker shapes must be rejected here.
+    """
+    import json
+
+    try:
+        parsed = json.loads(pattern)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"pattern is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(f"pattern must be a JSON object, got {type(parsed).__name__}")
+    if parsed.get("type") != "object":
+        raise ValueError(f"{context}: pattern JSON Schema type must be 'object'")
+    if not isinstance(parsed.get("properties"), dict):
+        raise ValueError(f"{context}: pattern JSON must contain a 'properties' object")
+
+
 class NarrativeSchemaOutput(BaseModel):
     """Combined output for the narrative+schema extractor node.
 
@@ -393,16 +421,67 @@ class NarrativeSchemaOutput(BaseModel):
         Mirrors SchemaExtractorOutput validation — prevents LLM output
         corruption from polluting SchemaNode.pattern.
         """
-        import json
-
-        try:
-            parsed = json.loads(self.pattern)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"pattern is not valid JSON: {exc}") from exc
-        if not isinstance(parsed, dict):
-            raise ValueError(f"pattern must be a JSON object, got {type(parsed).__name__}")
-        if "type" not in parsed:
-            raise ValueError("pattern JSON missing required 'type' field")
-        if "properties" not in parsed:
-            raise ValueError("pattern JSON missing required 'properties' field")
+        _validate_pattern_is_json_schema(self.pattern, "NarrativeSchemaOutput")
         return self
+
+
+class AnalyzeNarrativeOutput(AnalyzeOutput):
+    """analyze + narrative/schema 的合并输出（LLM 调用优化方案 A）。
+
+    继承 AnalyzeOutput 保持 analyze 侧字段契约不变，追加
+    NarrativeSchemaOutput 的 7 个字段。narrative 字段约束**必须**与
+    NarrativeSchemaOutput 逐字一致——该约束是防止 prompt 注入进图数据库
+    的防线，不可放宽。开关关闭时 AnalyzeNode 仍走 AnalyzeOutput 原路径。
+    """
+
+    # Narrative framing dimensions（与 NarrativeSchemaOutput 逐字一致）
+    source_bias: Literal[
+        "左倾",
+        "右倾",
+        "中立",
+        "官方",
+        "民营",
+        "商业",
+        "学术",
+        "民间",
+    ] = "中立"
+    frame: str = Field(min_length=1, max_length=100)
+    tone: Literal[
+        "乐观",
+        "悲观",
+        "客观",
+        "批判",
+        "振奋",
+        "焦虑",
+        "冷静",
+        "激昂",
+        "嘲讽",
+        "同情",
+    ] = "客观"
+    emphasis: str = Field(min_length=1, max_length=60)
+    # Event schema
+    event_type: str = Field(
+        min_length=1,
+        max_length=40,
+        pattern=r"^[一-龥a-zA-Z0-9_]+$",
+    )
+    pattern: str = Field(min_length=2, max_length=4000)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_merged_pattern_json_schema(self) -> AnalyzeNarrativeOutput:
+        """Validate pattern is legal JSON containing type and properties."""
+        _validate_pattern_is_json_schema(self.pattern, "AnalyzeNarrativeOutput")
+        return self
+
+    def to_narrative_payload(self) -> NarrativeSchemaOutput:
+        """拆出 narrative 部分，供 NarrativeSchemaExtractorNode 持久化消费。"""
+        return NarrativeSchemaOutput(
+            source_bias=self.source_bias,
+            frame=self.frame,
+            tone=self.tone,
+            emphasis=self.emphasis,
+            event_type=self.event_type,
+            pattern=self.pattern,
+            confidence=self.confidence,
+        )

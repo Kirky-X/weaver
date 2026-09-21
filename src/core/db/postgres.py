@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """PostgreSQL async connection pool and SQLAlchemy session factory."""
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from core.observability import get_logger
-from core.observability.metrics import MetricsCollector
 from core.utils.sanitize import sanitize_dsn
 
 log = get_logger(__name__)
@@ -105,6 +104,10 @@ class PostgresPool:
         """Close the async engine and release connections."""
         if self._engine:
             await self._engine.dispose()
+            # Clear references so post-shutdown access raises the clear
+            # "not started" RuntimeError instead of PoolClosed confusion.
+            self._engine = None
+            self._session_factory = None
             log.info("postgres_pool_closed")
 
     @property
@@ -147,8 +150,16 @@ class PostgresPool:
             yield session
             await session.commit()
         except Exception:
-            log.warning("Database session commit failed, rolling back", exc_info=True)
-            await session.rollback()
+            log.warning("Database session error, rolling back", exc_info=True)
+            try:
+                await session.rollback()
+            except Exception as rollback_exc:
+                # Surface the rollback failure without masking the original error.
+                log.error(
+                    "Database session rollback failed",
+                    error=str(rollback_exc),
+                    exc_type=type(rollback_exc).__name__,
+                )
             raise
         finally:
             await session.close()
@@ -192,16 +203,3 @@ class PostgresPool:
             stats["utilization"] = 0.0
 
         return stats
-
-    async def record_metrics(self) -> None:
-        """Record pool metrics to Prometheus."""
-        stats = self.get_pool_stats()
-
-        MetricsCollector.db_pool_size.labels(pool="postgres").set(stats["pool_size"])
-        MetricsCollector.db_pool_checked_out.labels(pool="postgres").set(stats["checked_out"])
-        MetricsCollector.db_pool_utilization.labels(pool="postgres").set(stats["utilization"])
-
-        log.debug(
-            "postgres_pool_stats",
-            **stats,
-        )

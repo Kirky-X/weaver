@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """E2E tests for pipeline trigger and status endpoints.
 
 Also includes end-to-end pipeline execution tests that verify:
@@ -133,19 +133,22 @@ class TestPipelineEndpoint:
         unique_source_id: str,
     ) -> None:
         """Test triggering pipeline with specific source_id filter."""
-        # Create a source first
-        client.post(
+        # Create a source first (feed validation fetches the URL; skip offline)
+        create_response = client.post(
             "/api/v1/sources",
             json={
                 "id": unique_source_id,
                 "name": "Pipeline Test Source",
-                "url": "https://example.com/pipeline-test.xml",
+                "url": "https://feeds.bbci.co.uk/news/rss.xml",
                 "source_type": "rss",
                 "enabled": True,
                 "interval_minutes": 30,
             },
             headers=admin_headers,
         )
+        if create_response.status_code in (403, 422):
+            pytest.skip("Public feed unreachable (offline environment)")
+        assert create_response.status_code == 201, create_response.text[:300]
 
         # Trigger with specific source
         response = client.post(
@@ -187,7 +190,7 @@ class TestPipelineEndpoint:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# End-to-End Pipeline Execution Tests (Tasks 4.1-4.7)
+# End-to-End Pipeline Execution Tests
 # These tests use the container's Pipeline instance to execute real processing
 # and verify PipelineState + DB persistence.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,7 +198,7 @@ class TestPipelineEndpoint:
 
 @pytest.mark.e2e
 class TestPipelineEndToEnd:
-    """Task 4.1: Complete 4-Phase pipeline end-to-end test.
+    """Complete 4-Phase pipeline end-to-end test.
 
     Executes 3 real articles through the full pipeline with semaphore=1
     (serial execution) to avoid ollama 429 errors.
@@ -240,7 +243,7 @@ class TestPipelineEndToEnd:
 
 @pytest.mark.e2e
 class TestPhase1StateValidation:
-    """Task 4.2: Phase 1 validation — Classifier→Cleaner→Categorizer→Vectorize."""
+    """Phase 1 validation — Classifier→Cleaner→Categorizer→Vectorize."""
 
     async def test_phase1_state_transitions(self, client: Any) -> None:
         """Verify Phase 1 produces correct state fields for non-terminal articles."""
@@ -293,7 +296,7 @@ class TestPhase1StateValidation:
 
 @pytest.mark.e2e
 class TestPhase2StateValidation:
-    """Task 4.3: Phase 2 validation — BatchMerger dedup + is_merged check."""
+    """Phase 2 validation — BatchMerger dedup + is_merged check."""
 
     async def test_phase2_merger_state(self, client: Any) -> None:
         """Verify Phase 2 merger produces is_merged field."""
@@ -330,7 +333,7 @@ class TestPhase2StateValidation:
 
 @pytest.mark.e2e
 class TestPhase3StateValidation:
-    """Task 4.4: Phase 3 validation — ReVectorize→Analyze→Quality→Credibility→Entity."""
+    """Phase 3 validation — ReVectorize→Analyze→Quality→Credibility→Entity."""
 
     async def test_phase3_state_outputs(self, client: Any) -> None:
         """Verify Phase 3 produces analysis, quality, credibility, and entity fields."""
@@ -403,7 +406,7 @@ class TestPhase3StateValidation:
 
 @pytest.mark.e2e
 class TestPhase4DuckDBPersistence:
-    """Task 4.5: Phase 4 validation — DuckDB articles + article_vectors write check."""
+    """Phase 4 validation — DuckDB articles + article_vectors write check."""
 
     async def test_duckdb_articles_persisted(self, client: Any) -> None:
         """Verify articles are persisted to DuckDB after pipeline execution."""
@@ -474,7 +477,7 @@ class TestPhase4DuckDBPersistence:
 
 @pytest.mark.e2e
 class TestLadybugDBPersistence:
-    """Task 4.6: LadybugDB persistence — entity/relation nodes and edges."""
+    """LadybugDB persistence — entity/relation nodes and edges."""
 
     async def test_ladybug_entity_relation_persisted(self, client: Any) -> None:
         """Verify entities and relations are written to LadybugDB."""
@@ -535,7 +538,7 @@ class TestLadybugDBPersistence:
 
 @pytest.mark.e2e
 class TestPipelineStateCompleteness:
-    """Task 4.7: PipelineState completeness — all required fields present and typed."""
+    """PipelineState completeness — all required fields present and typed."""
 
     async def test_state_has_required_fields(self, client: Any) -> None:
         """Verify all required PipelineState fields exist with correct types."""
@@ -611,7 +614,7 @@ class TestPipelineStateCompleteness:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data Quality Fix Validation Tests (Tasks 8.1-8.5)
+# Data Quality Fix Validation Tests
 # Verify all data-quality-fix changes work correctly in end-to-end pipeline.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -657,7 +660,7 @@ async def _run_pipeline_serial(container: Any) -> tuple[Any, list[dict]]:
 
 @pytest.mark.e2e
 class TestDataQualityFixValidation:
-    """Tasks 8.1-8.5: Validate all data-quality-fix changes end-to-end.
+    """Validate all data-quality-fix changes end-to-end.
 
     Verifies:
     - 8.1: Pipeline runs end-to-end with all fixes applied
@@ -678,11 +681,11 @@ class TestDataQualityFixValidation:
 
         # Verify key data-quality fields exist in processed states
         for state in non_terminal:
-            # PersistStatus fix: article_id must be set after persist
+            # article_id must be set after persist
             assert "article_id" in state, "article_id missing after persist"
             assert state["article_id"] is not None
 
-            # Region fix: region must be set (not empty)
+            # region must be set (not empty)
             assert "region" in state, "region field missing"
             assert state["region"], "region is empty"
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """EventNode: MAGMA's unified memory item representation.
 
 n_i = <c_i, τ_i, v_i, A_i>
@@ -14,6 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,10 @@ class EventNode:
             EventNode instance populated from state.
         """
         article_id = state.get("article_id", "")
+        if not article_id:
+            # Empty id would MERGE all such nodes into one (temporal graph
+            # enforces REQUIRE e.id IS UNIQUE) — warn so drops are observable.
+            log.warning("event_node_missing_article_id", state_keys=sorted(state.keys()))
 
         # Extract content
         cleaned = state.get("cleaned", {})

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for LLM cache key v2 grayscale integration (Task 11)."""
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for LLM cache key v2 grayscale integration."""
 
 import hashlib
 import json
@@ -70,7 +70,7 @@ def _make_mock_response() -> MagicMock:
 
 
 class TestCacheKeyV2Grayscale:
-    """Test LLM_CACHE_KEY_V2_ENABLED grayscale switch (Task 11)."""
+    """Test LLM_CACHE_KEY_V2_ENABLED grayscale switch."""
 
     @pytest.mark.asyncio
     async def test_v2_disabled_uses_old_key_format(self):
@@ -126,8 +126,8 @@ class TestCacheKeyV2Grayscale:
         assert len(hash_part) == 16
 
     @pytest.mark.asyncio
-    async def test_v2_not_set_uses_old_key_format(self):
-        """LLM_CACHE_KEY_V2_ENABLED 未设置时默认使用旧版 cache key."""
+    async def test_v2_not_set_defaults_to_v2(self):
+        """LLM_CACHE_KEY_V2_ENABLED 未设置时默认使用 v2 稳定 key（2026-09 翻转默认）."""
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=None)
@@ -147,8 +147,9 @@ class TestCacheKeyV2Grayscale:
                 await client.call("chat.openai.gpt-4o", payload, call_point="classifier")
 
         cache_key_used = mock_redis.get.call_args[0][0]
-        assert cache_key_used.startswith("cache:llm:classifier:")
-        assert ":v2:" not in cache_key_used
+        assert cache_key_used.startswith("cache:llm:v2:classifier:")
+        hash_part = cache_key_used.split(":")[-1]
+        assert len(hash_part) == 16
 
     @pytest.mark.asyncio
     async def test_v2_enabled_excludes_non_semantic_fields(self):

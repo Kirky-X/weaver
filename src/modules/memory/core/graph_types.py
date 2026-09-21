@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Core type definitions for multi-graph memory system."""
 
 from dataclasses import dataclass, field
@@ -59,6 +59,9 @@ class IntentType(Enum):
     OPEN = "OPEN"
     """Open-domain queries: "Tell me about W" """
 
+    MULTI_HOP = "MULTI_HOP"
+    """Multi-hop reasoning: answers chained through intermediate entities."""
+
 
 # Intent-to-edge weight mapping for MAGMA Equation 5
 # S(n_j | n_i, q) = exp(λ₁·φ(type(e_ij), T_q) + λ₂·sim(v_j, q))
@@ -85,6 +88,14 @@ INTENT_EDGE_WEIGHTS: dict[IntentType, dict[EdgeType, float]] = {
         EdgeType.SEMANTIC: 4.0,
         EdgeType.ENTITY: 2.0,
         EdgeType.CAUSAL: 1.5,
+        EdgeType.TEMPORAL: 1.0,
+    },
+    IntentType.MULTI_HOP: {
+        # Multi-hop answers ride entity chains across intermediate nodes;
+        # semantic edges glue hops, causal chains are multi-hop by nature.
+        EdgeType.ENTITY: 4.0,
+        EdgeType.SEMANTIC: 2.5,
+        EdgeType.CAUSAL: 2.0,
         EdgeType.TEMPORAL: 1.0,
     },
 }

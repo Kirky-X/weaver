@@ -1,22 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Unit tests for ConflictDetectorNode core query implementation."""
 
 from __future__ import annotations
 
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
+
 import pytest
+
 
 from modules.processing.nodes.quality.conflict_detector import (
     ATTRIBUTE_SYNONYMS,
     CONFLICT_THRESHOLD,
     ConflictDetectorNode,
 )
+
 from modules.processing.pipeline.state import PipelineState
 
+
 # ---------------------------------------------------------------------------
+
 # _find_similar using VectorRepo
+
 # ---------------------------------------------------------------------------
 
 
@@ -26,8 +35,11 @@ class TestFindSimilarVectorSearch:
     @pytest.mark.asyncio
     async def test_find_similar_uses_vector_repo(self):
         """_find_similar calls VectorRepo.find_similar with embedding."""
+
         mock_article_repo = MagicMock()
+
         mock_vector_repo = AsyncMock()
+
         mock_vector_repo.find_similar.return_value = [
             MagicMock(article_id="art-1", category="economy", similarity=0.85)
         ]
@@ -36,58 +48,80 @@ class TestFindSimilarVectorSearch:
             article_repo=mock_article_repo,
             vector_repo=mock_vector_repo,
         )
+
         # Mock embedding retrieval
+
         node._get_article_embedding = AsyncMock(return_value=[0.1] * 384)
 
         result = await node._find_similar("economy", "art-0")
+
         assert len(result) >= 1
+
         mock_vector_repo.find_similar.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_find_similar_no_vector_repo_returns_empty(self):
         """_find_similar returns empty list when vector_repo is None."""
+
         mock_article_repo = MagicMock()
+
         node = ConflictDetectorNode(article_repo=mock_article_repo, vector_repo=None)
+
         result = await node._find_similar("economy", "art-0")
+
         assert result == []
 
     @pytest.mark.asyncio
     async def test_find_similar_threshold_07(self):
         """_find_similar uses similarity threshold >= 0.7."""
+
         mock_article_repo = MagicMock()
+
         mock_vector_repo = AsyncMock()
+
         mock_vector_repo.find_similar.return_value = []
 
         node = ConflictDetectorNode(
             article_repo=mock_article_repo,
             vector_repo=mock_vector_repo,
         )
+
         node._get_article_embedding = AsyncMock(return_value=[0.1] * 384)
+
         await node._find_similar("economy", "art-0")
 
         call_kwargs = mock_vector_repo.find_similar.call_args
+
         assert call_kwargs[1].get("threshold", 0.8) >= 0.7
 
     @pytest.mark.asyncio
     async def test_find_similar_top_k_10(self):
         """_find_similar limits results to top_k=10."""
+
         mock_article_repo = MagicMock()
+
         mock_vector_repo = AsyncMock()
+
         mock_vector_repo.find_similar.return_value = []
 
         node = ConflictDetectorNode(
             article_repo=mock_article_repo,
             vector_repo=mock_vector_repo,
         )
+
         node._get_article_embedding = AsyncMock(return_value=[0.1] * 384)
+
         await node._find_similar("economy", "art-0")
 
         call_kwargs = mock_vector_repo.find_similar.call_args
+
         assert call_kwargs[1].get("limit", 20) <= 10
 
 
 # ---------------------------------------------------------------------------
+
 # LLM numerical claim extraction
+
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +131,9 @@ class TestLLMClaimExtraction:
     @pytest.mark.asyncio
     async def test_llm_extracts_numerical_claims(self):
         """LLM extracts structured numerical claims from text."""
+
         mock_llm = AsyncMock()
+
         mock_llm.call_at.return_value = [
             {"attribute": "GDP增长率", "value": 6.5, "unit": "%", "context": "GDP增长6.5%"},
             {"attribute": "通胀率", "value": 2.3, "unit": "%", "context": "通胀率2.3%"},
@@ -109,16 +145,23 @@ class TestLLMClaimExtraction:
         )
 
         claims = await node._extract_numerical_claims("GDP增长6.5%，通胀率2.3%")
+
         assert len(claims) == 2
+
         assert claims[0]["attribute"] == "GDP增长率"
+
         assert claims[0]["value"] == 6.5
+
         assert claims[1]["attribute"] == "通胀率"
+
         assert claims[1]["value"] == 2.3
 
     @pytest.mark.asyncio
     async def test_llm_no_numerical_claims(self):
         """LLM returns empty list when no numerical data in text."""
+
         mock_llm = AsyncMock()
+
         mock_llm.call_at.return_value = []
 
         node = ConflictDetectorNode(
@@ -127,25 +170,33 @@ class TestLLMClaimExtraction:
         )
 
         claims = await node._extract_numerical_claims("纯文本内容，没有数字声明")
+
         assert claims == []
 
     @pytest.mark.asyncio
     async def test_llm_fallback_to_regex(self):
         """When LLM is not available, falls back to regex extraction."""
+
         node = ConflictDetectorNode(
             article_repo=MagicMock(),
             llm_client=None,
         )
 
         claims = await node._extract_numerical_claims("增长30% 下降10%")
+
         assert len(claims) > 0
+
         # Should still extract via regex
+
         values = [c["value"] for c in claims]
+
         assert 30.0 in values or 10.0 in values
 
 
 # ---------------------------------------------------------------------------
+
 # 15% conflict threshold
+
 # ---------------------------------------------------------------------------
 
 
@@ -154,36 +205,52 @@ class TestConflictThreshold:
 
     def test_conflict_threshold_is_15(self):
         """CONFLICT_THRESHOLD constant should be 15."""
+
         assert CONFLICT_THRESHOLD == 15
 
     @pytest.mark.asyncio
     async def test_15_pct_difference_detected(self, sample_raw):
         """Values differing by exactly 15% should be detected as conflict."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         # 6.5 vs 7.475 = 13% relative difference (below 15%)
+
         # Use 6.0 vs 7.5 = 20% relative difference (above 15%)
+
         claims_a = [{"attribute": "GDP增长率", "value": 6.0, "unit": "%", "text": "GDP增长6.0%"}]
+
         claims_b = [{"attribute": "GDP增长率", "value": 7.5, "unit": "%", "text": "GDP增长7.5%"}]
 
         similar = [{"title": "Other", "body": "", "_claims": claims_b}]
+
         conflicts = node._detect_conflicts_from_claims(claims_a, similar)
+
         assert len(conflicts) >= 1
 
     @pytest.mark.asyncio
     async def test_below_15_pct_not_detected(self, sample_raw):
         """Values differing by less than 15% should NOT be detected as conflict."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         # 6.5 vs 7.0 = ~7.7% relative difference
+
         claims_a = [{"attribute": "GDP增长率", "value": 6.5, "unit": "%", "text": "GDP增长6.5%"}]
+
         claims_b = [{"attribute": "GDP增长率", "value": 7.0, "unit": "%", "text": "GDP增长7.0%"}]
 
         similar = [{"title": "Other", "body": "", "_claims": claims_b}]
+
         conflicts = node._detect_conflicts_from_claims(claims_a, similar)
+
         assert len(conflicts) == 0
 
 
 # ---------------------------------------------------------------------------
+
 # ATTRIBUTE_SYNONYMS matching
+
 # ---------------------------------------------------------------------------
 
 
@@ -192,38 +259,59 @@ class TestSynonymMatching:
 
     def test_same_attribute_matches_synonyms(self):
         """_same_attribute matches synonyms from ATTRIBUTE_SYNONYMS."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         c1 = {"attribute": "GDP增长率"}
+
         c2 = {"attribute": "经济增长率"}
+
         # "GDP增长率" contains "GDP" which maps to "gdp" in synonyms
+
         # "经济增长率" contains "增长" which maps to "growth_rate" in synonyms
+
         # They should match via the synonym group
+
         assert node._same_attribute(c1, c2) is True
 
     def test_same_attribute_matches_unemployment_synonyms(self):
         """_same_attribute matches unemployment synonyms."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         c1 = {"attribute": "失业率"}
+
         c2 = {"attribute": "失业"}
+
         assert node._same_attribute(c1, c2) is True
 
     def test_same_attribute_rejects_unrelated(self):
         """_same_attribute rejects unrelated attributes."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         c1 = {"attribute": "GDP增长率"}
+
         c2 = {"attribute": "失业率"}
+
         assert node._same_attribute(c1, c2) is False
 
     def test_same_attribute_exact_match(self):
         """_same_attribute matches exact same attribute."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         c1 = {"attribute": "GDP增长率"}
+
         c2 = {"attribute": "GDP增长率"}
+
         assert node._same_attribute(c1, c2) is True
 
 
 # ---------------------------------------------------------------------------
+
 # Search API conflict annotation
+
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +320,9 @@ class TestSearchAPIConflictAnnotation:
 
     def test_conflict_annotation_structure(self):
         """Conflict annotation has the correct structure."""
+
         node = ConflictDetectorNode(article_repo=MagicMock())
+
         conflicts = [
             {
                 "attribute": "GDP增长率",
@@ -242,10 +332,113 @@ class TestSearchAPIConflictAnnotation:
                 "source_text": "GDP增长6.5%",
             }
         ]
+
         annotation = node.format_conflict_annotation(conflicts)
+
         assert "conflicts" in annotation
+
         assert len(annotation["conflicts"]) == 1
+
         conflict = annotation["conflicts"][0]
+
         assert conflict["attribute"] == "GDP增长率"
+
         assert "values" in conflict
+
         assert len(conflict["values"]) == 2
+
+
+class TestEnrichWithBodies:
+    """Tests for _enrich_with_bodies.
+
+
+
+    Regression: ArticleSearchResultView carries only ids/scores, so without
+
+    body enrichment the regex claim extraction ran on empty strings and
+
+    conflict detection was a permanent no-op.
+
+    """
+
+    @pytest.mark.asyncio
+    async def test_enrich_attaches_bodies_from_repo(self):
+        """Bodies fetched via fetch_bodies_by_pg_ids are attached per entry."""
+
+        mock_article_repo = MagicMock()
+
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(
+            return_value={"art-1": "失业率上升至6.5%"}
+        )
+
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1", "category": "economy", "similarity": 0.9}]
+
+        result = await node._enrich_with_bodies(similar)
+
+        assert result[0]["body"] == "失业率上升至6.5%"
+
+        mock_article_repo.fetch_bodies_by_pg_ids.assert_called_once_with(["art-1"])
+
+    @pytest.mark.asyncio
+    async def test_enrich_skips_entries_with_body(self):
+        """Entries already carrying a body are not re-fetched."""
+
+        mock_article_repo = MagicMock()
+
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(return_value={})
+
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1", "body": "existing"}]
+
+        result = await node._enrich_with_bodies(similar)
+
+        mock_article_repo.fetch_bodies_by_pg_ids.assert_not_called()
+
+        assert result[0]["body"] == "existing"
+
+    @pytest.mark.asyncio
+    async def test_enrich_degrades_when_repo_lacks_fetch_method(self):
+        """A repo without fetch_bodies_by_pg_ids returns input unchanged."""
+
+        mock_article_repo = MagicMock(spec=["get_by_id"])
+
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1"}]
+
+        result = await node._enrich_with_bodies(similar)
+
+        assert result == similar
+
+    @pytest.mark.asyncio
+    async def test_enrich_failure_degrades_without_raising(self):
+        """A fetch failure is logged and leaves entries without body."""
+
+        mock_article_repo = MagicMock()
+
+        mock_article_repo.fetch_bodies_by_pg_ids = AsyncMock(side_effect=RuntimeError("db down"))
+
+        node = ConflictDetectorNode(article_repo=mock_article_repo)
+
+        similar = [{"article_id": "art-1"}]
+
+        result = await node._enrich_with_bodies(similar)
+
+        assert "body" not in result[0]
+
+    @pytest.mark.asyncio
+    async def test_detect_conflicts_handles_missing_content_fields(self):
+        """Similar entries without title/body keys must not crash detection."""
+
+        node = ConflictDetectorNode(article_repo=MagicMock())
+
+        claims = [{"attribute": "percent", "value": 10.0, "unit": "%", "text": "10%"}]
+
+        similar = [{"article_id": "art-1"}]  # no title/body keys at all
+
+        conflicts = node._detect_conflicts_from_claims(claims, similar)
+
+        assert conflicts == []

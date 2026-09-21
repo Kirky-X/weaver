@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Utility functions for model ID extraction and management."""
 
 from __future__ import annotations
@@ -32,8 +32,9 @@ def extract_embedding_model_id(llm_settings: object) -> str:
             parts = embedding_config.primary.split(".", 2)
             if len(parts) >= 3:
                 return parts[2]  # Return model_id (third part)
-    except Exception:
+    except (AttributeError, TypeError):
+        # Structural misconfiguration (missing defaults / non-str primary).
+        # Narrow on purpose: unexpected bugs must propagate, not fall back.
         log.warning("Failed to extract embedding model ID, using default", exc_info=True)
-        pass
     # Fallback to default model
     return EmbeddingModel.DEFAULT

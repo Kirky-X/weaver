@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for environment validator module."""
 
 from datetime import datetime, timedelta
@@ -230,8 +230,9 @@ class TestEnvironmentValidatorInit:
         settings.redis.url = "redis://localhost:6379/0"
         settings.llm = MagicMock()
         settings.llm.providers = {}
-        settings.llm.embedding_provider = "openai"
-        settings.llm.embedding_model = "text-embedding-3-small"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+        }
         return settings
 
     def test_initialization(self, mock_settings):
@@ -261,8 +262,9 @@ def _create_mock_settings():
     settings.redis.url = "redis://localhost:6379/0"
     settings.llm = MagicMock()
     settings.llm.providers = {}
-    settings.llm.embedding_provider = "openai"
-    settings.llm.embedding_model = "text-embedding-3-small"
+    settings.llm.defaults = {
+        "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+    }
 
     # Health check settings (now used by env_validator)
     settings.health_check = MagicMock()
@@ -907,8 +909,9 @@ class TestValidateEmbedding:
                 "api_key": "test-api-key",
             }
         }
-        settings.llm.embedding_provider = "openai"
-        settings.llm.embedding_model = "text-embedding-3-small"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.openai.text-embedding-3-small")
+        }
         return settings
 
     @pytest.fixture
@@ -921,17 +924,19 @@ class TestValidateEmbedding:
                 "base_url": "http://localhost:11434",
             }
         }
-        settings.llm.embedding_provider = "ollama"
-        settings.llm.embedding_model = "nomic-embed-text"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.ollama.nomic-embed-text")
+        }
         return settings
 
     @pytest.fixture
     def mock_settings_provider_not_configured(self):
-        """Create mock settings where embedding provider not in providers dict."""
+        """Create mock settings where the embedding provider is not configured."""
         settings = _create_mock_settings()
         settings.llm.providers = {}
-        settings.llm.embedding_provider = "missing_provider"
-        settings.llm.embedding_model = "some-model"
+        settings.llm.defaults = {
+            "embedding": MagicMock(primary="embedding.missing_provider.some-model")
+        }
         return settings
 
     @pytest.mark.asyncio
@@ -943,6 +948,18 @@ class TestValidateEmbedding:
         assert result.healthy is False
         assert any("Provider 'missing_provider' not configured" in d for d in result.details)
         assert any("Configure 'missing_provider' provider" in s for s in result.suggestions)
+
+    @pytest.mark.asyncio
+    async def test_embedding_route_not_configured(self):
+        """No [defaults.embedding] route → unhealthy with a fix suggestion."""
+        settings = _create_mock_settings()
+        settings.llm.defaults = {}
+        validator = EnvironmentValidator(settings)
+        result = await validator.validate_embedding()
+
+        assert result.healthy is False
+        assert any("No default embedding route configured" in d for d in result.details)
+        assert any("defaults.embedding" in s for s in result.suggestions)
 
     @pytest.mark.asyncio
     async def test_embedding_openai_success(self, mock_settings_openai):
@@ -1321,7 +1338,10 @@ class TestPrintReport:
 
         captured = capsys.readouterr()
         assert "Environment Validation Report" in captured.out
-        assert "All 0 services healthy" in captured.out
+        # 空结果集不再打印「All 0 services healthy」（会被误读为全部通过），
+        # 改为明确的「未请求/未校验任何服务」提示。
+        assert "No services requested/validated" in captured.out
+        assert "All 0 services healthy" not in captured.out
 
 
 class TestGetExitCode:
@@ -1562,4 +1582,71 @@ class TestRetryLogic:
             with patch("asyncio.sleep", AsyncMock()):
                 result = await validator.validate_postgres()
 
+        assert result.healthy is False
+
+
+class TestValidateLLMHighFixes:
+    """+ regression tests."""
+
+    @pytest.fixture
+    def anthropic_settings(self):
+        settings = _create_mock_settings()
+        settings.llm.providers = {
+            "anthropic_primary": {
+                "provider": LLMProvider.ANTHROPIC.value,
+                "model": "claude-3-sonnet",
+                "base_url": "https://api.anthropic.com",
+            }
+        }
+        return settings
+
+    @pytest.fixture
+    def openai_settings(self):
+        settings = _create_mock_settings()
+        settings.llm.providers = {
+            "openai_primary": {
+                "provider": LLMProvider.OPENAI.value,
+                "model": "gpt-4o",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "test-api-key",
+            }
+        }
+        return settings
+
+    @pytest.mark.asyncio
+    async def test_anthropic_non_200_not_healthy(self, anthropic_settings):
+        """Anthropic branch must check the response status code."""
+        validator = EnvironmentValidator(anthropic_settings)
+
+        mock_response = MagicMock(status_code=500)
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await validator.validate_llm()
+
+        assert result.healthy is False
+        assert any("500" in detail for detail in result.details)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_does_not_retry(self, openai_settings):
+        """generic exceptions must not silently re-loop."""
+        settings = openai_settings
+        settings.health_check.max_retries = 3
+
+        validator = EnvironmentValidator(settings)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=KeyError("malformed config"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await validator.validate_llm()
+
+        # One attempt only — no duplicated failure details from retries
+        failures = [d for d in result.details if "Validation failed" in d]
+        assert len(failures) == 1
         assert result.healthy is False

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for MMR improvements: embedding similarity and similarity_mode.
@@ -217,3 +217,24 @@ class TestMMRCustomSimilarity:
 
         results = reranker.rerank(candidates, top_k=2)
         assert custom_fn.called
+
+
+class TestShouldUseEmbeddingSimilarity:
+    """Regression: `self._similarity_fn is not self._jaccard_similarity`
+    was always True (each attribute access creates a new bound method object),
+    so embedding similarity mode was never activated."""
+
+    def test_embedding_mode_with_default_fn_is_active(self) -> None:
+        reranker = MMRReranker(similarity_mode="embedding")
+        candidates = [{"embedding": [1.0, 0.0]}, {"embedding": [0.0, 1.0]}]
+        assert reranker._should_use_embedding_similarity(candidates) is True
+
+    def test_custom_similarity_fn_overrides_embedding_mode(self) -> None:
+        reranker = MMRReranker(similarity_mode="embedding", similarity_fn=lambda a, b: 0.5)
+        candidates = [{"embedding": [1.0, 0.0]}, {"embedding": [0.0, 1.0]}]
+        assert reranker._should_use_embedding_similarity(candidates) is False
+
+    def test_default_jaccard_mode_is_inactive(self) -> None:
+        reranker = MMRReranker()
+        candidates = [{"embedding": [1.0, 0.0]}, {"embedding": [0.0, 1.0]}]
+        assert reranker._should_use_embedding_similarity(candidates) is False

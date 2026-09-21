@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Saga log repository for persisting and querying saga execution logs.
 
 Implements:
@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 
 from core.db.models import SagaLog
 from core.observability import get_logger
@@ -98,10 +98,11 @@ class SagaLogRepo:
         now = datetime.now(UTC)
 
         async with self._pool.session() as session:
-            values: dict[str, Any] = {
-                "step_status": step_status,
-                "completed_at": now,
-            }
+            values: dict[str, Any] = {"step_status": step_status}
+            # Only terminal statuses mark completion; a transition like
+            # "started" must not stamp completed_at with the retry start.
+            if step_status in ("completed", "failed"):
+                values["completed_at"] = now
             if error_message is not None:
                 values["error_message"] = error_message
 
@@ -151,6 +152,25 @@ class SagaLogRepo:
                 select(SagaLog)
                 .where(SagaLog.article_id == article_id)
                 .order_by(SagaLog.started_at.desc())
+            )
+            return list(result.scalars().all())
+
+    async def get_stale_started_logs(self, cutoff: datetime, limit: int = 50) -> list[SagaLog]:
+        """Get saga log entries stuck in 'started' status before a cutoff.
+
+        Args:
+            cutoff: Only entries started before this time are returned.
+            limit: Maximum number of entries to return.
+
+        Returns:
+            List of stale 'started' SagaLog entries (oldest first).
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(SagaLog)
+                .where(SagaLog.step_status == "started", SagaLog.started_at < cutoff)
+                .order_by(SagaLog.started_at.asc())
+                .limit(limit)
             )
             return list(result.scalars().all())
 
@@ -205,9 +225,15 @@ class SagaLogRepo:
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
         async with self._pool.session() as session:
-            result = await session.execute(delete(SagaLog).where(SagaLog.created_at < cutoff))
+            # rowcount 在异步 ORM 的批量 DELETE 上不可靠：不同驱动/dialect
+            # 可能返回 -1，或只反映即时结果（DuckDB 后端即如此）。归档计数
+            # 需要精确值，因此在同一事务内先 count 再删除。
+            count_result = await session.execute(
+                select(func.count()).select_from(SagaLog).where(SagaLog.created_at < cutoff)
+            )
+            deleted_count = int(count_result.scalar_one() or 0)
+            await session.execute(delete(SagaLog).where(SagaLog.created_at < cutoff))
             await session.commit()
-            deleted_count = result.rowcount
 
         log.info(
             "saga_logs_archived",

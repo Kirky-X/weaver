@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for relation type filtering in search engines and context builders."""
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def global_context_builder(mock_context_builder):
 
 
 # ---------------------------------------------------------------------------
-# Task 9.1: LocalSearchEngine with relation_types
+# LocalSearchEngine with relation_types
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ class TestLocalSearchWithRelationTypes:
 
 
 # ---------------------------------------------------------------------------
-# Task 9.2: LocalContextBuilder with relation types
+# LocalContextBuilder with relation types
 # ---------------------------------------------------------------------------
 
 
@@ -234,7 +234,7 @@ class TestLocalContextWithRelationTypes:
 
 
 # ---------------------------------------------------------------------------
-# Task 9.3: GlobalContextBuilder with relation type info
+# GlobalContextBuilder with relation type info
 # ---------------------------------------------------------------------------
 
 

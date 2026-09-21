@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """URLhaus API client for real-time malicious URL lookup.
 
 URLhaus is a free service from abuse.ch that provides a database of
@@ -9,6 +9,8 @@ checking.
 API Documentation: https://urlhaus-api.abuse.ch/
 """
 
+import asyncio
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -63,10 +65,21 @@ class URLhausClient:
         _fetcher: HttpxFetcher for making requests.
     """
 
-    API_URL = "https://urlhaus-api.abuse.ch/v1/url/"
-
-    def __init__(self, api_key: str, fetcher: Any, timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        fetcher: Any,
+        timeout: float = 5.0,
+        api_url: str = "https://urlhaus-api.abuse.ch/v1/url/",
+    ) -> None:
         """Initialize URLhaus client.
+
+        Args:
+            api_key: URLhaus auth key.
+            fetcher: HTTP fetcher implementation.
+            timeout: Request timeout in seconds.
+            api_url: API endpoint (configurable; keep the abuse.ch default
+                unless self-hosting a mirror).
 
         Args:
             api_key: URLhaus API key.
@@ -75,6 +88,7 @@ class URLhausClient:
         """
         self._api_key = api_key
         self._fetcher = fetcher
+        self._api_url = api_url
         self._timeout = timeout
 
     async def check(self, url: str) -> URLhausResponse:
@@ -93,10 +107,16 @@ class URLhausClient:
             )
 
         try:
-            status_code, response_text, _ = await self._fetcher.post(
-                self.API_URL,
-                data={"url": url},
-                headers={"Auth-Key": self._api_key},
+            # asyncio.wait_for enforces the configured timeout —
+            # HttpxFetcher.post has no timeout parameter, so a hanging
+            # URLhaus API would stall the validation pipeline indefinitely.
+            status_code, response_text, _ = await asyncio.wait_for(
+                self._fetcher.post(
+                    self._api_url,
+                    data={"url": url},
+                    headers={"Auth-Key": self._api_key},
+                ),
+                timeout=self._timeout,
             )
 
             if status_code == 429:
@@ -113,16 +133,17 @@ class URLhausClient:
                     error_message=f"HTTP {status_code}",
                 )
 
-            import json
-
             data = json.loads(response_text)
             return self._parse_response(data)
 
         except Exception as e:
+            # Full exception text goes to logs only — the response message is
+            # a fixed string so transport-layer details (URLs, headers) from
+            # the exception never reach API callers.
             log.warning("urlhaus_error", url=url, error=str(e))
             return URLhausResponse(
                 status=URLhausStatus.ERROR,
-                error_message=str(e),
+                error_message="URLhaus request failed",
             )
 
     def _parse_response(self, data: dict[str, Any]) -> URLhausResponse:

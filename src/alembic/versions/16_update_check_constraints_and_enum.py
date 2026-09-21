@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Update CHECK constraint values and add 兴奋 to emotion_type ENUM.
 
 Revision ID: 16_update_check_constraints_and_enum
@@ -42,6 +42,8 @@ def upgrade() -> None:
     )
 
     # ── emotion_type ENUM: add 兴奋 ──
+    # Requires PostgreSQL 12+: ADD VALUE inside a transaction block is only
+    # allowed there (the new value just cannot be used in the same txn).
     op.execute("ALTER TYPE emotion_type ADD VALUE IF NOT EXISTS '兴奋'")
 
 

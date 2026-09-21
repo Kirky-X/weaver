@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Update trigger policy collaborator for the incremental community updater.
 
 Extracted from ``IncrementalCommunityUpdater``. Decides when an incremental
@@ -34,6 +34,10 @@ def _to_datetime(value: object) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
+        if value.tzinfo is None:
+            # Neo4j can return naive datetimes; downstream arithmetic uses
+            # datetime.now(UTC), so attach UTC instead of raising TypeError.
+            return value.replace(tzinfo=UTC)
         return value
     if isinstance(value, (int, float)):
         try:

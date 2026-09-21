@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Extended unit tests for search API endpoints.
 
 Covers:
@@ -67,6 +67,8 @@ def mock_global_engine() -> MagicMock:
     )
     engine._context_builder = MagicMock()
     engine._llm = MagicMock()
+    # endpoint now obtains deps via the public accessor
+    engine.get_drift_deps = MagicMock(return_value=(engine._context_builder, engine._llm))
     return engine
 
 
@@ -338,7 +340,7 @@ class TestCausalSearchEndpoint:
     ) -> None:
         """Test successful causal search.
 
-        D5 changes: search_causal now reads ``engine.last_metadata`` to pick
+        changes: search_causal now reads ``engine.last_metadata`` to pick
         the answer text branch and apply the degraded confidence cap. The
         mock MUST expose a real dict (MagicMock auto-returns truthy values,
         which would wrongly trigger the degraded cap).
@@ -352,7 +354,7 @@ class TestCausalSearchEndpoint:
 
         mock_adaptive_engine = MagicMock()
         mock_adaptive_engine.search = AsyncMock(return_value=mock_results)
-        # D5: provide real metadata dict (causal_edges_traversed>0 → "found
+        # provide real metadata dict (causal_edges_traversed>0 → "found
         # causal chain" answer; degraded=False → no confidence cap).
         mock_adaptive_engine.last_metadata = {
             "causal_edges_traversed": 2,
@@ -384,7 +386,7 @@ class TestCausalSearchEndpoint:
             assert result.data.causal_chain[1].content == "Event B led to Event C"
             assert result.data.confidence == pytest.approx(0.875, rel=1e-2)
             assert result.data.metadata["depth"] == 3
-            # D5 / Task 5.6: metadata exposes causal_edges_traversed + degraded
+            # Metadata exposes causal_edges_traversed + degraded
             assert result.data.metadata["causal_edges_traversed"] == 2
             assert result.data.metadata["degraded"] is False
             # answer 文本应反映"找到因果链"分支
@@ -399,7 +401,7 @@ class TestCausalSearchEndpoint:
     ) -> None:
         """Test causal search with no results.
 
-        D5: empty results → answer="未找到与查询相关的事件", confidence=0.0.
+        empty results → answer="未找到与查询相关的事件", confidence=0.0.
         Metadata must be set explicitly so MagicMock auto-truthy doesn't
         leak into the degraded cap branch.
         """
@@ -407,7 +409,7 @@ class TestCausalSearchEndpoint:
 
         mock_adaptive_engine = MagicMock()
         mock_adaptive_engine.search = AsyncMock(return_value=[])
-        # D5: explicit metadata (no anchors → no edges traversed, not degraded)
+        # explicit metadata (no anchors → no edges traversed, not degraded)
         mock_adaptive_engine.last_metadata = {
             "causal_edges_traversed": 0,
             "degraded": False,
@@ -443,7 +445,7 @@ class TestCausalSearchEndpoint:
         mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
-        """D5 / Task 5.3: 无 CAUSES 边时 answer 文本应反映"未找到因果链"。
+        """/ 无 CAUSES 边时 answer 文本应反映"未找到因果链"。
 
         场景：图 DB 中 0 条 CAUSES 边（Q1 finding），但 anchor 搜索返回了
         语义相关事件。旧行为：谎称"找到 N 个相关事件的因果链"。
@@ -496,7 +498,7 @@ class TestCausalSearchEndpoint:
         mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
-        """D3 / Task 5.5: 退化场景 confidence 上限 0.3。
+        """/ 退化场景 confidence 上限 0.3。
 
         场景：beam search 返回 3 个 score 全为 1.0 的结果（旧行为归一化为
         1.0 谎称完美匹配）。新行为：
@@ -507,7 +509,7 @@ class TestCausalSearchEndpoint:
         """
         from api.endpoints.content.search import CausalSearchRequest, search_causal
 
-        # 模拟旧行为：3 个 score 全为 1.0（未经 D3 归一化修复的场景）
+        # 模拟旧行为：3 个 score 全为 1.0（未经 归一化修复的场景）
         # 这种情况下端点应仍受 0.3 上限保护
         mock_results = [
             {"id": "1", "content": "identical score event A", "score": 1.0},
@@ -516,7 +518,7 @@ class TestCausalSearchEndpoint:
         ]
         mock_adaptive_engine = MagicMock()
         mock_adaptive_engine.search = AsyncMock(return_value=mock_results)
-        # D3 退化场景：score_range==0 + >=2 results
+        # 退化场景：score_range==0 + >=2 results
         mock_adaptive_engine.last_metadata = {
             "causal_edges_traversed": 0,
             "degraded": True,
@@ -1133,7 +1135,7 @@ class TestErrorHandling:
         assert expected_detail in exc_info.value.detail
 
 
-# ── Boundary & Degradation Tests (T022-T025) ────────────────────────
+# ── Boundary & Degradation Tests ───────────────────────────────────
 
 
 class TestSearchEndpointBoundaryConditions:
@@ -1360,7 +1362,7 @@ class TestSearchEndpointBoundaryConditions:
     ) -> None:
         """degraded=True + all-zero scores → confidence=min(0.0, 0.3)=0.0.
 
-        Combines D3 (degraded cap) + zero-score average to ensure the cap
+        Combines (degraded cap) + zero-score average to ensure the cap
         still binds even when average is already low.
         """
         from api.endpoints.content.search import CausalSearchRequest, search_causal

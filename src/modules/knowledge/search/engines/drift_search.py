@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DRIFT Search Engine - Dynamic Reasoning and Inference Framework.
 
 DRIFT combines global community insights with local entity details through
@@ -11,6 +11,7 @@ an iterative three-phase search process:
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -119,6 +120,25 @@ class DRIFTSearchEngine:
             if primer_result.get("fallback", False):
                 # No relevant communities, fallback to local search
                 log.info("drift_fallback_to_local", reason="no_communities")
+                if self._local_engine is None:
+                    log.warning(
+                        "drift_fallback_degraded",
+                        reason="local_engine_not_configured",
+                    )
+                    return DriftResult(
+                        query=query,
+                        answer="",
+                        confidence=0.0,
+                        hierarchy=hierarchy,
+                        primer_communities=0,
+                        follow_up_iterations=0,
+                        total_llm_calls=llm_calls,
+                        drift_mode="fallback_local",
+                        metadata={
+                            "degraded": True,
+                            "reason": "local_engine_not_configured",
+                        },
+                    )
                 local_result = await self._local_engine.search(query)
                 return DriftResult(
                     query=query,
@@ -160,7 +180,7 @@ class DRIFTSearchEngine:
             return DriftResult(
                 query=query,
                 answer=final_result.get("answer", ""),
-                confidence=final_result.get("confidence", 0.5),
+                confidence=final_result.get("confidence", 0.0),
                 hierarchy=hierarchy,
                 primer_communities=primer_result.get("community_count", 0),
                 follow_up_iterations=len(hierarchy.follow_ups),
@@ -258,6 +278,14 @@ class DRIFTSearchEngine:
             if not question.strip():
                 continue
 
+            if self._local_engine is None:
+                log.warning(
+                    "drift_follow_up_skipped",
+                    reason="local_engine_not_configured",
+                    question=question[:50],
+                )
+                continue
+
             iteration += 1
             log.debug("drift_follow_up", iteration=iteration, question=question[:50])
 
@@ -269,7 +297,7 @@ class DRIFTSearchEngine:
                 "question": question,
                 "answer": local_result.answer,
                 "confidence": local_result.confidence,
-                "source_entities": getattr(local_result, "source_entities", []),
+                "source_entities": local_result.entities,
             }
             results.append(follow_up_data)
 
@@ -328,13 +356,16 @@ class DRIFTSearchEngine:
         )
         response_text = str(result) if result else ""
 
-        # Extract confidence
+        # Extract confidence — a failed parse must NOT fabricate a fake
+        # mid-range score; surface it explicitly so callers can tell
+        # "unknown" apart from a genuine 0.5.
         confidence = self._extract_confidence(response_text)
         answer = self._remove_confidence_marker(response_text)
 
         return {
             "answer": answer,
-            "confidence": confidence,
+            "confidence": confidence if confidence is not None else 0.0,
+            "confidence_parsed": confidence is not None,
         }
 
     def _extract_follow_up_questions(self, text: str) -> list[str]:
@@ -348,7 +379,9 @@ class DRIFTSearchEngine:
             if line and (line[0].isdigit() or line.startswith("-") or line.startswith("*")):
                 if "?" in line or "？" in line:
                     # Remove numbering
-                    question = line.lstrip("0123456789.-* ")
+                    # Strip only the list marker ("1." / "-" / "*"), not
+                    # leading digits of the question itself ("2023 年...?").
+                    question = re.sub(r"^(?:\d+[.、)]\s*|[-*]\s+)", "", line)
                     if question:
                         questions.append(question)
 
@@ -364,8 +397,8 @@ class DRIFTSearchEngine:
             parsed = parse_llm_json(text)
             if isinstance(parsed, dict) and "answer" in parsed:
                 return parsed["answer"]
-        except (ValueError, Exception):
-            pass  # Fall through to text extraction
+        except Exception:
+            pass  # JSON parse failed — fall through to text extraction
 
         # Split at follow-up questions section
         markers = ["后续问题", "follow-up", "问题：", "questions"]
@@ -375,10 +408,12 @@ class DRIFTSearchEngine:
                 return text[:idx].strip()
         return text.strip()
 
-    def _extract_confidence(self, text: str) -> float:
-        """Extract confidence score from text."""
-        import re
+    def _extract_confidence(self, text: str) -> float | None:
+        """Extract confidence score from text.
 
+        Returns None when no confidence marker is present — callers must
+        not treat the absence of a marker as a mid-range score.
+        """
         # Look for [置信度: X.X] or similar patterns
         patterns = [
             r"\[置信度[：:]\s*([\d.]+)\]",
@@ -394,12 +429,10 @@ class DRIFTSearchEngine:
                 except ValueError:
                     pass
 
-        return 0.5  # Default confidence
+        return None
 
     def _remove_confidence_marker(self, text: str) -> str:
         """Remove confidence marker from text."""
-        import re
-
         patterns = [
             r"\[置信度[：:]\s*[\d.]+\]",
             r"\[confidence[：:]\s*[\d.]+\]",

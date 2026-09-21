@@ -13,7 +13,7 @@
 | `build_nuitka.py`         | Nuitka 生产编译构建                                                           |
 | `run_4db_combinations.sh` | 双故障转移架构下 4 种 DB 组合的实例启停/状态/健康检查                         |
 | `_common.py`              | 共享工具（`init_script_container`，非独立运行，被其他脚本 import）            |
-| `specmark/`               | specmark 工作流归档工具子目录（`archive_change.sh` + `merge_delta_spec.py`）  |
+| `bootstrap.py`            | 一键引导：复制示例配置、提示 spaCy 模型安装、可选迁移                         |
 
 ---
 
@@ -131,6 +131,11 @@ uv run python scripts/data_io.py export --from neo4j --to ladybug \
     --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j \
     --neo4j-password weavertest --ladybug-path data/weaver_graph.ladybug
 
+# LadybugDB → Neo4j 导入（图数据库恢复；仅清空 8 个受管标签的现有节点并打印清空数量）
+uv run python scripts/data_io.py import --from ladybug --to neo4j \
+    --ladybug-path data/weaver_graph.ladybug \
+    --neo4j-uri bolt://localhost:7687 --neo4j-user neo4j --neo4j-password weavertest
+
 # 跨库一致性校验（原 verify_db_consistency.py，已合并）
 uv run python scripts/data_io.py verify --mode all
 uv run python scripts/data_io.py verify --mode pg-duckdb \
@@ -144,7 +149,7 @@ uv run python scripts/data_io.py verify --mode neo4j-ladybug \
 | 子命令   | 描述                                                                                                                                    |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `export` | 主库 → 备库（postgres→duckdb、neo4j→ladybug），原子文件替换                                                                             |
-| `import` | 备库 → 主库（duckdb→postgres）                                                                                                          |
+| `import` | 备库 → 主库（duckdb→postgres、ladybug→neo4j）；目标库先清空（打印清空数量），再按计数验证导入                                            |
 | `verify` | **跨 4 库一致性校验**：PG↔DuckDB（27 表行数+MD5+抽样）、Neo4j↔Ladybug（8 标签+13 关系计数+抽样）。退出码 0 全过 / 1 不一致 / 2 用法错误 |
 
 ### 特性
@@ -193,8 +198,8 @@ uv run scripts/tools.py check-logging --fix-hint
 | `validate`          | 验证环境服务（postgres/neo4j/redis/llm/embedding）  |
 | `seed`              | 种子知识图谱关系类型与别名到 RelationType 表        |
 | `check-logging`     | 扫描违禁 `logging` 模块用法（pre-commit hook 调用） |
-| `monitor`           | 数据库索引监控（查未使用索引）                      |
-| `regenerate-titles` | 用 LLM 重生成社区（community）标题                  |
+| `monitor`           | 数据库索引监控（查未使用索引），参数：`--check-indexes`（检查未使用索引）、`--threshold`（最小扫描次数阈值，默认 10） |
+| `regenerate-titles` | 用 LLM 重生成社区（community）标题（无额外参数）    |
 
 ---
 
@@ -215,8 +220,8 @@ uv run scripts/build_nuitka.py
 双故障转移架构下 4 种 DB 后端组合（pg-neo4j / pg-ladybug / duckdb-neo4j / duckdb-ladybug，端口 18001–18004）的实例生命周期管理。
 
 ```bash
-bash scripts/run_4db_combinations.sh start all       # 启动全部 4 个组合
-bash scripts/run_4db_combinations.sh status          # 查看运行状态
+bash scripts/run_4db_combinations.sh start pg-neo4j  # 启动单个组合（start 仅接受单个组合名，不支持 all；组合名可先 status all 查看）
+bash scripts/run_4db_combinations.sh status all      # 查看运行状态
 bash scripts/run_4db_combinations.sh health pg-neo4j # 健康检查单个组合
 bash scripts/run_4db_combinations.sh stop all        # 停止全部
 ```
@@ -225,14 +230,32 @@ bash scripts/run_4db_combinations.sh stop all        # 停止全部
 
 ---
 
-## specmark/ 子目录
+## bootstrap.py
 
-specmark 工作流归档工具（语义上属于 specmark skill 配套，放在此处便于项目级调用）:
+一键引导脚本：初始化本地运行所需配置并提示模型安装。
 
-- `archive_change.sh` — specmark archive 阶段的确定性执行器（flock 保护 + commit SHA 锚定归档）
-- `merge_delta_spec.py` — delta spec 的确定性三路合并器（`archive_change.sh --sync` 调用）
+- 复制示例配置（`config/settings.example.toml` → `config/settings.toml`、`config/llm.example.toml` → `config/llm.toml`、`.env.example` → `.env`），不覆盖已有文件
+- 打印 spaCy 中文模型安装命令（`spacy-pkuseg` + `zh_core_web_lg`）
+- `--with-migrations`：复制配置后执行 `alembic upgrade head`
+- `--check`：预览模式，仅打印计划动作，不实际执行
 
 ```bash
-bash scripts/specmark/archive_change.sh <change-name> [--sync]
-python scripts/specmark/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
+uv run python scripts/bootstrap.py
+uv run python scripts/bootstrap.py --with-migrations
+uv run python scripts/bootstrap.py --check
+```
+
+---
+
+## specmark/ 子目录
+
+specmark 工作流脚本已迁移至 `specmark/scripts/`（本地工作副本：整个 `specmark/` 目录被 `.gitignore` 忽略，未纳入版本控制）:
+
+- `specmark/scripts/archive_change.sh` — specmark archive 阶段的确定性执行器（flock 保护 + commit SHA 锚定归档；本地副本，未跟踪）
+- `specmark/scripts/merge_delta_spec.py` — delta spec 的确定性三路合并器（`archive_change.sh --sync` 调用；本地副本，未跟踪）
+- `specmark/scripts/check_phase.sh` / `check_refs.py` — 阶段判定与引用一致性检查（本地副本，未跟踪，缺失时从 specmark skill 目录复制）
+
+```bash
+bash specmark/scripts/archive_change.sh <change-name> [--sync]
+python specmark/scripts/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
 ```

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Unified LLM client with label-based routing."""
@@ -10,7 +10,8 @@ import contextlib
 import hashlib
 import json
 import os
-from typing import TYPE_CHECKING, Any, TypeVar
+import time
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import jsonschema
 from cachetools import TTLCache
@@ -32,7 +33,9 @@ from core.llm.types import (
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.observability.metrics import metrics
-from core.utils.time_utils import get_current_time_with_timezone
+from core.utils.paths import CONFIG_DIR
+from core.utils.time_utils import get_current_date, get_current_time_with_timezone
+from core.utils.toml_loader import load_toml_or_warn
 
 if TYPE_CHECKING:
     from core.event import EventBus
@@ -47,14 +50,38 @@ log = get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
+class _ProviderFailed:
+    """Sentinel returned by _execute_single_provider on failure."""
+
+    def __init__(self, error: Exception | None) -> None:
+        self.error = error
+
+
+_PROVIDER_FAILED = _ProviderFailed(None)
+
 # 结构化输出（output_model 存在）时追加到 system_prompt 最末尾的格式约束。
 # 利用弱模型 recency bias（对末尾指令记忆最强），强制 JSON-only 输出。
-# 集中在 client.py 而非每个 prompt 文件，确保所有结构化 CallPoint 统一兜底（DRY）。
-_JSON_FORMAT_TAIL = """
+# 文本存于 config/llm_output.toml（数据外置），加载失败降级为空串并告警。
+_LLM_OUTPUT_FILE = CONFIG_DIR / "llm_output.toml"
 
-【输出格式·强制】
-仅输出一个 JSON 对象：首字符必须是 "{"，末字符必须是 "}"。
-禁止 ```代码块``` 围栏、禁止任何解释/前言/结语、禁止 JSON 以外任何文字。"""
+
+def _load_json_format_tail() -> str:
+    """Load the JSON-only output guard from config/llm_output.toml.
+
+    This guard is appended to every structured-output system prompt (see
+    ``call_at``). A missing/empty value is surfaced as a loud WARNING rather
+    than dropped silently: without it structured calls may emit code fences,
+    which the retry/parse-hardening path then has to recover from.
+    """
+    tail = load_toml_or_warn(_LLM_OUTPUT_FILE, event="llm_output_config").get("json_format_tail")
+    if not tail:
+        log.warning("json_format_tail_missing", path=str(_LLM_OUTPUT_FILE))
+        return ""
+    return str(tail)
+
+
+_JSON_FORMAT_TAIL = _load_json_format_tail()
 
 # Fields that do not affect LLM output semantics.
 # Changes to these fields should NOT invalidate the cache.
@@ -85,14 +112,20 @@ def build_stable_cache_key(call_point: str, payload: dict[str, Any]) -> str:
         Cache key in format: cache:llm:v2:{call_point}:{sha256[:16]}
     """
     semantic_payload = {k: v for k, v in payload.items() if k not in NON_SEMANTIC_FIELDS}
-    normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False)
+    normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False, default=str)
     stable_hash = hashlib.sha256(normalized.encode()).hexdigest()[:16]
     return f"cache:llm:v2:{call_point}:{stable_hash}"
 
 
 # Embedding cache settings
+# NOTE: ``emb:`` is deliberately disjoint from the LLM response-cache namespace
+# ``cache:llm:v2:`` (see _make_llm_cache_key). The generic ``call()`` cache-read
+# path does ``json.loads(cached)["content"]``, which assumes a JSON object — an
+# embedding entry is a bare JSON list, so any overlap would raise
+# TypeError/KeyError. Keep these prefixes distinct.
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
-EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60  # 7 days
+# EMBEDDING_CACHE_TTL is single-sourced in core.llm.types;
+# overridable at runtime via llm.toml [global].embedding_cache_ttl.
 
 # Input limits per call point (in characters)
 _INPUT_LIMITS: dict[str, int] = {
@@ -101,6 +134,9 @@ _INPUT_LIMITS: dict[str, int] = {
     "quality_scorer": 1500,
     "credibility_checker": 2000,
     "analyze": 3000,
+    # 合并调用点沿用 narrative 侧 8000 预算（narrative 8000 > analyze 3000，
+    # 取宽者；TOML [input_limits] 可覆盖）
+    "analyze_narrative": 8000,
     "summary": 2000,
     "entity_extractor": 2000,
     "default": 2000,
@@ -125,6 +161,7 @@ class LLMClient:
         tiered_router: TieredRouter | None = None,
         graph_pool: GraphPool | None = None,
         cost_calculator: CostCalculator | None = None,
+        input_limits: dict[str, int] | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -140,7 +177,7 @@ class LLMClient:
             graph_pool: 可选的图数据库池（用于structured_call schema查询）.
                 container 在创建实例后也可通过属性赋值注入（mirrors
                 _smart_router 模式，lifecycle.py:194）.
-            cost_calculator: 可选的成本计算器（D2 / audit-unintegrated-modules）.
+            cost_calculator: 可选的成本计算器.
                 当传入时, _emit_usage_event 会计算 cost_usd 并填入 LLMUsageEvent;
                 None 时 cost_usd 保持 0.0 (向后兼容).
         """
@@ -152,12 +189,12 @@ class LLMClient:
         self._redis = cache_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
-        # GraphPool for schema-driven structured output (T024 / R-structured-002).
+        # GraphPool for schema-driven structured output.
         # Construct-injected OR lazy-injected by container/lifecycle.py
         # (mirrors _smart_router pattern). None means caller has not wired a
         # graph pool — structured_call raises ValueError on use (Rule 12).
         self._graph_pool: GraphPool | None = graph_pool
-        # CostCalculator for LLM usage accounting (D2). None means caller has
+        # CostCalculator for LLM usage accounting. None means caller has
         # not wired a calculator — cost_usd stays 0.0 in LLMUsageEvent.
         self._cost_calculator: CostCalculator | None = cost_calculator
 
@@ -165,7 +202,7 @@ class LLMClient:
         self._cache_hits: int = 0
         self._cache_misses: int = 0
 
-        # Schema cache for structured_call (T024 / R-structured-001).
+        # Schema cache for structured_call.
         # Avoids repeated graph DB roundtrips when same schema_node_id is
         # queried multiple times. SchemaNode is updated by NarrativeSchemaExtractorNode
         # occasionally; 5-minute TTL is a reasonable freshness/perf tradeoff.
@@ -187,6 +224,17 @@ class LLMClient:
             )
             self._pools[provider_cfg.name] = pool
 
+        # Per-call-point input truncation limits (characters); injectable so
+        # deployments can tune the prompt budget without code changes.
+        self._input_limits = dict(_INPUT_LIMITS)
+        # Per-call-point cache TTL overrides + embedding TTL (llm.toml [global]/[call-points])
+        self._embedding_cache_ttl = global_config.embedding_cache_ttl
+        self._call_point_ttls = {
+            k: v.cache_ttl for k, v in global_config.call_points.items() if v.cache_ttl is not None
+        }
+        if input_limits:
+            self._input_limits.update(input_limits)
+
         log.info(
             "llm_client_initialized",
             providers=list(self._pools.keys()),
@@ -196,6 +244,16 @@ class LLMClient:
     def default_embedding_label(self) -> str:
         """Return the default embedding model label string."""
         return str(self._router.get_default(LLMType.EMBEDDING))
+
+    @property
+    def default_chat_label(self) -> str:
+        """Return the default chat model label string.
+
+        Sourced from llm.toml ``[defaults.chat]`` — components must use this
+        instead of hardcoding provider-specific labels so the router
+        configuration stays the single source of truth.
+        """
+        return str(self._router.get_default(LLMType.CHAT))
 
     async def _emit_usage_event(
         self,
@@ -224,13 +282,11 @@ class LLMClient:
             from core.event import LLMUsageEvent
 
             # Cache str(label) once — used in cost calc, event, and logs.
-            # (LOW-1 perf: avoid repeated Label.__str__ calls.)
             label_str = str(label)
 
-            # D2 / audit-unintegrated-modules: compute cost_usd when a
-            # CostCalculator is wired. Failures are logged, metric'd, and
-            # degraded to 0.0 — cost accounting must never block the usage
-            # event (Rule 12 fail-loud via metric, graceful via value).
+            # Compute cost_usd when a CostCalculator is wired. Failures are
+            # logged, metric'd, and degraded to 0.0 — cost accounting must
+            # never block the usage event (Rule 12 fail-loud via metric).
             cost_usd = 0.0
             if self._cost_calculator is not None and token_usage is not None:
                 try:
@@ -267,7 +323,7 @@ class LLMClient:
             )
             await self._event_bus.publish(event)
 
-            # Accumulate cost metric for observability (D2).
+            # Accumulate cost metric for observability.
             if cost_usd > 0.0:
                 metrics.llm_cost_usd_total.labels(
                     call_point=call_point.value,
@@ -308,24 +364,92 @@ class LLMClient:
             解析后的模型实例或原始字符串
         """
         parsed_label = Label.parse(label) if isinstance(label, str) else label
+        cp = self._resolve_call_point(call_point)
 
+        # Truncate BEFORE building the cache key: the key must reflect the
+        # model-visible payload, so bodies differing only past the input
+        # limit share one cache entry.
+        truncated_payload = self._truncate_payload_for_callpoint(payload, cp)
+
+        cache_key = self._build_cache_key(cp.value, truncated_payload)
+        ttl = self._resolve_cache_ttl(cp.value)
+
+        # Cache lookup (Redis → TTLCache)
+        cached = await self._check_response_cache(cache_key, parsed_label, output_model)
+        if cached is not None:
+            return cached
+
+        log.debug("llm_cache_miss", label=str(parsed_label))
+        self._cache_misses += 1
+
+        # 构建label链
+        labels = self._router.resolve(parsed_label)
+        if fallback_labels:
+            for fb in fallback_labels:
+                fb_label = Label.parse(fb) if isinstance(fb, str) else fb
+                if fb_label not in labels:
+                    labels.append(fb_label)
+
+        # 按 provider 分组 labels, 执行跨池 fallback
+        last_error: Exception | None = None
+        for lbl in labels:
+            result = await self._execute_single_provider(
+                lbl,
+                truncated_payload,
+                cp,
+                cache_key,
+                ttl,
+                timeout,
+                article_id,
+                task_id,
+                output_model,
+                payload,
+            )
+            if not isinstance(result, _ProviderFailed):
+                return result
+            last_error = result.error
+            # 本 provider 失败后还有候选 → 记一次真实 fallback（可观测性：
+            # 优化前此路径零指标，故障只能事后翻 DB）。
+            if lbl is not labels[-1]:
+                metrics.fallback_total.labels(
+                    call_point=cp.value,
+                    from_provider=lbl.provider,
+                    reason=type(last_error).__name__ if last_error else "unknown",
+                ).inc()
+
+        # 所有 provider 都失败
+        await self._handle_all_providers_failed(
+            parsed_label,
+            cp,
+            last_error,
+            labels,
+            article_id,
+            task_id,
+        )
+        # Unreachable: the handler above always raises.
+        raise AllProvidersFailedError(f"all provider candidates failed for {cp.value}")
+
+    def _resolve_call_point(self, call_point: CallPoint | str) -> CallPoint:
+        """Parse and validate call point."""
         if isinstance(call_point, str):
             try:
-                cp = CallPoint(call_point)
+                return CallPoint(call_point)
             except ValueError:
                 log.warning(
                     "invalid_call_point",
                     call_point=call_point,
                     fallback="CLASSIFIER",
                 )
-                cp = CallPoint.CLASSIFIER
-        else:
-            cp = call_point
+                return CallPoint.CLASSIFIER
+        return call_point
 
-        cache_key = self._build_cache_key(cp.value, payload)
-
-        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
-
+    async def _check_response_cache(
+        self,
+        cache_key: str,
+        parsed_label: Label,
+        output_model: type[T] | None,
+    ) -> T | str | None:
+        """Check Redis then TTLCache for cached response. Returns None on miss."""
         # Redis cache check (preferred over TTLCache for persistence across restarts)
         if self._redis:
             try:
@@ -349,172 +473,220 @@ class LLMClient:
                 return parse_llm_json(cached["content"], output_model)
             return cached["content"]
 
-        log.debug("llm_cache_miss", label=str(parsed_label))
-        self._cache_misses += 1
+        return None
 
-        # Truncate input body based on call point limits
-        if "body" in payload:
-            truncated_payload = dict(payload)
-            limit = _INPUT_LIMITS.get(cp.value, _INPUT_LIMITS["default"])
-            body = payload["body"]
-            title = payload.get("title")
-            if title:
-                truncated_payload["body"] = f"标题：{title}\n\n正文：{body[:limit]}"
-            else:
-                truncated_payload["body"] = body[:limit]
+    def _truncate_payload_for_callpoint(
+        self,
+        payload: dict[str, Any],
+        cp: CallPoint,
+    ) -> dict[str, Any]:
+        """Truncate input body based on call point limits."""
+        if "body" not in payload:
+            return payload
+        truncated = dict(payload)
+        limit = self._input_limits.get(cp.value, self._input_limits["default"])
+        body = payload["body"]
+        title = payload.get("title")
+        if title:
+            truncated["body"] = f"标题：{title}\n\n正文：{body[:limit]}"
         else:
-            truncated_payload = payload
+            truncated["body"] = body[:limit]
+        return truncated
 
-        # 构建label链
-        labels = self._router.resolve(parsed_label)
-        if fallback_labels:
-            for fb in fallback_labels:
-                fb_label = Label.parse(fb) if isinstance(fb, str) else fb
-                if fb_label not in labels:
-                    labels.append(fb_label)
+    async def _execute_single_provider(
+        self,
+        label: Label,
+        truncated_payload: dict[str, Any],
+        cp: CallPoint,
+        cache_key: str,
+        ttl: int,
+        timeout: float | None,
+        article_id: str | None,
+        task_id: str | None,
+        output_model: type[T] | None,
+        original_payload: dict[str, Any],
+    ) -> T | str | _ProviderFailed:
+        """Execute a single provider label. Returns result or _ProviderFailed sentinel."""
+        pool = self._pools.get(label.provider)
+        if not pool:
+            log.warning(
+                "provider_pool_not_found",
+                provider=label.provider,
+                label=str(label),
+            )
+            return _ProviderFailed(None)
 
-        # 按 provider 分组 labels, 执行跨池 fallback
-        last_error: Exception | None = None
-        for label in labels:
-            pool = self._pools.get(label.provider)
-            if not pool:
-                log.warning(
-                    "provider_pool_not_found",
-                    provider=label.provider,
-                    label=str(label),
-                )
-                continue
+        started = time.monotonic()
+        try:
+            response = await pool.execute(
+                labels=[label],
+                payload=truncated_payload,
+                call_point=cp.value,
+                timeout=timeout,
+                article_id=article_id,
+                task_id=task_id,
+            )
+        except Exception as exc:
+            elapsed = time.monotonic() - started
+            metrics.llm_call_total.labels(
+                call_point=cp.value,
+                provider=label.provider,
+                status="error",
+            ).inc()
+            metrics.llm_call_latency.labels(
+                call_point=cp.value,
+                provider=label.provider,
+            ).observe(elapsed)
+            log.error(
+                "provider_call_failed",
+                provider=label.provider,
+                label=str(label),
+                error=str(exc),
+            )
+            return _ProviderFailed(exc)
 
+        metrics.llm_call_total.labels(
+            call_point=cp.value,
+            provider=label.provider,
+            status="success",
+        ).inc()
+        metrics.llm_call_latency.labels(
+            call_point=cp.value,
+            provider=label.provider,
+        ).observe(time.monotonic() - started)
+
+        parsed_result: T | str = response.content
+        if output_model:
+            # A structurally-invalid response is a provider failure: fall
+            # through to the next label instead of raising, and never cache
+            # the poisoned response.
             try:
-                response = await pool.execute(
-                    labels=[label],  # 每个 pool 只执行自己的 label
-                    payload=truncated_payload,
-                    call_point=cp.value,
-                    timeout=timeout,
-                    article_id=article_id,
-                    task_id=task_id,
-                )
-
-                self._response_cache[cache_key] = {
-                    "content": response.content,
-                    "token_usage": response.token_usage,
-                }
-
-                if self._redis:
-                    try:
-                        token_usage_dict = {
-                            "input_tokens": (
-                                response.token_usage.input_tokens if response.token_usage else 0
-                            ),
-                            "output_tokens": (
-                                response.token_usage.output_tokens if response.token_usage else 0
-                            ),
-                            "total_tokens": (
-                                response.token_usage.total_tokens if response.token_usage else 0
-                            ),
-                        }
-                        await self._redis.set(
-                            cache_key,
-                            json.dumps(
-                                {
-                                    "content": response.content,
-                                    "token_usage": token_usage_dict,
-                                },
-                                ensure_ascii=False,
-                            ),
-                            ex=ttl,
-                        )
-                    except Exception as exc:
-                        log.debug("redis_cache_write_failed", error=str(exc))
-
-                log.debug(
-                    "llm_call_complete",
-                    label=str(label),
-                    latency_ms=response.latency_ms,
-                )
-
-                # 记录服务端缓存信息(客户端 cache miss 后 provider 返回的 cache 命中情况)
-                cache_usage = response.cache_usage
-                cache_hit_tokens = cache_usage.cache_hit_tokens if cache_usage else 0
-                cache_miss_tokens = cache_usage.cache_miss_tokens if cache_usage else 0
-                total_cache = cache_hit_tokens + cache_miss_tokens
-                server_hit_rate = cache_hit_tokens / total_cache if total_cache > 0 else 0.0
-                log.info(
-                    "llm_cache_miss_with_server_info",
-                    label=str(label),
-                    server_cache_hit=cache_hit_tokens,
-                    server_cache_miss=cache_miss_tokens,
-                    server_hit_rate=server_hit_rate,
-                )
-
-                # 递增 Prometheus 服务端缓存指标
-                if cache_hit_tokens > 0:
-                    metrics.llm_server_cache_hit_tokens.labels(
-                        call_point=cp.value, provider=label.provider
-                    ).inc(cache_hit_tokens)
-                if cache_miss_tokens > 0:
-                    metrics.llm_server_cache_miss_tokens.labels(
-                        call_point=cp.value, provider=label.provider
-                    ).inc(cache_miss_tokens)
-
-                # Prefix shape diagnostics: capture and compare prefix shape (pure observability)
-                system_prompt = ""
-                messages = payload.get("messages", [])
-                for msg in messages:
-                    if isinstance(msg, dict) and msg.get("role") == "system":
-                        system_prompt = msg.get("content", "")
-                        break
-                tools_schema = payload.get("tools")
-
-                prefix_hash, prefix_changed, change_reasons = (
-                    self._prefix_tracker.compute_prefix_hash(
-                        call_point=cp.value,
-                        system_prompt=system_prompt,
-                        payload=payload,
-                        tools_schema=tools_schema,
-                    )
-                )
-                self._prefix_tracker.update_cache_stats(
-                    call_point=cp.value,
-                    server_cache_hit=cache_hit_tokens,
-                    server_cache_miss=cache_miss_tokens,
-                )
-                if prefix_changed:
-                    log.info(
-                        "llm_cache_miss_diagnosed",
-                        call_point=cp.value,
-                        change_reasons=change_reasons,
-                        prefix_hash=prefix_hash,
-                    )
-
-                # 发射使用事件
-                await self._emit_usage_event(
-                    label=response.label,
-                    call_point=cp,
-                    latency_ms=response.latency_ms,
-                    token_usage=response.token_usage,
-                    success=True,
-                    article_id=article_id,
-                    task_id=task_id,
-                )
-
-                # 解析输出
-                if output_model:
-                    return parse_llm_json(response.content, output_model)
-
-                return response.content
-
+                parsed_result = parse_llm_json(response.content, output_model)
             except Exception as exc:
-                last_error = exc
-                log.error(
-                    "provider_call_failed",
-                    provider=label.provider,
+                log.warning(
+                    "llm_parse_failed_counted_as_provider_failure",
                     label=str(label),
                     error=str(exc),
+                    error_type=type(exc).__name__,
                 )
-                continue
+                return _ProviderFailed(exc)
 
-        # 所有 provider 都失败
+        # Cache write + metrics + diagnostics + usage event
+        self._response_cache[cache_key] = {
+            "content": response.content,
+            "token_usage": response.token_usage,
+        }
+        await self._write_redis_cache(cache_key, response, ttl)
+        self._record_server_cache_metrics(label, response, cp)
+        self._record_prefix_diagnostics(label, response, cp, original_payload)
+
+        await self._emit_usage_event(
+            label=response.label,
+            call_point=cp,
+            latency_ms=response.latency_ms,
+            token_usage=response.token_usage,
+            success=True,
+            article_id=article_id,
+            task_id=task_id,
+        )
+
+        return parsed_result
+
+    async def _write_redis_cache(self, cache_key: str, response: Any, ttl: int) -> None:
+        """Write response to Redis cache (best-effort)."""
+        if not self._redis:
+            return
+        try:
+            token_usage_dict = {
+                "input_tokens": response.token_usage.input_tokens if response.token_usage else 0,
+                "output_tokens": response.token_usage.output_tokens if response.token_usage else 0,
+                "total_tokens": response.token_usage.total_tokens if response.token_usage else 0,
+            }
+            await self._redis.set(
+                cache_key,
+                json.dumps(
+                    {"content": response.content, "token_usage": token_usage_dict},
+                    ensure_ascii=False,
+                ),
+                ex=ttl,
+            )
+        except Exception as exc:
+            log.debug("redis_cache_write_failed", error=str(exc))
+
+    def _record_server_cache_metrics(self, label: Label, response: Any, cp: CallPoint) -> None:
+        """Record server-side cache metrics from provider response."""
+        cache_usage = response.cache_usage
+        cache_hit_tokens = cache_usage.cache_hit_tokens if cache_usage else 0
+        cache_miss_tokens = cache_usage.cache_miss_tokens if cache_usage else 0
+        total_cache = cache_hit_tokens + cache_miss_tokens
+        server_hit_rate = cache_hit_tokens / total_cache if total_cache > 0 else 0.0
+        log.info(
+            "llm_cache_miss_with_server_info",
+            label=str(label),
+            server_cache_hit=cache_hit_tokens,
+            server_cache_miss=cache_miss_tokens,
+            server_hit_rate=server_hit_rate,
+        )
+        if cache_hit_tokens > 0:
+            metrics.llm_server_cache_hit_tokens.labels(
+                call_point=cp.value,
+                provider=label.provider,
+            ).inc(cache_hit_tokens)
+        if cache_miss_tokens > 0:
+            metrics.llm_server_cache_miss_tokens.labels(
+                call_point=cp.value,
+                provider=label.provider,
+            ).inc(cache_miss_tokens)
+
+    def _record_prefix_diagnostics(
+        self,
+        label: Label,
+        response: Any,
+        cp: CallPoint,
+        payload: dict[str, Any],
+    ) -> None:
+        """Record prefix shape diagnostics (pure observability)."""
+        cache_usage = response.cache_usage
+        cache_hit_tokens = cache_usage.cache_hit_tokens if cache_usage else 0
+        cache_miss_tokens = cache_usage.cache_miss_tokens if cache_usage else 0
+
+        system_prompt = ""
+        messages = payload.get("messages", [])
+        for msg in messages:
+            if isinstance(msg, dict) and msg.get("role") == "system":
+                system_prompt = msg.get("content", "")
+                break
+        tools_schema = payload.get("tools")
+
+        prefix_hash, prefix_changed, change_reasons = self._prefix_tracker.compute_prefix_hash(
+            call_point=cp.value,
+            system_prompt=system_prompt,
+            payload=payload,
+            tools_schema=tools_schema,
+        )
+        self._prefix_tracker.update_cache_stats(
+            call_point=cp.value,
+            server_cache_hit=cache_hit_tokens,
+            server_cache_miss=cache_miss_tokens,
+        )
+        if prefix_changed:
+            log.info(
+                "llm_cache_miss_diagnosed",
+                call_point=cp.value,
+                change_reasons=change_reasons,
+                prefix_hash=prefix_hash,
+            )
+
+    async def _handle_all_providers_failed(
+        self,
+        parsed_label: Label,
+        cp: CallPoint,
+        last_error: Exception | None,
+        labels: list,
+        article_id: str | None,
+        task_id: str | None,
+    ) -> NoReturn:
+        """Handle complete provider failure (always raises)."""
         await self._emit_usage_event(
             label=parsed_label,
             call_point=cp,
@@ -562,19 +734,26 @@ class LLMClient:
             try:
                 cp = CallPoint(call_point)
             except ValueError:
+                # 与 call() 保持一致：非法 call_point 必须留可观测信号，
+                # 否则 batch 路径会静默降级为 CLASSIFIER。
+                log.warning(
+                    "batch_call_point_invalid",
+                    call_point=call_point,
+                    fallback_call_point=CallPoint.CLASSIFIER.value,
+                )
                 cp = CallPoint.CLASSIFIER
         else:
             cp = call_point
 
-        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
+        ttl = self._resolve_cache_ttl(cp.value)
 
-        # Generate cache keys for all payloads
-        cache_keys = [
-            f"cache:llm:{cp.value}:{hashlib.sha256(json.dumps(p, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
-            for p in payloads
-        ]
+        # Generate cache keys for all payloads — 与单次 call() 同源，
+        # 避免 batch 路径 key 格式与灰度开关脱节。
+        cache_keys = [self._build_cache_key(cp.value, p) for p in payloads]
 
-        # Batch cache lookup via MGET
+        # Batch cache lookup via MGET.
+        # 列表元素仅作为占位：下方每个下标要么命中缓存、要么由单次 call()
+        # 填满（失败会直接抛异常），因此返回时不会再残留 None。
         results: list[T | str | None] = [None] * len(payloads)
         uncached_indices: list[int] = []
 
@@ -594,7 +773,10 @@ class LLMClient:
                         uncached_indices.append(i)
             except Exception as exc:
                 log.debug("batch_cache_mget_failed", error=str(exc))
-                uncached_indices = list(range(len(payloads)))
+                # Preserve entries already parsed from cache before the
+                # failure; only re-fetch the ones still missing so a single
+                # corrupt cache entry does not defeat the whole cache.
+                uncached_indices = [i for i, r in enumerate(results) if r is None]
         else:
             uncached_indices = list(range(len(payloads)))
 
@@ -621,11 +803,12 @@ class LLMClient:
                 try:
                     mapping: dict[str, str] = {}
                     for idx, result in uncached_results.items():
-                        content = (
-                            result
-                            if isinstance(result, str)
-                            else json.dumps(result, ensure_ascii=False)
-                        )
+                        if isinstance(result, str):
+                            content = result
+                        elif isinstance(result, BaseModel):
+                            content = result.model_dump_json()
+                        else:
+                            content = json.dumps(result, ensure_ascii=False)
                         mapping[cache_keys[idx]] = json.dumps(
                             {"content": content},
                             ensure_ascii=False,
@@ -637,9 +820,13 @@ class LLMClient:
                             with contextlib.suppress(Exception):
                                 await self._redis.expire(key, ttl)
                 except Exception as exc:
-                    log.debug("batch_cache_mset_failed", error=str(exc))
+                    log.warning(
+                        "batch_cache_mset_failed",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
 
-        return results  # type: ignore[return-value]
+        return cast(list[T | str], results)
 
     async def call_at(
         self,
@@ -693,17 +880,20 @@ class LLMClient:
             if cp_config.response_format is not None and "response_format" not in request_payload:
                 request_payload["response_format"] = cp_config.response_format
 
-        # NOTE: response_format intentionally NOT auto-enabled here.
-        # Agnes API does not support the OpenAI response_format parameter;
-        # sending it causes empty responses. Prompts already instruct JSON output.
+        # NOTE: response_format intentionally NOT auto-enabled here. Some
+        # OpenAI-compatible endpoints do not support the response_format
+        # parameter and return empty responses when sent it. Prompts already
+        # instruct JSON output.
 
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
             # Extract string value from CallPoint enum if needed
             prompt_name = call_point.value if isinstance(call_point, CallPoint) else str(call_point)
             system_prompt = self._prompts.get(prompt_name)
-            current_time = get_current_time_with_timezone()
-            system_prompt = f"当前时间: {current_time}\n\n{system_prompt}"
+            # 日期锚定放在模板尾部而非前缀：秒级时间戳前缀会让 request_payload
+            # 每秒变化 → 客户端缓存 key 永不命中，且服务端前缀缓存全 miss。
+            # 日粒度 + 尾置使同日内 prompt 逐字节稳定，跨日自然轮换保留新鲜度。
+            system_prompt = f"{system_prompt}\n\n当前日期: {get_current_date()}"
 
             # 构建user_content — 剥离 NON_SEMANTIC_FIELDS 使 cache key 稳定。
             # 追踪字段（article_id/task_id 等）不影响 LLM 输出语义，但若烘进
@@ -793,13 +983,13 @@ class LLMClient:
         task_id: str | None = None,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Schema-driven structured output (T024 / R-structured-002, R-structured-003).
+        """Schema-driven structured output.
 
         Fetches the JSON Schema for ``schema_node_id`` from the graph database
         (SchemaDrivenStructuredOutput.get_schema), then calls the LLM with
         ``response_format=schema`` and validates the response.
 
-        Two mutually-exclusive paths (R-structured-002 priority):
+        Two mutually-exclusive paths (priority):
 
         1. **SchemaNotFoundError path** (schema absent): degrade to a plain
            LLM call (no ``response_format``, no retry) and return
@@ -918,7 +1108,7 @@ class LLMClient:
         cp: CallPoint | str = call_point if call_point is not None else CallPoint.CLASSIFIER
 
         # Schema cache lookup (avoids graph DB roundtrip on repeated calls
-        # with the same schema_node_id — see HIGH-1 in performance review).
+        # with the same schema_node_id).
         # TTL is 5 minutes (set in __init__); SchemaNode updates are rare.
         cached_schema = self._schema_cache.get(schema_node_id)
         if cached_schema is not None:
@@ -926,7 +1116,7 @@ class LLMClient:
         else:
             schema_provider = SchemaDrivenStructuredOutput(self._graph_pool)
 
-            # R-structured-002 priority 1: SchemaNotFoundError → DIRECT fallback.
+            # Priority 1: SchemaNotFoundError → DIRECT fallback.
             # No retry — schema absence is a data problem, not validation.
             try:
                 schema_result = await schema_provider.get_schema(schema_node_id)
@@ -952,18 +1142,20 @@ class LLMClient:
 
         schema: dict[str, Any] = schema_result["schema"]
 
-        # R-structured-002 priority 2: schema exists → retry path.
+        # Priority 2: schema exists → retry path.
         # Call with response_format=schema; retry once on validation failure.
+        # The violation hint is appended directly to the prompt — call()
+        # (unlike call_at()) does not process a "_retry_hint" payload key,
+        # so a hint placed there would silently never reach the model.
+        schema_retry_hint = (
+            "上一次响应不符合 JSON Schema 要求。"
+            "请严格按 schema 输出，不要添加任何额外字段或解释文字。"
+        )
         payloads = [
             {"user_content": prompt, "response_format": schema},
-            # Retry payload: append schema-violation hint.
             {
-                "user_content": prompt,
+                "user_content": f"{prompt}\n\n{schema_retry_hint}",
                 "response_format": schema,
-                "_retry_hint": (
-                    "上一次响应不符合 JSON Schema 要求。"
-                    "请严格按 schema 输出，不要添加任何额外字段或解释文字。"
-                ),
             },
         ]
 
@@ -1133,7 +1325,7 @@ class LLMClient:
                         await self._redis.set(
                             cache_key,
                             json.dumps(embedding),
-                            ex=EMBEDDING_CACHE_TTL,
+                            ex=self._embedding_cache_ttl,
                         )
                     except Exception as exc:
                         log.debug("embedding_cache_write_failed", error=str(exc))
@@ -1146,8 +1338,19 @@ class LLMClient:
             computed=len(uncached_texts),
         )
 
-        # 返回结果,未计算的返回零向量
-        return [e or [0.0] * 1024 for e in all_embeddings]
+        # Fail-loud: a missing or empty embedding must never be silently
+        # substituted with a zero vector — zero vectors make all texts
+        # equally (dis)similar and poison similarity search and entity
+        # dedup once persisted. Surface the shortfall to the caller's
+        # error handling instead.
+        missing_indices = [i for i, e in enumerate(all_embeddings) if not e]
+        if missing_indices:
+            raise ValueError(
+                f"embedding_result_incomplete: {len(missing_indices)}/{len(texts)} "
+                f"embeddings missing (indices {missing_indices[:10]})"
+            )
+
+        return [e for e in all_embeddings if e is not None]
 
     async def embed_default(
         self,
@@ -1239,6 +1442,14 @@ class LLMClient:
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:32]
         return f"{EMBEDDING_CACHE_PREFIX}{text_hash}"
 
+    def _resolve_cache_ttl(self, call_point: str) -> int:
+        """Response-cache TTL: per-call-point override from llm.toml
+        ([call-points.X].cache_ttl), else the built-in policy table."""
+        override = self._call_point_ttls.get(call_point)
+        if override is not None:
+            return override
+        return CACHE_TTL.get(call_point, CACHE_TTL["default"])
+
     def _build_cache_key(self, call_point: str, payload: dict[str, Any]) -> str:
         """Build cache key with grayscale switch for v2 stable key.
 
@@ -1253,10 +1464,12 @@ class LLMClient:
         Returns:
             Cache key string.
         """
-        if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "false").lower() == "true":
+        # v2 默认开启（2026-09 翻转）：稳定 key 使重处理/相似内容复用缓存。
+        # 显式设 LLM_CACHE_KEY_V2_ENABLED=false 可回退 legacy 格式（灰度保留）。
+        if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "true").lower() == "true":
             return build_stable_cache_key(call_point, payload)
 
-        return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()}"
 
     def get_metrics(self) -> dict[str, dict[str, Any]]:
         """获取所有provider的监控指标."""
@@ -1273,14 +1486,6 @@ class LLMClient:
             ),
         }
         return metrics
-
-    def get_pool(self, name: str) -> ProviderPool | None:
-        """获取provider池."""
-        return self._pools.get(name)
-
-    def list_providers(self) -> list[str]:
-        """列出所有provider."""
-        return list(self._pools.keys())
 
     @classmethod
     async def create_from_settings(
@@ -1308,13 +1513,21 @@ class LLMClient:
             circuit_breaker_threshold=llm_settings.circuit_breaker_threshold,
             circuit_breaker_timeout=llm_settings.circuit_breaker_timeout,
             default_timeout=llm_settings.default_timeout,
+            request_delay_enabled=llm_settings.request_delay_enabled,
+            request_delay_min=llm_settings.request_delay_min,
+            request_delay_max=llm_settings.request_delay_max,
+            retry_max_attempts=llm_settings.retry_max_attempts,
+            retry_min_wait=llm_settings.retry_min_wait,
+            retry_max_wait=llm_settings.retry_max_wait,
+            embedding_cache_ttl=llm_settings.embedding_cache_ttl,
+            rerank_client_cap=llm_settings.rerank_client_cap,
             defaults=llm_settings.defaults,
             call_points=llm_settings.call_points,
         )
-        # D2: instantiate CostCalculator only when rates are configured.
+        # Instantiate CostCalculator only when rates are configured.
         # Empty CostConfig (default) would compute cost_usd=0.0 for every
         # call — skip the work entirely. When rates exist, the calculator
-        # computes real USD cost per LLM call (MEDIUM-3 conditional init).
+        # computes real USD cost per LLM call.
         cost_calculator: CostCalculator | None = None
         if llm_settings.cost.rates:
             cost_calculator = CostCalculator(config=llm_settings.cost)
@@ -1325,4 +1538,5 @@ class LLMClient:
             cache_client,
             prompt_loader,
             cost_calculator=cost_calculator,
+            input_limits=dict(getattr(llm_settings, "input_limits", None) or {}),
         )

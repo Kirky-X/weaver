@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pipeline state type definitions.
 
 Moved from modules.processing.pipeline.state to break circular dependencies
@@ -13,8 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from core.observability import get_logger
+
 if TYPE_CHECKING:
     from modules.ingestion.domain.models import RawArticle
+
+logger = get_logger(__name__)
 
 
 class CredibilityInfo(TypedDict, total=False):
@@ -35,6 +39,8 @@ class CredibilityInfo(TypedDict, total=False):
     content_check: float
     timeliness: float
     flags: list[str]
+    # Mapper (article_state_mapper) writes this into article_analysis
+    verified_by_sources: int
 
 
 class PipelineState(TypedDict, total=False):
@@ -54,7 +60,7 @@ class PipelineState(TypedDict, total=False):
     cleaned: dict[str, Any]  # {"title": str, "body": str, "publish_time": ...}
     tags: list[str]
     cleaner_entities: list[dict[str, Any]]  # Entities from cleaner prompt
-    cleaner_method: str  # "trafilatura" or "llm"
+    cleaner_method: str  # "trafilatura" | "llm" | "llm_degraded"
 
     # Categorizer
     category: str
@@ -75,7 +81,8 @@ class PipelineState(TypedDict, total=False):
     score: float
     quality_score: float
 
-    # Credibility (updated: removed cross_verification, verified_by_sources)
+    # Credibility — CredibilityInfo covers cross_verification and
+    # verified_by_sources (both persisted to article_analysis)
     credibility: CredibilityInfo
 
     # Entity extraction
@@ -95,6 +102,12 @@ class PipelineState(TypedDict, total=False):
     # Records fields that were set to fallback/default values due to LLM failures
     degraded_fields: list[str]  # Field names that used fallback values
     degradation_reasons: dict[str, str]  # Field name -> reason for degradation
+
+    # analyze+narrative_schema 合并调用（方案 A）的节点间契约键：
+    # AnalyzeNode 生产（ANALYZE_NARRATIVE 输出的 narrative 半截）→
+    # NarrativeSchemaExtractorNode pop 消费。单生产者单消费者；下划线
+    # 前缀使其被 content_hash 快照排除。
+    _narrative_schema_payload: Any
 
     # Conflict detection
     data_conflicts: list[dict[str, Any]]
@@ -124,6 +137,11 @@ def has_degraded_data(state: PipelineState) -> bool:
 def get_degradation_summary(state: PipelineState) -> dict[str, str]:
     """Get a summary of all degraded fields and their reasons.
 
+    When ``degraded_fields`` contains a field that has no entry in
+    ``degradation_reasons`` (a node appended to one structure but forgot the
+    other), a warning is logged and ``"Unknown reason"`` is returned for that
+    field — so the desync stays observable instead of being silently masked.
+
     Args:
         state: Pipeline state to check.
 
@@ -133,4 +151,13 @@ def get_degradation_summary(state: PipelineState) -> dict[str, str]:
     """
     degraded_fields = state.get("degraded_fields", [])
     reasons = state.get("degradation_reasons", {})
+
+    missing_reasons = [field for field in degraded_fields if field not in reasons]
+    if missing_reasons:
+        logger.warning(
+            "degradation_reasons_missing",
+            fields=missing_reasons,
+            message=("degraded_fields 与 degradation_reasons 不同步：以下字段缺少降级原因记录"),
+        )
+
     return {field: reasons.get(field, "Unknown reason") for field in degraded_fields}

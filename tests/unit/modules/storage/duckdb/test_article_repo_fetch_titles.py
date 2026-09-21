@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T023 RED: DuckDBArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED: DuckDBArticleRepo.fetch_titles_by_pg_ids batch metadata lookup.
 
 ``DuckDBArticleRepo`` is currently an alias for ``ArticleRepo`` (see
 ``src/modules/storage/duckdb/article_repo.py``); both share the same ORM
@@ -35,7 +35,7 @@ def _make_row(pg_id, title, category, publish_time, score):
 
 
 class TestDuckDBFetchTitlesByPgIds:
-    """Mirror tests for DuckDBArticleRepo.fetch_titles_by_pg_ids (T023)."""
+    """Mirror tests for DuckDBArticleRepo.fetch_titles_by_pg_ids."""
 
     @pytest.fixture
     def mock_pool(self):

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for EntityAggregator."""
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.llm.types import CallPoint
 from modules.memory.core.graph_types import AggregationType
 from modules.memory.retrieval.entity_aggregator import EntityAggregator
 
@@ -124,7 +125,7 @@ class TestEntityAggregatorFacts:
 
         mock_llm.call_at.assert_called_once()
         call_kwargs = mock_llm.call_at.call_args.kwargs
-        assert call_kwargs["call_point"] == "ENTITY_FACTS"
+        assert call_kwargs["call_point"] == CallPoint.ENTITY_FACTS
         assert call_kwargs["payload"]["entity_name"] == "腾讯"
         assert call_kwargs["payload"]["task"] == "extract_facts"
         assert "腾讯" in call_kwargs["payload"]["context"]
@@ -188,7 +189,17 @@ class TestEntityAggregatorCount:
         assert result.confidence == min(1.0, 3 / 10)
 
     @pytest.mark.asyncio
-    async def test_count_entity_type_from_related_entities(self, mock_entity_repo, mock_llm):
+    async def test_count_entity_type_from_center_type(self, mock_entity_repo, mock_llm):
+        """中心实体类型只能来自 center_type，不从邻居众数推断。"""
+        mock_entity_repo.get_entity_neighborhood = AsyncMock(
+            return_value={
+                "center": "腾讯",
+                "center_type": "TECH",
+                "events": [],
+                "related_entities": [],
+                "relations": [],
+            }
+        )
         aggregator = EntityAggregator(entity_repo=mock_entity_repo, llm=mock_llm)
 
         result = await aggregator.aggregate(
@@ -197,6 +208,29 @@ class TestEntityAggregatorCount:
         )
 
         assert result.entity_type == "TECH"
+
+    @pytest.mark.asyncio
+    async def test_count_entity_type_not_inferred_from_neighbors(self, mock_entity_repo, mock_llm):
+        """邻居全是 TECH 时，中心实体类型不得被推断为 TECH。"""
+        mock_entity_repo.get_entity_neighborhood = AsyncMock(
+            return_value={
+                "center": "腾讯",
+                "events": [],
+                "related_entities": [
+                    {"name": "a", "type": "TECH"},
+                    {"name": "b", "type": "TECH"},
+                ],
+                "relations": [],
+            }
+        )
+        aggregator = EntityAggregator(entity_repo=mock_entity_repo, llm=mock_llm)
+
+        result = await aggregator.aggregate(
+            entity_name="腾讯",
+            aggregation_type=AggregationType.COUNT,
+        )
+
+        assert result.entity_type == "unknown"
 
     @pytest.mark.asyncio
     async def test_count_no_related_entities(self, mock_entity_repo, mock_llm):

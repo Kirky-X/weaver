@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Prometheus metrics definitions for the weaver system."""
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class MetricsCollector:
         "llm_call_latency_seconds",
         "LLM 调用延迟",
         ["call_point", "provider"],
-        buckets=[0.1, 0.5, 1, 2, 5, 10, 30],
+        buckets=[0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],  # 60/120 覆盖慢 provider 超时档
     )
     fallback_total = Counter(
         "llm_fallback_total",
@@ -70,7 +70,7 @@ class MetricsCollector:
         ["call_point", "provider"],
     )
 
-    # LLM cost calculation metrics (D2 / audit-unintegrated-modules)
+    # LLM cost calculation metrics
     llm_cost_calculation_failures = Counter(
         "llm_cost_calculation_failures_total",
         "Total number of LLM cost calculation failures (degraded to 0.0)",
@@ -103,6 +103,13 @@ class MetricsCollector:
         "credibility_score_distribution",
         "可信度分布",
         buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    )
+
+    # Ingestion scheduler metrics
+    source_auto_disabled_total = Counter(
+        "source_auto_disabled_total",
+        "连续失败后被自动禁用的资讯源数量",
+        ["source_id"],
     )
 
     # Fetcher metrics

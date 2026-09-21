@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Visualizer reader for graph repository.
 
 Handles graph visualization read operations: top-degree node retrieval,
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.constants import EntityType
 from modules.storage.graph_readers.base import GraphReaderBase
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class GraphVisualizer(GraphReaderBase):
                 {
                     "id": row.get("id") or "",
                     "label": row.get("label") or "",
-                    "type": row.get("type") or "未知",
+                    "type": row.get("type") or EntityType.UNKNOWN,
                     "description": row.get("description"),
                     "degree": row.get("degree", 0),
                 }
@@ -79,7 +80,7 @@ class GraphVisualizer(GraphReaderBase):
                     "source": row.get("source") or "",
                     "target": row.get("target") or "",
                     "relation_type": row.get("relation_type") or "RELATED_TO",
-                    "weight": row.get("weight"),
+                    "weight": row.get("weight") or 0,
                 }
             )
         return edges
@@ -111,7 +112,7 @@ class GraphVisualizer(GraphReaderBase):
         )
         nodes = []
         for row in result:
-            entity_type = row.get("type") or "未知"
+            entity_type = row.get("type") or EntityType.UNKNOWN
             if exclude_types and entity_type in exclude_types:
                 continue
             nodes.append(

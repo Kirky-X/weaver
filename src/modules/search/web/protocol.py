@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Re-export layer for web search protocol symbols.
 
 The canonical definitions live in ``core.protocols.web_search`` to match

@@ -123,9 +123,28 @@ The Phase 1–4 cross-DB verification (formerly driven by the now-removed
 `specmark/archive/2026-07-20-web-search-and-db-optimization/records/`. The
 script has been removed; see the archived `hybrid_comparison.json` for results.
 
+## Dockerfile
+
+The application image (`docker/Dockerfile`) is built on `python:3.12-slim` and includes:
+
+| Layer              | Details                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| Base image         | `python:3.12-slim`                                                     |
+| Package manager    | `uv` (copied from `ghcr.io/astral-sh/uv:latest`)                       |
+| Security           | Non-root `appuser`; files owned by `appuser:appuser`                   |
+| Dependencies       | `uv sync --frozen --no-dev` (production only)                           |
+| spaCy models       | `zh_core_web_trf`, `en_core_web_trf`, `xx_ent_wiki_sm`                |
+| Browser            | Playwright Chromium (with system deps)                                  |
+| Exposed port       | `8000`                                                                  |
+| Health check       | HTTP GET `/health` every 30s, timeout 10s, start period 40s, 3 retries |
+| Entrypoint         | `uv run uvicorn main:app --host 0.0.0.0 --port 8000`                  |
+
+The `app` service in `docker-compose.yml` (profile `full`) runs `alembic upgrade head` before
+starting Uvicorn, ensuring database migrations are applied automatically on startup.
+
 ## See Also
 
-- `../CLAUDE.md` — "数据库故障转移" section for the fallback contract
+- `../AGENTS.md` — "双数据库故障转移" section for the fallback contract
 - `../.env.example` — Phase 1 (PG+Neo4j+Redis), Phase 2 (DuckDB+LadybugDB),
   Phase 3 (PG+LadybugDB), and Phase 4 (DuckDB+Neo4j) environment variable
   examples

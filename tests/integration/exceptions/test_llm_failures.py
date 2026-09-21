@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""LLM failure integration tests (L-01 ~ L-08).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""LLM failure integration tests.
 
 Covers 8 LLM failure modes across four categories:
-- LLM service unavailable (L-01~L-03): timeout, circuit breaker, graph
-- Internal error containment (L-04): DRIFT error must not leak internals
-- Observability (L-05~L-06): failure logging + usage statistics
-- Briefing + admin (L-07~L-08): narrative unavailable, config reload
+- LLM service unavailable: timeout, circuit breaker, graph
+- Internal error containment: DRIFT error must not leak internals
+- Observability: failure logging + usage statistics
+- Briefing + admin: narrative unavailable, config reload
 
 Conflict notes (Rule 4 — expose conflicts, do not paper over):
-1. L-01/L-02: task spec expects 503 with "timeout"/"unavailable" detail.
+1. Task spec expects 503 with "timeout"/"unavailable" detail.
    Actual code path: ``search_unified`` does NOT catch LLM exceptions —
    ``IntentClassifier.classify`` (classifier.py:89) silently swallows ALL
    exceptions and returns ``IntentClassification(intent=OPEN, confidence=0.0)``.
@@ -20,19 +20,19 @@ Conflict notes (Rule 4 — expose conflicts, do not paper over):
    loose assertions ``status_code in (200, 500, 503)`` and document the
    gap. A dedicated LLM-unavailable handler on ``search_unified`` would
    be required to satisfy the spec literally.
-2. L-03: task spec expects 503 with "graph"/"unavailable". Actual code:
+2. Task spec expects 503 with "graph"/"unavailable". Actual code:
    ``search_unified`` has no GraphPool-specific exception handler.
    ``get_global_search_engine`` Depends calls ``container.graph_pool()``;
    if that raises, the global handler returns 500 "Internal server error"
    (no "graph" in detail). Loose assertion.
-3. L-06: task spec expects "total_calls 增加" immediately. Actual code:
+3. Task spec expects "total_calls 增加" immediately. Actual code:
    ``/api/v1/monitoring/llm/usage`` queries the ``llm_usage_hourly``
    aggregated table (repo.py:306-363), not ``llm_usage_raw``. The hourly
    aggregator runs on a schedule, so immediately after publishing an
    ``LLMUsageEvent``, the hourly table may NOT yet reflect the new record.
    Test asserts ``after_calls >= before_calls`` (loose) and documents the
    async aggregation gap.
-4. L-08: task spec references "POST /api/v1/admin/llm/reload (或类似端点)".
+4. Task spec references "POST /api/v1/admin/llm/reload (或类似端点)".
    No such endpoint exists. The closest match is
    ``POST /api/v1/admin/config/reload`` (system.py:298-334) which reloads
    the full LLM live config from ``config/llm.toml`` via ``LiveConfig.reload()``.
@@ -67,9 +67,9 @@ class _FakeLLMClient:
 
     Implements the async surface used by search/briefing paths
     (``call`` / ``call_at`` / ``embed`` / ``embed_default``). Behavior is
-    configurable via constructor flags so a single class covers L-01
-    (timeout), L-02 (circuit open) and L-07 (narrative unavailable)
-    scenarios. Call counter is exposed for assertion/debugging.
+    configurable via constructor flags so a single class covers the
+    timeout, circuit-open and narrative-unavailable scenarios. The call
+    counter is exposed for assertion/debugging.
 
     Rule: integration tests MUST NOT use MagicMock — this concrete class
     is a real Python object implementing the same async methods as
@@ -133,12 +133,12 @@ def _inject_fake_llm(monkeypatch: pytest.MonkeyPatch, fake: _FakeLLMClient) -> N
     monkeypatch.setattr(container, "_llm_client", fake, raising=False)
 
 
-# ── L-01~L-03: LLM Service Unavailable ────────────────────────
+# ── LLM Service Unavailable ────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_l01_llm_timeout(async_client, monkeypatch):
-    """L-01: LLM timeout returns 503 (spec) / 200|500 (actual).
+    """LLM timeout returns 503 (spec) / 200|500 (actual).
 
     monkeypatch ``container._llm_client`` with a fake whose ``call`` /
     ``call_at`` raise ``asyncio.TimeoutError``. GET /api/v1/search?q=test.
@@ -160,18 +160,18 @@ async def test_l01_llm_timeout(async_client, monkeypatch):
 
     resp = await async_client.get("/api/v1/search?q=test")
     assert resp.status_code in (200, 500, 503), (
-        f"L-01: expected 200/500/503, got {resp.status_code}: {resp.text}"
+        f"expected 200/500/503, got {resp.status_code}: {resp.text}"
     )
 
 
 @pytest.mark.asyncio
 async def test_l02_circuit_breaker_open(async_client, monkeypatch):
-    """L-02: Circuit breaker OPEN returns 503 (spec) / 200|500 (actual).
+    """Circuit breaker OPEN returns 503 (spec) / 200|500 (actual).
 
     monkeypatch ``container._llm_client`` with a fake whose ``call``
     raises ``CircuitOpenError``. GET /api/v1/search?q=test.
 
-    Conflict (Rule 4): same as L-01 — ``IntentClassifier.classify``
+    Conflict (Rule 4): same as the timeout case — ``IntentClassifier.classify``
     swallows ``CircuitOpenError``, so 503 is NOT returned. The detail
     does NOT contain "circuit breaker" or "unavailable" because the
     global exception handler is never invoked. Loose assertion accepts
@@ -184,13 +184,13 @@ async def test_l02_circuit_breaker_open(async_client, monkeypatch):
 
     resp = await async_client.get("/api/v1/search?q=test")
     assert resp.status_code in (200, 500, 503), (
-        f"L-02: expected 200/500/503, got {resp.status_code}: {resp.text}"
+        f"expected 200/500/503, got {resp.status_code}: {resp.text}"
     )
 
 
 @pytest.mark.asyncio
 async def test_l03_graph_unavailable(async_client, monkeypatch):
-    """L-03: Graph service unavailable returns 503 (spec) / 500 (actual).
+    """Graph service unavailable returns 503 (spec) / 500 (actual).
 
     monkeypatch ``container.graph_pool`` to raise ``RuntimeError``, then
     GET /api/v1/search?q=test&mode=global.
@@ -213,16 +213,16 @@ async def test_l03_graph_unavailable(async_client, monkeypatch):
 
     resp = await async_client.get("/api/v1/search?q=test&mode=global")
     assert resp.status_code in (200, 500, 503), (
-        f"L-03: expected 200/500/503, got {resp.status_code}: {resp.text}"
+        f"expected 200/500/503, got {resp.status_code}: {resp.text}"
     )
 
 
-# ── L-04: DRIFT Internal Error Containment (CWE-200) ─────────
+# ── DRIFT Internal Error Containment (CWE-200) ─────────
 
 
 @pytest.mark.asyncio
 async def test_l04_drift_error_no_leak(async_client, monkeypatch):
-    """L-04: DRIFT internal error does not leak sensitive details.
+    """DRIFT internal error does not leak sensitive details.
 
     monkeypatch ``DRIFTSearchEngine.search`` to raise an exception whose
     message contains sensitive info (file path, SQL, internal function
@@ -257,9 +257,7 @@ async def test_l04_drift_error_no_leak(async_client, monkeypatch):
         "/api/v1/search/drift",
         json={"query": "test"},
     )
-    assert resp.status_code in (500, 503), (
-        f"L-04: expected 500/503, got {resp.status_code}: {resp.text}"
-    )
+    assert resp.status_code in (500, 503), f"expected 500/503, got {resp.status_code}: {resp.text}"
 
     # Serialize the full response body — detail may live under "detail"
     # (FastAPI default) or "message" (custom api_response wrapper).
@@ -277,17 +275,16 @@ async def test_l04_drift_error_no_leak(async_client, monkeypatch):
     ]
     for marker in sensitive_markers:
         assert marker not in detail, (
-            f"L-04 CWE-200 violation: sensitive marker {marker!r} leaked "
-            f"into response body: {detail}"
+            f"CWE-200 violation: sensitive marker {marker!r} leaked into response body: {detail}"
         )
 
 
-# ── L-05: LLM Failure Record Persistence ──────────────────────
+# ── LLM Failure Record Persistence ──────────────────────
 
 
 @pytest.mark.asyncio
 async def test_l05_llm_failure_recorded(async_client):
-    """L-05: LLM failure is recorded and queryable via monitoring API.
+    """LLM failure is recorded and queryable via monitoring API.
 
     Publish a real ``LLMFailureEvent`` via ``container._event_bus``.
     The container's wired handler (``_handle_llm_failure_async`` in
@@ -298,8 +295,8 @@ async def test_l05_llm_failure_recorded(async_client):
 
     The publish→persist chain is awaitable (EventBus.publish awaits all
     handlers concurrently), so no extra sleep is needed before querying.
-    A short ``asyncio.sleep(1)`` is added as a defensive wait per task
-    requirement L-05/L-06 异步等待.
+    A short ``asyncio.sleep(1)`` is added as a defensive wait per the task spec's
+    async-wait requirement.
     """
     from core.event import EventBus, LLMFailureEvent
 
@@ -317,7 +314,7 @@ async def test_l05_llm_failure_recorded(async_client):
             call_point=unique_cp,
             provider="test-provider",
             error_type="TimeoutError",
-            error_detail="LLM timeout (L-05 integration test)",
+            error_detail="LLM timeout (integration test)",
             latency_ms=5000.0,
             article_id=None,
             task_id="l05-task",
@@ -334,21 +331,21 @@ async def test_l05_llm_failure_recorded(async_client):
         "/api/v1/monitoring/llm/failures",
         params={"call_point": unique_cp, "limit": 10},
     )
-    assert resp.status_code == 200, f"L-05: expected 200, got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text}"
 
     data = resp.json().get("data", [])
-    assert isinstance(data, list), f"L-05: expected list, got {type(data)}"
+    assert isinstance(data, list), f"expected list, got {type(data)}"
     assert any(r.get("call_point") == unique_cp for r in data), (
-        f"L-05: LLM failure record for call_point={unique_cp} not found in response data: {data}"
+        f"LLM failure record for call_point={unique_cp} not found in response data: {data}"
     )
 
 
-# ── L-06: LLM Usage Statistics ────────────────────────────────
+# ── LLM Usage Statistics ────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_l06_llm_usage_stats(async_client):
-    """L-06: LLM usage is tracked and queryable via monitoring API.
+    """LLM usage is tracked and queryable via monitoring API.
 
     Publish a real ``LLMUsageEvent`` via ``container._event_bus``. The
     container's wired handlers (``_handle_llm_usage_raw`` in
@@ -384,7 +381,7 @@ async def test_l06_llm_usage_stats(async_client):
         params={"from": from_, "to": to, "group_by": "summary"},
     )
     assert resp_before.status_code == 200, (
-        f"L-06: baseline query expected 200, got {resp_before.status_code}: {resp_before.text}"
+        f"baseline query expected 200, got {resp_before.status_code}: {resp_before.text}"
     )
     before_data = resp_before.json().get("data", {})
     before_calls = int(before_data.get("total_calls", 0))
@@ -417,7 +414,7 @@ async def test_l06_llm_usage_stats(async_client):
         params={"from": from_, "to": to, "group_by": "summary"},
     )
     assert resp_after.status_code == 200, (
-        f"L-06: post-trigger query expected 200, got {resp_after.status_code}: {resp_after.text}"
+        f"post-trigger query expected 200, got {resp_after.status_code}: {resp_after.text}"
     )
     after_data = resp_after.json().get("data", {})
     after_calls = int(after_data.get("total_calls", 0))
@@ -426,16 +423,16 @@ async def test_l06_llm_usage_stats(async_client):
     # because the hourly aggregator may not have run between the two
     # queries.
     assert after_calls >= before_calls, (
-        f"L-06: total_calls decreased from {before_calls} to {after_calls}"
+        f"total_calls decreased from {before_calls} to {after_calls}"
     )
 
 
-# ── L-07: Briefing Narrative Mode Unavailable ────────────────
+# ── Briefing Narrative Mode Unavailable ────────────────
 
 
 @pytest.mark.asyncio
 async def test_l07_briefing_narrative_unavailable(async_client, monkeypatch):
-    """L-07: Briefing narrative_mode unavailable returns 503.
+    """Briefing narrative_mode unavailable returns 503.
 
     monkeypatch ``container.graph_pool`` to return ``None``, then POST
     /api/v1/briefings/daily/generate?narrative_mode=true.
@@ -466,7 +463,7 @@ async def test_l07_briefing_narrative_unavailable(async_client, monkeypatch):
     )
 
     assert resp.status_code in (200, 500, 503), (
-        f"L-07: expected 200/500/503, got {resp.status_code}: {resp.text}"
+        f"expected 200/500/503, got {resp.status_code}: {resp.text}"
     )
 
     # When 503 is returned, detail must mention "narrative" or
@@ -476,16 +473,16 @@ async def test_l07_briefing_narrative_unavailable(async_client, monkeypatch):
         detail = str(body.get("detail", "")) + str(body.get("message", ""))
         detail_lower = detail.lower()
         assert "narrative" in detail_lower or "unavailable" in detail_lower, (
-            f"L-07: 503 detail must mention narrative/unavailable, got: {detail}"
+            f"503 detail must mention narrative/unavailable, got: {detail}"
         )
 
 
-# ── L-08: LLM Config Reload ───────────────────────────────────
+# ── LLM Config Reload ───────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_l08_llm_config_reload(async_client):
-    """L-08: LLM config reload endpoint returns 200 or 204.
+    """LLM config reload endpoint returns 200 or 204.
 
     POST /api/v1/admin/config/reload — the closest match to
     "/api/v1/admin/llm/reload (或类似端点)" in the task spec. This
@@ -504,14 +501,10 @@ async def test_l08_llm_config_reload(async_client):
     """
     resp = await async_client.post("/api/v1/admin/config/reload")
 
-    assert resp.status_code in (200, 204), (
-        f"L-08: expected 200/204, got {resp.status_code}: {resp.text}"
-    )
+    assert resp.status_code in (200, 204), f"expected 200/204, got {resp.status_code}: {resp.text}"
 
     if resp.status_code == 200:
         body = resp.json()
         data = body.get("data", {})
         # Live config reload should report reloaded status.
-        assert data.get("status") == "reloaded", (
-            f"L-08: expected data.status='reloaded', got: {data}"
-        )
+        assert data.get("status") == "reloaded", f"expected data.status='reloaded', got: {data}"

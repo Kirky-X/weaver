@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 from datetime import datetime
 from typing import Any
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArticleView(BaseModel):
-    """Article view model aligned with ADD §1.5.1.
+    """Article view model.
 
     Implements: Data Contract Layer — ArticleView
     """
@@ -29,7 +29,7 @@ class ArticleView(BaseModel):
     key_data: list[str] | None = None
     score: float | None = None
     quality_score: float | None = None
-    data_conflicts: list[dict[str, Any]] = []
+    data_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     sentiment: str | None = None
     sentiment_score: float | None = None
     emotion_targets: list[str] | None = None
@@ -43,7 +43,7 @@ class ArticleView(BaseModel):
 
 
 class EntityView(BaseModel):
-    """Entity view model aligned with ADD §1.5.1.
+    """Entity view model.
 
     Implements: Data Contract Layer — EntityView
     """
@@ -53,7 +53,7 @@ class EntityView(BaseModel):
     id: str = Field(validation_alias="neo4j_id")
     canonical_name: str = Field(validation_alias="name")
     type: str = Field(validation_alias="entity_type")
-    aliases: list[str] = []
+    aliases: list[str] = Field(default_factory=list)
     description: str | None = None
     degree: int = 0
     community_id: str | None = None
@@ -62,7 +62,7 @@ class EntityView(BaseModel):
 
 
 class EventView(BaseModel):
-    """Event view model aligned with ADD §1.5.1.
+    """Event view model.
 
     Implements: Data Contract Layer — EventView
     """
@@ -87,7 +87,7 @@ class EventView(BaseModel):
 
 
 class CommunityView(BaseModel):
-    """Community view model aligned with ADD §1.5.1.
+    """Community view model.
 
     Implements: Data Contract Layer — CommunityView
     """
@@ -114,6 +114,7 @@ class ArticleSearchResultView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     article_id: str
+    title: str | None = None
     category: str | None = None
     similarity: float
     hybrid_score: float | None = None

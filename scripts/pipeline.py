@@ -45,7 +45,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import enum
 import os
 import sys
 import time
@@ -67,22 +66,8 @@ sys.path.insert(0, _project_root)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class ProcessingMode(enum.StrEnum):
-    """Pipeline processing mode.
-
-    FAST: Phase 1 only (classifier, cleaner, categorizer, vectorize)
-          - 1-2 minutes per batch
-          - No entity extraction, no quality scoring
-          - Suitable for quick ingestion
-
-    DEEP: Full 4-phase processing
-          - 5-10 minutes per batch
-          - Includes Phase 3 deep analysis (entities, quality, credibility)
-          - Suitable for complete analysis
-    """
-
-    FAST = "fast"
-    DEEP = "deep"
+# Single source lives in core.constants; imported below via sys.path setup.
+from core.constants import ProcessingMode, ProcessingStatus  # noqa: E402
 
 
 # Bridge CLI --processing-mode to the backend worker.
@@ -100,7 +85,9 @@ PROCESSING_MODE_ENV = "WEAVER_PIPELINE_PROCESS__PROCESSING_MODE"
 
 # Server startup polling defaults
 SERVER_STARTUP_TIMEOUT = 5.0  # HTTP client timeout in seconds
-SERVER_STARTUP_MAX_ATTEMPTS = 30
+# 240 x 0.5s = 120s: lifespan loads spaCy/gliner models (and probes optional
+# services with slow connect timeouts on Windows) — 15s starved cold starts.
+SERVER_STARTUP_MAX_ATTEMPTS = 240
 SERVER_STARTUP_POLL_INTERVAL = 0.5  # seconds
 
 # Server shutdown delay
@@ -274,6 +261,7 @@ class PipelineAPIClient:
         page_size: int = 20,
         is_news: bool | None = None,
         processing_stage: str | None = None,
+        source_id: str | None = None,
     ) -> dict[str, Any]:
         """List articles with optional filters and 429 retry."""
         url = f"{self.base_url}/api/v1/articles"
@@ -282,6 +270,8 @@ class PipelineAPIClient:
             params["is_news"] = is_news
         if processing_stage is not None:
             params["processing_stage"] = processing_stage
+        if source_id is not None:
+            params["source_id"] = source_id
 
         max_retries = 3
         for attempt in range(max_retries + 1):
@@ -528,6 +518,205 @@ def build_rss_config(sid: str, url: str) -> dict[str, Any]:
     }
 
 
+# HTML index pages and JSON list endpoints, captured from production site
+# traffic. Parsed by HTMLIndexParser / JSONApiParser; article bodies are
+# fetched by Crawler afterwards. Sources that require per-request auth headers
+# or JS challenges (peopleapp API gateway, wsj.com DataDome) are not included.
+INDEX_SOURCES: list[dict[str, Any]] = [
+    {
+        "id": "html-bbc-home",
+        "name": "BBC Home",
+        "url": "https://www.bbc.com/",
+        "source_type": "html",
+    },
+    {
+        "id": "html-bbc-business",
+        "name": "BBC Business",
+        "url": "https://www.bbc.com/business",
+        "source_type": "html",
+    },
+    {
+        "id": "html-bbc-health",
+        "name": "BBC Health",
+        "url": "https://www.bbc.com/health",
+        "source_type": "html",
+    },
+    {
+        "id": "html-bbc-technology",
+        "name": "BBC Technology",
+        "url": "https://www.bbc.com/technology",
+        "source_type": "html",
+    },
+    {
+        "id": "html-cnn-home",
+        "name": "CNN Home",
+        "url": "https://www.cnn.com/",
+        "source_type": "html",
+    },
+    {
+        "id": "html-cnn-business",
+        "name": "CNN Business",
+        "url": "https://www.cnn.com/business",
+        "source_type": "html",
+    },
+    {
+        "id": "html-cnn-politics",
+        "name": "CNN Politics",
+        "url": "https://www.cnn.com/politics",
+        "source_type": "html",
+    },
+    {
+        "id": "html-cnn-tech",
+        "name": "CNN Tech",
+        "url": "https://www.cnn.com/business/tech",
+        "source_type": "html",
+    },
+    {
+        "id": "html-cnn-world",
+        "name": "CNN World",
+        "url": "https://www.cnn.com/world",
+        "source_type": "html",
+    },
+    {
+        "id": "html-guardian-uk",
+        "name": "The Guardian UK",
+        "url": "https://www.theguardian.com/uk",
+        "source_type": "html",
+    },
+    {
+        "id": "html-guardian-uk-business",
+        "name": "The Guardian UK Business",
+        "url": "https://www.theguardian.com/uk/business",
+        "source_type": "html",
+    },
+    {
+        "id": "html-guardian-us-business",
+        "name": "The Guardian US Business",
+        "url": "https://www.theguardian.com/us/business",
+        "source_type": "html",
+    },
+    {
+        "id": "html-guardian-us-tech",
+        "name": "The Guardian US Technology",
+        "url": "https://www.theguardian.com/us/technology",
+        "source_type": "html",
+    },
+    {
+        "id": "html-guardian-world",
+        "name": "The Guardian World",
+        "url": "https://www.theguardian.com/world",
+        "source_type": "html",
+    },
+    {
+        "id": "html-thetimes-business",
+        "name": "The Times Business",
+        "url": "https://www.thetimes.com/business",
+        "source_type": "html",
+    },
+    {
+        "id": "html-thetimes-money",
+        "name": "The Times Money",
+        "url": "https://www.thetimes.com/money",
+        "source_type": "html",
+    },
+    {
+        "id": "html-thetimes-world",
+        "name": "The Times World",
+        "url": "https://www.thetimes.com/world",
+        "source_type": "html",
+    },
+    {
+        "id": "json-gov-yaowen",
+        "name": "中国政府网要闻",
+        "url": "https://www.gov.cn/yaowen/liebiao/YAOWENLIEBIAO.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-gov-zhengce",
+        "name": "中国政府网最新政策",
+        "url": "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-gov-jiedu",
+        "name": "中国政府网政策解读",
+        "url": "https://www.gov.cn/zhengce/jiedu/ZCJD_QZ.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-politics",
+        "name": "新华网时政",
+        "url": "https://www.news.cn/politics/ds_a6d618872de143bdafa2556915a7ae12.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-world",
+        "name": "新华网国际",
+        "url": "https://www.news.cn/world/ds_8d5294ed513c4779af6242a3623aa27b.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-sike",
+        "name": "新华网思客",
+        "url": "https://www.news.cn/sikepro/ds_a5166874b34143b3a5250806cdc9c08b.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-culture",
+        "name": "新华网文化",
+        "url": "https://www.news.cn/ci/ds_16b5dd7eb0f8488cb694c118b8301d71.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-sci-tech",
+        "name": "新华网科创",
+        "url": "https://www.news.cn/sci-tech/ds_0f30527c3b53427b810f16f1f22d11f2.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-tech",
+        "name": "新华网科技",
+        "url": "https://www.news.cn/tech/ds_fd79514d92f34849bc8baef7ce3d5aae.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-energy",
+        "name": "新华网能源",
+        "url": "https://www.news.cn/energy/ds_42de1fcf98fd47daac4694c46d40957e.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-fortune",
+        "name": "新华网财经",
+        "url": "https://www.news.cn/fortune/ds_b53aac3e4e6342f699a9e2acdd0ee8fd.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-money",
+        "name": "新华网金融",
+        "url": "https://www.news.cn/money/ds_a173cf19d87f46628a27f41488844d92.json",
+        "source_type": "json",
+    },
+    {
+        "id": "json-xinhua-food",
+        "name": "新华网食品",
+        "url": "https://www.news.cn/food/ds_b6671de69cd1451798638eca1399f298.json",
+        "source_type": "json",
+    },
+]
+
+
+def build_index_source_config(entry: dict[str, Any]) -> dict[str, Any]:
+    """Build an html/json source configuration with the shared defaults."""
+    return {
+        "enabled": True,
+        "interval_minutes": 30,
+        "credibility": 0.70,
+        "tier": 2,
+        **entry,
+    }
+
+
 # Re-export for backward compatibility with any code that imports these names
 # from pipeline.py directly.
 KNOWN_NEWSNOW_SOURCES: list[str] = NEWSNOW_IDS
@@ -546,7 +735,7 @@ def build_rss_source_config(source: str) -> dict[str, Any]:
 
 
 async def cmd_seed_sources(args) -> int:
-    """Create all NewsNow + RSS source configurations, optionally trigger pipeline.
+    """Create all NewsNow + RSS + index (html/json) source configurations, optionally trigger pipeline.
 
     Merged from the standalone seed_sources.py. Sequential upsert with optional
     pipeline trigger; triggers may be parallelized later if throughput demands.
@@ -569,10 +758,13 @@ async def cmd_seed_sources(args) -> int:
             all_configs.append(SourceConfigModel(**build_newsnow_config(sid)))
         for sid, url in RSS_FEEDS.items():
             all_configs.append(SourceConfigModel(**build_rss_config(sid, url)))
+        for entry in INDEX_SOURCES:
+            all_configs.append(SourceConfigModel(**build_index_source_config(entry)))
 
         print(f"Total sources to create: {len(all_configs)}")
         print(f"  NewsNow: {len(NEWSNOW_IDS)}")
         print(f"  RSS:     {len(RSS_FEEDS)}")
+        print(f"  Index:   {len(INDEX_SOURCES)} (html/json)")
 
         if args.dry_run:
             print("\nDry-run: no changes made")
@@ -812,7 +1004,11 @@ async def run_all_sources(
     max_items: int | None = None,
     clear_db: bool = False,
 ) -> TestResult:
-    """Run ALL sources (RSS + NewsNow) with configurable item limits."""
+    """Run ALL sources (RSS + NewsNow) with configurable item limits.
+
+    html/json INDEX_SOURCES are intentionally excluded — 30 more sources
+    would dominate the run; test them individually via ``--mode index``.
+    """
 
     phase_header("PHASE 1: Source Discovery & Creation")
 
@@ -912,14 +1108,24 @@ async def run_all_sources(
         page = 1
         page_size = 100  # API max limit
         fetched = 0
+        fast_mode = _is_fast_mode()
+        terminal_status = {"stored", "pg_done", "neo4j_done", "ladybug_done"}
         while fetched < total:
             batch = await client.list_articles(page=page, page_size=page_size, is_news=True)
             items = batch.get("items", [])
             if not items:
                 break
-            incomplete += sum(
-                1 for a in items if a.get("credibility_score") is None and a.get("body")
-            )
+            if fast_mode:
+                incomplete += sum(
+                    1
+                    for a in items
+                    if a.get("body")
+                    and str(a.get("processing_status", "")).lower() not in terminal_status
+                )
+            else:
+                incomplete += sum(
+                    1 for a in items if a.get("credibility_score") is None and a.get("body")
+                )
             fetched += len(items)
             page += 1
         if incomplete == 0:
@@ -959,15 +1165,33 @@ async def run_all_sources(
     )
 
 
+def _is_fast_mode() -> bool:
+    """fast 模式（Phase1 only，无 Phase3 credibility）的等待完成标志与 deep 不同。"""
+    return os.getenv(PROCESSING_MODE_ENV, "deep").lower() == "fast"
+
+
 async def _wait_for_llm_processing(
     client: PipelineAPIClient,
     timeout: int,
+    source_id: str | None = None,
 ) -> tuple[int, int]:
-    """Wait for full LLM processing. Returns (total, incomplete). incomplete=0 done, -1 timeout."""
+    """Wait for full LLM processing. Returns (total, incomplete). incomplete=0 done, -1 timeout.
+
+    deep 模式以 Phase3 的 credibility_score 作为完成标志；fast 模式该分数
+    永远为 None，等待会白挂满 timeout——改以 processing_status 终态判定。
+    终态以 ProcessingStatus 为准（completed/failed）；failed 不算 incomplete
+    但单独计数上报，避免静默吞掉失败。
+    source_id 限定只等本源文章：容器启动时 SourceScheduler 会调度全部内置源，
+    其他源的新文章会持续涌入，全库等待永远追不上。
+    """
+    done_status = {ProcessingStatus.COMPLETED.value, ProcessingStatus.FAILED.value}
+    fast_mode = _is_fast_mode()
     llm_start = time.time()
     empty_since = time.time()
     while time.time() - llm_start < timeout:
-        articles = await client.list_articles(page=1, page_size=1, is_news=True)
+        articles = await client.list_articles(
+            page=1, page_size=1, is_news=True, source_id=source_id
+        )
         total = articles.get("total", 0)
         if total == 0:
             if time.time() - empty_since > 60:
@@ -976,28 +1200,63 @@ async def _wait_for_llm_processing(
             continue
 
         incomplete = 0
+        failed = 0
         page = 1
         page_size = 100
         fetched = 0
         while fetched < total:
-            batch = await client.list_articles(page=page, page_size=page_size, is_news=True)
+            batch = await client.list_articles(
+                page=page, page_size=page_size, is_news=True, source_id=source_id
+            )
             items = batch.get("items", [])
             if not items:
                 break
-            incomplete += sum(
-                1 for a in items if a.get("credibility_score") is None and a.get("body")
-            )
+            if fast_mode:
+                for a in items:
+                    if not a.get("body"):
+                        continue
+                    status = str(a.get("processing_status", "")).lower()
+                    if status == ProcessingStatus.FAILED.value:
+                        failed += 1
+                    elif status not in done_status:
+                        incomplete += 1
+            else:
+                # failed 文章的 credibility_score 恒为 None——不计 incomplete，
+                # 否则 deep 模式在 failed 存在时永远挂满 timeout。
+                for a in items:
+                    if not a.get("body"):
+                        continue
+                    if str(a.get("processing_status", "")).lower() == ProcessingStatus.FAILED.value:
+                        failed += 1
+                    elif a.get("credibility_score") is None:
+                        incomplete += 1
             fetched += len(items)
             page += 1
 
         if incomplete == 0:
+            if failed:
+                print(f"    WARNING: {failed} article(s) in failed state")
             return total, 0
 
         elapsed = int(time.time() - llm_start)
-        print(f"    Waiting... {incomplete}/{total} articles still processing ({elapsed}s)")
+        if failed:
+            print(f"    Waiting... {incomplete}/{total} processing, {failed} failed ({elapsed}s)")
+        else:
+            print(f"    Waiting... {incomplete}/{total} articles still processing ({elapsed}s)")
+        # 每 60s 打印一次全部未完成协程的栈：faulthandler 的线程 dump 对
+        # asyncio 不可见（协程不占 OS 线程），worker 停摆时这里能看到它
+        # 卡在哪个 await 上。
+        if elapsed % 60 < 10:
+            import sys as _sys
+
+            for task in asyncio.all_tasks():
+                if task.done() or task is asyncio.current_task():
+                    continue
+                print(f"---- coroutine stack: {task.get_name()} ----")
+                task.print_stack(file=_sys.stdout)
         await asyncio.sleep(10)
 
-    articles = await client.list_articles(page=1, page_size=1, is_news=True)
+    articles = await client.list_articles(page=1, page_size=1, is_news=True, source_id=source_id)
     return articles.get("total", 0), -1
 
 
@@ -1041,18 +1300,18 @@ async def _run_pipeline_test(
         step(f"Task error", False, status.error)
 
     phase_header(f"PHASE {phase_offset + 2}: Waiting for LLM Processing (Phase 1→2→3)")
-    total, incomplete = await _wait_for_llm_processing(client, timeout)
+    total, incomplete = await _wait_for_llm_processing(client, timeout, source["id"])
     llm_ok = incomplete == 0
     step(
         "LLM pipeline complete",
         llm_ok,
-        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
+        f"{total} source articles fully processed" if llm_ok else f"timeout after {timeout}s",
     )
 
     phase_header(f"PHASE {phase_offset + 3}: Final Verification")
-    articles = await client.list_articles(page=1, page_size=1)
+    articles = await client.list_articles(page=1, page_size=1, source_id=source["id"])
     total = articles.get("total", 0)
-    step(f"Articles stored", total > 0, f"{total} articles")
+    step(f"Articles stored", total > 0, f"{total} source articles")
 
     return TestResult(
         success=llm_ok and total > 0,
@@ -1082,6 +1341,21 @@ async def run_rss_test(
     """Run RSS mode test with full LLM pipeline wait."""
     source_config = build_rss_source_config(source)
     return await _run_pipeline_test(client, source_config, max_items, timeout, "RSS test")
+
+
+async def run_index_test(
+    client: PipelineAPIClient,
+    source: str,
+    max_items: int,
+    timeout: int,
+) -> TestResult:
+    """Run an html/json index-source test with full LLM pipeline wait."""
+    entry = next((e for e in INDEX_SOURCES if e["id"] == source), None)
+    if entry is None:
+        available = ", ".join(e["id"] for e in INDEX_SOURCES)
+        raise KeyError(f"Unknown index source: {source}. Available: {available}")
+    source_config = build_index_source_config(entry)
+    return await _run_pipeline_test(client, source_config, max_items, timeout, "Index test")
 
 
 async def run_strategy_test(
@@ -1148,6 +1422,16 @@ async def cmd_test(args: argparse.Namespace) -> int:
     server: Any = None
     server_ctx: ServerContext | None = None
 
+    # 诊断插桩：每 4 分钟把全部线程栈 dump 到文件（worker 停摆定位用）。
+    # faulthandler 为标准库，无性能影响；生产环境同样可安全保留。
+    import faulthandler
+
+    _stack_dump_path = Path("data") / "faulthandler_stacks.log"
+    # noqa(SIM115): faulthandler 需要长生命周期 file 句柄，进程退出时由
+    # dump_traceback_later 内部管理，不能用 context manager 关闭。
+    _stack_dump_file = open(_stack_dump_path, "a", encoding="utf-8")  # noqa: SIM115
+    faulthandler.dump_traceback_later(240, repeat=True, file=_stack_dump_file)
+
     try:
         # Setup server
         phase_header("PHASE 0: Infrastructure Initialization")
@@ -1199,6 +1483,8 @@ async def cmd_test(args: argparse.Namespace) -> int:
             result = await run_newsnow_test(client, args.source_id, args.max_items, args.timeout)
         elif args.mode == "rss":
             result = await run_rss_test(client, args.source, args.max_items, args.timeout)
+        elif args.mode == "index":
+            result = await run_index_test(client, args.source, args.max_items, args.timeout)
         elif args.mode == "strategy":
             result = await run_strategy_test(
                 client, args.source_id, args.max_items, args.timeout, server_ctx
@@ -1438,11 +1724,37 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             article_ids[i : i + batch_size] for i in range(0, len(article_ids), batch_size)
         ]
 
+        # 协程栈自诊断：批次卡死时每 60s 打印全部未完成协程的栈
+        # （faulthandler 的线程 dump 对 asyncio 协程不可见）。
+        async def _dump_coroutine_stacks() -> None:
+            import sys as _sys
+
+            while True:
+                await asyncio.sleep(60)
+                for task in asyncio.all_tasks():
+                    if task.done() or task is asyncio.current_task():
+                        continue
+                    print(f"---- coroutine stack: {task.get_name()} ----")
+                    task.print_stack(file=_sys.stdout)
+
+        stack_dumper = asyncio.create_task(_dump_coroutine_stacks())
+
         for batch_num, (batch, id_batch) in enumerate(zip(batches, id_batches, strict=True), 1):
             print(f"\nBatch {batch_num}/{len(batches)}: processing {len(batch)} articles...")
 
             task_id = uuid.uuid4()
-            states = await ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id)
+            # 批次级 wall-clock 超时：GLiNER/HF 模型下载在网络摆动下会挂死
+            # （连接超时+内部重试可远超 15 分钟），不加超时整轮 reprocess
+            # 停摆。超时的批次跳过并计数，可重复执行续跑。
+            try:
+                states = await asyncio.wait_for(
+                    ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id),
+                    timeout=3600.0,
+                )
+            except TimeoutError:
+                print(f"  ERROR: Batch {batch_num} timed out after 3600s — skipped")
+                total_failed += len(batch)
+                continue
 
             completed = sum(1 for s in states if not s.get("terminal"))
             failed = sum(1 for s in states if s.get("terminal"))
@@ -1488,6 +1800,9 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
         return 1
 
     finally:
+        stack_dumper.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stack_dumper
         await ctx.container.shutdown()
 
 
@@ -1612,14 +1927,14 @@ Examples:
     test_parser = subparsers.add_parser("test", help="Run pipeline tests")
     test_parser.add_argument(
         "--mode",
-        choices=["newsnow", "rss", "strategy", "all"],
+        choices=["newsnow", "rss", "index", "strategy", "all"],
         default="newsnow",
         help="Test mode (default: newsnow)",
     )
     test_parser.add_argument(
         "--processing-mode",
         dest="processing_mode",
-        choices=["fast", "deep"],
+        choices=[m.value for m in ProcessingMode],
         default="deep",
         help=(
             "Processing mode: 'fast' (1-2min, Phase 1 only - classifier, cleaner, "
@@ -1630,7 +1945,7 @@ Examples:
     test_parser.add_argument(
         "--source",
         default="solidot",
-        help="RSS source name for rss mode (default: solidot)",
+        help="Source name for rss mode, full id for index mode (default: solidot)",
     )
     test_parser.add_argument(
         "--source-id",
@@ -1701,7 +2016,7 @@ Examples:
 
     # seed-sources subcommand
     seed_parser = subparsers.add_parser(
-        "seed-sources", help="Create all NewsNow + RSS source configurations"
+        "seed-sources", help="Create all NewsNow + RSS + index (html/json) source configurations"
     )
     seed_parser.add_argument(
         "--pipeline", action="store_true", help="Trigger pipeline after creating sources"

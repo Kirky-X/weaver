@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """HMAC signature verification middleware."""
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from core.constants import HEALTH_PROBE_PATHS as SKIP_PATHS
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -23,8 +24,7 @@ log = get_logger(__name__)
 # Time window for signature validity (±30 seconds)
 TIMESTAMP_TOLERANCE_SECONDS = 30
 
-# Endpoints to skip signature verification
-SKIP_PATHS = {"/health", "/metrics"}
+# Endpoints to skip signature verification (single source in core.constants).
 
 
 class HMACSignatureMiddleware(BaseHTTPMiddleware):
@@ -114,7 +114,7 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
             )
             return JSONResponse(
                 status_code=401,
-                content={"detail": "missing_signature_headers"},
+                content={"detail": "invalid_timestamp_format"},
             )
 
         # Check timestamp freshness (±30 seconds)
@@ -154,7 +154,7 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
             )
             return JSONResponse(
                 status_code=401,
-                content={"detail": "missing_signature_headers"},
+                content={"detail": "signature_mismatch"},
             )
 
         # Signature is valid, proceed with request

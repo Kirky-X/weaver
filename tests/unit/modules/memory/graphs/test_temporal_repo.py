@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for TemporalGraphRepo."""
 
 from datetime import UTC, datetime
@@ -214,7 +214,7 @@ async def test_search_temporal_events_with_time_window(repo, mock_pool):
     params = call_args[0][1]
     assert "e.timestamp >= $start_time AND e.timestamp <= $end_time" in query
     assert params["query"] == "AI"
-    assert params["limit"] == 10
+    assert params["candidate_limit"] == 10
     # Neo4j 路径 params 为 datetime
     assert isinstance(params["start_time"], datetime)
     assert isinstance(params["end_time"], datetime)
@@ -225,7 +225,7 @@ async def test_search_temporal_events_with_time_window(repo, mock_pool):
 async def test_search_temporal_events_without_time_window_backward_compat(repo, mock_pool):
     """不传时间参数时 WHERE 不含时间条件（向后兼容）。
 
-    验证 task 2.2 的向后兼容承诺：start_time/end_time 为 None 时
+    验证向后兼容承诺：start_time/end_time 为 None 时
     查询行为与修改前一致，不引入时间过滤。
     """
     mock_pool.execute_query.return_value = []
@@ -244,16 +244,42 @@ async def test_search_temporal_events_without_time_window_backward_compat(repo, 
     assert "start_time" not in params
     assert "end_time" not in params
     assert params["query"] == "AI"
-    assert params["limit"] == 10
+    assert params["candidate_limit"] == 10
 
 
-# --- D1 semantic re-ranking tests (spec: search-engine) ---
+# --- semantic re-ranking tests (spec: search-engine) ---
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_search_temporal_events_semantic_mode_fetches_wider_window(repo, mock_pool):
+    """语义模式必须取比 limit 更宽的候选窗口再重排。
+
+    若 LIMIT == limit，只有最旧的 CONTAINS 命中进入候选，新事件无论
+    相似度多高都进不了 top-N。语义模式候选数应为 max(limit*5, 50)；
+    非语义模式保持 limit。
+    """
+    mock_pool.execute_query.return_value = []
+
+    # 语义模式：候选窗口放大
+    await repo.search_temporal_events(query="AI", limit=10, query_embedding=[1.0, 0.0])
+    params = mock_pool.execute_query.call_args[0][1]
+    assert params["candidate_limit"] == 50  # max(10*5, 50)
+
+    # LIMIT 子句使用 candidate_limit 参数
+    query = mock_pool.execute_query.call_args[0][0]
+    assert "LIMIT $candidate_limit" in query
+
+    # 非语义模式：保持旧行为，候选数等于 limit
+    await repo.search_temporal_events(query="AI", limit=7)
+    params = mock_pool.execute_query.call_args[0][1]
+    assert params["candidate_limit"] == 7
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_search_temporal_events_uses_query_embedding(repo, mock_pool):
-    """query_embedding 提供时按余弦相似度降序重排（D1 / Task 2.3-2.5）。
+    """query_embedding 提供时按余弦相似度降序重排。
 
     构造 3 个候选事件，故意按时间戳升序排列（alpha<beta<gamma），
     但语义相似度顺序为 alpha > gamma > beta。重排后应得到
@@ -355,7 +381,7 @@ async def test_search_temporal_events_query_embedding_with_missing_persistence(r
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_search_temporal_events_no_embedding_falls_back_to_contains(repo, mock_pool):
-    """query_embedding=None 时保留旧行为：CONTAINS + timestamp 排序（Task 2.4）。
+    """query_embedding=None 时保留旧行为：CONTAINS + timestamp 排序。
 
     关键断言：
     1. 结果中不应添加 ``similarity_score`` 字段（避免误导下游）
@@ -396,13 +422,13 @@ async def test_search_temporal_events_no_embedding_falls_back_to_contains(repo, 
     embedding_service.embed_batch.assert_not_called()
 
 
-# --- D2 EventNode embedding persistence tests (spec: event-node-integration) ---
+# --- EventNode embedding persistence tests (spec: event-node-integration) ---
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_persists_embedding_neo4j(repo, mock_pool):
-    """Neo4j 写入路径持久化 EventNode embedding（D2 / Task 6.2-6.4）。
+    """Neo4j 写入路径持久化 EventNode embedding。
 
     旧行为：``ON CREATE SET`` 不包含 embedding，EventNode 永远无 embedding
     属性（Q2 finding），导致 search_temporal_events 的 query_embedding 重排
@@ -434,7 +460,7 @@ async def test_append_to_chain_persists_embedding_neo4j(repo, mock_pool):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_persists_embedding_ladybug():
-    """LadybugDB 写入路径持久化 EventNode embedding（D2 / Task 6.2-6.4）。
+    """LadybugDB 写入路径持久化 EventNode embedding。
 
     LadybugDB 使用 ``CREATE (e:EventNode {..., embedding: $embedding})``
     语法，schema 中 EventNode 表已添加 ``embedding DOUBLE[]`` 列
@@ -446,12 +472,13 @@ async def test_append_to_chain_persists_embedding_ladybug():
     3. CREATE EventNode → 返回 [{"id": "event-emb-lb"}]
     """
     pool = MagicMock()
-    # 按调用顺序返回：existence_check=[], find_prev=[], create=[{...}]
+    # 按调用顺序返回：existence_check(linked)=[], find_prev=[], merge=[{...}]
     pool.execute_query = AsyncMock(
         side_effect=[
-            [],  # check existence → not exists
+            [],  # check existence+linked → not exists
             [],  # find previous event → none
-            [{"e.id": "event-emb-lb"}],  # CREATE returns
+            [{"e.id": "event-emb-lb"}],  # MERGE node returns
+            [],  # SET properties
         ]
     )
     pool.database_type = DatabaseType.LADYBUG.value
@@ -467,22 +494,24 @@ async def test_append_to_chain_persists_embedding_ladybug():
 
     await repo.append_to_chain(event)
 
-    # 第 3 次调用是 CREATE EventNode
-    create_call = pool.execute_query.call_args_list[2]
-    create_query = create_call[0][0]
-    create_params = create_call[0][1]
-    assert "CREATE" in create_query
-    assert "EventNode" in create_query
-    # CREATE 语句包含 embedding 字段
-    assert "embedding: $embedding" in create_query
-    # params 透传 embedding
-    assert create_params["embedding"] == embedding
+    # 第 2 次调用是 SET 属性（MERGE 节点本身只带 id）
+    set_call = pool.execute_query.call_args_list[3]
+    set_query = set_call[0][0]
+    set_params = set_call[0][1]
+    assert "SET" in set_query
+    assert "EventNode" in set_query
+    # SET 语句透传 embedding
+    assert set_params["embedding"] == embedding
+    # 第 1 次调用（MERGE 节点）必须是幂等 MERGE 而非 CREATE
+    merge_query = pool.execute_query.call_args_list[2][0][0]
+    assert "MERGE" in merge_query
+    assert "CREATE" not in merge_query
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_append_to_chain_embedding_none_does_not_fail(repo, mock_pool):
-    """EventNode embedding=None 时写入不失败（Task 6.3 向后兼容）。
+    """EventNode embedding=None 时写入不失败。
 
     老的 pipeline state 无 vectors.content，EventNode.embedding=None。
     Cypher 写入 null property 应被接受（Neo4j/LadybugDB 均支持）。

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for analytics LLMFailureRepo."""
 
 from datetime import UTC, datetime
@@ -103,6 +103,90 @@ class TestAnalyticsLLMFailureRepoRecord:
 
         added = mock_session.add.call_args[0][0]
         assert added.article_id is None
+
+
+class TestAnalyticsLLMFailureRepoInvalidArticleIdLogging:
+    """Invalid article_id must be logged, not silently swallowed."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def repo(self, mock_pool):
+        from modules.analytics.llm_failure.repo import LLMFailureRepo
+
+        return LLMFailureRepo(mock_pool)
+
+    def _event(self, article_id):
+        from core.event import LLMFailureEvent
+
+        return LLMFailureEvent(
+            call_point="classifier",
+            provider="openai",
+            error_type="ApiError",
+            error_detail="boom",
+            latency_ms=10.0,
+            article_id=article_id,
+            task_id="t",
+            attempt=0,
+            fallback_tried=False,
+        )
+
+    def _session(self, mock_pool):
+        mock_session = MagicMock()
+        mock_session.commit = AsyncMock()
+        mock_pool.session.return_value.__aenter__.return_value = mock_session
+        return mock_session
+
+    @pytest.mark.asyncio
+    async def test_invalid_uuid_logs_warning(self, repo, mock_pool):
+        """Malformed UUID drops the field but emits a warning."""
+        from unittest.mock import patch
+
+        self._session(mock_pool)
+        with patch("modules.analytics.llm_failure.repo.log") as mock_log:
+            await repo.record(self._event("not-a-valid-uuid"))
+
+        warnings = [c for c in mock_log.warning.call_args_list if "invalid_article" in str(c)]
+        assert warnings, "expected llm_failure_invalid_article_id warning"
+        assert "not-a-valid-uuid" in str(warnings[0])
+
+    @pytest.mark.asyncio
+    async def test_valid_uuid_does_not_warn(self, repo, mock_pool):
+        """Well-formed UUID takes the quiet path."""
+        from unittest.mock import patch
+        from uuid import uuid4
+
+        self._session(mock_pool)
+        with patch("modules.analytics.llm_failure.repo.log") as mock_log:
+            await repo.record(self._event(str(uuid4())))
+
+        assert mock_log.warning.call_count == 0
+
+
+class TestAnalyticsLLMFailureRepoGetStatsSingleSession:
+    """get_stats must use one session for both queries."""
+
+    @pytest.mark.asyncio
+    async def test_single_session_for_aggregation_and_last_failure(self):
+        from modules.analytics.llm_failure.repo import LLMFailureRepo
+
+        mock_pool = MagicMock()
+        mock_session = AsyncMock()
+        mock_stats_result = MagicMock()
+        mock_stats_result.all.return_value = []
+        mock_last_result = MagicMock()
+        mock_last_result.first.return_value = None
+        mock_session.execute.side_effect = [mock_stats_result, mock_last_result]
+        mock_pool.session.return_value.__aenter__.return_value = mock_session
+
+        repo = LLMFailureRepo(mock_pool)
+        stats = await repo.get_stats()
+
+        assert stats["total"] == 0
+        assert mock_pool.session.call_count == 1
+        assert mock_session.execute.call_count == 2
 
 
 class TestAnalyticsLLMFailureRepoQuery:

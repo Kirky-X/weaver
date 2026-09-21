@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community health data models for diagnosing and tracking issues.
 
 Defines the data structures for community health diagnostics including
@@ -13,20 +13,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from core.constants import GraphHealthStatus as CommunityHealthStatus
 
-class CommunityHealthStatus(StrEnum):
-    """Health status of community system.
-
-    HEALTHY: All communities are properly configured with reports.
-    MODERATE: Minor issues like stale reports or minor count mismatches.
-    DEGRADED: Significant issues like empty communities or hierarchy breaks.
-    CRITICAL: Severe issues like many empty communities or no valid communities.
-    """
-
-    HEALTHY = "healthy"
-    MODERATE = "moderate"
-    DEGRADED = "degraded"
-    CRITICAL = "critical"
+# CommunityHealthStatus 与 API 侧 GraphHealthStatus 值级相同，统一引用
+# core.constants 的单一枚举；冗余别名保持既有导入路径兼容。
 
 
 class IssueType(StrEnum):

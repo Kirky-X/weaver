@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for API Key management endpoints (unified in admin.py).
 
 Verifies:
@@ -143,7 +143,7 @@ class TestDailyRotationScheduler:
         mock_session.execute.return_value = mock_result
 
         # check_expiring_keys now calls rotate_key with actor="system" and
-        # expects a KeyOpResult (vuln-0009 fix). Mock the return value.
+        # expects a KeyOpResult. Mock the return value.
         from core.security.api_key_manager import KeyOpResult
 
         ok_result = KeyOpResult(status=KeyOpStatus.OK, data={"key_id": "new_key"})
@@ -177,7 +177,9 @@ class TestDailyRotationScheduler:
 
 
 class TestGracePeriod:
-    """Old key SHALL remain valid during 24h grace period after rotation."""
+    """Rotated old keys are invalidated immediately: ``rotated_to`` is set
+    (validate_key rejects rotated keys) while ``is_revoked`` stays False so
+    audit logs can distinguish rotations from explicit revocations."""
 
     @pytest.fixture
     def mock_pool(self):
@@ -193,11 +195,11 @@ class TestGracePeriod:
     async def test_rotated_key_not_revoked(self, manager, mock_pool) -> None:
         """Rotated key SHALL NOT be revoked immediately (grace period).
 
-        After the CWE-362 fix (vuln-0001), rotate_key uses SELECT ... FOR UPDATE
-        inside the main transaction and sets ``rotated_to`` (validate_key rejects
-        any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
-        it is reserved for explicit operator-initiated revocation (revoke_key),
-        so audit logs can distinguish scheduled rotations from explicit revocations.
+        After the CWE-362 fix, rotate_key uses SELECT... FOR UPDATE
+                inside the main transaction and sets ``rotated_to`` (validate_key rejects
+                any key whose ``rotated_to`` is non-null). ``is_revoked`` stays False —
+                it is reserved for explicit operator-initiated revocation (revoke_key),
+                so audit logs can distinguish scheduled rotations from explicit revocations.
         """
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)

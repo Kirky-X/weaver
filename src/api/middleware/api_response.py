@@ -1,23 +1,38 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """全局 API 响应包装与异常处理。"""
 
 from __future__ import annotations
 
+
 from datetime import datetime
+
 from typing import Any
 
+
 from fastapi import FastAPI, HTTPException, Request
+
 from fastapi.exceptions import RequestValidationError
+
 from fastapi.responses import JSONResponse
+
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+
 from api.schemas.response import ResponseCode
+
+from core.exceptions import BusinessError
+
 from core.observability import get_logger
+
 
 log = get_logger(__name__)
 
+
 # HTTP status code to ResponseCode mapping
+
 HTTP_STATUS_TO_RESPONSE_CODE: dict[int, int] = {
     400: ResponseCode.ERR_INVALID_PARAM,
     401: ResponseCode.ERR_AUTH_FAILED,
@@ -36,9 +51,12 @@ def _build_error_response(code: int, message: str, details: Any = None) -> dict[
         "message": message,
         "data": None,
     }
+
     if details is not None:
         body["details"] = details
+
     body["timestamp"] = datetime.now().isoformat()
+
     return body
 
 
@@ -46,11 +64,28 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers to FastAPI app.
 
     Handles:
+
+    - BusinessError: structured business errors with error codes
+
     - RequestValidationError: validation errors (422)
+
     - HTTPException: raised by endpoints (400/404/503 etc.)
+
     - StarletteHTTPException: includes 404 for route not found
+
     - Exception: uncaught fallback exception
+
     """
+
+    @app.exception_handler(BusinessError)
+    async def business_error_handler(request: Request, exc: BusinessError) -> JSONResponse:
+        """Handle BusinessError — pass through the business error code."""
+        body = _build_error_response(
+            code=exc.code,
+            message=exc.message,
+        )
+
+        return JSONResponse(status_code=exc.status_code, content=body)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
@@ -58,25 +93,34 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         """将验证错误映射为统一错误响应。"""
         # Extract error details for more informative message
+
         errors = exc.errors()
+
         error_messages = []
+
         for error in errors:
             loc = " -> ".join(str(part) for part in error.get("loc", []))
+
             msg = error.get("msg", "Validation error")
+
             error_messages.append(f"{loc}: {msg}")
 
         message = "Validation failed: " + "; ".join(error_messages[:3])
+
         if len(error_messages) > 3:
             message += f" (and {len(error_messages) - 3} more)"
 
         # Convert errors to JSON-serializable format
+
         serializable_errors = []
+
         for error in errors:
             serializable_error = {
                 "loc": [str(part) for part in error.get("loc", [])],
                 "msg": error.get("msg", "Validation error"),
                 "type": error.get("type", "value_error"),
             }
+
             serializable_errors.append(serializable_error)
 
         body = _build_error_response(
@@ -84,6 +128,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=message,
             details={"errors": serializable_errors},
         )
+
         return JSONResponse(status_code=422, content=body)
 
     @app.exception_handler(StarletteHTTPException)
@@ -97,6 +142,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             code=code,
             message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
         )
+
         return JSONResponse(status_code=exc.status_code, content=body)
 
     @app.exception_handler(HTTPException)
@@ -108,14 +154,17 @@ def register_exception_handlers(app: FastAPI) -> None:
             code=code,
             message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
         )
+
         return JSONResponse(status_code=exc.status_code, content=body)
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """未捕获异常兜底处理器。"""
-        log.exception("Unhandled exception", exc_info=exc)
+        log.exception("Unhandled exception")
+
         body = _build_error_response(
             code=ResponseCode.ERR_INTERNAL,
             message="Internal server error",
         )
+
         return JSONResponse(status_code=500, content=body)

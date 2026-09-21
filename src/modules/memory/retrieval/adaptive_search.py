@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Adaptive Search Engine for MAGMA multi-graph retrieval.
 
 Implements Heuristic Beam Search with intent-aware traversal
@@ -13,16 +13,17 @@ Enhanced with Phase 0 knowledge cache check for semantic similarity matching.
 from __future__ import annotations
 
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
-from core.protocols import EmbeddingServiceProtocol
+from core.protocols import EmbeddingServiceProtocol, KnowledgeCluster
 from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
 from modules.memory.core.traversal import calculate_transition_score
 
-# D4: intent → preferred edge_type for anchor scoring.
+# intent → preferred edge_type for anchor scoring.
 # Aligns with INTENT_EDGE_WEIGHTS — WHY gets CAUSAL weight 5.0, WHEN gets
 # TEMPORAL weight 5.0, etc. The legacy code hard-coded EdgeType.TEMPORAL,
 # which mismatched INTENT_EDGE_WEIGHTS[WHY][CAUSAL]=5.0 (the bug).
@@ -31,6 +32,8 @@ _INTENT_TO_ANCHOR_EDGE_TYPE: dict[IntentType, EdgeType] = {
     IntentType.WHEN: EdgeType.TEMPORAL,
     IntentType.ENTITY: EdgeType.ENTITY,
     IntentType.OPEN: EdgeType.SEMANTIC,
+    # Multi-hop queries traverse entity chains across intermediate nodes.
+    IntentType.MULTI_HOP: EdgeType.ENTITY,
 }
 
 if TYPE_CHECKING:
@@ -48,19 +51,11 @@ class _IntentGraphAdapter:
     compatible with BeamSearchReranker's expansion logic.
     """
 
-    def __init__(
-        self,
-        temporal_repo: Any,
-        causal_repo: Any,
-        query_embedding: list[float],
-        intent: IntentType,
-        event_cache: dict[str, dict[str, Any]] | None,
-    ) -> None:
-        self._temporal_repo = temporal_repo
-        self._causal_repo = causal_repo
-        self._query_embedding = query_embedding
-        self._intent = intent
-        self._event_cache = event_cache
+    def __init__(self) -> None:
+        # Only the neighbor cache is actually read (via get_neighbors); the
+        # repos/embedding/intent inputs are consumed upstream during
+        # _prefetch_neighbors and were dead weight here.
+        self._cached_neighbors: dict[str, list[dict[str, Any]]] = {}
 
     def get_neighbors(self, entity_id: str) -> list[dict[str, Any]]:
         """Get scored neighbors for an entity (synchronous wrapper).
@@ -136,11 +131,16 @@ class AdaptiveSearchEngine:
         self._when_anchor_limit = when_anchor_limit
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
+        # Per-search state lives in local variables passed through the
+        # call chain: concurrent search() calls no longer
+        # share a mid-flight mutable cache. `_event_cache` below is only
+        # published atomically when a search completes (kept as a debug
+        # seam / last-search snapshot).
         self._event_cache: dict[str, dict[str, Any]] | None = None
-        # D5 / Task 3.5: metadata exposed to endpoint callers via `last_metadata`.
+        # Metadata exposed to endpoint callers via `last_metadata`.
         # Reset on every search() invocation. Contains `causal_edges_traversed`
         # (count of neighbors reached via CAUSES/ENABLES edges) and `degraded`
-        # (set when score_range == 0 with >=2 results — D3 normalization fix).
+        # (set when score_range == 0 with >=2 results — normalization fix).
         self._last_metadata: dict[str, Any] = {
             "causal_edges_traversed": 0,
             "degraded": False,
@@ -155,13 +155,13 @@ class AdaptiveSearchEngine:
     def last_metadata(self) -> dict[str, Any]:
         """Metadata from the most recent search() invocation.
 
-        Exposed per D5 / spec ``search-engine#causal-search-answer-text``.
+        Exposed per / spec ``search-engine#causal-search-answer-text``.
         Contains:
         - ``causal_edges_traversed``: count of neighbors reached via
           CAUSES/ENABLES edges during beam search (0 when graph DB has no
           CAUSAL edges — Q1 finding).
         - ``degraded``: True when score_range == 0 with >=2 results
-          (D3 normalization fix — scoring function failed to differentiate).
+          (normalization fix — scoring function failed to differentiate).
 
         """
         return self._last_metadata
@@ -184,11 +184,15 @@ class AdaptiveSearchEngine:
         """
         start_time = time.monotonic()
 
-        # Reset metadata for this invocation (D5 / Task 3.5)
-        self._last_metadata = {
+        # Per-invocation metadata: accumulated locally and
+        # published to `last_metadata` atomically at the end, so a
+        # concurrent search can never observe a half-updated dict.
+        metadata: dict[str, Any] = {
             "causal_edges_traversed": 0,
             "degraded": False,
         }
+        # Per-invocation event cache, passed through the call chain.
+        event_cache: dict[str, dict[str, Any]] | None = None
 
         try:
             # Phase 0: Check knowledge cache for similar queries
@@ -208,13 +212,18 @@ class AdaptiveSearchEngine:
                         latency_ms=round(latency_ms, 2),
                     )
 
-                    # Return cached content as result
+                    self._last_metadata = metadata
+                    # Return cached content as result. score 1.0 marks a cache
+                    # hit (not a calibrated relevance probability); consumers
+                    # must check `cache_hit` before comparing against fresh
+                    # normalized scores in [0.0, 1.0].
                     return [
                         {
                             "id": cached_cluster.id,
                             "content": cached_cluster.content,
-                            "score": 1.0,  # Perfect match from cache
+                            "score": 1.0,
                             "source": "cache",
+                            "cache_hit": True,
                         }
                     ]
 
@@ -234,14 +243,17 @@ class AdaptiveSearchEngine:
 
             if not anchors:
                 log.warning("adaptive_search_no_anchors", query=query[:50])
+                self._last_metadata = metadata
                 return []
 
             # 4. Execute beam search
-            results = await self._beam_search(
+            results, causal_edges_traversed = await self._beam_search(
                 anchors=anchors,
                 query_embedding=query_embedding,
                 intent=intent,
+                event_cache=event_cache,
             )
+            metadata["causal_edges_traversed"] = causal_edges_traversed
 
             latency_ms = (time.monotonic() - start_time) * 1000
             log.info(
@@ -256,7 +268,7 @@ class AdaptiveSearchEngine:
             results = [r for r in results if r.get("score", 0) > 1.0]
 
             # Normalize scores to [0, 1] range (MAGMA Eq.5 exp() output is unbounded)
-            # D3 / Task 4.1-4.3: when score_range == 0 with >=2 results, the
+            # When score_range == 0 with >=2 results, the
             # scoring function FAILED to differentiate (e.g. embedding=None
             # across all candidates, or all candidates hit the same edge_type).
             # Old contract (search-score-normalization spec): 1.0 (pretended
@@ -278,12 +290,12 @@ class AdaptiveSearchEngine:
                         hint="scoring function produced identical scores — likely "
                         "EventNode embeddings missing or edge_type mismatch",
                     )
-                    self._last_metadata["degraded"] = True
+                    metadata["degraded"] = True
                     for r in results:
                         r["score"] = 0.0
                         r["degraded"] = True
                 elif score_range == 0:
-                    # Task 4.2: single result keeps 1.0
+                    # single result keeps 1.0
                     for r in results:
                         r["score"] = 1.0
                 else:
@@ -295,10 +307,14 @@ class AdaptiveSearchEngine:
             if self._knowledge_cache is not None and results:
                 await self._store_search_results(query, results)
 
+            # Publish per-search state atomically once the search completes.
+            self._last_metadata = metadata
+            self._event_cache = event_cache
             return results
 
         except Exception as exc:
             log.error("adaptive_search_failed", query=query[:50], error=str(exc))
+            self._last_metadata = metadata
             return []
 
     async def _store_search_results(
@@ -313,10 +329,6 @@ class AdaptiveSearchEngine:
             results: The search results to cache.
         """
         try:
-            import uuid
-
-            from core.protocols import KnowledgeCluster
-
             # Create a cluster from the top result
             if not results:
                 return
@@ -361,8 +373,8 @@ class AdaptiveSearchEngine:
 
         # Semantic search only — no fallback to get_temporal_chain
         # (fallback returns all events ignoring the query, producing irrelevant anchors)
-        # Task 3.1: pass query_embedding + embedding_service so search_temporal_events
-        # can re-rank by cosine similarity (D1) instead of returning pure CONTAINS
+        # pass query_embedding + embedding_service so search_temporal_events
+        # can re-rank by cosine similarity instead of returning pure CONTAINS
         # substring matches (the bug — "IT之家" matched every IT之家 media report).
         events = await self._temporal_repo.search_temporal_events(
             query=query,
@@ -378,22 +390,25 @@ class AdaptiveSearchEngine:
         anchors: list[str],
         query_embedding: list[float],
         intent: IntentType,
-    ) -> list[dict[str, Any]]:
+        event_cache: dict[str, dict[str, Any]] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
         """Execute heuristic beam search traversal using BeamSearchReranker.
 
         Args:
             anchors: Starting anchor event IDs.
             query_embedding: Query embedding vector.
             intent: Query intent type.
+            event_cache: Per-search event cache (— local to one
+                search() call, not shared instance state).
 
         Returns:
-            List of retrieved events with scores.
+            Tuple of (retrieved events with scores, causal_edges_traversed).
         """
         # Pre-fetch temporal chain into cache to avoid N+1 queries
         all_events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
-        self._event_cache = {e["id"]: e for e in all_events if e.get("id")}
+        event_cache = {e["id"]: e for e in all_events if e.get("id")}
 
-        # D4 / Task 3.3: pick anchor edge_type by intent (NOT hard-coded TEMPORAL).
+        # Pick anchor edge_type by intent (NOT hard-coded TEMPORAL).
         # Aligns with INTENT_EDGE_WEIGHTS — WHY intent gets CAUSAL weight 5.0,
         # WHEN gets TEMPORAL weight 5.0, etc.
         anchor_edge_type = _INTENT_TO_ANCHOR_EDGE_TYPE.get(intent, EdgeType.TEMPORAL)
@@ -401,9 +416,9 @@ class AdaptiveSearchEngine:
         # Score anchors based on content relevance
         candidates: list[dict[str, Any]] = []
         for anchor_id in anchors:
-            event_data = await self._get_event_data(anchor_id)
+            event_data = await self._get_event_data(anchor_id, event_cache)
             if event_data:
-                # D2 / Task 3.2: fill embedding from query result (None for legacy
+                # Fill embedding from query result (None for legacy
                 # data per Q2 finding). EventNode no longer hard-codes None.
                 anchor_emb = event_data.get("embedding")
                 if anchor_emb is None:
@@ -442,19 +457,11 @@ class AdaptiveSearchEngine:
                 )
 
         # Pre-fetch neighbors for all events and build graph adapter.
-        # Task 3.5: _prefetch_neighbors returns (cache, causal_edges_traversed).
+        # _prefetch_neighbors returns (cache, causal_edges_traversed).
         neighbor_cache, causal_edges_traversed = await self._prefetch_neighbors(
-            candidates, intent, query_embedding
+            candidates, intent, query_embedding, event_cache
         )
-        # Expose via last_metadata for endpoint callers (D5 / spec requirement)
-        self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
-        graph_adapter = _IntentGraphAdapter(
-            temporal_repo=self._temporal_repo,
-            causal_repo=self._causal_repo,
-            query_embedding=query_embedding,
-            intent=intent,
-            event_cache=self._event_cache,
-        )
+        graph_adapter = _IntentGraphAdapter()
         graph_adapter.set_cached_neighbors(neighbor_cache)
 
         # Use BeamSearchReranker for traversal
@@ -469,7 +476,7 @@ class AdaptiveSearchEngine:
         results: list[dict[str, Any]] = []
         for item in reranked:
             event_id = item.get("id", "")
-            event_data = await self._get_event_data(event_id)
+            event_data = await self._get_event_data(event_id, event_cache)
             content = ""
             timestamp = None
             if event_data:
@@ -493,13 +500,14 @@ class AdaptiveSearchEngine:
             if self._estimate_tokens(results) >= self._token_budget:
                 break
 
-        return results
+        return results, causal_edges_traversed
 
     async def _prefetch_neighbors(
         self,
         candidates: list[dict[str, Any]],
         intent: IntentType,
         query_embedding: list[float],
+        event_cache: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[dict[str, list[dict[str, Any]]], int]:
         """Pre-fetch and score neighbors for all candidate entities.
 
@@ -513,7 +521,7 @@ class AdaptiveSearchEngine:
             - neighbor_cache: Dict mapping entity_id to list of scored
               neighbor dicts.
             - causal_edges_traversed: Count of neighbors reached via CAUSAL
-              edges (D5 / Task 3.5). When 0, the endpoint answer text SHALL
+              edges. When 0, the endpoint answer text SHALL
               reflect "no causal chain found" rather than claiming a chain.
 
         """
@@ -534,11 +542,11 @@ class AdaptiveSearchEngine:
 
             scored_neighbors = []
             for neighbor_id, edge_type in neighbors:
-                # Task 3.4: pull embedding from event_cache (populated by
+                # pull embedding from event_cache (populated by
                 # _beam_search via get_temporal_chain). Legacy data may have
                 # embedding=None per Q2; that is fine — semantic_score will
-                # be 0.0 and the D3 normalization fix will mark `degraded`.
-                neighbor_data = await self._get_event_data(neighbor_id)
+                # be 0.0 and the normalization fix will mark `degraded`.
+                neighbor_data = await self._get_event_data(neighbor_id, event_cache)
                 neighbor_emb = neighbor_data.get("embedding") if neighbor_data else None
                 neighbor_event = EventNode(
                     id=neighbor_id,
@@ -558,7 +566,7 @@ class AdaptiveSearchEngine:
                         "fusion_score": score,
                     }
                 )
-                # Task 3.5: count edges reached via CAUSAL relations
+                # count edges reached via CAUSAL relations
                 # (matches CAUSES / ENABLES / PREVENTS, see EdgeType.CAUSAL).
                 if edge_type == EdgeType.CAUSAL:
                     causal_edges_traversed += 1
@@ -567,24 +575,36 @@ class AdaptiveSearchEngine:
 
         return neighbor_cache, causal_edges_traversed
 
-    async def _get_event_data(self, event_id: str) -> dict[str, Any] | None:
+    async def _get_event_data(
+        self,
+        event_id: str,
+        event_cache: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
         """Get event data by ID.
 
-        Uses pre-fetched event cache when available (set by _beam_search),
-        falling back to temporal chain query otherwise.
+        Uses the per-search event cache when available (passed down from
+        _beam_search), falling back to a temporal chain query otherwise.
 
         Args:
             event_id: Event ID.
+            event_cache: Per-search pre-fetched events.
 
         Returns:
             Event data dictionary or None.
         """
         # Fast path: check cache first
-        if self._event_cache is not None and event_id in self._event_cache:
-            return self._event_cache[event_id]
+        if event_cache is not None and event_id in event_cache:
+            return event_cache[event_id]
 
-        # Fallback: query temporal repo
+        # Fallback: query temporal repo once and publish into the per-search
+        # cache so N misses cost one chain query instead of N (N+1 guard).
         events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
+        if event_cache is not None:
+            for event in events:
+                eid = event.get("id")
+                if eid and eid not in event_cache:
+                    event_cache[eid] = event
+            return event_cache.get(event_id)
         for event in events:
             if event.get("id") == event_id:
                 return event

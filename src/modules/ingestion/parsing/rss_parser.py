@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """RSS/Atom feed parser with incremental fetching."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from urllib.parse import urlparse
@@ -82,8 +83,14 @@ class RSSParser(BaseSourceParser):
             )
             return []
 
-        config.etag = response_headers.get("ETag")
-        config.last_modified = response_headers.get("Last-Modified")
+        # Only refresh the stored validators when the server actually sent
+        # them — `headers.get` returns None for absent headers, which would
+        # silently wipe a previously stored ETag/Last-Modified and make the
+        # next request lose conditional-fetch capability.
+        if "ETag" in response_headers:
+            config.etag = response_headers["ETag"]
+        if "Last-Modified" in response_headers:
+            config.last_modified = response_headers["Last-Modified"]
 
         feed = feedparser.parse(content)
         items: list[NewsItem] = []
@@ -109,7 +116,9 @@ class RSSParser(BaseSourceParser):
 
             # Extract full article body from <content:encoded> HTML when available.
             # Falls back to description (summary) if no HTML content or extraction fails.
-            body = self._extract_body(entry)
+            # Offloaded to a thread: the regex work in _extract_body is
+            # synchronous and can stall the event loop on large feeds.
+            body = await asyncio.to_thread(self._extract_body, entry)
 
             items.append(
                 NewsItem(
@@ -247,9 +256,12 @@ class RSSParser(BaseSourceParser):
         published = entry.get("published_parsed") or entry.get("updated_parsed")
         if published:
             try:
-                from time import mktime
+                from calendar import timegm
 
-                return datetime.fromtimestamp(mktime(published), tz=UTC)
+                # feedparser's *_parsed struct_time values are UTC; timegm
+                # interprets them as UTC (time.mktime would misinterpret
+                # them as local time, shifting dates by the UTC offset).
+                return datetime.fromtimestamp(timegm(published), tz=UTC)
             except (OverflowError, ValueError):
                 return None
         return None

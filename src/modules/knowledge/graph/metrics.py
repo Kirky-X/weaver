@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Graph quality metrics module for monitoring knowledge graph health."""
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ log = get_logger(__name__)
 
 # Relationship types counted in ``total_relationships``. Kept narrow
 # (core structural edges only) so the metric stays stable when new
-# semantic relation types are added. See design.md §M2 for the
+# semantic relation types are added. See the
 # distinction between ``total_relationships`` and the broader
 # ``relationship_type_distribution`` which counts ALL types.
 _COUNTED_RELATION_TYPES: tuple[str, ...] = ("RELATED_TO", "MENTIONS", "HAS_ENTITY")
@@ -41,7 +41,7 @@ class GraphMetrics:
     # HAS_ENTITY, see ``_COUNTED_RELATION_TYPES``). Broader per-type counts
     # (including CAUSES/ENABLES/PREVENTS/…) are in
     # ``relationship_type_distribution``. The two fields are intentionally
-    # scoped differently — see design.md §M2.
+    # scoped differently.
     total_relationships: int = 0
     total_mentions: int = 0
     connected_components: int = 0
@@ -181,8 +181,13 @@ class GraphQualityMetrics:
         if include is None or "distributions" in include:
             await self._calculate_distributions(metrics)
 
-        # Modularity — moderate cost (calculated alongside components)
+        # Modularity — moderate cost (calculated alongside components).
+        # Modularity depends on component data: requesting it implicitly
+        # requires components, otherwise _calculate_modularity would read
+        # the dataclass default (0) and wrongly report modularity 0.0.
         if include is None or "modularity" in include:
+            if include is not None and "components" not in include:
+                await self._calculate_component_metrics(metrics)
             await self._calculate_modularity(metrics)
 
         log.info(
@@ -204,7 +209,7 @@ class GraphQualityMetrics:
         # (see ``_COUNTED_RELATION_TYPES``). LadybugDB uses Kùzu's
         # ``:TYPE1|TYPE2|TYPE3`` multi-type syntax (see graph_query_builders.py
         # line 1340 for prior art). Neo4j uses ``type(r) IN [...]`` filtering
-        # to stay consistent with the codebase convention (see design.md §L1).
+        # to stay consistent with the codebase convention.
         types_pattern = "|".join(_COUNTED_RELATION_TYPES)
         types_list = ", ".join(f"'{t}'" for t in _COUNTED_RELATION_TYPES)
         if self._db_type == DatabaseType.LADYBUG.value:
@@ -306,7 +311,7 @@ class GraphQualityMetrics:
         if not include_high_degree:
             return
 
-        # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
+        # Degree counts Entity-to-Entity only (see _calculate_degree_metrics above).
         # LadybugDB doesn't support `WHERE other:Entity` syntax
         if self._db_type == DatabaseType.LADYBUG.value:
             degree_query = """
@@ -353,13 +358,9 @@ class GraphQualityMetrics:
             results = await self._pool.execute_query(degree_query, {"limit": limit})
 
             high_degree_entities = []
-            total_degree_sum = 0
-            entity_count = 0
 
             for row in results:
                 total_degree = row.get("total_degree", 0)
-                total_degree_sum += total_degree
-                entity_count += 1
 
                 if total_degree >= min_degree:
                     high_degree_entities.append(
@@ -706,11 +707,11 @@ class GraphQualityMetrics:
             return 0.0
 
         if partitions is None:
-            partitions = await self._generate_simple_partitions(edges)
+            partitions = self._generate_simple_partitions(edges)
 
         return _compute_modularity(edges, partitions, resolution)
 
-    async def _generate_simple_partitions(
+    def _generate_simple_partitions(
         self,
         edges: list[tuple[str, str, float]],
     ) -> dict[str, int]:
@@ -727,8 +728,12 @@ class GraphQualityMetrics:
         return partitions
 
     async def get_health_summary(self) -> dict[str, Any]:
-        """Get a quick health summary of the graph."""
-        metrics = await self.calculate_all_metrics()
+        """Get a quick health summary of the graph.
+
+        Skips expensive metrics (distributions, high_degree, modularity) that
+        the summary does not use — keeps the health view fast.
+        """
+        metrics = await self.calculate_all_metrics(include={"components", "orphans"})
 
         health_score = self._compute_health_score(metrics)
 

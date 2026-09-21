@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Entity reader for graph repository.
 
 Handles entity-centric read operations: single entity lookup, entity
@@ -9,14 +9,12 @@ relation-type-filtered entity discovery with co-occurrence weighting.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from core.constants import EntityType
 from core.observability import get_logger
 from core.utils.time_utils import convert_timestamp
 from modules.storage.graph_readers.base import GraphReaderBase
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger(__name__)
 
@@ -55,7 +53,7 @@ class GraphEntityReader(GraphReaderBase):
             return {
                 "id": record.get("id") or "",
                 "canonical_name": record.get("canonical_name") or "",
-                "type": record.get("type") or "未知",
+                "type": record.get("type") or EntityType.UNKNOWN,
                 "aliases": record.get("aliases"),
                 "description": record.get("description"),
                 "updated_at": updated_at,
@@ -83,8 +81,8 @@ class GraphEntityReader(GraphReaderBase):
             created_at = convert_timestamp(row.get("created_at"))
             relations.append(
                 {
-                    "target": row["target"],
-                    "relation_type": row["relation_type"] or "RELATED_TO",
+                    "target": row.get("target") or "",
+                    "relation_type": row.get("relation_type") or "RELATED_TO",
                     "source_article_id": row.get("source_article_id"),
                     "created_at": created_at,
                 }
@@ -116,7 +114,7 @@ class GraphEntityReader(GraphReaderBase):
                 {
                     "id": row.get("id") or "",
                     "canonical_name": row.get("canonical_name") or "",
-                    "type": row.get("type") or "未知",
+                    "type": row.get("type") or EntityType.UNKNOWN,
                     "aliases": row.get("aliases"),
                     "description": row.get("description"),
                     "created_at": created_at,
@@ -187,11 +185,16 @@ class GraphEntityReader(GraphReaderBase):
             params,
         )
 
-        # Compute weight dynamically as co-occurrence article count
-        # Find articles that mention both the source entity and each target
-        weights = await self._compute_cooccurrence_weights(
-            entity_name, [r["target_name"] for r in result]
-        )
+        # Compute weight dynamically as co-occurrence article count.
+        # Find articles that mention both the source entity and each target.
+        # Skip the extra round-trip when every row already carries a
+        # computed stored weight (weights are then unused below).
+        if any(r.get("weight", 1.0) <= 1.0 for r in result):
+            weights = await self._compute_cooccurrence_weights(
+                entity_name, [r["target_name"] for r in result]
+            )
+        else:
+            weights = {}
 
         # Use stored weight when it's been computed (weight > 1.0),
         # otherwise fall back to co-occurrence calculation for default 1.0 weights
@@ -230,17 +233,13 @@ class GraphEntityReader(GraphReaderBase):
             return {}
 
         try:
-            # Single query: count shared articles between source and all targets
-            query = """
-                MATCH (a:Article)-[:MENTIONS]->(src:Entity {canonical_name: $source})
-                WITH a, collect(DISTINCT src) AS sources
-                MATCH (a)-[:MENTIONS]->(tgt:Entity)
-                WHERE tgt.canonical_name IN $targets
-                RETURN tgt.canonical_name AS target_name,
-                       count(DISTINCT a) AS shared_count
-            """
-            result = await self._pool.execute_query(
-                query,
+            # Single query: count shared articles between source and all targets.
+            # Built through the dialect-aware query builder and routed via
+            # _execute_fn like every other query here: a
+            # primary-pool outage now triggers the fallback pool instead of
+            # surfacing as a silently-swapped empty dict.
+            result = await self._execute_fn(
+                lambda qb: qb.build_cooccurrence_query(),
                 {"source": source_name, "targets": target_names},
             )
 

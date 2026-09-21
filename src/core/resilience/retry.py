@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unified retry strategies using tenacity.
 
 Provides standardized retry decorators for network, LLM, and database operations
@@ -56,7 +56,9 @@ def _get_rate_limit_error_type() -> tuple[type[Exception], ...]:
 
 LLM_EXCEPTIONS: tuple[type[Exception], ...] = (
     TimeoutError,
-    ConnectionError,
+    # OSError covers ConnectionError and raw socket/DNS failures that LLM
+    # HTTP stacks can raise without a ConnectionError wrapper.
+    OSError,
 )
 
 # Exception types for database operations
@@ -238,19 +240,30 @@ def _create_retry_decorator(
 
     Returns:
         A decorator function.
+
+    Raises:
+        ValueError: If ``max_attempts`` is not a positive integer.
     """
-    retryer = retry_func(
-        max_attempts=max_attempts,
-        min_wait=min_wait,
-        max_wait=max_wait,
-    )
+    if max_attempts < 1:
+        # 显式拒绝无效配置：max_attempts <= 0 时 tenacity 不会产出任何
+        # attempt，循环会静默退出（此前落到误导性的 "Retry exhausted"）。
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
     def decorator(fn: Callable[..., T]) -> Callable[..., T]:
         async def wrapper(*args: Any, **kwargs: Any) -> T:
+            # Fresh retryer per call — AsyncRetrying keeps mutable attempt
+            # state that concurrent tasks would otherwise corrupt.
+            retryer = retry_func(
+                max_attempts=max_attempts,
+                min_wait=min_wait,
+                max_wait=max_wait,
+            )
             async for attempt in retryer:
                 with attempt:
                     return await fn(*args, **kwargs)  # type: ignore[misc]
-            raise RuntimeError("Retry exhausted")
+            # max_attempts >= 1 且 reraise=True 时，重试耗尽必然以异常退出，
+            # 因此这里只是为类型检查器补齐控制流的兜底分支。
+            raise AssertionError("retry loop produced no attempt")  # pragma: no cover
 
         return wrapper  # type: ignore[return-value]
 

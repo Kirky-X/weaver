@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Integration tests for LLM failure logging — full chain from event to DB.
 
 Uses relational_pool fixture which automatically falls back to DuckDB

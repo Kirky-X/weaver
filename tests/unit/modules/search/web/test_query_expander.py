@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for modules.search.web.query_expander module.
 
 Covers R-web-search-008: LLM-driven query expansion. A broad query like
@@ -201,14 +201,15 @@ class TestLLMQueryExpanderExpand:
         assert call_kwargs["call_point"] == CallPoint.QUERY_EXPANDER
 
     @pytest.mark.asyncio
-    async def test_expand_uses_agnes_flash_label(self, expander):
-        """Test that expand uses the agnes-2.0-flash model label."""
+    async def test_expand_uses_configured_default_chat_label(self, expander):
+        """Label comes from the LLM client's configured default chat label."""
+        expander._llm.default_chat_label = "chat.custom.some-model"
         expander._llm.call = AsyncMock(return_value='["菲律宾 仁爱礁"]')
 
         await expander.expand("菲律宾")
 
         call_kwargs = expander._llm.call.call_args.kwargs
-        assert call_kwargs["label"] == "chat.agnes.agnes-2.0-flash"
+        assert call_kwargs["label"] == "chat.custom.some-model"
 
     @pytest.mark.asyncio
     async def test_expand_passes_query_in_payload(self, expander):

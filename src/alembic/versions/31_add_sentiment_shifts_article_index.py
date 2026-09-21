@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Add covering index for article-level sentiment_shifts queries.
 
 Revision ID: 31_add_sentiment_shifts_article_index
@@ -7,17 +7,17 @@ Revises: 30_extend_sentiment_shifts_for_article_tracking
 Create Date: 2026-07-17
 
 Background:
-- T003 SentimentTrackerNode queries the most recent article-level shift for
+- SentimentTrackerNode queries the most recent article-level shift for
   a given entity via:
       SELECT ... FROM sentiment_shifts
       WHERE entity_name = :entity AND article_id IS NOT NULL
       ORDER BY detected_at DESC LIMIT 1
 - Without an index covering (entity_name, article_id, detected_at), every
   article processed triggers a full scan on sentiment_shifts.
-- Performance review HIGH-1 (T003-sub4): add a partial composite index to
+- Performance review: add a partial composite index to
   cover the article-level lookup path.
 - Partial index (WHERE article_id IS NOT NULL) keeps the index small: only
-  article-level rows (T003) are indexed, community-level rows (existing
+  article-level rows are indexed, community-level rows (existing
   SentimentShiftDetector) are excluded.
 - DuckDB does not support partial indexes; the DuckDB schema upgrade path
   creates a regular composite index instead (see duckdb_schema.py).

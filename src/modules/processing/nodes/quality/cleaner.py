@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Cleaner pipeline node — trafilatura primary, LLM fallback for article content cleaning."""
 
 from __future__ import annotations
 
+import asyncio
 from difflib import SequenceMatcher
 
 import trafilatura
 
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
-from core.llm.resilience.circuit_breaker import CircuitOpenError
-from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import CleanerOutput
 from core.observability import get_logger
@@ -24,7 +23,7 @@ log = get_logger(__name__)
 # Cleaner 节点最大重试次数 (包含首次调用)
 _MAX_CLEANER_ATTEMPTS = 2
 
-# 错误页/登录页特征词 — 命中 2 个以上且 body < 500 字符视为垃圾内容 (R1 fix)
+# 错误页/登录页特征词 — 命中 2 个以上且 body < 500 字符视为垃圾内容
 _ERROR_PAGE_MARKERS: tuple[str, ...] = (
     "404",
     "not found",
@@ -173,7 +172,7 @@ class CleanerNode:
                 state["cleaned"]["author"] = author
             date = bare.get("date")
             if date:
-                # REM-002: Backfill publish_time when raw.publish_time is None.
+                # Backfill publish_time when raw.publish_time is None.
                 # Previously wrote to dead field 'llm_publish_time' which was never read.
                 if not raw.publish_time:
                     state["cleaned"]["publish_time"] = str(date)
@@ -221,7 +220,7 @@ class CleanerNode:
                     "source_host": raw.source_host,
                 }
                 if result.publish_time:
-                    # REM-002: Backfill publish_time when raw.publish_time is None.
+                    # Backfill publish_time when raw.publish_time is None.
                     # Previously wrote to dead field 'llm_publish_time' which was never read.
                     if not raw.publish_time:
                         state["cleaned"]["publish_time"] = result.publish_time
@@ -241,13 +240,8 @@ class CleanerNode:
                 # 成功则直接返回
                 break
 
-            except (
-                AllProvidersFailedError,
-                CircuitOpenError,
-                ValueError,
-                TimeoutError,
-                Exception,
-            ) as e:
+            # Exception covers the listed LLM-related types as well
+            except Exception as e:
                 if attempt < _MAX_CLEANER_ATTEMPTS - 1:
                     # 构造 retry_hint 提示 LLM 修正输出
                     retry_hint = (
@@ -280,8 +274,11 @@ class CleanerNode:
                 }
                 state["tags"] = []
                 state["cleaner_entities"] = []
-                state["cleaner_method"] = "llm"
-                metrics.cleaner_method_total.labels(method="llm").inc()
+                # Content was copied verbatim from the raw source — label it
+                # as degraded so metrics do not report an LLM clean that
+                # never happened.
+                state["cleaner_method"] = "llm_degraded"
+                metrics.cleaner_method_total.labels(method="llm_degraded").inc()
                 state.setdefault("degraded_fields", []).extend(
                     ["cleaned.title", "cleaned.body", "tags", "cleaner_entities"]
                 )
@@ -301,7 +298,7 @@ class CleanerNode:
         if state.get("terminal"):
             return state
 
-        # R1 fix: reject error pages (404/login/redirect) that slipped past
+        # reject error pages (404/login/redirect) that slipped past
         # crawler status check. Mark terminal to stop pipeline — garbage in
         # garbage out, no point in extracting entities from a login page.
         raw = state["raw"]
@@ -328,7 +325,8 @@ class CleanerNode:
             return state
 
         # Try trafilatura first
-        if self._try_trafilatura(state):
+        # trafilatura parsing is synchronous CPU work — keep the loop free
+        if await asyncio.to_thread(self._try_trafilatura, state):
             state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
                 "cleaner"
             )

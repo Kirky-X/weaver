@@ -1,18 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """httpx-based fetcher for standard HTTP requests."""
 
 from __future__ import annotations
 
 import asyncio
+import codecs
 import random
+import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from core.constants import NEWSBOT_USER_AGENT
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.retry import retry_network
+from core.security.validation.ssrf import SSRFError
 from modules.ingestion.fetching.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -22,7 +27,82 @@ log = get_logger(__name__)
 
 # Default UA when caller does not supply ``user_agents``. Kept as a
 # module-level constant so tests and docs can reference the same value.
-_DEFAULT_USER_AGENTS: list[str] = ["Mozilla/5.0 (compatible; NewsBot/1.0)"]
+_DEFAULT_USER_AGENTS: list[str] = [NEWSBOT_USER_AGENT]
+
+# Fallback charset and error policy for turning a raw body back into ``str``
+# in ``fetch()``. Matches httpx's own TextDecoder default (utf-8 with
+# replacement) so text callers keep the exact behaviour they had when this
+# method delegated to ``response.text``.
+_TEXT_CHARSET = "utf-8"
+_TEXT_ERRORS = "replace"
+
+# Charset parameter in a Content-Type header, e.g. "text/html; charset=gbk".
+_CHARSET_RE = re.compile(r"charset\s*=\s*([^;\s]+)", re.IGNORECASE)
+
+
+def _response_body_bytes(response: Any) -> bytes:
+    """Return the raw body of an httpx response as bytes.
+
+    Prefers ``response.content`` (the undecoded body). Falls back to
+    UTF-8-encoding ``response.text`` for response-like objects that only
+    expose the decoded form — httpx always provides both, but test doubles
+    commonly set just one.
+
+    Args:
+        response: An httpx Response (or compatible stand-in).
+
+    Returns:
+        The response body as bytes.
+    """
+    content = getattr(response, "content", None)
+    if isinstance(content, (bytes, bytearray)):
+        return bytes(content)
+
+    text = getattr(response, "text", "")
+    if isinstance(text, str):
+        return text.encode(_TEXT_CHARSET, errors=_TEXT_ERRORS)
+    return b""
+
+
+def decode_response_text(body: bytes, resp_headers: dict[str, str]) -> str:
+    """Decode a response body to ``str``, honouring any declared charset.
+
+    httpx's ``response.text`` resolves the charset from the Content-Type
+    header and falls back to UTF-8; ``fetch()`` used to return
+    ``response.text`` directly. Once the wire path started returning raw
+    bytes (to support binary payloads), this helper reproduces that
+    resolution so text callers are unaffected — notably for pages that
+    declare a non-UTF-8 charset such as GBK.
+
+    Args:
+        body: Raw response body bytes.
+        resp_headers: Response headers (case-insensitive lookup).
+
+    Returns:
+        Decoded response text, with undecodable bytes replaced rather than
+        raising.
+    """
+    charset = _TEXT_CHARSET
+    content_type = ""
+    for key, value in resp_headers.items():
+        if key.lower() == "content-type":
+            content_type = value
+            break
+
+    if content_type:
+        match = _CHARSET_RE.search(content_type)
+        if match:
+            declared = match.group(1).strip("\"'").strip()
+            if declared:
+                try:
+                    # Validate before use: an unknown charset name must fall
+                    # back to the default rather than raising LookupError.
+                    codecs.lookup(declared)
+                    charset = declared
+                except LookupError:
+                    log.debug("response_charset_unknown", charset=declared)
+
+    return body.decode(charset, errors=_TEXT_ERRORS)
 
 
 class RedirectBlockedError(Exception):
@@ -35,7 +115,16 @@ class RedirectBlockedError(Exception):
 
 
 class SecureRedirectHandler:
-    """Custom redirect handler that validates redirect URLs for SSRF protection."""
+    """httpx response event-hook validating each redirect target *before*
+    the next hop is requested (pre-request SSRF guard).
+
+    Registered via ``AsyncClient(event_hooks={"response": [...]})``: httpx
+    fires the hook after every hop's response arrives and only then builds
+    and sends the next redirect request, so raising here prevents any
+    request from ever reaching the unvalidated target.
+    """
+
+    _REDIRECT_STATUS = {301, 302, 303, 307, 308}
 
     def __init__(self, validator: URLValidator | None = None) -> None:
         """Initialize with optional URL validator.
@@ -45,32 +134,68 @@ class SecureRedirectHandler:
         """
         self._validator = validator
 
-    async def validate_redirect(self, request: httpx.Request, response: httpx.Response) -> None:
-        """Validate redirect URL before following.
+    async def __call__(self, response: httpx.Response) -> None:
+        """Validate the connection IP and any redirect target.
 
-        This is called before each redirect is followed.
+        Two checks per hop:
+        1. The IP the connection actually reached (from the network stream's
+           ``server_addr``) — authoritative against DNS rebinding, since
+           resolution-time validation races the connect.
+        2. A 3xx ``Location`` target, before httpx requests the next hop.
 
         Args:
-            request: The redirect request.
-            response: The response that triggered the redirect.
+            response: The just-received response.
 
         Raises:
-            RedirectBlockedError: If redirect URL is blocked.
+            RedirectBlockedError: If the connected IP or redirect target is
+                blocked.
         """
         if not self._validator:
             return
 
-        redirect_url = str(request.url)
+        # 1) Connected-IP check (anti-rebinding) — applies to every response.
+        server_addr = self._connected_ip(response)
+        if server_addr:
+            url = str(response.request.url)
+            try:
+                self._validator.check_connected_ip(server_addr, url)
+                log.debug(
+                    "connected_ip_validated",
+                    server_addr=server_addr,
+                    url=url,
+                )
+            except RedirectBlockedError:
+                raise
+            except Exception as exc:
+                log.warning(
+                    "connected_ip_blocked",
+                    server_addr=server_addr,
+                    url=url,
+                    reason=str(exc),
+                )
+                raise RedirectBlockedError(url, str(exc)) from exc
+
+        # 2) Redirect-target check.
+        if response.status_code not in self._REDIRECT_STATUS:
+            return
+
+        location = response.headers.get("location")
+        if not location:
+            return
+
+        redirect_url = str(response.url.join(location))
 
         try:
-            # Use synchronous check first (faster)
+            # Synchronous checks first (cheap, no DNS)
             if not self._validator.is_safe_url(redirect_url):
                 raise RedirectBlockedError(redirect_url, "URL failed synchronous security check")
 
-            # Full async validation
+            # Full async validation (DNS resolution, private-network checks)
             await self._validator.validate(redirect_url)
             log.debug("redirect_validated", redirect_url=redirect_url)
 
+        except RedirectBlockedError:
+            raise
         except Exception as exc:
             log.warning(
                 "redirect_blocked",
@@ -79,6 +204,27 @@ class SecureRedirectHandler:
             )
             raise RedirectBlockedError(redirect_url, str(exc)) from exc
 
+    @staticmethod
+    def _connected_ip(response: httpx.Response) -> str | None:
+        """Extract the remote IP the connection actually reached, if exposed.
+
+        httpcore exposes it via ``response.extensions["network_stream"]``.
+        Returns None when unavailable (mock transports, proxies returning
+        non-tuple addresses, etc.).
+        """
+        stream = response.extensions.get("network_stream")
+        if stream is None:
+            return None
+        try:
+            info = stream.get_extra_info("server_addr")
+        except Exception:
+            return None
+        if isinstance(info, tuple) and info:
+            return str(info[0])
+        if isinstance(info, str):
+            return info
+        return None
+
 
 class HttpxFetcher(BaseFetcher):
     """Lightweight fetcher using httpx for simple HTTP requests.
@@ -86,12 +232,14 @@ class HttpxFetcher(BaseFetcher):
     Args:
         timeout: Request timeout in seconds.
         user_agents: User-Agent pool — each request draws a random UA
-            from this list (P1-4 fix). Defaults to a single-UA pool to
+            from this list (fix). Defaults to a single-UA pool to
             preserve backward-compatible behavior.
         http2: Enable HTTP/2 multiplexing (default True).
         max_connections: Maximum connections in pool.
         max_keepalive: Maximum keepalive connections.
         url_validator: Optional URL validator for SSRF protection.
+        transport: Optional custom httpx transport (tests inject
+            ``httpx.MockTransport``; production leaves it None).
     """
 
     def __init__(
@@ -102,6 +250,7 @@ class HttpxFetcher(BaseFetcher):
         max_connections: int = 100,
         max_keepalive: int = 20,
         url_validator: URLValidator | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         limits = httpx.Limits(
             max_connections=max_connections,
@@ -109,23 +258,34 @@ class HttpxFetcher(BaseFetcher):
             keepalive_expiry=30.0,
         )
 
-        # Configure redirect handling
-        # httpx supports max_redirects, default is 20
+        # Register the redirect guard as a response event-hook: httpx fires
+        # it after each hop's response and before requesting the next hop,
+        # so an unvalidated redirect target is never contacted.
         self._redirect_handler = SecureRedirectHandler(url_validator)
 
-        # Per-request UA rotation (P1-4): do NOT set a client-level
+        # Per-request UA rotation: do NOT set a client-level
         # User-Agent header; instead, _get_headers picks one randomly
         # from self._user_agents on every request. Caller-supplied
         # headers still win (see _get_headers).
         self._user_agents = list(user_agents) if user_agents else list(_DEFAULT_USER_AGENTS)
 
-        self._client = httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            max_redirects=10,  # Limit redirects to prevent loops
-            http2=http2,
-            limits=limits,
-        )
+        client_kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            "follow_redirects": True,
+            "max_redirects": 10,  # Limit redirects to prevent loops
+            "http2": http2,
+            "limits": limits,
+            "event_hooks": ({"response": [self._redirect_handler]} if url_validator else None),
+            # 抓取器必须直连目标：trust_env 默认拾取环境变量与 Windows
+            # 注册表系统代理（urllib.getproxies），请求会经本机代理
+            # （如 127.0.0.1:10808）出站，SSRF connected-IP 反绑定检查
+            # 随即把代理地址误判为内网目标而拦截。代理出站需求应显式
+            # 注入 transport，而非隐式继承桌面代理。
+            "trust_env": False,
+        }
+        if transport is not None:
+            client_kwargs["transport"] = transport
+        self._client = httpx.AsyncClient(**client_kwargs)
         self._http2_enabled = http2
         self._url_validator = url_validator
 
@@ -160,7 +320,7 @@ class HttpxFetcher(BaseFetcher):
             headers: Optional HTTP headers to include in the request.
             pre_validated: If True, skip url_validator.validate (caller has
                 already validated). Used by SmartFetcher to avoid double
-                SSRF/URLhaus/PhishTank checks. See ``temp/report.md`` D3.
+                SSRF/URLhaus/PhishTank checks.
 
         Returns:
             Tuple of (status_code, response_text, response_headers).
@@ -169,33 +329,94 @@ class HttpxFetcher(BaseFetcher):
             SSRFError: If URL is blocked for SSRF protection.
             RedirectBlockedError: If a redirect is blocked for security.
         """
-        import time
+        status, body, resp_headers = await self._fetch_raw(url, headers, pre_validated)
+        return status, decode_response_text(body, resp_headers), resp_headers
 
+    async def fetch_bytes(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        pre_validated: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL and return the response body as raw bytes.
+
+        The ``fetch`` method returns a decoded ``str``, which is lossy for
+        binary payloads: httpx cannot infer an encoding for
+        ``application/pdf`` (or any non-text media type) and falls back to
+        UTF-8, corrupting bytes that are not valid UTF-8. Callers that must
+        preserve binary content (PDF text extraction) use this method
+        instead so no decode happens on the wire path.
+
+        Shares validation, redirect inspection, retry and metrics with
+        ``fetch`` via ``_fetch_raw`` — only the return type differs.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            pre_validated: If True, skip url_validator.validate.
+
+        Returns:
+            Tuple of (status_code, response_bytes, response_headers).
+
+        Raises:
+            SSRFError: If URL is blocked for SSRF protection.
+            RedirectBlockedError: If a redirect is blocked for security.
+        """
+        return await self._fetch_raw(url, headers, pre_validated)
+
+    async def _fetch_raw(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        pre_validated: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL, returning the undecoded response body and headers.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            pre_validated: If True, skip url_validator.validate.
+
+        Returns:
+            Tuple of (status_code, response_bytes, response_headers).
+
+        Raises:
+            SSRFError: If URL is blocked for SSRF protection.
+            RedirectBlockedError: If a redirect is blocked for security.
+        """
         start = time.monotonic()
 
         # Security validation - do NOT retry if this fails.
         # Skip when caller (e.g. SmartFetcher) has already validated upstream
         # to avoid duplicate SSRF + URLhaus + PhishTank network round-trips.
         if self._url_validator and not pre_validated:
-            await self._url_validator.validate(url)
+            result = await self._url_validator.validate(url)
+            if not result.is_safe:
+                raise SSRFError(
+                    url=url,
+                    message=f"URL blocked by security validation: {result.risk.value}",
+                )
 
         # Network operation with retry
         async for attempt in retry_network(max_attempts=3, min_wait=1.0, max_wait=10.0):
             with attempt:
                 try:
                     # Build request to allow redirect inspection.
-                    # Per-request UA rotation via _get_headers (P1-4 fix):
+                    # Per-request UA rotation via _get_headers (fix):
                     # caller headers override pool-selected UA.
                     request = self._client.build_request(
                         "GET", url, headers=self._get_headers(headers)
                     )
 
-                    # Send with streaming to intercept redirects
+                    # Redirect targets are validated by the client-level
+                    # event-hook (SecureRedirectHandler) before each hop.
                     response = await self._client.send(request, follow_redirects=True)
 
-                    # Check redirect chain for security - do NOT retry if this fails
-                    if response.history and self._url_validator:
-                        await self._validate_redirect_chain(response.history, url)
+                    # send() does NOT raise for HTTP error statuses — surface
+                    # them as HTTPStatusError so the 429/503 Retry-After
+                    # backoff and 5xx retry logic below are reachable.
+                    if response.status_code >= 400:
+                        response.raise_for_status()
 
                     latency = time.monotonic() - start
                     MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
@@ -207,7 +428,11 @@ class HttpxFetcher(BaseFetcher):
                         http_version=response.http_version,
                         redirects=len(response.history),
                     )
-                    return response.status_code, response.text, dict(response.headers)
+                    return (
+                        response.status_code,
+                        _response_body_bytes(response),
+                        dict(response.headers),
+                    )
 
                 except RedirectBlockedError:
                     # Security errors - do not retry, propagate immediately
@@ -221,7 +446,7 @@ class HttpxFetcher(BaseFetcher):
                     latency = time.monotonic() - start
 
                     # 429/503 + Retry-After: respect the server's backoff
-                    # signal before re-raising (P1-4 fix). Cap the wait at
+                    # signal before re-raising (fix). Cap the wait at
                     # 60s so a hostile server cannot stall the crawler
                     # indefinitely. Re-raise so retry_network still owns
                     # the retry-loop accounting.
@@ -269,7 +494,9 @@ class HttpxFetcher(BaseFetcher):
                     )
                     raise  # Let retry_network handle
 
-        raise RuntimeError("Fetch retry exhausted")  # Should never reach here
+        # Unreachable: retry_network(reraise=True) re-raises the last exception
+        # when the retry budget is exhausted, so this loop never exits normally.
+        raise AssertionError("unreachable: retry_network always raises on exhaustion")
 
     async def post(
         self,
@@ -294,13 +521,16 @@ class HttpxFetcher(BaseFetcher):
             httpx.HTTPStatusError: On HTTP error status.
             httpx.TransportError: On transport error.
         """
-        import time
-
         start = time.monotonic()
         try:
             # Validate URL before making request (SSRF protection)
             if self._url_validator:
-                await self._url_validator.validate(url)
+                result = await self._url_validator.validate(url)
+                if not result.is_safe:
+                    raise SSRFError(
+                        url=url,
+                        message=f"URL blocked by security validation: {result.risk.value}",
+                    )
 
             response = await self._client.post(
                 url,
@@ -337,48 +567,6 @@ class HttpxFetcher(BaseFetcher):
             MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
             log.warning("httpx_post_error", url=url, error=str(exc))
             raise
-
-    async def _validate_redirect_chain(
-        self, history: list[httpx.Response], original_url: str
-    ) -> None:
-        """Validate all URLs in redirect chain.
-
-        Args:
-            history: List of redirect responses.
-            original_url: The original URL requested.
-
-        Raises:
-            RedirectBlockedError: If any redirect URL is blocked.
-        """
-        if not self._url_validator:
-            return
-
-        for i, response in enumerate(history):
-            redirect_url = str(response.url)
-
-            # Skip the first URL (original) as it was already validated
-            if i == 0 and redirect_url == original_url:
-                continue
-
-            try:
-                # Quick synchronous check first
-                if not self._url_validator.is_safe_url(redirect_url):
-                    raise RedirectBlockedError(
-                        redirect_url, "Failed security check in redirect chain"
-                    )
-
-                log.debug("redirect_chain_validated", redirect_url=redirect_url, step=i)
-
-            except RedirectBlockedError:
-                raise
-            except Exception as exc:
-                log.warning(
-                    "redirect_chain_blocked",
-                    redirect_url=redirect_url,
-                    step=i,
-                    reason=str(exc),
-                )
-                raise RedirectBlockedError(redirect_url, str(exc)) from exc
 
     async def close(self) -> None:
         """Close the httpx client."""

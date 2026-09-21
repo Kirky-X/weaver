@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for modules.knowledge.graph.community.repair_service module."""
@@ -294,3 +294,119 @@ class TestCommunityRepairServiceIntegration:
 
         result = await service.repair_empty_communities(dry_run=True)
         assert result.affected_count == 2
+
+
+class TestAutoRepairTargetedInput:
+    """Auto_repair must forward community_ids from issues."""
+
+    @pytest.fixture
+    def service(self):
+        mock_pool = AsyncMock()
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        return CommunityRepairService(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_stale_report_issues_are_targeted(self, service):
+        """STALE_REPORT repair must be scoped to the issues' communities."""
+        service._report_generator = AsyncMock()
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.STALE_REPORT,
+                severity="low",
+                description="stale",
+                suggestion="regen",
+                community_id="c1",
+                auto_repairable=True,
+            ),
+        ]
+
+        await service.auto_repair(issues, dry_run=True)
+
+        query = service._pool.execute_query.call_args[0][0]
+        assert "c.id IN $community_ids" in query
+
+    @pytest.mark.asyncio
+    async def test_missing_report_issues_are_targeted(self, service):
+        """MISSING_REPORT repair must regenerate only the issues' communities."""
+        service._report_generator = AsyncMock()
+        service._report_generator.regenerate_report = AsyncMock(
+            return_value=RepairResult(
+                repair_type="generate_missing_reports", affected_count=1, success=True
+            )
+        )
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.MISSING_REPORT,
+                severity="medium",
+                description="missing",
+                suggestion="generate",
+                community_id="c2",
+                auto_repairable=True,
+            ),
+        ]
+
+        await service.auto_repair(issues, dry_run=False)
+
+        regenerated = [
+            call.args[0] for call in service._report_generator.regenerate_report.await_args_list
+        ]
+        assert regenerated == ["c2"]
+
+
+class TestRepairMissingReports:
+    """Test repair_missing_reports success semantics."""
+
+    @pytest.fixture
+    def service_with_generator(self):
+        mock_pool = AsyncMock()
+        mock_gen = AsyncMock()
+        return CommunityRepairService(mock_pool, mock_gen)
+
+    @pytest.mark.asyncio
+    async def test_result_dataclass_truthiness_not_counted_as_success(self, service_with_generator):
+        """A falsy-checked ReportGenerationResult is always truthy — only
+        result.success counts, so failed regenerations must not increment."""
+        from modules.knowledge.graph.community.report_generator import (
+            ReportGenerationResult,
+        )
+
+        service_with_generator._report_generator.regenerate_report = AsyncMock(
+            side_effect=[
+                ReportGenerationResult(community_id="c1", success=True),
+                ReportGenerationResult(community_id="c2", success=False, error="llm failed"),
+            ]
+        )
+
+        result = await service_with_generator.repair_missing_reports(["c1", "c2"])
+
+        assert result.affected_count == 1
+        # Partial failure must surface, not be masked by success_count > 0
+        assert result.success is False
+        assert "c2" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_all_success(self, service_with_generator):
+        from modules.knowledge.graph.community.report_generator import (
+            ReportGenerationResult,
+        )
+
+        service_with_generator._report_generator.regenerate_report = AsyncMock(
+            return_value=ReportGenerationResult(community_id="c1", success=True)
+        )
+
+        result = await service_with_generator.repair_missing_reports(["c1"])
+
+        assert result.success is True
+        assert result.affected_count == 1
+        assert result.error is None
+
+    @pytest.mark.asyncio
+    async def test_exception_counted_as_failure(self, service_with_generator):
+        service_with_generator._report_generator.regenerate_report = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+
+        result = await service_with_generator.repair_missing_reports(["c1"])
+
+        assert result.success is False
+        assert result.affected_count == 0

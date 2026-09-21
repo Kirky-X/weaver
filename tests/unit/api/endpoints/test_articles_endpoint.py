@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for articles endpoints — beyond the model/basic tests in test_api.py."""
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+
+from core.exceptions import BusinessError
 
 
 def _make_mock_article(
@@ -89,6 +91,56 @@ def _make_mock_pool(articles: list[MagicMock], total: int | None = None) -> Magi
     return pool
 
 
+class TestListArticlesLanguageFilter:
+    """GET /articles language filter must validate ISO 639-1 codes."""
+
+    @pytest.mark.asyncio
+    async def test_valid_language_is_accepted(self):
+        """A valid code (zh) builds a filter and returns results (no 422)."""
+        from api.endpoints.content.articles import list_articles
+
+        article = _make_mock_article(language="zh")
+        pool = _make_mock_pool([article], total=1)
+
+        result = await list_articles(
+            page=1,
+            page_size=20,
+            category=None,
+            language="zh",
+            source_host=None,
+            min_score=None,
+            min_credibility=None,
+            sort_by="publish_time",
+            sort_order="desc",
+            _="test-key",
+            pool=pool,
+        )
+        assert len(result.data.items) == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_language_returns_422(self):
+        """A non-ISO-639-1 code is rejected with 422 (mirrors category filter)."""
+        from api.endpoints.content.articles import list_articles
+
+        pool = _make_mock_pool([], total=0)
+        with pytest.raises(HTTPException) as exc_info:
+            await list_articles(
+                page=1,
+                page_size=20,
+                category=None,
+                language="fr",
+                source_host=None,
+                min_score=None,
+                min_credibility=None,
+                sort_by="publish_time",
+                sort_order="desc",
+                _="test-key",
+                pool=pool,
+            )
+        assert exc_info.value.status_code == 422
+        assert "fr" in str(exc_info.value.detail)
+
+
 class TestListArticlesPagination:
     """Tests for pagination in GET /articles."""
 
@@ -101,10 +153,10 @@ class TestListArticlesPagination:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -124,10 +176,10 @@ class TestListArticlesPagination:
         pool = _make_mock_pool(articles, total=50)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=3,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -148,10 +200,10 @@ class TestListArticlesPagination:
         pool = _make_mock_pool(articles, total=25)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -173,10 +225,10 @@ class TestListArticlesPagination:
         pool = _make_mock_pool([], total=5)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=100,
             page_size=10,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -201,10 +253,10 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host="news.example.com",
             min_score=None,
             min_credibility=None,
@@ -225,10 +277,10 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=0.8,
             min_credibility=None,
@@ -248,10 +300,10 @@ class TestListArticlesFiltering:
         pool = _make_mock_pool([article], total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host="tech.example.com",
             min_score=0.8,
             min_credibility=None,
@@ -275,10 +327,10 @@ class TestListArticlesSorting:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -299,10 +351,10 @@ class TestListArticlesSorting:
         pool = _make_mock_pool(articles, total=1)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -325,10 +377,10 @@ class TestListArticlesEmptyResults:
         pool = _make_mock_pool([], total=0)
 
         result = await list_articles(
-            request=_make_mock_request(),
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -368,7 +420,7 @@ class TestGetArticleDetail:
         pool.session.return_value.__aenter__ = AsyncMock(return_value=session)
         pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        # Mock request for audit logging (vuln-0003 mitigation).
+        # Mock request for audit logging.
         mock_request = MagicMock()
         mock_request.client.host = "127.0.0.1"
         mock_request.headers = {"user-agent": "test-agent"}
@@ -422,7 +474,7 @@ class TestGetArticleDetail:
 
         mock_request = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_article(
                 request=mock_request,
                 article_id="12345678-1234-5678-1234-567812345678",
@@ -430,11 +482,11 @@ class TestGetArticleDetail:
                 pool=pool,
             )
         assert exc_info.value.status_code == 404
-        assert "not found" in exc_info.value.detail
+        assert "not found" in exc_info.value.message
 
 
 class TestArticleAuditLog:
-    """Verify article access is recorded in the audit log (vuln-0003 mitigation)."""
+    """Verify article access is recorded in the audit log."""
 
     @pytest.mark.asyncio
     async def test_successful_article_access_writes_audit_log(self):
@@ -511,7 +563,7 @@ class TestArticleAuditLog:
             mock_audit_instance = MockAuditService.return_value
             mock_audit_instance.log_event = AsyncMock()
 
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await get_article(
                     request=mock_request,
                     article_id="12345678-1234-5678-1234-567812345678",
@@ -531,7 +583,7 @@ class TestArticleAuditLog:
     async def test_audit_log_failure_does_not_block_response(self):
         """Audit log failure SHALL NOT block the article response (fire-and-forget).
 
-        This verifies the LOW-001 fix: audit log is dispatched via
+        This verifies the fix: audit log is dispatched via
         asyncio.create_task (fire-and-forget), so even if log_event raises,
         the article response is already returned to the caller.
         """
@@ -603,8 +655,10 @@ class TestArticlesEndpointHTTPLevel:
 
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
+        from api.middleware.api_response import register_exception_handlers
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -621,8 +675,10 @@ class TestArticlesEndpointHTTPLevel:
 
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
+        from api.middleware.api_response import register_exception_handlers
 
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()

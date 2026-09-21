@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Base entity repository with common entity graph operations.
 
 This module defines the shared interface and common implementations for
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from core.models.shared import EntityView
     from core.protocols import GraphPool
 
+from core.constants import DEFAULT_ENTITY_MERGE_RETRIES
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -37,7 +38,7 @@ class BaseEntityRepo(ABC):
         pool: Graph database pool (Neo4j or LadybugDB).
     """
 
-    MAX_MERGE_RETRIES = 3
+    MAX_MERGE_RETRIES = DEFAULT_ENTITY_MERGE_RETRIES
     DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:
@@ -203,7 +204,7 @@ class BaseEntityRepo(ABC):
     async def list_all_entity_names(self) -> set[str]:
         """List all entity canonical names.
 
-        REM-001: Used by cleanup_orphan_entity_vectors to compare against
+        Used by cleanup_orphan_entity_vectors to compare against
         entity_vectors.neo4j_id (which stores entity names, not graph IDs).
         Comparing by name avoids the ID namespace mismatch between
         entity_vectors (names) and list_all_entity_ids (graph internal IDs).
@@ -219,14 +220,26 @@ class BaseEntityRepo(ABC):
         Returns:
             Number of entities deleted.
         """
-        # Default implementation using list + delete
+        # Default implementation using list + delete.
+        # Per-item failures are logged and skipped so one bad row cannot
+        # abort the whole sweep; the return value is the ACTUAL number of
+        # rows deleted, not the candidate count.
         orphan_ids = await self._list_orphan_ids()
+        deleted = 0
         for eid in orphan_ids:
-            await self._pool.execute_query(
-                self._delete_entity_query(),
-                self._entity_id_params(eid),
-            )
-        return len(orphan_ids)
+            try:
+                await self._pool.execute_query(
+                    self._delete_entity_query(),
+                    self._entity_id_params(eid),
+                )
+                deleted += 1
+            except Exception as exc:
+                log.warning(
+                    "delete_orphan_entity_failed",
+                    entity_id=str(eid),
+                    error=str(exc),
+                )
+        return deleted
 
     async def count_orphan_entities(self) -> int:
         """Count orphan entities.
@@ -313,7 +326,8 @@ class BaseEntityRepo(ABC):
 
         Args:
             entities: List of entity dicts.
-            batch_size: Batch size (default: DEFAULT_BATCH_SIZE).
+            batch_size: Ignored by this default implementation (kept for
+                signature parity with chunked subclass overrides).
 
         Returns:
             Dict with 'created' and 'updated' counts.
@@ -348,7 +362,8 @@ class BaseEntityRepo(ABC):
 
         Args:
             aliases: List of dicts with 'canonical_name', 'type', 'alias'.
-            batch_size: Batch size (default: DEFAULT_BATCH_SIZE).
+            batch_size: Ignored by this default implementation (kept for
+                signature parity with chunked subclass overrides).
 
         Returns:
             Number of entities updated.
@@ -481,6 +496,9 @@ class BaseEntityRepo(ABC):
         Returns:
             Number of entities linked.
         """
+        # Lazy import on purpose: modules.memory imports storage adapters at
+        # a higher level, so a module-level import here would create a
+        # storage -> memory import cycle.
         from modules.memory.core.event_node import EventNode
 
         if not isinstance(event, EventNode):

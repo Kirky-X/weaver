@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Unit tests for GlobalContextBuilder Entity-Article fallback."""
 
 from __future__ import annotations
 
+
 from unittest.mock import AsyncMock, MagicMock
+
 
 import pytest
 
@@ -13,71 +17,107 @@ class MockRecord:
     """Minimal mock for neo4j.Record (dict-like)."""
 
     def __init__(self, data: dict):
+
         self._data = data
 
     def __iter__(self):
+
         return iter(self._data.items())
 
     def keys(self):
+
         return self._data.keys()
 
     def values(self):
+
         return self._data.values()
 
     def items(self):
+
         return self._data.items()
 
     def __getitem__(self, key):
+
         return self._data[key]
 
     def get(self, key, default=None):
+
         return self._data.get(key, default)
 
 
 class MockNeo4jPool:
     """Mock Neo4jPool that returns configurable query results.
 
+
+
     For Community queries: returns _community_results.
+
     For Entity-Article fallback queries: applies token-based filtering
+
     against entity_name, article_title, article_summary (case-insensitive).
+
     """
 
     def __init__(self, community_results: list | None = None, fallback_results: list | None = None):
+
         self._community_results = community_results
+
         self._fallback_raw = fallback_results or []
+
         self._query_count = 0
+
         self._fallback_called = False
 
     def set_fallback_results(self, results: list):
+
         self._fallback_raw = results
 
     async def execute_query(self, cypher: str, params: dict | None = None):
+
         self._query_count += 1
+
         # If the cypher contains "(a:Article)-[:MENTIONS]->" it's the fallback
+
         if "(a:Article)-[:MENTIONS]->" in cypher:
             self._fallback_called = True
+
             tokens = [t.lower() for t in params.get("tokens") or []]
+
             if not tokens:
                 return []
+
             filtered = []
+
             for record in self._fallback_raw:
                 d = dict(record) if hasattr(record, "_data") else record
+
                 name = (d.get("entity_name") or "").lower()
+
                 title = (d.get("article_title") or "").lower()
+
                 summary = (d.get("article_summary") or "").lower()
+
                 if any(tok in name or tok in title or tok in summary for tok in tokens):
                     filtered.append(record)
 
             # Simulate Cypher ORDER BY article_score DESC, entity_degree DESC
+
             def sort_key(record):
+
                 d = dict(record) if hasattr(record, "_data") else record
+
                 score = float(d.get("article_score") or 0.5)
+
                 degree = float(d.get("entity_degree") or 0)
+
                 return (score, degree)
 
             filtered.sort(key=sort_key, reverse=True)
+
             return filtered
+
         # Otherwise it's a Community query
+
         return self._community_results or []
 
 
@@ -88,10 +128,16 @@ class TestGlobalContextBuilderFallback:
     async def test_fallback_returns_entities_when_no_communities(self):
         """When Community nodes don't exist, fallback returns Article-Entity aggregation.
 
-        After Article node slim-down (design.md §D2), the graph query returns
+
+
+        After Article node slim-down, the graph query returns
+
         only ``article_id`` (pg_id) and entity fields. Title/score are
+
         batch-fetched from PostgreSQL via ``article_repo.fetch_titles_by_pg_ids``.
+
         """
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -108,7 +154,9 @@ class TestGlobalContextBuilderFallback:
                 ),
             ],
         )
+
         mock_article_repo = MagicMock()
+
         mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
             return_value={
                 "uuid-123": {
@@ -121,18 +169,25 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool, article_repo=mock_article_repo)
+
         result = await builder._find_entity_article_fallback("小米 AI")
 
         assert len(result) == 1
+
         assert result[0]["id"].startswith("fallback:")
+
         assert "小米" in result[0]["title"]
+
         assert "小米投资AI领域" in result[0]["title"]
+
         assert result[0]["rank"] == pytest.approx(0.85)
+
         assert result[0]["entity_count"] == 1
 
     @pytest.mark.asyncio
     async def test_fallback_degraded_without_article_repo(self):
         """Degraded mode uses entity_name as title and 0.5 as rank."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -151,15 +206,19 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)  # no article_repo
+
         result = await builder._find_entity_article_fallback("小米 AI")
 
         assert len(result) == 1
+
         assert result[0]["title"] == "小米"
+
         assert result[0]["rank"] == pytest.approx(0.5)
 
     @pytest.mark.asyncio
     async def test_fallback_filters_by_query_keyword(self):
         """Fallback matches query tokens against entity_name and article title."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -191,15 +250,19 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
+
         # Query for "腾讯" should only match first record
+
         result = await builder._find_entity_article_fallback("腾讯")
 
         assert len(result) == 1
+
         assert "腾讯" in result[0]["title"]
 
     @pytest.mark.asyncio
     async def test_fallback_returns_empty_when_nothing_matches(self):
         """Fallback returns empty list when no entities/articles match query."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -208,6 +271,7 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
+
         result = await builder._find_entity_article_fallback("完全不存在的查询词XYZ")
 
         assert result == []
@@ -215,6 +279,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_build_sets_fallback_metadata_when_using_fallback(self):
         """build() sets metadata.fallback_source='entity_article' when results come from fallback."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -235,14 +300,17 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
+
         context = await builder.build(query="AI", max_tokens=1000)
 
         assert context.metadata.get("fallback_source") == "entity_article"
+
         assert context.metadata.get("total_communities") == 1
 
     @pytest.mark.asyncio
     async def test_build_returns_empty_when_fallback_also_empty(self):
         """build() returns empty context when both Community and fallback queries return nothing."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -251,18 +319,25 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
+
         context = await builder.build(query="完全不存在的查询", max_tokens=1000)
 
         # Should have a "No Communities" section (indicating no communities exist)
+
         assert any("No Communities" in s.name for s in context.sections)
+
         assert context.metadata.get("fallback_source") is None
+
         # When no communities exist, metadata contains 'communities' key and hint
+
         assert context.metadata.get("communities") == 0
+
         assert "hint" in context.metadata
 
     @pytest.mark.asyncio
     async def test_find_relevant_communities_calls_fallback_after_community_failure(self):
         """find_relevant_communities calls _find_entity_article_fallback when Community returns empty."""
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -283,24 +358,35 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
+
         result, used_fallback, search_method = await builder.find_relevant_communities(
             "华为", level=0
         )
 
         assert used_fallback
+
         assert pool._fallback_called
+
         assert len(result) == 1
+
         assert "华为" in result[0]["title"]
+
         assert search_method == "entity_article_fallback"
 
     @pytest.mark.asyncio
     async def test_fallback_sorting_by_article_score(self):
         """Fallback results are sorted by article.score descending.
 
-        After Article node slim-down (design.md §D2), score comes from PG
+
+
+        After Article node slim-down, score comes from PG
+
         via ``fetch_titles_by_pg_ids``. MockNeo4jPool still sorts by
+
         ``article_score`` field (kept in mock data for sort simulation).
+
         """
+
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -328,7 +414,9 @@ class TestGlobalContextBuilderFallback:
                 ),
             ],
         )
+
         mock_article_repo = MagicMock()
+
         mock_article_repo.fetch_titles_by_pg_ids = AsyncMock(
             return_value={
                 "uuid-a": {
@@ -347,11 +435,17 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool, article_repo=mock_article_repo)
+
         result = await builder._find_entity_article_fallback("公司")
 
         # companyA should be first (score=0.925) > companyB (score=0.55)
+
         # After slim-down: title comes from PG (文章A), not entity_name (公司A).
+
         assert len(result) == 2
+
         assert result[0]["title"] == "文章A"
+
         assert result[0]["rank"] == pytest.approx(0.925)
+
         assert result[1]["rank"] == pytest.approx(0.55)

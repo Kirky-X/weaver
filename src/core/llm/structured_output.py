@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Schema-driven structured output — SchemaNode → JSON Schema (T023 / R-structured-001).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Schema-driven structured output — SchemaNode → JSON Schema.
 
 SchemaDrivenStructuredOutput queries the graph database for a SchemaNode by
 its business-level id (format: ``schema-{event_type}``) and converts it to a
@@ -13,7 +13,7 @@ SchemaNode schema (actual fields):
     - ``confidence`` (float [0,1])
     - ``created_at`` / ``updated_at`` (timestamps)
 
-Spec R-structured-001 field naming conflict (Rule 7 exposed):
+Spec field naming conflict (Rule 7 exposed):
     Spec mentions ``SchemaNode.properties`` and ``entity_type`` as the fields
     to convert. Actual SchemaNode schema uses ``pattern`` (already a complete
     JSON Schema string) and ``event_type`` (business key). Resolution:
@@ -21,11 +21,10 @@ Spec R-structured-001 field naming conflict (Rule 7 exposed):
     the schema dict, and ``event_type`` is added as the JSON Schema ``title``
     field. The docstring of NarrativeSchemaExtractorNode and the schema files
     (ladybug_schema.py L160-167) confirm ``pattern`` / ``event_type`` are
-    the canonical field names. Updating the spec wording is out of scope for
-    T023 (would require specmark converge phase 7).
+    the canonical field names. Updating the spec wording is out of scope.
 
 Conversion rules:
-    - ``pattern`` (JSON string) → ``json.loads`` → schema dict (R-structured-001)
+    - ``pattern`` (JSON string) → ``json.loads`` → schema dict
     - ``event_type`` → schema["title"] (latest-wins: overrides any title
       embedded in ``pattern``, because event_type is the authoritative
       business key maintained by NarrativeSchemaExtractorNode)
@@ -34,7 +33,7 @@ Conversion rules:
 Failure handling (Rule 12 — fail loud):
     - SchemaNode not found (empty result OR record missing ``pattern``)
       → raise ``SchemaNotFoundError`` (caller may regenerate via
-      NarrativeSchemaExtractorNode, or degrade to plain LLM call per R-structured-002).
+      NarrativeSchemaExtractorNode, or degrade to plain LLM call per).
     - Invalid JSON in ``pattern`` → propagate ``ValueError`` from
       ``json.loads``. Do not swallow — caller needs to know the SchemaNode
       is corrupted (Rule 12).
@@ -68,15 +67,15 @@ log = get_logger(__name__)
 class SchemaNotFoundError(Exception):
     """Raised when a SchemaNode cannot be found or is malformed.
 
-    Spec R-structured-001: SchemaDrivenStructuredOutput raises this when
+    Spec SchemaDrivenStructuredOutput raises this when
     the SchemaNode does not exist (empty query result) or lacks the
-    ``pattern`` field (malformed record). Callers (T024 LLMClient.
+    ``pattern`` field (malformed record). Callers (LLMClient.
     structured_call) catch this to degrade to a plain LLM call returning
-    ``{_fallback: true, content: <llm_response>}`` (R-structured-002
+    ``{_fallback: true, content: <llm_response>}`` (
     fallback contract).
 
     This is NOT a programming bug — it signals schema data absence. The
-    caller is expected to catch this exception (R-structured-002 降级为
+    caller is expected to catch this exception (降级为
     普通调用). Propagating it would surface as a 500 to the API caller,
     which is incorrect — degradation is the intended behavior.
 
@@ -92,7 +91,7 @@ class SchemaNotFoundError(Exception):
 class StructuredOutputValidationError(Exception):
     """Raised when LLM response cannot be reconciled with the JSON Schema.
 
-    Spec R-structured-002 / R-structured-003: after ``structured_call``
+    Spec / after ``structured_call``
     fetches the schema and calls the LLM with ``response_format``, the
     response must be validated against the schema. If validation fails
     after one retry (with a schema-violation hint prompt), this exception
@@ -112,7 +111,7 @@ class StructuredOutputValidationError(Exception):
 
     Callers should:
         - Surface as a 500 / domain error (NOT 200 with fallback —
-          R-structured-002 makes ``SchemaNotFoundError`` the ONLY
+          makes ``SchemaNotFoundError`` the ONLY
           trigger for fallback; validation failure is a hard error).
         - Log schema + last_response for debugging.
         - PII handling: ``last_response`` may contain user-content echoed
@@ -140,7 +139,7 @@ class StructuredOutputValidationError(Exception):
 class SchemaDrivenStructuredOutput:
     """Query SchemaNode and convert to JSON Schema for LLM structured output.
 
-    Implements R-structured-001: queries the graph database for a SchemaNode
+    Implements queries the graph database for a SchemaNode
     by ``id`` and converts its ``pattern`` (JSON Schema string) +
     ``event_type`` (business key, used as JSON Schema title) into a dict
     suitable for LLM ``response_format`` parameter.
@@ -209,6 +208,13 @@ class SchemaDrivenStructuredOutput:
 
         # Parse JSON Schema string → dict. ValueError propagates if invalid
         # JSON or non-dict (null/empty) — Rule 12 fail-loud.
+        # 非 str/bytes（如图形驱动返回其他类型）显式转成 ValueError，
+        # 避免 json.loads 抛出文档未声明的 TypeError。
+        if not isinstance(pattern_raw, (str, bytes, bytearray)):
+            raise ValueError(
+                f"SchemaNode.pattern for schema_node_id={schema_node_id!r} "
+                f"has type {type(pattern_raw).__name__}, expected str"
+            )
         schema: dict[str, Any] = json.loads(pattern_raw)
         if not isinstance(schema, dict):
             # pattern was valid JSON but not an object (e.g. null, list, number).

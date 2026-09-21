@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 import pytest
 
 from core.models.shared import CommunityView
 from tests.unit.core.models._base import ViewModelTestBase
 
-# Fields defined in ADD §1.5.1 that SHALL be present
+# Fields that SHALL be present
 REQUIRED_FIELDS = {
     "title",
     "summary",
@@ -22,7 +22,7 @@ REMOVED_FIELDS = {"name", "description", "member_count"}
 
 
 class TestCommunityViewAlignment(ViewModelTestBase):
-    """Tests for CommunityView field alignment with ADD §1.5.1."""
+    """Tests for CommunityView field."""
 
     model_class = CommunityView
     required_fields = REQUIRED_FIELDS

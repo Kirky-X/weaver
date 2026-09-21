@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for briefing category templates (T008 / R-briefing-003).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for briefing category templates.
 
 Verifies 4 category templates (finance/tech/ai/general) are defined with:
 - system_prompt: emphasizing category-specific focus
 - user_prompt_template: containing {articles} placeholder
 
-Templates are declarative data (R-briefing-003). T008 generate_briefing
+Templates are declarative data. generate_briefing
 reuses BriefingGenerator's generic briefing.toml prompt; templates will
-be consumed by T021+ narrative mode (category-specific prompt injection).
+be consumed by + narrative mode (category-specific prompt injection).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from modules.briefing.templates import (
 
 
 class TestTemplateDefinition:
-    """Verify 4 category templates are defined (R-briefing-003)."""
+    """Verify 4 category templates are defined."""
 
     def test_all_4_categories_defined(self) -> None:
         """Templates MUST be defined for finance/tech/ai/general."""
@@ -33,7 +33,7 @@ class TestTemplateDefinition:
         )
 
     def test_finance_template_emphasizes_financial_terminology(self) -> None:
-        """R-briefing-003: finance template emphasizes 金融术语准确性."""
+        """finance template emphasizes 金融术语准确性."""
         template = BRIEFING_TEMPLATES["finance"]
         assert isinstance(template, BriefingTemplate)
         # System prompt must mention finance/financial focus
@@ -43,7 +43,7 @@ class TestTemplateDefinition:
         )
 
     def test_tech_template_emphasizes_technical_details(self) -> None:
-        """R-briefing-003: tech template emphasizes 技术细节."""
+        """tech template emphasizes 技术细节."""
         template = BRIEFING_TEMPLATES["tech"]
         prompt_lower = template.system_prompt.lower()
         assert any(kw in prompt_lower for kw in ["技术", "科技", "technical", "tech"]), (
@@ -51,7 +51,7 @@ class TestTemplateDefinition:
         )
 
     def test_ai_template_emphasizes_models_algorithms(self) -> None:
-        """R-briefing-003: ai template emphasizes 模型/算法."""
+        """ai template emphasizes 模型/算法."""
         template = BRIEFING_TEMPLATES["ai"]
         prompt_lower = template.system_prompt.lower()
         assert any(
@@ -59,7 +59,7 @@ class TestTemplateDefinition:
         ), f"ai system_prompt must mention AI/model focus, got: {template.system_prompt}"
 
     def test_general_template_emphasizes_breadth_coverage(self) -> None:
-        """R-briefing-003: general template emphasizes 广度覆盖."""
+        """general template emphasizes 广度覆盖."""
         template = BRIEFING_TEMPLATES["general"]
         prompt_lower = template.system_prompt.lower()
         assert any(
@@ -69,7 +69,7 @@ class TestTemplateDefinition:
 
 
 class TestTemplateUserPrompt:
-    """Verify user_prompt_template has {articles} placeholder (R-briefing-003)."""
+    """Verify user_prompt_template has {articles} placeholder."""
 
     @pytest.mark.parametrize("category", ["finance", "tech", "ai", "general"])
     def test_user_prompt_template_has_articles_placeholder(self, category: str) -> None:

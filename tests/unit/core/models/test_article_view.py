@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -9,7 +9,7 @@ import pytest
 from core.models.shared import ArticleView
 from tests.unit.core.models._base import ViewModelTestBase
 
-# Fields defined in ADD §1.5.1 that SHALL be present
+# Fields that SHALL be present
 REQUIRED_FIELDS = {
     "id",
     "title",
@@ -40,7 +40,7 @@ REMOVED_FIELDS = {
 
 
 class TestArticleViewAlignment(ViewModelTestBase):
-    """Tests for ArticleView field alignment with ADD §1.5.1."""
+    """Tests for ArticleView field."""
 
     model_class = ArticleView
     required_fields = REQUIRED_FIELDS

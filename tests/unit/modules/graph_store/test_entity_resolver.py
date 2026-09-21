@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for EntityResolver."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -205,18 +205,20 @@ class TestEntityResolverBatch:
     def resolver(self):
         from modules.knowledge.graph.entity_resolver import EntityResolver
 
+        # resolve_entities_batch runs per-entity local stages directly:
+        # exact match via find_entity, creation via merge_entity.
+        entity_repo = MagicMock()
+        entity_repo.find_entity = AsyncMock(return_value=None)
+        entity_repo.merge_entity = AsyncMock(return_value="new-neo4j-id")
         resolver = EntityResolver(
-            entity_repo=MagicMock(),
+            entity_repo=entity_repo,
             vector_repo=MagicMock(),
-        )
-        resolver.resolve_entity = AsyncMock(
-            return_value={"neo4j_id": "id", "canonical_name": "name", "is_new": True}
         )
         return resolver
 
     @pytest.mark.asyncio
     async def test_resolve_entities_batch_processes_all(self, resolver):
-        """Test resolve_entities_batch processes all entities."""
+        """Entities without embeddings are created, one result per input."""
         entities = [
             {"name": "Entity 1", "type": "PERSON", "embedding": []},
             {"name": "Entity 2", "type": "ORG", "embedding": []},
@@ -225,7 +227,8 @@ class TestEntityResolverBatch:
         results = await resolver.resolve_entities_batch(entities)
 
         assert len(results) == 2
-        assert resolver.resolve_entity.call_count == 2
+        assert all(r["is_new"] for r in results)
+        assert {r["neo4j_id"] for r in results} == {"new-neo4j-id"}
 
 
 class TestEntityResolverPreResolveCheck:

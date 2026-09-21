@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Diff writer collaborator for the incremental community updater.
 
 Extracted from ``IncrementalCommunityUpdater``. Persists community assignment
@@ -87,7 +87,7 @@ class DiffWriter:
         for comm_id, change in entity_count_changes.items():
             # Get current entity count for the community
             count_query = """
-            MATCH (c:Community {id: $community_id})<-[:HAS_ENTITY]-(e:Entity)
+            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
             WHERE (e.pruned IS NULL OR e.pruned = false)
             RETURN count(e) AS count
             """
@@ -145,7 +145,10 @@ class DiffWriter:
                     error=str(exc),
                 )
 
-        # Create new HAS_ENTITY relationship and community if needed
+        # Create new HAS_ENTITY relationship and community if needed.
+        # Pattern predicate BEFORE the MERGE decides whether this is a new
+        # link: count(r) after MERGE is always 1 and would double-count
+        # entity_count when the old-relationship delete failed above.
         create_query = """
         MERGE (c:Community {id: $community_id})
         ON CREATE SET
@@ -156,8 +159,9 @@ class DiffWriter:
         WITH c
         MATCH (e)
         WHERE elementId(e) = $node_id
+        WITH c, e, NOT (c)-[:HAS_ENTITY]->(e) AS is_new
         MERGE (c)-[r:HAS_ENTITY]->(e)
-        WITH c, count(r) AS added
+        WITH c, CASE WHEN is_new THEN 1 ELSE 0 END AS added
         SET c.entity_count = c.entity_count + added
         """
 
@@ -204,8 +208,6 @@ class DiffWriter:
         Returns:
             Number of reports marked stale.
         """
-        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
-
         if not community_ids:
             return 0
 
@@ -240,7 +242,7 @@ class DiffWriter:
         now_expr = LadybugDialect.now_expression(self._database_type)
         stale_params: dict[str, object] = LadybugDialect.now_param(self._database_type)
         stale_query = f"""
-        MATCH (c:Community)-[:HAS_REPORT]->(r:CommunityReport)
+        MATCH (c:Community)<-[:REPORTS_ON]-(r:CommunityReport)
         WHERE c.id IN $community_ids
         SET r.stale = true,
             r.stale_at = {now_expr}
@@ -331,6 +333,13 @@ class DiffWriter:
                 await self._create_community_with_entities(community_id, component_entities)
                 created += 1
 
+            if created:
+                log.info(
+                    "incremental_communities_created",
+                    count=created,
+                    note="unoptimised components flagged incremental for full rebuild",
+                )
+
             return created
 
         except Exception as exc:
@@ -348,12 +357,16 @@ class DiffWriter:
             community_id: Community ID to create.
             entity_names: List of entity names to assign.
         """
+        # `incremental = true` flags communities formed per connected
+        # component without Leiden optimisation — the periodic full rebuild
+        # uses this to re-cluster them at the proper granularity.
         query = """
         MERGE (c:Community {id: $community_id})
         ON CREATE SET
             c.created_at = datetime(),
             c.level = 0,
-            c.entity_count = 0
+            c.entity_count = 0,
+            c.incremental = true
         WITH c
         MATCH (e:Entity)
         WHERE e.canonical_name IN $names
@@ -416,8 +429,6 @@ class DiffWriter:
         Returns:
             Dict with created and reassigned counts.
         """
-        from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
-
         created_communities: set[str] = set()
         reassigned = 0
 
@@ -439,8 +450,9 @@ class DiffWriter:
                 WITH c
                 MATCH (e)
                 WHERE {id_expr} = $node_id
+                WITH c, e, NOT (c)-[:HAS_ENTITY]->(e) AS is_new
                 MERGE (c)-[r:HAS_ENTITY]->(e)
-                WITH c, count(r) AS added
+                WITH c, CASE WHEN is_new THEN 1 ELSE 0 END AS added
                 SET c.entity_count = c.entity_count + added
                 """
                 exec_params = {"community_id": community_id, "node_id": node_id}

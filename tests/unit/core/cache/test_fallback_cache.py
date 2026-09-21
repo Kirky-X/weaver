@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for FallbackCachePool — runtime Redis→Cashews degradation.
@@ -521,3 +521,121 @@ class TestFallbackCachePoolEdgeCases:
         mock_redis.get.side_effect = ConnectionError("Redis down")
         await fallback_pool.get("key")
         assert fallback_pool.cache_type == "cashews"
+
+
+class _BareClient:
+    """Client stand-in that genuinely lacks every attribute.
+
+    Unlike ``AsyncMock`` (which auto-creates any attribute), this mirrors the
+    real client behaviour that ``getattr`` raises ``AttributeError``.
+    """
+
+
+class TestExecuteOperationNameGuard:
+    """A misspelled operation name must not be masked as infra failure.
+
+    ``getattr(self._primary, operation)`` used to raise
+    AttributeError inside the broad ``except Exception``, degrading the pool
+    to a fallback that lacks the attribute too. The typo must surface.
+    """
+
+    async def test_unknown_operation_raises_attribute_error(
+        self, fallback_pool: FallbackCachePool
+    ) -> None:
+        fallback_pool._primary = _BareClient()
+        with pytest.raises(AttributeError, match="no operation"):
+            await fallback_pool._execute("definitely_not_an_operation")
+
+    async def test_typo_does_not_degrade_primary(self, fallback_pool: FallbackCachePool) -> None:
+        """A typo is a programming error — the primary must stay healthy."""
+        fallback_pool._primary = _BareClient()
+        assert fallback_pool.primary_healthy is True
+        with pytest.raises(AttributeError):
+            await fallback_pool._execute("definitely_not_an_operation")
+        assert fallback_pool.primary_healthy is True
+
+
+class TestRegisterScriptDegradedWarning:
+    """register_script must warn when it can only hand back a placeholder.
+
+    In degraded mode the returned ``_CashewsScript`` only fails
+    on first invocation, so registration must log a warning up front.
+    """
+
+    async def test_degraded_register_script_logs_warning(
+        self, fallback_pool: FallbackCachePool, mock_redis: AsyncMock
+    ) -> None:
+        mock_redis.get.side_effect = ConnectionError("Redis down")
+        await fallback_pool.get("key")
+        assert fallback_pool.primary_healthy is False
+
+        with patch("core.cache.fallback.log") as mock_log:
+            fallback_pool.register_script("return 1")
+
+        mock_log.warning.assert_called_once()
+        assert mock_log.warning.call_args[0][0] == "fallback_register_script_degraded"
+
+
+# ── Hung Primary Defense（挂死连接防御）────────────────────────────
+
+
+class TestHungPrimaryDefense:
+    """Redis 半开连接（操作永久挂死、不报错）时，primary 调用必须被
+    wall-clock 超时切断并降级到 fallback——否则持锁调用方（如
+    ProcessingQueue.dequeue_batch 的 _op_lock）会被整体饿死。
+    """
+
+    @pytest.mark.asyncio
+    async def test_hung_ping_probe_times_out_and_stays_degraded(
+        self, mock_redis: AsyncMock, mock_cashews: AsyncMock
+    ) -> None:
+        """探测 ping 挂死：超时切断、保持降级，绝不永久阻塞。"""
+        pool = FallbackCachePool(primary=mock_redis, fallback=mock_cashews)
+        pool.mark_primary_degraded_at_startup("simulated half-open")
+
+        async def _hang() -> bool:
+            await asyncio.Event().wait()
+
+        mock_redis.ping = AsyncMock(side_effect=_hang)
+
+        import asyncio
+
+        start = time.monotonic()
+        with patch("core.cache.fallback._PRIMARY_CALL_TIMEOUT_SECONDS", 0.2):
+            await pool._maybe_probe_primary()
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 3  # 5s 超时被 patch 为 0.2s，远小于 3s
+        assert pool.primary_healthy is False  # 保持降级
+
+    @pytest.mark.asyncio
+    async def test_hung_operation_degrades_to_fallback(
+        self, mock_redis: AsyncMock, mock_cashews: AsyncMock
+    ) -> None:
+        """primary 操作挂死：超时切断后降级，返回 fallback 的结果。"""
+        pool = FallbackCachePool(primary=mock_redis, fallback=mock_cashews)
+        pool.mark_primary_degraded_at_startup("simulated half-open")
+
+        async def _hang(*args: Any, **kwargs: Any) -> int:
+            await asyncio.Event().wait()
+
+        mock_redis.llen = AsyncMock(side_effect=_hang)
+        mock_cashews.llen.return_value = 4
+
+        start = time.monotonic()
+        with patch("core.cache.fallback._PRIMARY_CALL_TIMEOUT_SECONDS", 0.2):
+            result = await pool.llen("queue:key")
+        elapsed = time.monotonic() - start
+
+        assert result == 4  # fallback 结果
+        assert elapsed < 3
+        assert pool.primary_healthy is False
+
+    @pytest.mark.asyncio
+    async def test_healthy_primary_operation_happy_path_unaffected(
+        self, fallback_pool: FallbackCachePool, mock_redis: AsyncMock
+    ) -> None:
+        """primary 正常时行为不变（wait_for 透明包裹）。"""
+        result = await fallback_pool.llen("queue:key")
+        assert result == 1
+        assert fallback_pool.primary_healthy is True

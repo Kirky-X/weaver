@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Protocol validation utilities for runtime interface checking.
 
 This module provides tools to verify that classes correctly implement
@@ -9,7 +9,7 @@ their declared Protocols at runtime.
 from __future__ import annotations
 
 import inspect
-from typing import Any, Protocol
+from typing import Any
 
 
 def assert_implements(obj: Any, protocol: type) -> None:
@@ -46,8 +46,6 @@ def assert_implements(obj: Any, protocol: type) -> None:
         attr = getattr(protocol, name)
         if callable(attr) or isinstance(attr, property):
             # Skip methods that are inherited from Protocol base
-            if name in ("startup", "shutdown") and hasattr(Protocol, name):
-                continue
             protocol_methods[name] = attr
 
     # Also check __annotations__ for abstract methods
@@ -78,15 +76,31 @@ def assert_implements(obj: Any, protocol: type) -> None:
             try:
                 obj_sig = inspect.signature(obj_method)
                 proto_sig = inspect.signature(proto_method)
-                # Compare parameter names (skip 'self')
-                obj_params = [p for p in obj_sig.parameters if p != "self"]
-                proto_params = [p for p in proto_sig.parameters if p != "self"]
-                # Implementation must accept all Protocol params (may have extra optional ones)
-                # Check that all proto params are present in obj params (subset check)
-                if not all(p in obj_params for p in proto_params):
-                    wrong_signature.append(
-                        f"{method_name}: expected params {proto_params}, got {obj_params}"
-                    )
+                # Implementation must accept all Protocol params (may have
+                # extra optional ones). *args/**kwargs on the implementation
+                # absorb any protocol params.
+                obj_params = [p for p in obj_sig.parameters.values() if p.name != "self"]
+                named = {p.name for p in obj_params}
+                has_var_pos = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in obj_params)
+                has_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in obj_params)
+                for proto_param in proto_sig.parameters.values():
+                    if proto_param.name == "self":
+                        continue
+                    if proto_param.kind is inspect.Parameter.KEYWORD_ONLY:
+                        ok = proto_param.name in named or has_var_kw
+                    elif proto_param.kind in (
+                        inspect.Parameter.VAR_POSITIONAL,
+                        inspect.Parameter.VAR_KEYWORD,
+                    ):
+                        ok = True
+                    else:
+                        ok = proto_param.name in named or has_var_pos
+                    if not ok:
+                        wrong_signature.append(
+                            f"{method_name}: expected param '{proto_param.name}', "
+                            f"got {[p.name for p in obj_params]}"
+                        )
+                        break
             except (ValueError, TypeError):
                 # Some callables don't have signatures, skip check
                 pass
@@ -110,6 +124,10 @@ class ExplicitInterfaceMixin:
         # Or with multiple protocols:
         class MyService(ExplicitInterfaceMixin, implements=[ProtoA, ProtoB]):
             ...
+
+    ``implements`` accepts either a single Protocol class or a list of them;
+    the list form is preferred when more than one contract is intended, so
+    that the relationship stays explicit.
     """
 
     def __init_subclass__(cls, implements: type | list[type] | None = None, **kwargs: Any) -> None:
@@ -140,5 +158,14 @@ def get_protocol_methods(protocol: type) -> list[str]:
         attr = getattr(protocol, name)
         if callable(attr) or isinstance(attr, property):
             methods.append(name)
+
+    # Mirror assert_implements: also surface annotation-only members so the
+    # two discovery paths cannot drift apart.
+    if hasattr(protocol, "__annotations__"):
+        for name in protocol.__annotations__:
+            if name.startswith("_"):
+                continue
+            if name not in methods:
+                methods.append(name)
 
     return methods

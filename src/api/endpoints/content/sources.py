@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Sources API endpoints."""
 
 from __future__ import annotations
@@ -10,13 +10,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 import feedparser
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import get_smart_fetcher, get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_api_key
-from api.schemas.response import APIResponse, success_response
+from api.schemas.response import APIResponse, PaginatedResponse, ResponseCode, success_response
 from core.constants import SourceType
+from core.exceptions import BusinessError
 from core.observability import get_logger
 from core.security.safe_echo import safe_echo
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
@@ -56,8 +57,8 @@ def _validate_source_url(v: str) -> str:
 
     Note: This is a fast synchronous format check only. Callers MUST also
     invoke ``_validate_source_url_ssrf`` in the request handler to perform
-    DNS resolution and redirect-chain validation via SSRFChecker (CWE-918
-    fix). Without the async SSRF check, hostnames resolving to internal
+    DNS resolution and redirect-chain validation via SSRFChecker (CWE-918).
+    Without the async SSRF check, hostnames resolving to internal
     IPs would still pass.
 
     Args:
@@ -122,22 +123,21 @@ async def _validate_source_url_ssrf(url: str) -> None:
 async def _validate_feed_reachable(
     url: str, fetcher: Any, source_type: str = SourceType.RSS.value
 ) -> None:
-    """Validate that a feed URL is reachable and contains valid content.
+    """Validate that a source URL is reachable, and that feeds parse.
 
-    Performs the following checks:
-    1. HTTP fetch succeeds (network reachable, no DNS errors)
-    2. HTTP status code is 200
-    3. Response body parses as a valid RSS/Atom feed (for RSS source type)
-    4. Feed contains at least one entry
+    Always checks reachability (HTTP 200). Additionally parses the payload as
+    RSS/Atom when ``source_type`` is ``rss`` or ``atom`` — both are served by
+    ``RSSParser``, so a broken Atom URL should be caught at creation time just
+    like a broken RSS one.
 
     Args:
-        url: Feed URL to validate.
+        url: Source URL to validate.
         fetcher: SmartFetcher instance for HTTP requests.
-        source_type: Type of source (rss, newsnow). Only RSS feeds are parsed.
+        source_type: Type of source. Only feed types are parsed.
 
     Raises:
-        HTTPException: 422 if feed is unreachable, returns non-200 status,
-                       or contains no parseable entries.
+        HTTPException: 422 if the URL is unreachable, returns non-200 status,
+                       or is a feed with no parseable entries.
 
     """
     import asyncio
@@ -165,8 +165,9 @@ async def _validate_feed_reachable(
             detail=f"Feed URL returned HTTP {status_code}, expected 200",
         )
 
-    # Parse RSS/Atom feeds to validate content
-    if source_type == SourceType.RSS.value:
+    # Parse RSS/Atom feeds to validate content. Both types are handled by
+    # RSSParser (feedparser parses Atom natively), so both are checked here.
+    if source_type in (SourceType.RSS.value, SourceType.ATOM.value):
         if not content:
             raise HTTPException(
                 status_code=422,
@@ -200,6 +201,96 @@ async def _validate_feed_reachable(
 
 
 # ── Request/Response Models ─────────────────────────────────────
+
+
+def get_supported_source_types() -> set[str]:
+    """Return the source types that actually have a registered parser.
+
+    ``SourceType`` declares identifiers; the ``SourceRegistry`` decides what is
+    parseable, and ``get_parser()`` is an exact dict lookup. A type declared
+    but not registered (``twitter`` / ``telegram`` / ``api``) would otherwise
+    be accepted at creation time and then skipped on every scheduled crawl
+    (``SourceScheduler._crawl_source`` bails out with ``no_parser_for_type``).
+    Rejecting them here turns that silent no-op into an actionable 422.
+
+    The registry is queried live rather than read from
+    ``core.constants.REGISTERED_TYPES`` so that externally loaded plugins
+    (``SourceRegistry.load_plugins``) are accepted too. ``REGISTERED_TYPES``
+    documents the built-in baseline; a mismatch is logged as a programming
+    error rather than silently trusted.
+
+    Returns:
+        Set of source type identifiers with a registered parser.
+
+    """
+    from core.constants import REGISTERED_TYPES
+    from modules.ingestion.parsing.registry import SourceRegistry
+
+    # The registry only uses the fetcher to construct parser instances; this
+    # throwaway registry is never used to fetch anything. Parsers hold a
+    # reference to it but are discarded immediately.
+    registry = SourceRegistry(FetcherStub())
+    supported = set(registry.list_registered_types())
+
+    if not supported >= REGISTERED_TYPES:
+        log.error(
+            "source_type_registry_desync",
+            declared=sorted(REGISTERED_TYPES),
+            registered=sorted(supported),
+            missing=sorted(REGISTERED_TYPES - supported),
+        )
+
+    return supported
+
+
+class FetcherStub:
+    """Minimal stand-in used only to construct a registry for type lookup.
+
+    ``SourceRegistry.__init__`` stores the fetcher on every parser it builds.
+    Type discovery never invokes it, so a non-functional placeholder is
+    sufficient and avoids needing a fully wired fetcher at import time.
+    """
+
+    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> tuple:
+        """Not implemented — never called during type discovery."""
+        raise NotImplementedError("FetcherStub is a placeholder for type discovery")
+
+    async def close(self) -> None:
+        """No-op — nothing to release."""
+
+    def __repr__(self) -> str:
+        """Return a debug-friendly representation of the stub."""
+        return "FetcherStub()"
+
+
+def validate_source_type(value: str) -> str:
+    """Validate that a source type has a registered parser.
+
+    Distinguishes the two rejection reasons so the message is actionable: a
+    value that is not a ``SourceType`` at all (typo) versus one that is a
+    declared type with no parser implementation yet.
+
+    Args:
+        value: The requested source type.
+
+    Returns:
+        The validated source type.
+
+    Raises:
+        ValueError: If no parser is registered for the type.
+
+    """
+    supported = get_supported_source_types()
+    if value in supported:
+        return value
+
+    declared = {member.value for member in SourceType}
+    if value in declared:
+        reason = f"'{value}' is a recognized source type but has no parser implementation yet"
+    else:
+        reason = f"'{value}' is not a recognized source type"
+
+    raise ValueError(f"{reason}. Supported types: {sorted(supported)}")
 
 
 class SourceCreateRequest(BaseModel):
@@ -241,6 +332,12 @@ class SourceCreateRequest(BaseModel):
             raise ValueError("Field cannot be empty")
         return v.strip()
 
+    @field_validator("source_type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        """Validate that a parser exists for the requested source type."""
+        return validate_source_type(v)
+
 
 class SourceUpdateRequest(BaseModel):
     """Request model for updating a source."""
@@ -261,6 +358,14 @@ class SourceUpdateRequest(BaseModel):
         if v is None:
             return v
         return _validate_source_url(v)
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_type(cls, v: str | None) -> str | None:
+        """Validate that a parser exists for the requested source type."""
+        if v is None:
+            return v
+        return validate_source_type(v)
 
 
 class SourceResponse(BaseModel):
@@ -297,25 +402,42 @@ class SourceResponse(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("", response_model=APIResponse[list[SourceResponse]])
+@router.get("", response_model=APIResponse[PaginatedResponse[SourceResponse]])
 async def list_sources(
-    enabled_only: bool = True,
+    enabled_only: bool = Query(True, description="If true, only return enabled sources"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page (1-200)"),
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
-) -> APIResponse[list[SourceResponse]]:
-    """Get all registered sources.
+) -> APIResponse[PaginatedResponse[SourceResponse]]:
+    """Get a paginated list of registered sources.
 
     Args:
         enabled_only: If True, only return enabled sources.
+        page: Page number (1-indexed).
+        page_size: Items per page (1-200, default 50).
         _: Verified API key.
         repo: Source config repository instance.
 
     Returns:
-        List of source configurations.
+        Paginated list of source configurations.
 
     """
-    sources = await repo.list_sources(enabled_only=enabled_only)
-    return success_response([SourceResponse.from_config(s) for s in sources])
+    total = await repo.count_sources(enabled_only=enabled_only)
+    offset = (page - 1) * page_size
+    sources = await repo.list_sources(
+        enabled_only=enabled_only,
+        limit=page_size,
+        offset=offset,
+    )
+    items = [SourceResponse.from_config(s) for s in sources]
+    paginated = PaginatedResponse.create(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+    return success_response(paginated)
 
 
 @router.get("/{source_id}", response_model=APIResponse[SourceResponse])
@@ -340,7 +462,11 @@ async def get_source(
     """
     source = await repo.get(source_id)
     if source is None:
-        raise HTTPException(status_code=404, detail=f"Source '{safe_echo(source_id)}' not found")
+        raise BusinessError(
+            status_code=404,
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
+        )
     return success_response(SourceResponse.from_config(source))
 
 
@@ -374,9 +500,10 @@ async def create_source(
     """
     existing = await repo.get(request.id)
     if existing is not None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=409,
-            detail=f"Source with id '{request.id}' already exists",
+            code=ResponseCode.ERR_SOURCE_CONFLICT,
+            message=f"Source with id '{request.id}' already exists",
         )
 
     # CWE-918: SSRF validation with DNS resolution + redirect-chain check
@@ -401,7 +528,11 @@ async def create_source(
     saved = await repo.upsert(config)
 
     # Add to in-memory registry so scheduler can find it
-    scheduler._registry.add_source(saved)
+    scheduler.register_source(saved)
+    # Register the interval job immediately — start() only schedules sources
+    # that existed at boot, so a source created at runtime would never be
+    # crawled otherwise (no-op when the scheduler has not started yet).
+    scheduler.schedule_source(saved)
 
     return success_response(SourceResponse.from_config(saved))
 
@@ -412,6 +543,8 @@ async def update_source(
     request: SourceUpdateRequest,
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
+    fetcher: Any = Depends(get_smart_fetcher),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
@@ -420,6 +553,7 @@ async def update_source(
         request: Fields to update.
         _: Verified API key.
         repo: Source config repository instance.
+        scheduler: Source scheduler for rescheduling on interval/enabled changes.
 
     Returns:
         The updated source configuration.
@@ -430,14 +564,25 @@ async def update_source(
     """
     existing = await repo.get(source_id)
     if existing is None:
-        raise HTTPException(
+        raise BusinessError(
             status_code=404,
-            detail=f"Source '{safe_echo(source_id)}' not found",
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
         )
 
     # CWE-918: SSRF validation when URL is being changed
     if request.url is not None:
         await _validate_source_url_ssrf(request.url)
+
+        # Same reachability/content validation as create_source — applies
+        # only when the URL actually changes to avoid re-fetching on
+        # unrelated field updates.
+        if request.url != existing.url:
+            await _validate_feed_reachable(
+                url=request.url,
+                fetcher=fetcher,
+                source_type=request.source_type or existing.source_type,
+            )
 
     # Apply updates
     if request.name is not None:
@@ -458,6 +603,15 @@ async def update_source(
         existing.tier = request.tier
 
     saved = await repo.upsert(existing)
+
+    # Reschedule on interval/enabled changes so the running job reflects the
+    # new settings (schedule_source replaces the existing job via
+    # replace_existing=True; disabled sources are unscheduled).
+    if saved.enabled:
+        scheduler.schedule_source(saved)
+    else:
+        scheduler.unschedule_source(saved.id)
+
     return success_response(SourceResponse.from_config(saved))
 
 
@@ -466,6 +620,7 @@ async def delete_source(
     source_id: str,
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> None:
     """Delete a news source.
 
@@ -473,6 +628,7 @@ async def delete_source(
         source_id: The source ID to delete.
         _: Verified API key.
         repo: Source config repository instance.
+        scheduler: Source scheduler for removing the periodic job.
 
     Raises:
         HTTPException: If source not found.
@@ -480,7 +636,11 @@ async def delete_source(
     """
     deleted = await repo.delete(source_id)
     if not deleted:
-        raise HTTPException(
+        raise BusinessError(
             status_code=404,
-            detail=f"Source '{safe_echo(source_id)}' not found",
+            code=ResponseCode.ERR_SOURCE_NOT_FOUND,
+            message=f"Source '{safe_echo(source_id)}' not found",
         )
+    # Remove the periodic job — otherwise it keeps firing (as a no-op
+    # lookup) and accumulates one leaked interval job per create/delete.
+    scheduler.unschedule_source(source_id)

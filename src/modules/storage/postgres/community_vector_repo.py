@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community vector repository for community similarity search.
 
 This repository provides vector similarity operations for community vectors.
@@ -9,9 +9,15 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from core.db.query_builders import DatabaseType, VectorQueryBuilder
+from core.db.query_builders import (
+    DatabaseType,
+    VectorQueryBuilder,
+    validate_limit,
+    validate_threshold,
+)
 from core.mappers.community_search_result_mapper import CommunitySearchResultMapper
 from core.models.shared import CommunitySearchResultView
+from core.constants import DEFAULT_EMBEDDING_MODEL_ID
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
@@ -49,18 +55,36 @@ class CommunityVectorRepo:
 
         Returns:
             List of CommunitySearchResultView with community_id, score, and title.
+
+        Raises:
+            ValueError: If limit/threshold are out of bounds.
         """
+        # Same guards as every VectorQueryBuilder method: a huge
+        # limit forces a full HNSW scan, a negative threshold silently
+        # returns unranked results.
+        # NOTE: no embedding-dimension check here — the active embedding
+        # model is config-dependent (OpenAI 3072-dim vs Ollama 1024-dim),
+        # so a hard 1024 assertion could reject a legitimately configured
+        # model; a mis-sized vector still fails loudly at the PG CAST.
+        limit = validate_limit(limit)
+        threshold = validate_threshold(threshold)
+
         # Build query for community_vectors table
-        # Uses HNSW index for fast approximate nearest neighbor search
+        # Uses HNSW index for fast approximate nearest neighbor search.
+        # The cosine distance is computed once in a CTE so the
+        # WHERE filter and ORDER BY reuse the alias instead of recomputing
+        # the 1024-dim expression three times per candidate row.
         query_sql = """
-            SELECT
-                community_id,
-                1 - (embedding <=> CAST(:embedding AS vector)) AS score,
-                title,
-                summary
-            FROM community_vectors
-            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) > :threshold
-            ORDER BY embedding <=> CAST(:embedding AS vector)
+            WITH sim AS (
+                SELECT community_id,
+                       1 - (embedding <=> CAST(:embedding AS vector)) AS score,
+                       title, summary
+                FROM community_vectors
+            )
+            SELECT sim.community_id, sim.score, sim.title, sim.summary
+            FROM sim
+            WHERE sim.score > :threshold
+            ORDER BY sim.score DESC
             LIMIT :limit
         """
 
@@ -103,7 +127,7 @@ class CommunityVectorRepo:
         entity_count: int = 0,
         article_count: int = 0,
         rank: float | None = None,
-        model_id: str = "text-embedding-3-large",
+        model_id: str = DEFAULT_EMBEDDING_MODEL_ID,
     ) -> None:
         """Insert or update a community vector in community_vectors table.
 

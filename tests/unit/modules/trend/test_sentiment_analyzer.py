@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for SentimentTrendAnalyzer (T012 / R-sentiment-002).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for SentimentTrendAnalyzer.
 
 Verifies:
 - Protocol compliance (isinstance(SentimentTrendProtocol))
@@ -12,7 +12,7 @@ Verifies:
     avg_shift > 0.1 → 'up'
     avg_shift < -0.1 → 'down'
     otherwise → 'stable'
-- No-data contract (R-sentiment-002):
+- No-data contract:
     shifts=[], list=[], avg_shift=0.0, trend_direction='stable'
 - Validation: both entity_name and community_id None → ValueError
 - Validation: window_days not in {7, 30} → ValueError
@@ -75,7 +75,7 @@ def _make_pool_with_rows(rows: list) -> MagicMock:
 
 
 class TestSentimentTrendAnalyzerProtocolCompliance:
-    """Verify SentimentTrendAnalyzer satisfies SentimentTrendProtocol (R-sentiment-002)."""
+    """Verify SentimentTrendAnalyzer satisfies SentimentTrendProtocol."""
 
     def test_analyzer_satisfies_protocol(self) -> None:
         """SentimentTrendAnalyzer instance MUST satisfy SentimentTrendProtocol."""
@@ -85,7 +85,7 @@ class TestSentimentTrendAnalyzerProtocolCompliance:
 
 
 class TestAnalyzeTrendEntityName:
-    """Test analyze_trend via entity_name path (R-sentiment-002)."""
+    """Test analyze_trend via entity_name path."""
 
     @pytest.mark.asyncio
     async def test_up_trend_when_avg_shift_above_threshold(self) -> None:
@@ -162,7 +162,7 @@ class TestAnalyzeTrendEntityName:
 
     @pytest.mark.asyncio
     async def test_no_data_returns_empty_stable_result(self) -> None:
-        """R-sentiment-002: no data → shifts=[], avg_shift=0.0, trend_direction='stable'."""
+        """no data → shifts=[], avg_shift=0.0, trend_direction='stable'."""
         pool = _make_pool_with_rows([])
 
         analyzer = SentimentTrendAnalyzer(pool=pool)
@@ -177,7 +177,7 @@ class TestAnalyzeTrendEntityName:
 
 
 class TestAnalyzeTrendCommunityId:
-    """Test analyze_trend via community_id path (R-sentiment-002)."""
+    """Test analyze_trend via community_id path."""
 
     @pytest.mark.asyncio
     async def test_community_id_path_aggregates_shifts(self) -> None:
@@ -220,7 +220,7 @@ class TestAnalyzeTrendCommunityId:
 
 
 class TestAnalyzeTrendWindowDays:
-    """Test window_days filtering (R-sentiment-002)."""
+    """Test window_days filtering."""
 
     @pytest.mark.asyncio
     async def test_window_days_30_supported(self) -> None:
@@ -278,7 +278,7 @@ class TestAnalyzeTrendAggregatedList:
 
 
 class TestAnalyzeTrendValidation:
-    """Test input validation (R-sentiment-002 constraints)."""
+    """Test input validation (constraints)."""
 
     @pytest.mark.asyncio
     async def test_raises_value_error_when_both_entity_and_community_none(self) -> None:
@@ -333,3 +333,36 @@ class TestAnalyzeTrendErrorPropagation:
 
         with pytest.raises(RuntimeError, match="DB connection lost"):
             await analyzer.analyze_trend(entity_name="X", window_days=7)
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    def test_select_imported_at_module_level(self):
+        """#292: ``select`` comes from the module-level import block."""
+        import inspect
+
+        from modules.trend import sentiment as module
+
+        assert "select" in dir(module)
+        src = inspect.getsource(module)
+        assert "\nfrom sqlalchemy import select\n" in src
+        assert "            from sqlalchemy import select" not in src
+
+    def test_no_unused_module_logger(self):
+        """#291: the never-referenced module logger was removed."""
+        import inspect
+
+        from modules.trend import sentiment as module
+
+        src = inspect.getsource(module)
+        assert "get_logger" not in src
+
+    def test_avg_shift_reuses_built_shifts(self):
+        """#109: the per-record values are not converted to float twice."""
+        import inspect
+
+        from modules.trend.sentiment import SentimentTrendAnalyzer
+
+        src = inspect.getsource(SentimentTrendAnalyzer.analyze_trend)
+        assert 's["shift_value"] for s in shifts' in src

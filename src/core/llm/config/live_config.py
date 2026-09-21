@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Live configuration hot-reload for LLM module.
 
 Watches config/llm.toml for changes and atomically swaps
@@ -110,16 +110,16 @@ class LiveConfig:
         """Manually reload the configuration.
 
         Returns:
-            The new LLMSettings if reload succeeded, or the current one if failed.
+            The newly loaded LLMSettings instance.
 
         Raises:
-            ConfigReloadError: If the new configuration is invalid.
+            ConfigReloadError: If the new configuration is missing or invalid
+                (the current config is kept and the error is reported).
         """
         new_settings = self._load_and_validate()
         if new_settings is None:
             raise ConfigReloadError("Configuration reload failed, keeping current config")
 
-        old_settings = self._current
         self._current = new_settings
         log.info("live_config_reloaded", path=str(self._path))
         return new_settings
@@ -132,9 +132,8 @@ class LiveConfig:
             log.warning("watchfiles_not_installed", msg="Hot-reload disabled. Install watchfiles.")
             return
 
-        # Create stop event for awatch
-        stop_event = asyncio.Event()
-
+        # stop() cancels the watcher task, which unwinds awatch via
+        # CancelledError — no separate stop event is needed.
         while self._running:
             try:
                 # Check if file exists before watching
@@ -149,19 +148,17 @@ class LiveConfig:
 
                 async for changes in awatch(
                     self._path,
-                    stop_event=stop_event,
                     debounce=500,
                     step=500,
                 ):
                     if not self._running:
-                        stop_event.set()
                         break
 
                     log.info("live_config_file_changed", path=str(self._path))
-                    new_settings = self._load_and_validate()
+                    # Sync file I/O would stall the loop; run it in a thread.
+                    new_settings = await asyncio.to_thread(self._load_and_validate)
 
                     if new_settings is not None and self._current is not None:
-                        old_settings = self._current
                         self._current = new_settings
                         log.info("live_config_reloaded", path=str(self._path))
 
@@ -194,6 +191,11 @@ class LiveConfig:
         normalized to underscored form (``call_points``) before being passed
         to ``LLMSettings``, matching the convention used in
         :meth:`LLMSettings.__init__` for the project's default config file.
+
+        Note: only top-level section keys are normalized. Nested dict keys
+        (provider names, model IDs such as ``gpt-4o``) intentionally keep
+        their hyphens — they are dictionary keys, not pydantic fields, and
+        normalizing them would rename models/producers.
 
         Returns:
             LLMSettings if valid, None if invalid.

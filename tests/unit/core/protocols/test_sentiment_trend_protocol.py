@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for SentimentTrendProtocol and SentimentTrendResult (T011).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for SentimentTrendProtocol and SentimentTrendResult.
 
 Verifies:
-- R-sentiment-001: Protocol defines analyze_trend method
+- Protocol defines analyze_trend method
 - SentimentTrendResult dataclass has 6 fields per spec
 - Protocol is @runtime_checkable
 - Dataclass shape matches spec (entity_name/window_days/shifts/list/
   avg_shift/trend_direction)
-- Default values reflect "no data" state (R-sentiment-002):
+- Default values reflect "no data" state:
   shifts=[], list=[], avg_shift=0.0, trend_direction='stable'
 """
 
@@ -24,7 +24,7 @@ from modules.trend.models import SentimentTrendResult
 
 
 class TestSentimentTrendProtocolStructure:
-    """Verify SentimentTrendProtocol is defined correctly (R-sentiment-001)."""
+    """Verify SentimentTrendProtocol is defined correctly."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
         """SentimentTrendProtocol MUST be @runtime_checkable per spec."""
@@ -47,7 +47,7 @@ class TestSentimentTrendProtocolStructure:
 
 
 class TestSentimentTrendProtocolMockCompliance:
-    """Verify mock implementations satisfy the Protocol (R-sentiment-001)."""
+    """Verify mock implementations satisfy the Protocol."""
 
     def test_mock_with_analyze_trend_satisfies_protocol(self) -> None:
         """A class implementing analyze_trend should satisfy the Protocol."""
@@ -93,7 +93,7 @@ class TestSentimentTrendProtocolMockCompliance:
 
 
 class TestSentimentTrendResultDataclass:
-    """Verify SentimentTrendResult dataclass shape (R-sentiment-001)."""
+    """Verify SentimentTrendResult dataclass shape."""
 
     def test_is_dataclass(self) -> None:
         assert is_dataclass(SentimentTrendResult)
@@ -114,7 +114,7 @@ class TestSentimentTrendResultDataclass:
         assert required.issubset(field_names), f"Missing fields: {required - field_names}"
 
     def test_default_values_reflect_no_data_state(self) -> None:
-        """R-sentiment-002: no-data defaults — shifts=[], list=[],
+        """no-data defaults — shifts=[], list=[],
         avg_shift=0.0, trend_direction='stable'.
         """
         result = SentimentTrendResult(entity_name="X", window_days=7)
@@ -171,11 +171,11 @@ class TestExports:
 
 
 class TestProtocolMethodSignatures:
-    """Verify Protocol method signatures match spec (R-sentiment-001) — strict."""
+    """Verify Protocol method signatures match spec — strict."""
 
     def test_analyze_trend_signature(self) -> None:
         """analyze_trend(entity_name=None, community_id=None, window_days=7)
-        per spec R-sentiment-001.
+        per spec.
         """
         import inspect
 
@@ -190,5 +190,5 @@ class TestProtocolMethodSignatures:
         # entity_name / community_id default to None
         assert sig.parameters["entity_name"].default is None
         assert sig.parameters["community_id"].default is None
-        # window_days defaults to 7 (spec R-sentiment-001)
+        # window_days defaults to 7
         assert sig.parameters["window_days"].default == 7

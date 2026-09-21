@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Service and repository instantiation for the container."""
 
 from __future__ import annotations
@@ -87,6 +87,7 @@ class ContainerServicesMixin:
     _relation_type_normalizer: Any
     _memory_service: MemoryIntegrationService | None
     _saga_orchestrator: SagaOrchestrator | None
+    _outbox_repo: Any | None = None
     _shutdown: bool
     _knowledge_cache: Any
     _mc_sampler: Any
@@ -150,6 +151,16 @@ class ContainerServicesMixin:
                 log.info("items_discovered", count=len(items), source=source.id, force=force)
 
             registry = self.source_registry()
+            # Load external parser plugins (entry points + WEAVER_SOURCE_PLUGINS
+            # directories) before bridging DB sources — without this call the
+            # whole plugin chain was dead code. A broken plugin must not block
+            # scheduler startup.
+            try:
+                loaded_plugins = registry.load_plugins()
+                if loaded_plugins:
+                    log.info("source_plugins_loaded", plugins=loaded_plugins)
+            except Exception as exc:
+                log.warning("source_plugins_load_failed", error=str(exc), exc_info=True)
             # Bridge DB sources into the in-memory registry so the scheduler
             # discovers and crawls all DB-persisted sources on startup.
             db_sources = await self.source_config_repo().list_sources(enabled_only=True)
@@ -264,13 +275,17 @@ class ContainerServicesMixin:
                 knowledge_cache=self._knowledge_cache,
                 trend_detector=self.trend_detector(),
                 sentiment_analyzer=self.sentiment_trend_analyzer(),
+                saga_orchestrator=self.saga_orchestrator(),
+                outbox_repo=self.outbox_repo(),
+                event_bus=self._event_bus,
+                bm25_service_provider=self._init_bm25_index,
             )
         return self._scheduler_jobs_service
 
-    # ── Trend Services (T019 / R-alert-002) ─────────────────────────
+    # ── Trend Services ───────────────────────────────────────────
 
     def trend_detector(self) -> Any:
-        """Get TrendDetector instance (T015 / R-trend-002).
+        """Get TrendDetector instance.
 
         Returns None when graph pool is unavailable — TrendDetector requires
         a GraphPool (Neo4j or LadybugDB) to query EventNode frequency. The
@@ -293,7 +308,7 @@ class ContainerServicesMixin:
         return self._trend_detector
 
     def sentiment_trend_analyzer(self) -> Any:
-        """Get SentimentTrendAnalyzer instance (T012 / R-sentiment-002).
+        """Get SentimentTrendAnalyzer instance.
 
         Returns None when relational pool is unavailable — the analyzer
         requires a RelationalPool to query sentiment_shifts. The AlertJobs
@@ -377,7 +392,7 @@ class ContainerServicesMixin:
             if graph_pool is None or self._strategy is None:
                 raise RuntimeError("Graph database not available")
 
-            from core.db.graph_query_builders import create_graph_query_builder
+            from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
             from modules.storage.graph_repo import GraphRepository
 
             query_builder = create_graph_query_builder(self._strategy.graph_type)
@@ -389,10 +404,13 @@ class ContainerServicesMixin:
                 from core.db.ladybug_pool import LadybugPool
 
                 def _create_ladybug_fallback() -> LadybugPool:
-                    return LadybugPool(db_path=self._settings.ladybug.db_path)
+                    return LadybugPool(
+                        db_path=self._settings.ladybug.db_path,
+                        max_concurrent_queries=self._settings.ladybug.max_concurrent_queries,
+                    )
 
                 fallback_pool_factory = _create_ladybug_fallback
-                fallback_query_builder = create_graph_query_builder("ladybug")
+                fallback_query_builder = create_graph_query_builder(GraphDatabaseType.LADYBUG)
 
             self._graph_repo = GraphRepository(
                 graph_pool,
@@ -427,6 +445,7 @@ class ContainerServicesMixin:
                 name_normalizer=name_normalizer,
                 disable_data_metrics=disable_data_metrics,
                 embedding_model=self._get_embedding_model_id(),
+                similarity_threshold=self._settings.entity.resolve_similarity_threshold,
             )
         return self._entity_resolver
 
@@ -497,7 +516,9 @@ class ContainerServicesMixin:
 
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
-                # P1-4 fix: pass [base_ua, *pool] so each request rotates UA.
+                max_connections=settings.httpx_max_connections,
+                max_keepalive=settings.httpx_max_keepalive_connections,
+                # fix: pass [base_ua, *pool] so each request rotates UA.
                 user_agents=[settings.user_agent, *settings.user_agent_pool],
                 url_validator=url_validator,
             )
@@ -515,6 +536,7 @@ class ContainerServicesMixin:
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
                 circuit_breaker_timeout=settings.circuit_breaker_timeout,
                 url_validator=url_validator,
+                min_content_length=settings.min_content_length,
             )
             log.info(
                 "smart_fetcher_initialized",
@@ -681,7 +703,7 @@ class ContainerServicesMixin:
         return self._bing_searcher
 
     def crawler(self) -> Crawler:
-        """Get crawler (wired with RetryQueue — D4 fix)."""
+        """Get crawler (wired with RetryQueue — fix)."""
         from modules.ingestion import Crawler
 
         if self._crawler is None:
@@ -689,6 +711,9 @@ class ContainerServicesMixin:
                 smart_fetcher=self._smart_fetcher,
                 default_per_host=self._settings.fetcher.default_per_host_concurrency,
                 retry_queue=self.retry_queue(),
+                max_concurrency=self._settings.fetcher.crawl_max_concurrency,
+                min_article_length=self._settings.fetcher.min_article_length,
+                max_batch_time=self._settings.fetcher.max_crawl_batch_time,
             )
         return self._crawler
 
@@ -703,23 +728,30 @@ class ContainerServicesMixin:
             )
         return self._deduplicator
 
-    def simhash_dedup(self) -> SimHashDeduplicator:
-        """Get SimHash title deduplicator (D1 wiring).
+    def simhash_dedup(self) -> SimHashDeduplicator | None:
+        """Get SimHash title deduplicator (wiring).
 
         Cross-source title-level deduplication; uses cache pool for
-        fingerprint storage. See ``temp/report.md`` D1 dead-code fix.
+        fingerprint storage.
+        Returns None when disabled via ``settings.dedup.enable_simhash_dedup``.
         """
         from modules.ingestion import SimHashDeduplicator
 
         if self._simhash_dedup is None:
-            self._simhash_dedup = SimHashDeduplicator(cache=self._cache_client)
+            dedup_settings = self._settings.dedup
+            if not dedup_settings.enable_simhash_dedup:
+                return None
+            self._simhash_dedup = SimHashDeduplicator(
+                cache=self._cache_client,
+                threshold=dedup_settings.simhash_hamming_threshold,
+            )
         return self._simhash_dedup
 
     def retry_queue(self) -> RetryQueue:
-        """Get dead-letter retry queue (D4 wiring).
+        """Get dead-letter retry queue (wiring).
 
         Cache-backed sorted set for failed crawl items; uses cache pool
-        for host-bucketed retry scheduling. See ``temp/report.md`` D4.
+        for host-bucketed retry scheduling.
         """
         from modules.ingestion.deduplication.retry import RetryQueue
 
@@ -731,7 +763,6 @@ class ContainerServicesMixin:
 
     async def init_pipeline(self) -> Pipeline:
         """Initialize the processing pipeline."""
-        from core.event import EventBus
         from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
         from modules.analytics.fake_news_detector import (
@@ -757,8 +788,12 @@ class ContainerServicesMixin:
 
         if self._pipeline is None:
             if self._event_bus is None:
-                self._event_bus = EventBus()
-                log.info("event_bus_created_in_pipeline", event_bus_id=id(self._event_bus))
+                # Same singleton as init_llm uses: one bus for the whole
+                # container so emitters and subscribers always meet.
+                from core.event import event_bus as _global_event_bus
+
+                self._event_bus = _global_event_bus
+                log.info("event_bus_reused_global", event_bus_id=id(self._event_bus))
             else:
                 log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
@@ -790,18 +825,22 @@ class ContainerServicesMixin:
                 llm_client=self._llm_client,
             )
 
-            # Create FakeNewsDetector (zero-cost, reuses pipeline state)
-            fake_news_config = FakeNewsDetectorConfig()
-            fake_news_detector = FakeNewsDetector(
-                config=fake_news_config,
-                llm=self._llm_client,
-            )
+            # Create FakeNewsDetector (zero-cost, reuses pipeline state).
+            # Driven by settings.fake_news_detector; enabled=false removes
+            # the Phase 3 stage entirely (the node is skipped when None).
+            fnd_settings = self._settings.fake_news_detector
+            fake_news_detector = None
+            if fnd_settings.enabled:
+                fake_news_detector = FakeNewsDetector(
+                    config=FakeNewsDetectorConfig.from_settings(fnd_settings),
+                    llm=self._llm_client,
+                )
 
             self._pipeline = Pipeline(
                 deps=PipelineDeps(
                     llm=self._llm_client,
                     budget=budget,
-                    prompt_loader=self._prompt_loader,
+                    prompt_loader=self.prompt_loader(),
                     event_bus=self._event_bus,
                     repos=PipelineRepos(
                         vector_repo=self.vector_repo(),
@@ -827,7 +866,9 @@ class ContainerServicesMixin:
                             self.community_updater() if self.graph_pool() is not None else None
                         ),
                         saga_orchestrator=self._saga_orchestrator,
-                        # T003: AnalyticsStorage for SentimentTrackerNode.
+                        pending_sync_repo=self.pending_sync_repo(),
+                        outbox_repo=self.outbox_repo(),
+                        # AnalyticsStorage for SentimentTrackerNode.
                         # None when relational pool is unavailable; pipeline
                         # skips the node (graph.py guards on None).
                         sentiment_shift_repo=AnalyticsStorage(pool=self.relational_pool()),
@@ -856,7 +897,7 @@ class ContainerServicesMixin:
     def pipeline_worker(self) -> Any | None:
         """Get the pipeline worker (background consumer).
 
-        Reads ``processing_mode`` from pipeline_process settings (D2 fix):
+        Reads ``processing_mode`` from pipeline_process settings (fix):
         "fast" dispatches to process_batch_fast, "deep" to process_batch.
         """
         if self._pipeline_worker is None and self._pipeline is not None:
@@ -878,7 +919,7 @@ class ContainerServicesMixin:
         if self._pipeline_service is None:
             if self._pipeline is None:
                 raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
-            self._pipeline_service = PipelineServiceImpl(self._pipeline)
+            self._pipeline_service = PipelineServiceImpl(self._pipeline, crawler=self.crawler())
         return self._pipeline_service
 
     def task_registry(self) -> TaskRegistryService:
@@ -888,6 +929,14 @@ class ContainerServicesMixin:
         if self._task_registry is None:
             self._task_registry = InMemoryTaskRegistry()
         return self._task_registry
+
+    def outbox_repo(self):
+        """Get the transactional outbox repository."""
+        if self._outbox_repo is None:
+            from modules.storage.postgres import OutboxRepo
+
+            self._outbox_repo = OutboxRepo(self.relational_pool())
+        return self._outbox_repo
 
     def saga_orchestrator(self) -> SagaOrchestrator:
         """Get the Saga orchestrator for cross-database transaction coordination."""

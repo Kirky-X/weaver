@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Alert monitoring endpoints for rule CRUD, trigger, and acknowledgment."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -31,17 +31,27 @@ class CreateAlertRuleRequest(BaseModel):
     """Request model for creating an alert rule."""
 
     entity_name: str = Field(..., max_length=200, description="Entity to monitor")
-    metric: str = Field(
+    metric: Literal[
+        "reference_count",
+        "sentiment_change",
+        "volume_spike",
+        "saga_failure",
+        "compensation_failure",
+        "saga_timeout",
+    ] = Field(
         ...,
-        description="Metric: reference_count, sentiment_change, volume_spike",
+        description=(
+            "Metric: reference_count, sentiment_change, volume_spike, "
+            "saga_failure, compensation_failure, saga_timeout"
+        ),
     )
-    operator: str = Field(
+    operator: Literal["z_score>", "pct_change>", "absolute>"] = Field(
         ...,
         description="Operator: z_score>, pct_change>, absolute>",
     )
     threshold: float = Field(..., description="Threshold value")
     channel: str = Field(default="webhook", description="Notification channel")
-    cooldown_minutes: int = Field(default=60, description="Cooldown in minutes")
+    cooldown_minutes: int = Field(default=60, ge=0, description="Cooldown in minutes")
 
 
 class UpdateAlertRuleRequest(BaseModel):
@@ -51,7 +61,7 @@ class UpdateAlertRuleRequest(BaseModel):
     operator: str | None = None
     threshold: float | None = None
     channel: str | None = None
-    cooldown_minutes: int | None = None
+    cooldown_minutes: int | None = Field(default=None, ge=0)
     enabled: bool | None = None
 
 
@@ -177,13 +187,22 @@ async def trigger_alert(
 
     Returns the created event, or None if cooldown prevented the trigger.
     """
+    # Distinguish "rule missing" (404, consistent with get/update/delete)
+    # from "cooldown active / rule disabled" (200 + warning). A rule deleted
+    # between this check and trigger_alert degrades to the warning path —
+    # harmless.
+    rule = await service.get_rule(request.rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Alert rule {request.rule_id} not found")
     event = await service.trigger_alert(
         rule_id=request.rule_id,
         metric_value=request.metric_value,
         detail=request.detail,
     )
     if event is None:
-        return success_response(None, warning="Alert not triggered (cooldown or rule not found)")
+        return success_response(
+            None, warning="Alert not triggered (cooldown active or rule disabled)"
+        )
     return success_response(AlertEventResponse(**event))
 
 

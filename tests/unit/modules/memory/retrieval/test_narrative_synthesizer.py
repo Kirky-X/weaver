@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for NarrativeSynthesizer."""
 
 from __future__ import annotations
@@ -265,7 +265,8 @@ class TestNarrativeSynthesizerNarrativeMode:
         )
 
         assert "First piece of context" in result.output
-        assert result.mode == OutputMode.NARRATIVE
+        # LLM fallback serves raw context: labeled CONTEXT, not NARRATIVE
+        assert result.mode == OutputMode.CONTEXT
 
     @pytest.mark.asyncio
     async def test_narrative_mode_custom_max_tokens(self, mock_llm, context_nodes):

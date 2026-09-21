@@ -1,30 +1,55 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Database monitoring endpoints for performance analysis.
 
 Provides admin endpoints for:
+
 - Index usage statistics
+
 - Table size and row counts
+
 - Connection pool status
+
 - Slow query analysis (requires pg_stat_statements)
+
 """
 
 from __future__ import annotations
 
+
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
 from pydantic import BaseModel, Field
+
 from sqlalchemy import text
 
+from sqlalchemy.exc import OperationalError
+
+
 from api.dependencies import get_container
+
 from api.middleware.auth import verify_admin_api_key
+
 from api.schemas.response import APIResponse, success_response
+
 from core.constants import DatabaseType
+
 from core.db.postgres import PostgresPool
+
+from core.observability import get_logger
+
+
+log = get_logger(__name__)
+
 
 if TYPE_CHECKING:
     from container import Container
+
 
 router = APIRouter(prefix="/admin/monitoring", tags=["admin", "monitoring"])
 
@@ -33,10 +58,15 @@ class IndexStats(BaseModel):
     """Index usage statistics."""
 
     table: str = Field(..., description="Table name")
+
     index: str = Field(..., description="Index name")
+
     scans: int = Field(..., description="Number of index scans")
+
     tuples_read: int = Field(..., description="Tuples read via index")
+
     tuples_fetched: int = Field(..., description="Tuples fetched via index")
+
     size: str = Field(..., description="Index size (human-readable)")
 
 
@@ -44,8 +74,11 @@ class TableStats(BaseModel):
     """Table statistics."""
 
     table: str = Field(..., description="Table name")
+
     rows: int = Field(..., description="Estimated row count")
+
     size: str = Field(..., description="Table size (human-readable)")
+
     index_size: str = Field(..., description="Total index size")
 
 
@@ -53,8 +86,11 @@ class PoolStats(BaseModel):
     """Connection pool statistics."""
 
     pool_size: int = Field(..., description="Current pool size")
+
     checked_in: int = Field(..., description="Available connections")
+
     checked_out: int = Field(..., description="Active connections")
+
     overflow: int = Field(..., description="Overflow connections")
 
 
@@ -67,42 +103,72 @@ async def get_index_usage(
     """Get PostgreSQL index usage statistics.
 
     Returns information about:
+
     - Index scan counts
+
     - Index size
+
     - Unused indexes (candidates for removal)
+
+
 
     Args:
         limit: Maximum number of indexes to return.
+
         _: Admin API key verification.
+
         container: Application container.
+
+
 
     Returns:
         List of index statistics ordered by scan count (ascending).
+
+
 
     """
     pool = container.relational_pool()
 
     # Only works with PostgreSQL
+
     if container.relational_pool_type != DatabaseType.POSTGRES.value:
         return success_response(
             [],
             message="Index statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     async with pool.session() as session:
         result = await session.execute(
             text("""
+
                  SELECT schemaname || '.' || relname AS table,
+
                     indexrelname AS index,
+
                     idx_scan AS scans,
+
                     idx_tup_read AS tuples_read,
+
                     idx_tup_fetch AS tuples_fetched,
+
                     pg_size_pretty(pg_relation_size(indexrelid)) AS size
+
                  FROM pg_stat_user_indexes
+
                  ORDER BY idx_scan ASC
+
                      LIMIT :limit
+
                  """),
             {"limit": limit},
         )
@@ -132,11 +198,17 @@ async def get_table_stats(
 
     Args:
         limit: Maximum number of tables to return.
+
         _: Admin API key verification.
+
         container: Application container.
+
+
 
     Returns:
         List of table statistics ordered by size (descending).
+
+
 
     """
     pool = container.relational_pool()
@@ -147,18 +219,34 @@ async def get_table_stats(
             message="Table statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     async with pool.session() as session:
         result = await session.execute(
             text("""
+
                  SELECT schemaname || '.' || relname AS table,
+
                     n_live_tup AS rows,
+
                     pg_size_pretty(pg_total_relation_size(t.relid)) AS size,
+
                     pg_size_pretty(pg_indexes_size(t.relid)) AS index_size
+
                  FROM pg_stat_user_tables t
+
                  ORDER BY pg_total_relation_size(t.relid) DESC
+
                      LIMIT :limit
+
                  """),
             {"limit": limit},
         )
@@ -185,22 +273,41 @@ async def get_pool_stats(
 
     Args:
         _: Admin API key verification.
+
         container: Application container.
+
+
 
     Returns:
         Connection pool statistics.
+
+
 
     """
     pool = container.relational_pool()
 
     # Get pool statistics from SQLAlchemy
+
     if container.relational_pool_type == DatabaseType.POSTGRES.value:
-        assert isinstance(pool, PostgresPool)
+        # assert is stripped under python -O; use an explicit check so a
+
+        # container/pool mismatch surfaces as a controlled error, not AttributeError.
+
+        if not isinstance(pool, PostgresPool):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Expected PostgresPool, got {type(pool).__name__}",
+            )
+
         # Use PostgresPool.get_pool_stats() which correctly accesses
+
         # AsyncAdaptedQueuePool via _engine.pool (not sync_engine.pool.status()
+
         # which raises AttributeError on async engines).
+
         try:
             stats = pool.get_pool_stats()
+
             return success_response(
                 PoolStats(
                     pool_size=stats["pool_size"],
@@ -209,12 +316,18 @@ async def get_pool_stats(
                     overflow=stats["overflow"],
                 )
             )
+
         except (AttributeError, NotImplementedError, TypeError) as exc:
             # Defensive: surface pool/engine internals type info so operators
+
             # can diagnose mismatches (e.g., when SQLAlchemy upgrades change
+
             # the async-pool adapter surface).
+
             engine = getattr(pool, "_engine", None)
+
             engine_pool = getattr(engine, "pool", None) if engine is not None else None
+
             return success_response(
                 PoolStats(pool_size=0, checked_in=0, checked_out=0, overflow=0),
                 warning=(
@@ -225,6 +338,7 @@ async def get_pool_stats(
             )
 
     # DuckDB doesn't have connection pool
+
     return success_response(
         PoolStats(pool_size=1, checked_in=1, checked_out=0, overflow=0),
         message="DuckDB uses single connection, no pool statistics",
@@ -241,13 +355,21 @@ async def get_slow_queries(
 
     Requires pg_stat_statements extension to be enabled in PostgreSQL.
 
+
+
     Args:
         limit: Maximum number of queries to return.
+
         _: Admin API key verification.
+
         container: Application container.
+
+
 
     Returns:
         List of slow queries ordered by average duration.
+
+
 
     """
     pool = container.relational_pool()
@@ -258,20 +380,37 @@ async def get_slow_queries(
             message="Slow query statistics only available for PostgreSQL",
         )
 
-    assert isinstance(pool, PostgresPool)
+    # assert is stripped under python -O; use an explicit check so a
+
+    # container/pool mismatch surfaces as a controlled error, not AttributeError.
+
+    if not isinstance(pool, PostgresPool):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Expected PostgresPool, got {type(pool).__name__}",
+        )
 
     try:
         async with pool.session() as session:
             result = await session.execute(
                 text("""
+
                      SELECT query,
+
                             calls,
+
                             mean_exec_time  AS avg_duration_ms,
+
                             total_exec_time AS total_duration_ms, rows AS rows_retrieved
+
                      FROM pg_stat_statements
+
                      WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+
                      ORDER BY mean_exec_time DESC
+
                          LIMIT :limit
+
                      """),
                 {"limit": limit},
             )
@@ -289,8 +428,14 @@ async def get_slow_queries(
 
         return success_response({"slow_queries": queries, "limit": limit})
 
-    except Exception as exc:
+    except OperationalError as exc:
+        # Extension missing / not loadable is the expected failure mode; other
+
+        # exception types must surface (Rule 12) instead of a fake success.
+
+        log.warning("pg_stat_statements_unavailable", error=str(exc))
+
         return success_response(
-            {"slow_queries": [], "error": str(exc)},
+            {"slow_queries": []},
             message="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
         )

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SchemaNode: Represents an abstracted pattern from event clusters.
 
 A SchemaNode is created by the ConsolidationWorker when it identifies
@@ -31,3 +31,7 @@ class SchemaNode:
     event_type: str
     pattern: str
     confidence: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence}")

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Smart fetcher that chooses between httpx and crawl4ai based on response."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from core.observability import get_logger
-from core.resilience.circuit_breaker import CircuitBreaker
+from core.resilience.circuit_breaker import CBState, CircuitBreaker
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 from modules.ingestion.fetching.exceptions import CircuitOpenError
@@ -98,6 +98,7 @@ class SmartFetcher(BaseFetcher):
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
         url_validator: URLValidator | None = None,
+        min_content_length: int = MIN_CONTENT_LENGTH,
     ) -> None:
         self._httpx = httpx_fetcher
         self._crawl4ai = crawl4ai_fetcher
@@ -106,7 +107,9 @@ class SmartFetcher(BaseFetcher):
         self._circuit_breaker_threshold = circuit_breaker_threshold
         self._circuit_breaker_timeout = circuit_breaker_timeout
         self._url_validator = url_validator
+        self._min_content_length = min_content_length
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._BREAKER_CAP = 10_000
 
     def _get_breaker(self, host: str) -> CircuitBreaker:
         """Get or create a circuit breaker for the given host.
@@ -118,6 +121,23 @@ class SmartFetcher(BaseFetcher):
             CircuitBreaker instance for the host.
         """
         if host not in self._breakers:
+            # Bound growth: a large crawl touches hundreds of thousands of
+            # hosts; evict closed breakers of evicted entries via simple
+            # periodic sweep once the map exceeds 2× the cap. When most
+            # breakers are OPEN/HALF_OPEN, fall back to evicting the oldest
+            # entries regardless of state so the map stays bounded — an
+            # evicted OPEN breaker simply re-trips on the next failures.
+            if len(self._breakers) >= self._BREAKER_CAP * 2:
+                excess = len(self._breakers) - self._BREAKER_CAP
+                evict = [h for h, b in self._breakers.items() if b.state == CBState.CLOSED][:excess]
+                if len(evict) < excess:
+                    for h in self._breakers:
+                        if len(evict) >= excess:
+                            break
+                        if h not in evict:
+                            evict.append(h)
+                for h in evict:
+                    del self._breakers[h]
             self._breakers[host] = CircuitBreaker(
                 threshold=self._circuit_breaker_threshold,
                 timeout_secs=self._circuit_breaker_timeout,
@@ -167,9 +187,7 @@ class SmartFetcher(BaseFetcher):
             if self._circuit_breaker_enabled:
                 await self._get_breaker(host).record_success()
             return result
-        except CircuitOpenError:
-            raise  # Don't record failure for circuit open
-        except Exception as exc:
+        except Exception:
             if self._circuit_breaker_enabled:
                 await self._get_breaker(host).record_failure()
             raise
@@ -200,7 +218,7 @@ class SmartFetcher(BaseFetcher):
         try:
             # pre_validated=True: SmartFetcher.fetch() already validated URL
             # at line 148-149; skip HttpxFetcher's redundant validation
-            # to avoid double SSRF/URLhaus/PhishTank round-trips (D3 fix).
+            # to avoid double SSRF/URLhaus/PhishTank round-trips (fix).
             status, content, resp_headers = await self._httpx.fetch(
                 url, headers, pre_validated=True
             )
@@ -211,7 +229,7 @@ class SmartFetcher(BaseFetcher):
                     return await self._crawl4ai.fetch(url, headers)
 
                 # Check content length - if insufficient, fall back to crawl4ai
-                if len(content) < MIN_CONTENT_LENGTH:
+                if len(content) < self._min_content_length:
                     log.debug(
                         "smart_fetch_httpx_insufficient",
                         url=url,
@@ -227,6 +245,68 @@ class SmartFetcher(BaseFetcher):
 
         log.debug("smart_fetch_fallback_crawl4ai", url=url)
         return await self._crawl4ai.fetch(url, headers)
+
+    async def fetch_bytes(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        force_browser: bool = False,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        """Fetch a URL and return the undecoded body bytes.
+
+        Used for binary payloads (PDFs) where ``fetch``'s str decoding would
+        corrupt the content. Byte-exactness matters more than the SPA /
+        short-content fallbacks here, so this path always goes through the
+        httpx fetcher and never delegates to crawl4ai (which renders HTML).
+
+        Circuit-breaker accounting, rate limiting and SSRF validation are
+        applied identically to ``fetch`` because they live in the shared
+        prologue.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers to include in the request.
+            force_browser: If True, use crawl4ai and encode its rendered HTML
+                as UTF-8 bytes (no raw binary path available).
+
+        Returns:
+            Tuple of (status_code, content bytes, response_headers).
+
+        Raises:
+            CircuitOpenError: If circuit breaker is open for the host.
+            SSRFError: If URL is blocked for security reasons.
+        """
+        # Validate URL for SSRF protection
+        if self._url_validator:
+            await self._url_validator.validate(url)
+
+        host = urlparse(url).netloc
+
+        # Check circuit breaker first
+        if self._circuit_breaker_enabled:
+            breaker = self._get_breaker(host)
+            if await breaker.is_open():
+                log.warning("circuit_breaker_open", url=url, host=host)
+                raise CircuitOpenError(host)
+
+        # Rate limiting
+        if self._rate_limiter:
+            await self._rate_limiter.acquire(url)
+
+        try:
+            if force_browser:
+                # crawl4ai returns rendered HTML text; no byte-exact path.
+                status, text, resp_headers = await self._crawl4ai.fetch(url, headers)
+                result = (status, text.encode("utf-8", errors="replace"), resp_headers)
+            else:
+                result = await self._httpx.fetch_bytes(url, headers, pre_validated=True)
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_success()
+            return result
+        except Exception:
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_failure()
+            raise
 
     async def close(self) -> None:
         """Close underlying fetchers."""

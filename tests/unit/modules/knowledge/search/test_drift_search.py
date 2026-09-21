@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for DRIFT Search Engine."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -372,7 +372,7 @@ class TestDRIFTSearchEngine:
 
         confidence = engine._extract_confidence(text)
 
-        assert confidence == 0.5  # Default confidence
+        assert confidence is None  # No marker — never fabricate a score
 
     def test_extract_confidence_invalid_value(self, engine):
         """Test confidence extraction with invalid value."""
@@ -380,7 +380,7 @@ class TestDRIFTSearchEngine:
 
         confidence = engine._extract_confidence(text)
 
-        assert confidence == 0.5  # Default on parsing error
+        assert confidence is None  # Unparseable marker — never fabricate
 
     def test_remove_confidence_marker_chinese(self, engine):
         """Test removal of Chinese confidence marker."""
@@ -689,3 +689,38 @@ class TestDRIFTSearchEngineSearch:
         with patch.object(engine._context_builder, "build", AsyncMock(return_value=mock_context)):
             with pytest.raises(Exception, match="LLM error"):
                 await engine._primer_phase("测试查询")
+
+
+class TestFollowUpSourceEntities:
+    """Regression: follow_up_data source_entities must come from
+    SearchResult.entities — the old getattr on the
+    nonexistent `source_entities` attribute always returned []."""
+
+    @pytest.mark.asyncio
+    async def test_source_entities_populated_from_entities(self):
+        from modules.knowledge.search.engines.local_search import SearchResult
+
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(
+            return_value=SearchResult(
+                query="q",
+                answer="A",
+                context_tokens=10,
+                confidence=0.1,
+                entities=["EntityA", "EntityB"],
+            )
+        )
+        engine = DRIFTSearchEngine(
+            context_builder=MagicMock(),
+            llm=MagicMock(),
+            local_engine=mock_local_engine,
+        )
+        engine._config.confidence_threshold = 0.99
+
+        result = await engine._follow_up_phase(
+            query="测试查询",
+            initial_answer="初始答案",
+            follow_up_questions=["问题一？"],
+        )
+
+        assert result["results"][0]["source_entities"] == ["EntityA", "EntityB"]

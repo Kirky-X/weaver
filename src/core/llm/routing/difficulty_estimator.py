@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DifficultyEstimator: 4-factor difficulty scoring for LLM routing.
 
 Factors:
@@ -15,8 +15,15 @@ Guarantees:
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ClassVar
+
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -32,13 +39,17 @@ class DifficultyEstimator:
     Implements: standalone estimator, no protocol yet.
     """
 
-    CALL_POINT_BASELINES: ClassVar[dict[str, float]] = {
-        "classifier": 0.2,
-        "categorizer": 0.3,
-        "analyze": 0.6,
-        "entity_extractor": 0.7,
-        "quality_scorer": 0.5,
-    }
+    # 只读基线表：用 MappingProxyType 包裹，防止 `CALL_POINT_BASELINES["x"] = y`
+    # 这类原地写入静默污染所有实例的打分（ClassVar 为共享可变状态）。
+    CALL_POINT_BASELINES: ClassVar[Mapping[str, float]] = MappingProxyType(
+        {
+            "classifier": 0.2,
+            "categorizer": 0.3,
+            "analyze": 0.6,
+            "entity_extractor": 0.7,
+            "quality_scorer": 0.5,
+        }
+    )
 
     # Length weight dominates to guarantee bounds
     _LENGTH_WEIGHT: ClassVar[float] = 0.75
@@ -58,7 +69,16 @@ class DifficultyEstimator:
         length_factor = self._length_factor(len(text))
         density_factor = self._density_factor(entity_count, len(text))
         complexity_factor = self._complexity_factor(text)
-        baseline = self.CALL_POINT_BASELINES.get(call_point, 0.5)
+        baseline = self.CALL_POINT_BASELINES.get(call_point)
+        if baseline is None:
+            # 未登记的 call_point 会静默使用中性基线，可能掩盖拼写错误或
+            # 配置漂移（例如 "categoriser" vs "categorizer"）。
+            log.warning(
+                "difficulty_call_point_unknown",
+                call_point=call_point,
+                fallback_baseline=0.5,
+            )
+            baseline = 0.5
 
         contextual = (density_factor + complexity_factor + baseline) / 3.0
         score = self._LENGTH_WEIGHT * length_factor + self._CONTEXT_WEIGHT * contextual
@@ -89,7 +109,9 @@ class DifficultyEstimator:
 
     @staticmethod
     def _complexity_factor(text: str) -> float:
-        sentences = [s.strip() for s in text.split("。") if s.strip()]
+        # Split on common CJK + Latin sentence terminators so English and
+        # mixed-language texts do not degenerate into a single "sentence".
+        sentences = [s for s in re.split(r"[.!?。！？;；]+", text) if s.strip()]
         if not sentences:
             return 0.5
         avg_len = sum(len(s) for s in sentences) / len(sentences)

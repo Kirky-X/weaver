@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Search engines for knowledge graph querying."""
 
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine, MapReduceResult

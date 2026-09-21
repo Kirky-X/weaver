@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Neo4j global context builder for community-based search.
 
 Builds context using community reports and hierarchical structure,
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.db.graph_query_builders import create_graph_query_builder
+from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder
@@ -45,6 +45,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
         article_repo: Any = None,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(
             graph_pool=graph_pool,
@@ -54,8 +55,9 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             max_entities_per_community=max_entities_per_community,
             llm_client=llm_client,
             fallback_enabled=fallback_enabled,
+            similarity_threshold=similarity_threshold,
         )
-        self._query_builder = create_graph_query_builder("neo4j")
+        self._query_builder = create_graph_query_builder(GraphDatabaseType.NEO4J)
         self._article_repo = article_repo
 
     def _should_skip_supplementary(self, used_fallback: bool) -> bool:
@@ -91,7 +93,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
             WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
-            WHERE score > 0.3
+            WHERE score > $threshold
             RETURN c.id AS id,
                    c.title AS title,
                    COALESCE(r.summary, '') AS summary,
@@ -106,7 +108,12 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
             results = await self._pool.execute_query(
                 cypher,
-                {"level": level, "embedding": query_embedding, "limit": self._max_communities},
+                {
+                    "level": level,
+                    "embedding": query_embedding,
+                    "limit": self._max_communities,
+                    "threshold": self._similarity_threshold,
+                },
             )
 
             if results:
@@ -142,7 +149,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         Queries Article-Entity relationships via MENTIONS edges.
         Returns article-based results with entity context.
 
-        After the Article node slim-down (design.md §D2), the graph query
+        After the Article node slim-down, the graph query
         returns only ``article_id`` (= ``a.pg_id``) plus entity fields.
         When ``self._article_repo`` is available, title and score are
         batch-fetched from PostgreSQL; otherwise the result falls back
@@ -185,7 +192,11 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
             for r in results:
                 row = dict(r)
                 pg_id = str(row.get("article_id") or "")
-                meta = titles.get(pg_id.lower()) if pg_id else None
+                if not pg_id:
+                    # Rows without a valid article_id would all share the
+                    # "fallback:" id and confuse downstream dedup/routing.
+                    continue
+                meta = titles.get(pg_id.lower())
                 entity_name = row.get("entity_name", "")
                 # When article_repo is available, use the real title;
                 # otherwise degrade to entity_name only (no trailing dash).

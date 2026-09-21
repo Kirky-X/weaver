@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for IncrementalCommunityUpdater.check_and_run() and force_rebuild()."""
 
 from datetime import UTC, datetime, timedelta
@@ -160,7 +160,7 @@ class TestCheckAndRun:
 
 
 class TestForceRebuild:
-    """Tests for force_rebuild()."""
+    """Tests for UpdateTriggerPolicy.force_rebuild (via the updater policy)."""
 
     @pytest.mark.asyncio
     async def test_force_rebuild_always_triggers(self, updater, mock_pool):
@@ -177,7 +177,7 @@ class TestForceRebuild:
             )
             MockDetector.return_value = mock_detector
 
-            result = await updater.force_rebuild()
+            result = await updater._trigger_policy.force_rebuild()
 
         assert result["triggered"] is True
         assert result["reason"] == "forced"
@@ -198,7 +198,7 @@ class TestForceRebuild:
             )
             MockDetector.return_value = mock_detector
 
-            result = await updater.force_rebuild()
+            result = await updater._trigger_policy.force_rebuild()
 
         assert result["triggered"] is True
         assert result["modularity"] == 0.55
@@ -250,7 +250,7 @@ class TestEntityChangeDetection:
             [{}],  # no previous_count field
         ]
 
-        exceeded, current, previous = await updater._check_entity_change()
+        exceeded, current, previous = await updater._trigger_policy._check_entity_change()
 
         assert exceeded is False
         assert current == 100
@@ -264,7 +264,7 @@ class TestEntityChangeDetection:
             [{"previous_count": 0}],  # previous = 0
         ]
 
-        exceeded, current, previous = await updater._check_entity_change()
+        exceeded, current, previous = await updater._trigger_policy._check_entity_change()
 
         assert exceeded is False
         assert current == 100
@@ -278,7 +278,7 @@ class TestEntityChangeDetection:
             [{"previous_count": 100}],  # previous = 100 → 10% exactly
         ]
 
-        exceeded, _, _ = await updater._check_entity_change()
+        exceeded, _, _ = await updater._trigger_policy._check_entity_change()
         assert exceeded is False
 
     @pytest.mark.asyncio
@@ -289,7 +289,7 @@ class TestEntityChangeDetection:
             [{"previous_count": 100}],  # previous = 100 → 12%
         ]
 
-        exceeded, current, previous = await updater._check_entity_change()
+        exceeded, current, previous = await updater._trigger_policy._check_entity_change()
         assert exceeded is True
         assert current == 112
         assert previous == 100

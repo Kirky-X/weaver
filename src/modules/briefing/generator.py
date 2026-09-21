@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Briefing generator — produce per-category daily briefings (T004).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Briefing generator — produce per-category daily briefings.
 
-BriefingGenerator is an independent class (not a pipeline node — see design.md
-decision on T004 integration path) that:
+BriefingGenerator is an independent class (not a pipeline node) that:
 
 1. Fetches articles for a given date filtered by category
    (finance→经济, tech→科技, ai→keyword match, general→no filter).
@@ -14,16 +13,16 @@ decision on T004 integration path) that:
 Failure handling follows Rule 12 (fail loud):
 - LLM failures (AllProvidersFailedError / CircuitOpenError / ValueError)
   degrade gracefully: empty summary, briefing still persisted. Per spec
-  R-briefing-002: "LLM 调用失败时：summary 为空，log warning，不抛异常".
+  "LLM 调用失败时：summary 为空，log warning，不抛异常".
 - Storage failures raise to the caller (briefing not silently dropped).
-  Callers (T010 scheduler / T009 endpoint) decide how to surface to user.
+  Callers (scheduler / endpoint) decide how to surface to user.
 - Empty article list short-circuits before LLM call (save RPM budget).
 - Unexpected errors (TypeError, AttributeError, etc.) propagate — these
   are programming bugs that must surface, not be hidden.
 
 Category mapping (Rule 7 — exposed conflict, decision: hybrid):
 - articles_core.category uses CategoryType enum (政治/军事/经济/科技/...).
-- daily_briefings.category uses finance/tech/ai/general (spec R-briefing-003).
+- daily_briefings.category uses finance/tech/ai/general (spec).
 - Mapping is hybrid: enum match for finance/tech, keyword match for ai
   (no direct enum equivalent), no filter for general. The mapping is
   implemented in AnalyticsStorage.fetch_articles_for_briefing (storage
@@ -40,6 +39,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.constants import BRIEFING_CATEGORIES as VALID_BRIEFING_CATEGORIES
 from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
@@ -53,10 +53,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Daily briefing category namespace (spec R-briefing-003).
-# Maps to {finance, tech, ai, general} — distinct from articles_core.category
-# which uses CategoryType enum (政治/经济/科技/...).
-VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
+# Daily briefing category namespace — single source in core.constants.
+# Distinct from articles_core.category which uses CategoryType enum
+# (政治/经济/科技/...).
 
 # daily_briefing_items.rank CHECK constraint is [1, 10] (misc.py).
 # Cap items at 10 to fit the constraint; sort by score desc to keep top-10.
@@ -111,9 +110,9 @@ class BriefingGenerator:
             ValueError: If category is not None and not in
                 VALID_BRIEFING_CATEGORIES.
             Exception: Storage failures propagate (Rule 12). LLM failures
-                degrade (empty summary) per spec R-briefing-002.
+                degrade (empty summary) per spec.
         """
-        # Normalize None → 'general' (spec R-briefing-001: None 表示综合).
+        # Normalize None → 'general' (None 表示综合).
         normalized_category = category or "general"
         if normalized_category not in VALID_BRIEFING_CATEGORIES:
             raise ValueError(
@@ -245,15 +244,22 @@ class BriefingGenerator:
 
         Each article is rendered as:
             [N] title (score=X.XX, category=Y)
-            body
+            content
+
+        Content source: per-article ``summary`` when present (analyze
+        product, ~150 chars); otherwise the first 500 chars of ``body``.
+        Summary-first keeps every article represented in the same token
+        budget where full-body concatenation truncated away the tail.
 
         Concatenated with double newlines between articles.
         """
         parts: list[str] = []
         for i, article in enumerate(articles, start=1):
             title = article.get("title", "(untitled)")
+            summary = article.get("summary")
             body = article.get("body", "")
+            content = summary if summary else body[:500]
             score = article.get("score", 0.0)
             category = article.get("category", "unknown")
-            parts.append(f"[{i}] {title} (score={score:.2f}, category={category})\n{body}")
+            parts.append(f"[{i}] {title} (score={score:.2f}, category={category})\n{content}")
         return "\n\n".join(parts)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for intent router module."""
 
 from unittest.mock import AsyncMock, MagicMock
@@ -176,3 +176,85 @@ async def test_router_fallback_on_error():
     # Should return fallback dict
     assert isinstance(result, dict)
     assert "error" in result.get("metadata", {})
+
+
+class TestFallbackModeConfig:
+    """Regression: unknown-intent fallback must honour the configured
+    fallback_mode instead of always routing to global."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode,local_calls,global_calls", [("local", 1, 0), ("global", 0, 1)])
+    async def test_unknown_intent_uses_configured_fallback_mode(
+        self, mode, local_calls, global_calls
+    ):
+        from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
+
+        mock_local = AsyncMock()
+        mock_local.search.return_value = MagicMock(metadata={})
+        mock_global = AsyncMock()
+        mock_global.search.return_value = MagicMock(metadata={})
+
+        router = IntentRouter(
+            local_engine=mock_local,
+            global_engine=mock_global,
+            config=RoutingConfig(fallback_mode=mode),
+        )
+
+        # All QueryIntent enum members are mapped, so simulate an
+        # unmapped intent via a mock carrying a .value attribute.
+        unknown_intent = MagicMock(value="totally-unknown")
+        classification = IntentClassification(intent=unknown_intent, confidence=0.5)
+        await router.route("test query", classification)
+
+        assert mock_local.search.call_count == local_calls
+        assert mock_global.search.call_count == global_calls
+
+
+class TestWhenUsesTemporalSignals:
+    """Regression: _search_when must differentiate from _search_why by
+    consuming classification.temporal_signals."""
+
+    @pytest.mark.asyncio
+    async def test_when_search_anchors_query_with_temporal_expressions(self):
+        from modules.knowledge.search.intent.router import IntentRouter
+
+        mock_local = AsyncMock()
+        mock_local.search.return_value = MagicMock(metadata={})
+        mock_global = AsyncMock()
+
+        router = IntentRouter(
+            local_engine=mock_local,
+            global_engine=mock_global,
+        )
+
+        classification = IntentClassification(
+            intent=QueryIntent.WHEN,
+            confidence=0.9,
+            temporal_signals=[
+                TemporalSignal(expression="yesterday", anchor_type="relative"),
+                TemporalSignal(expression="last week", anchor_type="relative"),
+            ],
+        )
+        await router.route("发生了什么", classification)
+
+        call_kwargs = mock_local.search.call_args.kwargs
+        assert "时间限定：yesterday、last week" in call_kwargs["query"]
+
+    @pytest.mark.asyncio
+    async def test_when_search_without_signals_keeps_query_intact(self):
+        from modules.knowledge.search.intent.router import IntentRouter
+
+        mock_local = AsyncMock()
+        mock_local.search.return_value = MagicMock(metadata={})
+        mock_global = AsyncMock()
+
+        router = IntentRouter(
+            local_engine=mock_local,
+            global_engine=mock_global,
+        )
+
+        classification = IntentClassification(intent=QueryIntent.WHEN, confidence=0.9)
+        await router.route("发生了什么", classification)
+
+        call_kwargs = mock_local.search.call_args.kwargs
+        assert call_kwargs["query"] == "发生了什么"

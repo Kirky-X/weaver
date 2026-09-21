@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for API Key auto-rotation (Task 4).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for API Key auto-rotation.
 
 Verifies:
 - Key rotation creates replacement key 7 days before expiry
-- Old key remains valid during 24h grace period
+- Rotated old keys are invalidated immediately: ``rotated_to`` is set and
+  ``validate_key`` rejects any key whose ``rotated_to`` is non-null
 - Rotated key has rotated_to field set
 - Daily scheduler checks for expiring keys
 """
@@ -141,12 +142,12 @@ class TestApiKeyRotation:
 class TestGracePeriod:
     """Old key SHALL be invalidated via rotated_to (not is_revoked) on rotation.
 
-    After the CWE-362 fix (vuln-0001), rotate_key uses SELECT ... FOR UPDATE
-    to atomically fetch + rotate within a single transaction. The old key is
-    invalidated by setting ``rotated_to`` (validate_key rejects any key whose
-    ``rotated_to`` is non-null). ``is_revoked`` is intentionally NOT set — it
-    is reserved for explicit operator-initiated revocation (revoke_key), so
-    audit logs can distinguish scheduled rotations from explicit revocations.
+    After the CWE-362 fix, rotate_key uses SELECT... FOR UPDATE
+        to atomically fetch + rotate within a single transaction. The old key is
+        invalidated by setting ``rotated_to`` (validate_key rejects any key whose
+        ``rotated_to`` is non-null). ``is_revoked`` is intentionally NOT set — it
+        is reserved for explicit operator-initiated revocation (revoke_key), so
+        audit logs can distinguish scheduled rotations from explicit revocations.
     """
 
     @pytest.fixture
@@ -201,11 +202,11 @@ class TestGracePeriod:
 class TestRotateKeyTOCTOU:
     """TOCTOU edge cases — rotate_key SHALL reject already-rotated / revoked keys.
 
-    After the CWE-362 fix (vuln-0001), rotate_key performs SELECT ... FOR UPDATE
-    inside the main transaction and inspects ``is_revoked`` / ``rotated_to``
-    before rotating. Concurrent rotate_key calls for the same key_id are
-    serialized by the row lock; the second caller observes the post-rotation
-    state and bails out cleanly instead of creating an orphan new key.
+    After the CWE-362 fix, rotate_key performs SELECT... FOR UPDATE
+        inside the main transaction and inspects ``is_revoked`` / ``rotated_to``
+        before rotating. Concurrent rotate_key calls for the same key_id are
+        serialized by the row lock; the second caller observes the post-rotation
+        state and bails out cleanly instead of creating an orphan new key.
     """
 
     @pytest.fixture

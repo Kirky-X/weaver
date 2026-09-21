@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """F-G-01~11: Graph API 集成测试（Fast 层）。
 
 覆盖实体、关系、遍历、指标、可视化等图谱 API 端点。边界用例

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for Retry module."""
 
 import json
@@ -21,6 +21,7 @@ class TestRetryQueue:
         redis.zrangebyscore = AsyncMock(return_value=[])
         redis.zrem = AsyncMock(return_value=1)
         redis.lpush = AsyncMock(return_value=1)
+        redis.ltrim = AsyncMock(return_value=True)
         redis.llen = AsyncMock(return_value=0)
         redis.lrange = AsyncMock(return_value=[])
         redis.delete = AsyncMock(return_value=1)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Relation type normalizer for knowledge graph relationships.
 
 Provides normalization of LLM-extracted relation types to standard
@@ -9,6 +9,7 @@ generation.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -73,6 +74,10 @@ class RelationTypeNormalizer:
         self._name_en_cache: dict[str, NormalizedRelation] = {}
         self._suffixes = ("了", "关系", "于", "中", "的")
         self._loaded = False
+        # Serializes the one-shot cache load: concurrent normalize() calls
+        # would otherwise race past the _loaded check and both run the full
+        # DB query + cache refill.
+        self._load_lock = asyncio.Lock()
 
     async def _ensure_loaded(self) -> None:
         """从数据库加载缓存。
@@ -83,48 +88,53 @@ class RelationTypeNormalizer:
         if self._loaded:
             return
 
-        async with self._pool.session() as session:
-            # 查询所有活跃的关系类型及其别名
-            result = await session.execute(
-                select(RelationType)
-                .where(RelationType.is_active.is_(True))
-                .order_by(RelationType.sort_order)
-            )
-            relation_types = result.scalars().all()
+        async with self._load_lock:
+            if self._loaded:
+                # Another task completed the load while we waited.
+                return
 
-            # 清空缓存
-            self._alias_cache.clear()
-            self._standard_cache.clear()
-            self._name_en_cache.clear()
-
-            for rt in relation_types:
-                # 创建 NormalizedRelation
-                normalized = NormalizedRelation(
-                    raw_type=rt.name,
-                    name=rt.name,
-                    name_en=rt.name_en,
-                    is_symmetric=rt.is_symmetric,
-                    description=rt.description,
+            async with self._pool.session() as session:
+                # 查询所有活跃的关系类型及其别名
+                result = await session.execute(
+                    select(RelationType)
+                    .where(RelationType.is_active.is_(True))
+                    .order_by(RelationType.sort_order)
                 )
+                relation_types = result.scalars().all()
 
-                # 填充标准名缓存
-                self._standard_cache[rt.name] = normalized
-                self._name_en_cache[rt.name_en] = normalized
+                # 清空缓存
+                self._alias_cache.clear()
+                self._standard_cache.clear()
+                self._name_en_cache.clear()
 
-                # Fill alias cache (including standard names themselves)
-                self._alias_cache[rt.name] = normalized
-                self._alias_cache[rt.name_en] = normalized
+                for rt in relation_types:
+                    # 创建 NormalizedRelation
+                    normalized = NormalizedRelation(
+                        raw_type=rt.name,
+                        name=rt.name,
+                        name_en=rt.name_en,
+                        is_symmetric=rt.is_symmetric,
+                        description=rt.description,
+                    )
 
-                # Fill all aliases
-                for alias_obj in rt.aliases:
-                    self._alias_cache[alias_obj.alias] = normalized
+                    # 填充标准名缓存
+                    self._standard_cache[rt.name] = normalized
+                    self._name_en_cache[rt.name_en] = normalized
 
-        self._loaded = True
-        log.info(
-            "relation_type_cache_loaded",
-            standard_count=len(self._standard_cache),
-            alias_count=len(self._alias_cache),
-        )
+                    # Fill alias cache (including standard names themselves)
+                    self._alias_cache[rt.name] = normalized
+                    self._alias_cache[rt.name_en] = normalized
+
+                    # Fill all aliases
+                    for alias_obj in rt.aliases:
+                        self._alias_cache[alias_obj.alias] = normalized
+
+            self._loaded = True
+            log.info(
+                "relation_type_cache_loaded",
+                standard_count=len(self._standard_cache),
+                alias_count=len(self._alias_cache),
+            )
 
     async def normalize(self, raw_type: str) -> NormalizedRelation:
         """归一化原始关系类型。
@@ -180,16 +190,9 @@ class RelationTypeNormalizer:
             if cleaned == original_cleaned:
                 break
 
-        # Step 3: 标准名直接匹配
-        if raw_type in self._standard_cache:
-            cached = self._standard_cache[raw_type]
-            return NormalizedRelation(
-                raw_type=raw_type,
-                name=cached.name,
-                name_en=cached.name_en,
-                is_symmetric=cached.is_symmetric,
-                description=cached.description,
-            )
+        # NOTE: no separate "standard name" step here. Every key of
+        # ``_standard_cache`` (rt.name) is also written into ``_alias_cache``
+        # by ``_ensure_loaded``, so Step 1 already returns for those inputs.
 
         # 大写英文名匹配
         upper_raw = raw_type.upper()
@@ -235,28 +238,36 @@ class RelationTypeNormalizer:
                 article_id = None
 
         async with self._pool.session() as session:
-            # 查找已存在的未解决记录
+            # 查找已存在的未解决记录。raw_type 无唯一约束（Migration 已移除），
+            # 可能存在多条未解决行，用 limit(1)+first() 避免 MultipleResultsFound。
             result = await session.execute(
-                select(UnknownRelationType).where(
+                select(UnknownRelationType)
+                .where(
                     UnknownRelationType.raw_type == raw_type,
                     UnknownRelationType.resolved.is_(False),
                 )
+                .order_by(UnknownRelationType.last_seen_at)
+                .limit(1)
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             now = datetime.now(UTC)
 
             if existing:
-                # 更新现有记录
+                # 原子递增：hit_count 在 SQL 端 +1，避免并发读改写丢失计数。
+                # context/article_id 仅在非 None 时覆盖，防止默认调用清空已有数据。
+                values: dict[str, object] = {
+                    "hit_count": UnknownRelationType.hit_count + 1,
+                    "last_seen_at": now,
+                }
+                if context is not None:
+                    values["context"] = context
+                if article_id is not None:
+                    values["article_id"] = article_id
                 await session.execute(
                     update(UnknownRelationType)
                     .where(UnknownRelationType.id == existing.id)
-                    .values(
-                        hit_count=existing.hit_count + 1,
-                        last_seen_at=now,
-                        context=context,
-                        article_id=article_id,
-                    )
+                    .values(**values)
                 )
                 log.debug(
                     "record_unknown_updated",
@@ -286,25 +297,18 @@ class RelationTypeNormalizer:
         """
         await self._ensure_loaded()
 
-        # 从缓存中获取并按 sort_order 排序
-        async with self._pool.session() as session:
-            result = await session.execute(
-                select(RelationType)
-                .where(RelationType.is_active.is_(True))
-                .order_by(RelationType.sort_order)
+        # _ensure_loaded 已按 sort_order 顺序填充缓存（dict 保序），
+        # 直接返回缓存副本，避免重复 DB 查询。
+        return [
+            NormalizedRelation(
+                raw_type=nr.raw_type,
+                name=nr.name,
+                name_en=nr.name_en,
+                is_symmetric=nr.is_symmetric,
+                description=nr.description,
             )
-            relation_types = result.scalars().all()
-
-            return [
-                NormalizedRelation(
-                    raw_type=rt.name,
-                    name=rt.name,
-                    name_en=rt.name_en,
-                    is_symmetric=rt.is_symmetric,
-                    description=rt.description,
-                )
-                for rt in relation_types
-            ]
+            for nr in self._standard_cache.values()
+        ]
 
     @staticmethod
     def get_cypher_pattern(name_en: str, is_symmetric: bool) -> str:
@@ -331,10 +335,13 @@ class RelationTypeNormalizer:
     async def invalidate_cache(self) -> None:
         """清除缓存，强制重新加载。
 
-        用于关系类型更新后刷新缓存。
+        用于关系类型更新后刷新缓存。与 _ensure_loaded 共用同一把锁：
+        锁外置 _loaded=False 会与持锁中的 reload 交错出「缓存已空但
+        _loaded=True」的窗口。
         """
-        self._loaded = False
-        self._alias_cache.clear()
-        self._standard_cache.clear()
-        self._name_en_cache.clear()
+        async with self._load_lock:
+            self._loaded = False
+            self._alias_cache.clear()
+            self._standard_cache.clear()
+            self._name_en_cache.clear()
         log.info("relation_type_cache_invalidated")

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """SSL certificate verification for URL security.
 
 Verifies SSL certificates for:
@@ -10,6 +10,7 @@ Verifies SSL certificates for:
 """
 
 import asyncio
+import re
 import socket
 import ssl
 from dataclasses import dataclass
@@ -67,30 +68,35 @@ class SSLVerifier:
         _timeout: Connection timeout in seconds.
     """
 
-    TRUSTED_CAS: set[str] = {
-        "DigiCert",
-        "Let's Encrypt",
-        "GlobalSign",
-        "Comodo",
-        "GoDaddy",
-        "Amazon",
-        "Cloudflare",
-        "Google Trust Services",
-        "Microsoft",
-        "Sectigo",
-        "Entrust",
-        "Thawte",
-        "GeoTrust",
-        "RapidSSL",
-    }
+    # frozenset：类级共享的不可变集合，避免外部代码 .add() 污染所有实例。
+    TRUSTED_CAS: frozenset[str] = frozenset(
+        {
+            "DigiCert",
+            "Let's Encrypt",
+            "GlobalSign",
+            "Comodo",
+            "GoDaddy",
+            "Amazon",
+            "Cloudflare",
+            "Google Trust Services",
+            "Microsoft",
+            "Sectigo",
+            "Entrust",
+            "Thawte",
+            "GeoTrust",
+            "RapidSSL",
+        }
+    )
 
-    EV_OIDS: set[str] = {
-        "1.3.6.1.4.1.34697.2.1",  # DigiCert EV
-        "1.3.6.1.4.1.14370.1.6",  # GeoTrust EV
-        "1.3.6.1.4.1.4146.1.1",  # GlobalSign EV
-        "2.16.840.1.113733.1.7.23.6",  # VeriSign EV
-        "1.3.6.1.4.1.11129.2.1.4",  # Google EV
-    }
+    EV_OIDS: frozenset[str] = frozenset(
+        {
+            "1.3.6.1.4.1.34697.2.1",  # DigiCert EV
+            "1.3.6.1.4.1.14370.1.6",  # GeoTrust EV
+            "1.3.6.1.4.1.4146.1.1",  # GlobalSign EV
+            "2.16.840.1.113733.1.7.23.6",  # VeriSign EV
+            "1.3.6.1.4.1.11129.2.1.4",  # Google EV
+        }
+    )
 
     def __init__(self, enabled: bool = True, timeout: float = 10.0) -> None:
         """Initialize SSL verifier.
@@ -129,7 +135,21 @@ class SSLVerifier:
             )
 
         hostname = parsed.hostname
-        port = parsed.port or 443
+        if not hostname:
+            # Malformed URL (e.g. "https://") — nothing to verify.
+            return CheckResult(
+                source=CheckSource.SSL,
+                risk=URLRisk.LOW,
+                message="URL has no hostname, SSL check skipped",
+            )
+        try:
+            port = parsed.port or 443
+        except ValueError:
+            return CheckResult(
+                source=CheckSource.SSL,
+                risk=URLRisk.LOW,
+                message="URL has invalid port, SSL check skipped",
+            )
 
         try:
             cert_info = await self._fetch_certificate(hostname, port)
@@ -174,7 +194,7 @@ class SSLVerifier:
         Returns:
             CertificateInfo with certificate details.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         return await loop.run_in_executor(
             None,
@@ -205,9 +225,22 @@ class SSLVerifier:
             subject = dict(x[0] for x in cert_dict.get("subject", ()))
             issuer = dict(x[0] for x in cert_dict.get("issuer", ()))
 
-            # Parse dates
-            not_before = datetime.strptime(cert_dict.get("notBefore", ""), "%b %d %H:%M:%S %Y %Z")
-            not_after = datetime.strptime(cert_dict.get("notAfter", ""), "%b %d %H:%M:%S %Y %Z")
+            # Parse dates — missing keys or non-standard formats must not
+            # crash the fetch; fall back to epoch so expiry analysis
+            # degrades instead of raising.
+            try:
+                not_before = datetime.strptime(
+                    cert_dict.get("notBefore", ""), "%b %d %H:%M:%S %Y %Z"
+                )
+                not_after = datetime.strptime(cert_dict.get("notAfter", ""), "%b %d %H:%M:%S %Y %Z")
+            except ValueError as date_exc:
+                log.warning(
+                    "ssl_cert_date_parse_failed",
+                    hostname=hostname,
+                    error=str(date_exc),
+                )
+                not_before = datetime.min
+                not_after = datetime.min
 
             now = datetime.now()
             is_expired = now > not_after
@@ -216,8 +249,11 @@ class SSLVerifier:
             # Check EV
             is_ev = self._check_ev_certificate(cert_dict)
 
-            # Check self-signed
-            is_self_signed = subject.get("commonName") == issuer.get("commonName")
+            # Check self-signed — compare full RDN sequences. CN-only
+            # comparison misclassifies certificates without a commonName
+            # (None == None); identical subject and issuer tuples is the
+            # standard self-signed test.
+            is_self_signed = cert_dict.get("subject", ()) == cert_dict.get("issuer", ())
 
             # SAN count
             san_count = len(cert_dict.get("subjectAltName", []))
@@ -247,6 +283,25 @@ class SSLVerifier:
         for policy in policies:
             policy_oid = policy[0] if policy else ""
             if policy_oid in self.EV_OIDS:
+                return True
+        return False
+
+    def _is_trusted_issuer(self, issuer: str) -> bool:
+        """Check whether the issuer matches a trusted CA on token boundaries.
+
+        Every whitespace-separated token of the CA name must appear as a
+        whole token in the issuer string, so "DigiCert, Inc." still matches
+        "DigiCert" while "EvilDigiCertCA" does not.
+
+        Args:
+            issuer: Issuer common name or organization from the certificate.
+
+        Returns:
+            True if the issuer resolves to a trusted CA.
+        """
+        issuer_tokens = set(re.findall(r"[a-z0-9']+", issuer.lower()))
+        for ca in self.TRUSTED_CAS:
+            if all(token in issuer_tokens for token in ca.lower().split()):
                 return True
         return False
 
@@ -285,9 +340,10 @@ class SSLVerifier:
             warnings.append("Self-signed certificate")
             max_risk = URLRisk.HIGH
 
-        # 4. Non-EV from unknown CA
-        issuer_lower = cert.issuer.lower()
-        is_trusted_ca = any(ca.lower() in issuer_lower for ca in self.TRUSTED_CAS)
+        # 4. Non-EV from unknown CA. Match CA names on token boundaries —
+        # a bare substring test would let lookalike issuers such as
+        # "EvilDigiCertCA" pass as trusted.
+        is_trusted_ca = self._is_trusted_issuer(cert.issuer)
 
         if not cert.is_ev and not is_trusted_ca:
             warnings.append(f"Non-EV certificate from unknown CA: {cert.issuer}")

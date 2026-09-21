@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unified circuit breaker using pybreaker with event emission.
 
 This module provides a pybreaker-based circuit breaker implementation
@@ -16,27 +16,15 @@ State machine:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from enum import Enum
-from typing import TYPE_CHECKING
+import time
 
 from pybreaker import CircuitBreaker as PyBreaker
 
+from core.constants import CircuitState as CBState
 from core.observability import get_logger
 from core.observability.metrics import metrics
 
-if TYPE_CHECKING:
-    pass
-
 log = get_logger(__name__)
-
-
-class CBState(Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
 
 
 class CircuitBreaker:
@@ -84,13 +72,15 @@ class CircuitBreaker:
             reset_timeout=timeout_secs,
         )
         self._lock = asyncio.Lock()
-        self._last_state: CBState = CBState.CLOSED
         # Self-maintained counters and timestamps to avoid pybreaker's
         # private _state_storage API. These mirror what pybreaker would
         # track internally but expose via private attributes.
         self._failure_counter: int = 0
         self._success_counter: int = 0
-        self._opened_at: datetime | None = None
+        # Monotonic timestamp (time.monotonic) — wall-clock jumps from NTP
+        # sync must not skew the OPEN→HALF_OPEN cooldown. Mirrors
+        # ProviderCircuitBreaker in core.llm.resilience.
+        self._opened_at: float | None = None
         # Initialize metrics
         metrics.circuit_breaker_state.labels(provider=self._provider).set(
             self.STATE_CODES[CBState.CLOSED]
@@ -105,24 +95,25 @@ class CircuitBreaker:
     async def is_open(self) -> bool:
         """Check if the circuit is open.
 
-        pybreaker handles the OPEN→HALF_OPEN transition internally.
-        This method just checks the current state.
+        The OPEN→HALF_OPEN transition does NOT happen here: pybreaker's
+        ``current_state`` property is a pure read (it never advances the state
+        machine). Only ``CircuitBreaker.call()`` does, via
+        ``CircuitOpenState.before_call``. Because this wrapper stores its own
+        ``_opened_at`` timestamp, the cooldown check below is what actually
+        decides whether calls may proceed.
 
         Returns:
             True if calls should be blocked (OPEN, not yet timed out).
             False if calls may proceed (CLOSED or HALF_OPEN).
         """
         current_state = self.state
-        # pybreaker automatically transitions OPEN→HALF_OPEN after reset_timeout
-        # when checking current_state or making a call
         return current_state == CBState.OPEN and not self._can_attempt_reset()
 
     def _can_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt reset from OPEN state."""
         if self._opened_at is None:
             return False
-        elapsed = (datetime.now(UTC) - self._opened_at).total_seconds()
-        return elapsed >= self._timeout
+        return (time.monotonic() - self._opened_at) >= self._timeout
 
     async def record_success(self) -> bool:
         """Record a successful operation.
@@ -164,7 +155,7 @@ class CircuitBreaker:
             if prev_state == CBState.HALF_OPEN:
                 self._failure_counter = 0
                 self._success_counter = 0
-                self._opened_at = datetime.now(UTC)
+                self._opened_at = time.monotonic()
                 self._breaker.open()
                 self._emit_state_transition(CBState.HALF_OPEN, CBState.OPEN)
             else:
@@ -172,7 +163,7 @@ class CircuitBreaker:
                 if self._failure_counter >= self._breaker.fail_max:
                     self._failure_counter = 0
                     self._success_counter = 0
-                    self._opened_at = datetime.now(UTC)
+                    self._opened_at = time.monotonic()
                     self._breaker.open()
                     self._emit_state_transition(CBState.CLOSED, CBState.OPEN)
 
@@ -200,11 +191,20 @@ class CircuitBreaker:
     def force_half_open(self) -> None:  # pragma: no cover
         """Force the circuit breaker into HALF_OPEN state.
 
-        This is a test-only helper that delegates to the underlying pybreaker
-        instance's half_open() method. It exists to avoid tests reaching into
-        the private _breaker attribute.
+        Test-only helper that delegates to the underlying pybreaker
+        instance's half_open() method. Deliberately bypasses ``self._lock``
+        (sync helper, no concurrent production callers) and only transitions
+        from OPEN — calling it on a CLOSED circuit would corrupt the state
+        machine.
         """
-        self._breaker.half_open()
+        if self.state is CBState.OPEN:
+            self._breaker.half_open()
+        else:
+            log.warning(
+                "force_half_open_ignored",
+                provider=self._provider,
+                state=self.state.value,
+            )
 
     def _emit_state_transition(self, from_state: CBState, to_state: CBState) -> None:
         """Emit a CircuitStateEvent for state transition.
@@ -233,4 +233,3 @@ class CircuitBreaker:
             from_state=from_state.value,
             to_state=to_state.value,
         )
-        self._last_state = to_state

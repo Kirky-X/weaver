@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """MMR (Maximal Marginal Relevance) reranker for diversity.
 
 MMR balances relevance and diversity in search results by selecting
@@ -18,12 +18,12 @@ where:
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from core.observability import get_logger
+from core.utils.vector_math import cosine_similarity
 
 log = get_logger(__name__)
 
@@ -87,6 +87,7 @@ class MMRReranker:
         self._lambda = lambda_param
         self._similarity_mode = similarity_mode
         self._similarity_fn = similarity_fn or self._jaccard_similarity
+        self._custom_similarity_fn = similarity_fn is not None
 
         log.info(
             "mmr_reranker_initialized",
@@ -99,25 +100,10 @@ class MMRReranker:
         """Current similarity computation mode."""
         return self._similarity_mode
 
-    @staticmethod
-    def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-        """Compute cosine similarity between two vectors.
-
-        Args:
-            vec1: First vector.
-            vec2: Second vector.
-
-        Returns:
-            Cosine similarity in range [-1, 1], or 0.0 for zero vectors.
-        """
-        dot = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = math.sqrt(sum(a * a for a in vec1))
-        norm2 = math.sqrt(sum(b * b for b in vec2))
-
-        if norm1 == 0.0 or norm2 == 0.0:
-            return 0.0
-
-        return dot / (norm1 * norm2)
+    # Shared implementation; exposed as a staticmethod so instance/class
+    # call sites and tests keep working. Unlike the previous inlined copy,
+    # it rejects mismatched vector lengths instead of silently truncating.
+    cosine_similarity = staticmethod(cosine_similarity)
 
     def _jaccard_similarity(self, text1: str, text2: str) -> float:
         """Calculate Jaccard similarity between two texts.
@@ -162,7 +148,7 @@ class MMRReranker:
             return False
 
         # Custom similarity_fn overrides mode
-        if self._similarity_fn is not self._jaccard_similarity:
+        if self._custom_similarity_fn:
             return False
 
         # Check all candidates have embedding fields

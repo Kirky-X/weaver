@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 from datetime import datetime
 from uuid import uuid4
@@ -9,7 +9,7 @@ import pytest
 from core.models.shared import EventView
 from tests.unit.core.models._base import ViewModelTestBase
 
-# Fields defined in ADD §1.5.1 that SHALL be present
+# Fields that SHALL be present
 REQUIRED_FIELDS = {
     "type",
     "summary",
@@ -26,7 +26,7 @@ REMOVED_FIELDS = {"event_type", "name", "start_time", "end_time", "article_count
 
 
 class TestEventViewAlignment(ViewModelTestBase):
-    """Tests for EventView field alignment with ADD §1.5.1."""
+    """Tests for EventView field."""
 
     model_class = EventView
     required_fields = REQUIRED_FIELDS

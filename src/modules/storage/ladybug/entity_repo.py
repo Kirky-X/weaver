@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LadybugDB entity repository for entity graph operations.
 
 LadybugDB is a Kuzu fork with Cypher support. Key differences from Neo4j:
@@ -10,6 +10,7 @@ LadybugDB is a Kuzu fork with Cypher support. Key differences from Neo4j:
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from decimal import Decimal
@@ -35,9 +36,6 @@ class LadybugEntityRepo(BaseEntityRepo):
     Args:
         pool: Graph database connection pool.
     """
-
-    MAX_MERGE_RETRIES = 3  # Consistent with Neo4jEntityRepo
-    DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
@@ -74,8 +72,13 @@ class LadybugEntityRepo(BaseEntityRepo):
         # Check if exists
         existing = await self._find_entity_dict(canonical_name, entity_type)
         if existing:
-            # Update tier if more authoritative
-            if tier < existing.get("tier", 2):
+            # Update tier if more authoritative. Defensive cast:
+            # a non-integer tier from the DB must not raise TypeError here.
+            try:
+                existing_tier = int(existing.get("tier", 2))
+            except (TypeError, ValueError):
+                existing_tier = 2
+            if tier < existing_tier:
                 query = """
                 MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
                 SET e.tier = $tier, e.updated_at = $updated_at
@@ -226,8 +229,6 @@ class LadybugEntityRepo(BaseEntityRepo):
         Uses RELATED_TO table with edge_type property for all relationships.
         Note: LadybugDB doesn't support MERGE with ON CREATE/ON MATCH for relationships.
         """
-        import json
-
         now = int(time.time())
         weight = properties.get("weight", 1.0) if properties else 1.0
 
@@ -312,7 +313,7 @@ class LadybugEntityRepo(BaseEntityRepo):
     async def list_all_entity_names(self) -> set[str]:
         """List all entity canonical names.
 
-        REM-001: entity_vectors.neo4j_id stores entity names (not graph IDs),
+        entity_vectors.neo4j_id stores entity names (not graph IDs),
         so cleanup_orphan_entity_vectors must compare by name, not by ID.
         """
         query = """
@@ -364,16 +365,15 @@ class LadybugEntityRepo(BaseEntityRepo):
         MATCH (a:Article {pg_id: $article_id})
         MATCH (e:Entity {id: $entity_id})
         MERGE (a)-[r:MENTIONS]->(e)
-        SET r.role = $role
+        SET r.role = COALESCE($role, r.role)
         RETURN count(r) as cnt
         """
         result = await self._pool.execute_query(
             query, {"article_id": article_id, "entity_id": entity_id, "role": role}
         )
         if not result:
-            import structlog
-
-            log = structlog.get_logger(__name__)
+            # Module-level log is already a structlog logger; the local
+            # re-import used to shadow it for no benefit.
             log.warning(
                 "mentions_relation_creation_failed",
                 article_id=article_id,
@@ -416,30 +416,29 @@ class LadybugEntityRepo(BaseEntityRepo):
         else:
             entity_match = "e.canonical_name = $canonical_name"
         if relation_types:
-            # Query for specific relation types
-            results = []
-            for rt in relation_types:
-                query = f"""
-                MATCH (e:Entity)-[r:RELATED_TO {{edge_type: $edge_type}}]->(related)
-                WHERE {entity_match}
-                RETURN related.id AS neo4j_id,
-                       related.id AS id,
-                       related.canonical_name AS canonical_name,
-                       related.type AS type,
-                       r.edge_type AS relation_type,
-                       r.weight AS weight
-                LIMIT $limit
-                """
-                params: dict[str, Any] = {
-                    "canonical_name": canonical_name,
-                    "edge_type": rt,
-                    "limit": limit,
-                }
-                if entity_type is not None:
-                    params["type"] = entity_type
-                result = await self._pool.execute_query(query, params)
-                results.extend([dict(r) for r in result])
-            return results[:limit]
+            # Query for specific relation types in a single round-trip
+            # (WHERE r.edge_type IN $edge_types instead of one
+            # query per type). LadybugDB supports list params in IN.
+            query = f"""
+            MATCH (e:Entity)-[r:RELATED_TO]->(related)
+            WHERE {entity_match} AND r.edge_type IN $edge_types
+            RETURN related.id AS neo4j_id,
+                   related.id AS id,
+                   related.canonical_name AS canonical_name,
+                   related.type AS type,
+                   r.edge_type AS relation_type,
+                   r.weight AS weight
+            LIMIT $limit
+            """
+            params: dict[str, Any] = {
+                "canonical_name": canonical_name,
+                "edge_types": list(relation_types),
+                "limit": limit,
+            }
+            if entity_type is not None:
+                params["type"] = entity_type
+            result = await self._pool.execute_query(query, params)
+            return [dict(r) for r in result][:limit]
         else:
             # Query for all relations
             query = f"""
@@ -591,8 +590,14 @@ class LadybugEntityRepo(BaseEntityRepo):
             Dictionary with center, events (always []), related_entities,
             relations, hops. Returns None if entity not found.
         """
-        # Find the entity first
-        entity = await self.find_entity(entity_name, entity_type or "")
+        # Find the entity first. When entity_type is None the lookup must be
+        # type-agnostic — passing "" would match only entities stored with an
+        # empty-string type and almost always find nothing.
+        entity = (
+            await self.find_entity(entity_name, entity_type)
+            if entity_type is not None
+            else await self.find_entity_by_name(entity_name)
+        )
         if not entity:
             return None
 

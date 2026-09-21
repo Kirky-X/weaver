@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Base global context builder using Template Method pattern.
 
 Provides shared build flow for community-based search context,
@@ -8,6 +8,7 @@ with database-specific hooks for Neo4j and LadybugDB.
 
 from __future__ import annotations
 
+import re
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,12 @@ if TYPE_CHECKING:
     from core.protocols import GraphPool
 
 log = get_logger(__name__)
+
+# Community IDs must be UUIDs — precompiled once, shared by all filter methods.
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 class BaseGlobalContextBuilder(ContextBuilder):
@@ -50,6 +57,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
         max_entities_per_community: int = 5,
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
+        similarity_threshold: float = 0.3,
     ) -> None:
         super().__init__(token_encoder, default_max_tokens)
         self._pool = graph_pool
@@ -57,6 +65,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
         self._max_entities_per_community = max_entities_per_community
         self._llm_client = llm_client
         self._fallback_enabled = fallback_enabled
+        self._similarity_threshold = similarity_threshold
         self._query_builder: GraphQueryBuilder  # set by subclass
 
     # ── Template Method: build ──────────────────────────────────────────
@@ -104,14 +113,15 @@ class BaseGlobalContextBuilder(ContextBuilder):
                 context.metadata["total_communities"] = 0
             return context
 
-        if relevant_communities:
-            community_content = self.format_communities_section(relevant_communities)
-            context.add_content(
-                name="Community Summaries",
-                content=community_content,
-                priority=100,
-                metadata={"community_count": len(relevant_communities)},
-            )
+        # `relevant_communities` is guaranteed non-empty here (the early
+        # return above handles the empty case).
+        community_content = self.format_communities_section(relevant_communities)
+        context.add_content(
+            name="Community Summaries",
+            content=community_content,
+            priority=100,
+            metadata={"community_count": len(relevant_communities)},
+        )
 
         # Skip supplementary queries for fallback results when appropriate
         cross_community_rels: list[dict[str, Any]] = []
@@ -162,7 +172,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
             result = await self._pool.execute_query(cypher, params)
             if result and result[0].get("count", 0) > 0:
                 return True
-        except (TypeError, KeyError, Exception) as exc:
+        except Exception as exc:
             log.debug("has_communities_check_failed", error=str(exc))
         return False
 
@@ -241,14 +251,8 @@ class BaseGlobalContextBuilder(ContextBuilder):
         if not communities:
             return []
 
-        import re
-
-        uuid_pattern = re.compile(
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            re.IGNORECASE,
-        )
         community_ids = [
-            cid for c in communities if (cid := c.get("id")) and uuid_pattern.match(str(cid))
+            cid for c in communities if (cid := c.get("id")) and _UUID_PATTERN.match(str(cid))
         ]
         if not community_ids:
             return []
@@ -286,13 +290,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
         # Skip non-UUID community IDs (e.g. fallback results like "entity:xxx")
         # validate_uuid in build_community_entities_query would reject these,
         # but the call is outside the try-except block below.
-        import re
-
-        uuid_pattern = re.compile(
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            re.IGNORECASE,
-        )
-        if not uuid_pattern.match(str(community_id)):
+        if not _UUID_PATTERN.match(str(community_id)):
             log.debug("skip_non_uuid_community_id", community_id=community_id)
             return []
 

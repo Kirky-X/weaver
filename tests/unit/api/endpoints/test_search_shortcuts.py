@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for shortcut search endpoints.
 
 Covers 21 test cases for:
@@ -98,9 +98,11 @@ def _build_app(
         get_local_search_engine,
     )
     from api.endpoints.content.search import router
+    from api.middleware.api_response import register_exception_handlers
     from api.middleware.auth import verify_api_key
 
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     if skip_auth:

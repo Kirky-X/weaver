@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 """Community health sub-package - diagnostics and repair monitoring."""
 
-from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+from modules.knowledge.graph.community.health.checker import (
+    CommunityHealthChecker,
+    score_health_overview,
+)
 from modules.knowledge.graph.community.health.models import (
     CommunityHealthReport,
     CommunityHealthStatus,
@@ -23,4 +26,5 @@ __all__ = [
     "IssueType",
     "RepairResult",
     "RepairSummary",
+    "score_health_overview",
 ]

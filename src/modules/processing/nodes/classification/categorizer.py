@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Cascade categorizer — rule-first, LLM fallback."""
 
 from __future__ import annotations
@@ -7,7 +7,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from core.constants import LanguageCode
+from core.db import CategoryType, EmotionType
 from core.observability import get_logger
+from core.utils.paths import CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -16,43 +20,50 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-CATEGORY_MAP = {
-    "technology": "科技",
-    "tech": "科技",
-    "politics": "政治",
-    "political": "政治",
-    "military": "军事",
-    "army": "军事",
-    "economy": "经济",
-    "economic": "经济",
-    "business": "经济",
-    "society": "社会",
-    "social": "社会",
-    "culture": "文化",
-    "cultural": "文化",
-    "sports": "体育",
-    "sport": "体育",
-    "international": "国际",
-    "world": "国际",
-    "global": "国际",
-}
+# Category / emotion normalization vocabularies are stored as data in
+# config/categorization.toml instead of being hardcoded here.
+_CATEGORIZATION_FILE = CONFIG_DIR / "categorization.toml"
 
-EMOTION_MAP = {
-    "optimistic": "乐观",
-    "hope": "期待",
-    "excited": "振奋",
-    "calm": "平静",
-    "neutral": "客观",
-    "objective": "客观",
-    "worried": "担忧",
-    "concern": "担忧",
-    "pessimistic": "悲观",
-    "sad": "悲观",
-    "angry": "愤怒",
-    "anger": "愤怒",
-    "panic": "恐慌",
-    "fear": "恐慌",
-}
+
+def _load_categorization_data() -> tuple[dict[str, str], dict[str, str], set[str]]:
+    """Load category/emotion vocabularies from config/categorization.toml.
+
+    Targets are validated against the canonical ``CategoryType`` / ``EmotionType``
+    enums (the DB column source of truth); any entry pointing at an unknown
+    canonical value is dropped with a warning so a stale config file can never
+    cause an invalid enum write downstream. A missing/malformed file degrades to
+    empty mappings, in which case ``normalize_category``/``normalize_emotion``
+    pass input through or fall back to their defaults.
+    """
+    data = load_toml_or_warn(_CATEGORIZATION_FILE, event="categorization_config")
+    category_values = {c.value for c in CategoryType}
+    emotion_values = {e.value for e in EmotionType}
+
+    category_map: dict[str, str] = {}
+    for src, target in (data.get("category_aliases") or {}).items():
+        if target not in category_values:
+            log.warning("category_alias_target_invalid", alias=src, target=target)
+            continue
+        category_map[str(src).lower()] = str(target)
+
+    emotion_map: dict[str, str] = {}
+    for src, target in (data.get("emotion_aliases") or {}).items():
+        if target not in emotion_values:
+            log.warning("emotion_alias_target_invalid", alias=src, target=target)
+            continue
+        emotion_map[str(src).lower()] = str(target)
+
+    valid_categories: set[str] = set()
+    for cat in data.get("valid_categories") or []:
+        if cat not in category_values:
+            log.warning("valid_category_not_in_enum", category=cat)
+            continue
+        valid_categories.add(str(cat))
+
+    return category_map, emotion_map, valid_categories
+
+
+CATEGORY_MAP, EMOTION_MAP, VALID_CATEGORIES = _load_categorization_data()
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "经济": ["股市", "GDP", "央行", "货币", "财政", "贸易", "关税", "通胀", "通缩", "降息", "加息"],
@@ -88,8 +99,6 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "国际": ["国际", "全球", "联合国", "WTO", "北约", "欧盟", "峰会", "制裁", "大使"],
 }
 
-VALID_CATEGORIES = {"政治", "军事", "经济", "科技", "社会", "文化", "体育", "国际"}
-
 SOURCE_HOST_REGION_MAP: dict[str, str] = {
     ".cn": "中国",
     ".com.cn": "中国",
@@ -103,6 +112,16 @@ SOURCE_HOST_REGION_MAP: dict[str, str] = {
     ".de": "德国",
     ".fr": "法国",
 }
+
+# Precomputed longest-suffix-first ordering. ``infer_region_from_source_host``
+# runs once per article, so the invariant sort is done once at import time
+# instead of allocating and sorting a new list on every call.
+_SUFFIXES_BY_LENGTH_DESC: tuple[str, ...] = tuple(
+    sorted(SOURCE_HOST_REGION_MAP, key=len, reverse=True)
+)
+
+# CJK detection runs on the classification hot path — compile the pattern once.
+_CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 def infer_region_from_source_host(source_host: str) -> str:
@@ -120,8 +139,9 @@ def infer_region_from_source_host(source_host: str) -> str:
     if not source_host:
         return "国际"
     host_lower = source_host.lower()
-    # Sort by suffix length descending to match .com.cn before .cn
-    for suffix in sorted(SOURCE_HOST_REGION_MAP, key=len, reverse=True):
+    # Precomputed at module level: sorted by suffix length descending so
+    # .com.cn matches before .cn. Invariant, so no per-call sort/allocation.
+    for suffix in _SUFFIXES_BY_LENGTH_DESC:
         if host_lower.endswith(suffix):
             return SOURCE_HOST_REGION_MAP[suffix]
     return "国际"
@@ -151,7 +171,7 @@ def normalize_emotion(emo: str) -> str:
 
 def _has_chinese(text: str) -> bool:
     """Check if text contains Chinese characters."""
-    return bool(re.search(r"[\u4e00-\u9fff]", text))
+    return bool(_CHINESE_CHAR_RE.search(text))
 
 
 class CascadeCategorizerNode:
@@ -170,6 +190,24 @@ class CascadeCategorizerNode:
         self._prompt_loader = prompt_loader
         self._cascade = cascade
 
+    def _get_prompt_version(self) -> str:
+        """Read the categorizer prompt version, degrading on lookup failure.
+
+        ``PromptLoader.get_version`` raises ``FileNotFoundError`` when the
+        prompt TOML is missing; that must not crash the pipeline node.
+        """
+        if not self._prompt_loader or not hasattr(self._prompt_loader, "get_version"):
+            return "unknown"
+        try:
+            return self._prompt_loader.get_version("categorizer")
+        except Exception as exc:
+            log.warning(
+                "categorizer_prompt_version_lookup_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+            return "unknown"
+
     async def execute(self, state: PipelineState) -> PipelineState:
         if state.get("terminal"):
             return state
@@ -181,10 +219,9 @@ class CascadeCategorizerNode:
 
         if rule_category is not None:
             state["category"] = rule_category
-            if _has_chinese(title):
-                state["language"] = "zh"
-            else:
-                state["language"] = "en"
+            state["language"] = (
+                LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+            )
             source_host = getattr(state["raw"], "source_host", "") or ""
             state["region"] = infer_region_from_source_host(source_host)
             log.info("cascade_rule_match", title=title, category=rule_category)
@@ -221,13 +258,16 @@ class CascadeCategorizerNode:
                 log.warning(
                     "categorizer_failed_using_defaults",
                     error=str(e),
+                    exc_type=type(e).__name__,
                     url=state["raw"].url,
                 )
                 state["category"] = "社会"
                 # Fallback language: detect from title instead of hard-coding
                 # "en". chinanews and most RSS sources are Chinese; only fall
                 # back to "en" when title has no CJK characters.
-                state["language"] = "zh" if _has_chinese(title) else "en"
+                state["language"] = (
+                    LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+                )
                 source_host = getattr(state["raw"], "source_host", "") or ""
                 state["region"] = infer_region_from_source_host(source_host)
                 state.setdefault("degraded_fields", []).extend(["category", "language", "region"])
@@ -239,16 +279,14 @@ class CascadeCategorizerNode:
                     }
                 )
 
-            state.setdefault("prompt_versions", {})["categorizer"] = (
-                self._prompt_loader.get_version("categorizer")
-                if self._prompt_loader and hasattr(self._prompt_loader, "get_version")
-                else "unknown"
-            )
+            state.setdefault("prompt_versions", {})["categorizer"] = self._get_prompt_version()
         else:
             state["category"] = "社会"
             # No LLM available: detect language from title instead of
             # hard-coding "en" (which mislabels Chinese articles).
-            state["language"] = "zh" if _has_chinese(title) else "en"
+            state["language"] = (
+                LanguageCode.ZH.value if _has_chinese(title) else LanguageCode.EN.value
+            )
             source_host = getattr(state["raw"], "source_host", "") or ""
             state["region"] = infer_region_from_source_host(source_host)
 
@@ -259,6 +297,27 @@ class CascadeCategorizerNode:
             language=state["language"],
         )
         return state
+
+    # Word-boundary patterns for short ASCII keywords. A bare substring
+    # match turns "AI" into a hit inside "said"/"maintain"/"available",
+    # producing frequent false-positive 科技 categorizations.
+    _ASCII_KW_PATTERNS: dict[str, re.Pattern[str]] = {}
+
+    @classmethod
+    def _keyword_matches(cls, kw: str, title: str, title_lower: str) -> bool:
+        """Match a keyword against the title.
+
+        ASCII alnum keywords require word boundaries; CJK keywords fall
+        back to plain substring matching (no word separators exist).
+        """
+        kw_lower = kw.lower()
+        if kw_lower.isascii() and kw_lower.isalnum():
+            pattern = cls._ASCII_KW_PATTERNS.get(kw_lower)
+            if pattern is None:
+                pattern = re.compile(rf"\b{re.escape(kw_lower)}\b")
+                cls._ASCII_KW_PATTERNS[kw_lower] = pattern
+            return pattern.search(title_lower) is not None
+        return kw in title or kw_lower in title_lower
 
     @staticmethod
     def _rule_categorize(title: str) -> str | None:
@@ -271,7 +330,7 @@ class CascadeCategorizerNode:
         for category, keywords in CATEGORY_KEYWORDS.items():
             count = 0
             for kw in keywords:
-                if kw in title or kw.lower() in title_lower:
+                if CascadeCategorizerNode._keyword_matches(kw, title, title_lower):
                     count += 1
             if count > best_count:
                 best_count = count

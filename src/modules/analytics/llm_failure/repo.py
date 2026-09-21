@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM failure record repository."""
 
 from __future__ import annotations
@@ -40,8 +40,11 @@ class LLMFailureRepo:
         if event.article_id:
             try:
                 article_uuid = uuid.UUID(event.article_id)
-            except ValueError:
-                pass
+            except (ValueError, TypeError):
+                log.warning(
+                    "llm_failure_invalid_article_id",
+                    article_id=event.article_id,
+                )
 
         async with self._pool.session() as session:
             session.add(
@@ -123,9 +126,22 @@ class LLMFailureRepo:
 
         stmt = stmt.group_by(LLMFailureRecord.call_point, LLMFailureRecord.error_type)
 
+        # Single session for both queries: the aggregation and the
+        # last-failure lookup are one logical operation — two sessions double
+        # the round-trips for no reason.
         async with self._pool.session() as session:
             result = await session.execute(stmt)
             rows = result.all()
+
+            last_stmt = (
+                select(LLMFailureRecord.created_at)
+                .order_by(LLMFailureRecord.created_at.desc())
+                .limit(1)
+            )
+            if since:
+                last_stmt = last_stmt.where(LLMFailureRecord.created_at >= since)
+            last_result = await session.execute(last_stmt)
+            last_row = last_result.first()
 
         total = sum(r.count for r in rows)
         by_call_point: dict[str, int] = {}
@@ -135,21 +151,11 @@ class LLMFailureRepo:
             by_call_point[row.call_point] = by_call_point.get(row.call_point, 0) + row.count
             by_error_type[row.error_type] = by_error_type.get(row.error_type, 0) + row.count
 
-        # Get last failure timestamp
+        # Get last failure timestamp (same `since` window as the aggregation;
+        # there are no call_point/error_type parameters to filter by).
         last_failure_at: str | None = None
-        last_stmt = (
-            select(LLMFailureRecord.created_at)
-            .order_by(LLMFailureRecord.created_at.desc())
-            .limit(1)
-        )
-        if since:
-            last_stmt = last_stmt.where(LLMFailureRecord.created_at >= since)
-
-        async with self._pool.session() as session:
-            last_result = await session.execute(last_stmt)
-            last_row = last_result.first()
-            if last_row and last_row[0]:
-                last_failure_at = last_row[0].isoformat()
+        if last_row and last_row[0]:
+            last_failure_at = last_row[0].isoformat()
 
         return {
             "total": total,

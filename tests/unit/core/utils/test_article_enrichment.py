@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""T051 RED: Tests for core.utils.article_enrichment.enrich_articles_with_titles.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED: Tests for core.utils.article_enrichment.enrich_articles_with_titles.
 
-After the Article node slim-down (design.md §D2), graph-query callers
+After the Article node slim-down, graph-query callers
 receive only ``pg_id`` from the graph DB and must batch-fetch business
 fields (title / category / publish_time / score) from the relational DB.
 Both ``LocalContextBuilder._get_related_articles`` (Neo4j) and

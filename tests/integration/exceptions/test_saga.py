@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Saga endpoint integration tests (SG-01 ~ SG-05).
 
 Covers five saga management use cases plus two exception assertions:

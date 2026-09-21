@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pipeline throughput tracking with sliding window and low-throughput alerts."""
 
 from __future__ import annotations
@@ -32,6 +32,10 @@ class PipelineThroughputTracker:
         self._low_threshold = low_threshold
         # worker_id -> list of (timestamp, count) tuples
         self._completions: dict[str, list[tuple[float, int]]] = defaultdict(list)
+        # Hard cap per worker: completions are only pruned inside
+        # calculate_throughput, so a worker that is never queried would
+        # otherwise grow its history without bound.
+        self._max_entries_per_worker = 4096
 
     def record_completion(self, worker_id: str, count: int = 1) -> None:
         """Record article completion events for a worker.
@@ -40,7 +44,10 @@ class PipelineThroughputTracker:
             worker_id: Identifier for the pipeline worker.
             count: Number of articles completed in this event.
         """
-        self._completions[worker_id].append((time.monotonic(), count))
+        entries = self._completions[worker_id]
+        entries.append((time.monotonic(), count))
+        if len(entries) > self._max_entries_per_worker:
+            del entries[: len(entries) - self._max_entries_per_worker]
 
     def calculate_throughput(self, worker_id: str) -> float:
         """Calculate articles-per-minute throughput for a worker.
@@ -60,10 +67,14 @@ class PipelineThroughputTracker:
         # Prune old entries and sum counts within window
         entries = self._completions.get(worker_id, [])
         recent = [(ts, cnt) for ts, cnt in entries if ts >= cutoff]
-        self._completions[worker_id] = recent
 
         if not recent:
+            # 不要无条件写回空列表：否则每个曾经被查询过（如已下线的
+            # worker）的 worker_id 都会永久残留一个空条目，造成字典无界增长。
+            self._completions.pop(worker_id, None)
             return 0.0
+
+        self._completions[worker_id] = recent
 
         total_count = sum(cnt for _, cnt in recent)
         # articles_per_minute = total / (window_minutes)

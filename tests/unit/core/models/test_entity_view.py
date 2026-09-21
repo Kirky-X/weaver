@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 from datetime import datetime
 
@@ -8,7 +8,7 @@ import pytest
 from core.models.shared import EntityView
 from tests.unit.core.models._base import ViewModelTestBase
 
-# Fields defined in ADD §1.5.1 that SHALL be present
+# Fields that SHALL be present
 REQUIRED_FIELDS = {"id", "type", "degree", "community_id", "confidence", "last_mentioned"}
 
 # Fields that SHALL be removed per spec
@@ -16,7 +16,7 @@ REMOVED_FIELDS = {"neo4j_id", "entity_type", "tier", "article_count"}
 
 
 class TestEntityViewAlignment(ViewModelTestBase):
-    """Tests for EntityView field alignment with ADD §1.5.1."""
+    """Tests for EntityView field."""
 
     model_class = EntityView
     required_fields = REQUIRED_FIELDS

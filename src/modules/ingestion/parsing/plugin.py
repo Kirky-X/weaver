@@ -1,9 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Plugin system for source parsers.
 
 This module provides a plugin-based architecture for source parsers,
 allowing dynamic loading of custom parsers without modifying core code.
+
+Trust boundary: plugins are executed with full process privileges
+(``spec.loader.exec_module``) and no integrity verification. Plugin files
+are part of the trusted deployment artifact — only operators with
+filesystem write access to the plugin directory can install them, and such
+access already implies full code execution. Untrusted parties must never
+be able to write there.
 
 Usage:
     1. Create a parser class inheriting from BaseSourceParser
@@ -25,6 +32,7 @@ Example plugin:
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
 import os
@@ -56,7 +64,6 @@ class PluginMetadata:
 
 # Global plugin registry
 _plugin_registry: dict[str, tuple[BaseSourceParser, PluginMetadata]] = {}
-_plugin_decorators: dict[str, Callable] = {}
 
 
 def source_parser_plugin(
@@ -100,7 +107,6 @@ def source_parser_plugin(
             capabilities=capabilities or [],
         )
         _plugin_registry[name] = (cls, metadata)
-        _plugin_decorators[name] = decorator
         log.debug("plugin_registered", name=name, version=version)
         return cls
 
@@ -131,8 +137,19 @@ def get_plugin(name: str) -> tuple[BaseSourceParser, PluginMetadata] | None:
 def discover_plugins_from_directory(directory: str | Path) -> list[str]:
     """Discover and load plugins from a directory.
 
-    Looks for Python files with a `create_parser` function or classes
-    decorated with @source_parser_plugin.
+    Looks for Python files that register parsers via the
+    @source_parser_plugin decorator at import time.
+
+    Trust boundary: every ``.py`` file under ``directory`` is executed as
+    arbitrary Python code. The directory must be provisioned by the
+    operator (e.g. ``WEAVER_SOURCE_PLUGINS``) — treat it with the same
+    trust level as the application code itself; never point it at a
+    user-writable location.
+
+    Module names embed a hash of the resolved file path, so files with
+    the same stem in different directories cannot collide in
+    ``sys.modules``, and re-scanning the same directory is idempotent
+    (already-imported modules are not re-executed).
 
     Args:
         directory: Path to the plugins directory.
@@ -155,16 +172,32 @@ def discover_plugins_from_directory(directory: str | Path) -> list[str]:
             continue
 
         try:
-            module_name = f"weaver_source_plugins.{plugin_path.stem}"
-            spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+            resolved = plugin_path.resolve()
+            path_hash = hashlib.sha256(str(resolved).encode()).hexdigest()[:8]
+            module_name = f"weaver_source_plugins.{plugin_path.stem}_{path_hash}"
+            if module_name in sys.modules:
+                # Already imported (e.g. repeated scan) — do not re-execute.
+                loaded_plugins.append(module_name)
+                continue
+            spec = importlib.util.spec_from_file_location(module_name, resolved)
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
+                before = set(_plugin_registry.keys())
                 spec.loader.exec_module(module)
 
-                if module_name in _plugin_registry or hasattr(module, "create_parser"):
+                # A module counts as loaded only if it actually registered
+                # at least one plugin via @source_parser_plugin at import
+                # time. A bare create_parser() factory is never invoked, so
+                # reporting such a module as loaded would be misleading.
+                if set(_plugin_registry.keys()) - before:
                     loaded_plugins.append(module_name)
                     log.info("plugin_loaded", path=str(plugin_path))
+                else:
+                    log.warning(
+                        "plugin_module_registered_nothing",
+                        path=str(plugin_path),
+                    )
 
         except Exception as exc:
             log.error(
@@ -246,7 +279,9 @@ def load_plugins(plugin_paths: list[str] | None = None) -> list[str]:
         plugin_paths: Optional list of directory paths to scan.
 
     Returns:
-        List of loaded plugin names.
+        Names of plugins newly registered by this call (not the full
+        set of already-registered core plugins).
     """
+    before = set(get_registered_plugins().keys())
     scan_and_load_external_plugins(plugin_paths)
-    return list(get_registered_plugins().keys())
+    return sorted(set(get_registered_plugins().keys()) - before)

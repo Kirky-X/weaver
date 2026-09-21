@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for IncrementalCommunityUpdater."""
 
 from __future__ import annotations
@@ -159,10 +159,23 @@ class TestGetStats:
 
 
 class TestCheckFullRebuildNeeded:
-    """Tests for check_full_rebuild_needed method."""
+    """Tests for UpdateTriggerPolicy.check_full_rebuild_needed."""
+
+    @pytest.fixture
+    def policy(self, updater, mock_graph_pool):
+        from modules.knowledge.graph.community.updater_trigger import UpdateTriggerPolicy
+
+        return UpdateTriggerPolicy(
+            pool=mock_graph_pool,
+            update_threshold=50,
+            interval_minutes=30,
+            full_rebuild_interval_days=7,
+            clustering_service=MagicMock(),
+            updater=updater,
+        )
 
     @pytest.mark.asyncio
-    async def test_rebuild_needed_no_timestamp(self, updater, mock_graph_pool):
+    async def test_rebuild_needed_no_timestamp(self, policy, mock_graph_pool):
         """Test rebuild needed when no timestamp exists."""
         mock_graph_pool.execute_query = AsyncMock(
             return_value=[
@@ -174,12 +187,12 @@ class TestCheckFullRebuildNeeded:
             ]
         )
 
-        result = await updater.check_full_rebuild_needed()
+        result = await policy.check_full_rebuild_needed()
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_rebuild_needed_interval_exceeded(self, updater, mock_graph_pool):
+    async def test_rebuild_needed_interval_exceeded(self, policy, mock_graph_pool):
         """Test rebuild needed when interval exceeded."""
         old_timestamp = datetime.now(timezone.utc) - timedelta(days=10)
         mock_graph_pool.execute_query = AsyncMock(
@@ -192,12 +205,12 @@ class TestCheckFullRebuildNeeded:
             ]
         )
 
-        result = await updater.check_full_rebuild_needed()
+        result = await policy.check_full_rebuild_needed()
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_no_rebuild_needed_within_interval(self, updater, mock_graph_pool):
+    async def test_no_rebuild_needed_within_interval(self, policy, mock_graph_pool):
         """Test no rebuild needed when within interval."""
         recent_timestamp = datetime.now(timezone.utc) - timedelta(days=3)
         mock_graph_pool.execute_query = AsyncMock(
@@ -210,7 +223,7 @@ class TestCheckFullRebuildNeeded:
             ]
         )
 
-        result = await updater.check_full_rebuild_needed()
+        result = await policy.check_full_rebuild_needed()
 
         assert result is False
 
@@ -984,10 +997,23 @@ class TestCheckAndRun:
 
 
 class TestForceRebuild:
-    """Tests for force_rebuild method."""
+    """Tests for UpdateTriggerPolicy.force_rebuild."""
+
+    @pytest.fixture
+    def policy(self, updater, mock_graph_pool):
+        from modules.knowledge.graph.community.updater_trigger import UpdateTriggerPolicy
+
+        return UpdateTriggerPolicy(
+            pool=mock_graph_pool,
+            update_threshold=50,
+            interval_minutes=30,
+            full_rebuild_interval_days=7,
+            clustering_service=AsyncMock(),
+            updater=updater,
+        )
 
     @pytest.mark.asyncio
-    async def test_force_rebuild_always_runs(self, updater, mock_graph_pool):
+    async def test_force_rebuild_always_runs(self, policy, mock_graph_pool):
         """Test that force_rebuild always triggers rebuild."""
         mock_graph_pool.execute_query = AsyncMock(
             side_effect=[
@@ -1001,7 +1027,23 @@ class TestForceRebuild:
             ]
         )
 
-        result = await updater.force_rebuild()
+        result = await policy.force_rebuild()
 
         assert result["triggered"] is True
         assert result["reason"] == "forced"
+
+
+class TestCommunityModuleImports:
+    """Lazy imports that had no circular-import reason were hoisted."""
+
+    def test_database_type_imported_at_module_level(self):
+        """#16: ``DatabaseType`` must not be imported inside ``__init__``."""
+        import modules.knowledge.graph.community.updater_modularity as module
+
+        assert hasattr(module, "DatabaseType")
+
+    def test_time_imported_at_module_level(self):
+        """#196: ``time`` is a stdlib import with no circular-import risk."""
+        import modules.knowledge.graph.community.updater_clustering as module
+
+        assert hasattr(module, "time")

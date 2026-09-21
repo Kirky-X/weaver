@@ -1,27 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Daily briefing service — implements DailyBriefingProtocol (T008 / T021 / R-briefing-002 / R-briefing-008).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Daily briefing service — implements DailyBriefingProtocol.
 
 DailyBriefingService is the service-layer entry point for briefing operations:
-- generate_briefing: delegates to BriefingGenerator (T004, template mode)
-  or NarrativeBriefingGenerator (T020, narrative mode) and maps the
+- generate_briefing: delegates to BriefingGenerator (, template mode)
+  or NarrativeBriefingGenerator (, narrative mode) and maps the
   returned dict to BriefingResult. Does NOT re-implement generation logic
   (Rule 8: reuse existing implementations).
 - get_briefing: queries AnalyticsStorage.get_briefing for a single briefing.
 - list_briefings: queries AnalyticsStorage.list_briefings for a date range.
 
-Narrative mode (T021 / R-briefing-008):
+Narrative mode:
 - narrative_mode=True routes to NarrativeBriefingGenerator (injected via
   __init__'s optional narrative_generator parameter).
 - InsufficientNarrativeError (< 3 NarrativeNodes available) is caught:
   logs a warning and degrades to template mode (BriefingGenerator).
   BriefingResult.narrative_mode is False on degradation, even if the
-  request was narrative_mode=True (spec R-briefing-008).
+  request was narrative_mode=True (spec).
 - narrative_mode=True without narrative_generator raises ValueError
-  (Rule 12: fail loud). T022 wires NarrativeBriefingGenerator into the
+  (Rule 12: fail loud). wires NarrativeBriefingGenerator into the
   service factory used by the API endpoint.
 
-Existence check (R-briefing-005 fix — Duplicate key 500 → 409 Conflict):
+Existence check (fix — Duplicate key 500 → 409 Conflict):
 - generate_briefing 在调用 generator 之前，先调用 storage.get_briefing
   检查 (date, category) 是否已存在。已存在则抛 BriefingAlreadyExistsError，
   避免下游 generator.save_briefing 的 DELETE+INSERT 在 DuckDB 上触发
@@ -35,13 +35,13 @@ Existence check (R-briefing-005 fix — Duplicate key 500 → 409 Conflict):
 
 Other scope decisions (Rule 24 — no simplified implementation):
 - category=None is normalized to 'general' before calling storage, consistent
-  with BriefingGenerator.generate() normalization (spec R-briefing-001).
+  with BriefingGenerator.generate() normalization (spec).
 - Storage failures propagate (Rule 12: fail loud). Generator failures
   (LLM degrade) are reflected in the returned BriefingResult.summary=None,
-  not raised — this matches BriefingGenerator's spec R-briefing-002 contract.
+  not raised — this matches BriefingGenerator's spec contract.
 
-Templates (R-briefing-003) are defined in templates.py but not consumed by
-T008/T021 — BriefingGenerator uses generic briefing.toml prompt. Templates
+Templates are defined in templates.py but not consumed by
+/— BriefingGenerator uses generic briefing.toml prompt. Templates
 remain available for future category-specific prompt injection.
 """
 
@@ -64,12 +64,12 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Normalized category for None input (spec R-briefing-001: None 表示综合).
+# Normalized category for None input (None 表示综合).
 _DEFAULT_CATEGORY: str = "general"
 
 
 class BriefingAlreadyExistsError(Exception):
-    """业务异常：当日 (date, category) 简报已存在（R-briefing-005 fix）。
+    """业务异常：当日 (date, category) 简报已存在。
 
     抛出场景：
         1. generate_briefing 在调用 generator 之前，先检查 storage.get_briefing
@@ -93,13 +93,21 @@ class BriefingAlreadyExistsError(Exception):
         super().__init__(f"Briefing already exists for date={briefing_date}, category={category}")
 
 
+class NarrativeGeneratorUnavailableError(ValueError):
+    """narrative_mode=True 但 narrative_generator 未注入。
+
+    继承 ValueError 保持既有 except ValueError 兜底兼容；endpoint 层据此
+    精确映射 503，无需对错误消息做字符串匹配。
+    """
+
+
 class DailyBriefingService:
     """Service-layer entry point for daily briefing operations.
 
     Implements: DailyBriefingProtocol (core.protocols.services)
 
     Args:
-        generator: BriefingGenerator instance (T004) — used for
+        generator: BriefingGenerator instance — used for
             generate_briefing. Generator holds its own storage reference
             for fetch_articles_for_briefing + save_briefing.
         storage: AnalyticsStorageProtocol implementation — used for
@@ -128,16 +136,16 @@ class DailyBriefingService:
         """Generate (or regenerate) a daily briefing.
 
         Delegates to BriefingGenerator (template mode) or
-        NarrativeBriefingGenerator (narrative mode) per R-briefing-008.
+        NarrativeBriefingGenerator (narrative mode) per.
 
-        Existence check (R-briefing-005 fix):
+        Existence check (fix):
             在调用 generator 之前，先检查 (date, category) 是否已存在。
             已存在则抛 BriefingAlreadyExistsError，避免下游 generator.save_briefing
             的 DELETE+INSERT 在 DuckDB 上触发 ConstraintException（被 endpoint
             兜底捕获为 500）。同时由 ``_generate_with_race_guard`` 统一捕获
             generator 内 INSERT 的 SQLAlchemy IntegrityError（race condition）
             并转换为 BriefingAlreadyExistsError，narrative 与 template 两条
-            路径共用同一守护逻辑（MEDIUM-3 DRY）。
+            路径共用同一守护逻辑（DRY）。
 
         Template mode (narrative_mode=False, default):
             Delegates to BriefingGenerator.generate(date, category) which:
@@ -148,9 +156,9 @@ class DailyBriefingService:
 
         Narrative mode (narrative_mode=True):
             Delegates to NarrativeBriefingGenerator.generate(date, category)
-            which aggregates NarrativeNode framing across articles (R-briefing-007).
+            which aggregates NarrativeNode framing across articles.
             On InsufficientNarrativeError (< 3 NarrativeNodes available), the
-            service logs a warning and degrades to template mode (R-briefing-008).
+            service logs a warning and degrades to template mode.
             BriefingResult.narrative_mode is False on degradation, even if
             the request was narrative_mode=True.
 
@@ -175,7 +183,7 @@ class DailyBriefingService:
                 or if category is invalid (propagated from generator).
             Exception: Other storage failures propagate (Rule 12).
         """
-        # Existence check (R-briefing-005 fix):
+        # Existence check:
         # 在调用 generator 前先检查 (date, category) 是否已存在. 已存在则抛
         # BriefingAlreadyExistsError, 避免 generator.save_briefing 的
         # DELETE+INSERT 在 DuckDB 上触发 ConstraintException → endpoint 500.
@@ -197,10 +205,10 @@ class DailyBriefingService:
 
         if narrative_mode:
             if self._narrative_generator is None:
-                raise ValueError(
+                raise NarrativeGeneratorUnavailableError(
                     "narrative_mode=True requested but narrative_generator is None. "
                     "Caller must inject NarrativeBriefingGenerator when constructing "
-                    "DailyBriefingService to use narrative mode (R-briefing-008)."
+                    "DailyBriefingService to use narrative mode."
                 )
             try:
                 result_dict = await self._generate_with_race_guard(
@@ -219,7 +227,7 @@ class DailyBriefingService:
                     category=exc.category,
                     reason=exc.reason,
                 )
-                # Fall through to template mode (R-briefing-008 degradation).
+                # Fall through to template mode (degradation).
 
         result_dict = await self._generate_with_race_guard(
             self._generator.generate(date, category),
@@ -243,8 +251,8 @@ class DailyBriefingService:
         when a concurrent request wins the race and INSERTs the same
         (date, category) first) is converted to ``BriefingAlreadyExistsError``.
         This is the single place that translates IntegrityError → 409, so the
-        narrative and template code paths share the same guard (MEDIUM-3 DRY
-        fix). Non-IntegrityError exceptions propagate unchanged (Rule 12:
+        narrative and template code paths share the same guard (DRY).
+        Non-IntegrityError exceptions propagate unchanged (Rule 12:
         fail loud).
 
         Args:

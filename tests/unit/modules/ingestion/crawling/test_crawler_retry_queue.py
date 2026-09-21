@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for Crawler + RetryQueue wiring — D4 dead code fix.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED test for Crawler + RetryQueue wiring — dead code fix.
 
 RetryQueue was implemented but never wired into Crawler, so failed
 fetches were silently dropped instead of being re-queued for retry.
-
-See ``temp/report.md`` D4 (RetryQueue 死信队列未接入) and specmark
-change ``fix-pipeline-deadcode-perf`` T011-T012.
 """
 
 from __future__ import annotations

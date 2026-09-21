@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Alert service for entity monitoring.
 
 Provides CRUD for alert rules, rule evaluation, event triggering
@@ -10,6 +10,7 @@ No matching Protocol yet — standalone service component.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,20 @@ class AlertService:
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
+        # Serializes cooldown check + event insert per rule within this
+        # process, closing the check-then-act window where two concurrent
+        # evaluations both read "no recent event" and both insert.
+        self._cooldown_locks: dict[int, asyncio.Lock] = {}
+        self._cooldown_locks_guard = asyncio.Lock()
+
+    async def _get_cooldown_lock(self, rule_id: int) -> asyncio.Lock:
+        """Get (or create) the per-rule lock guarding trigger_alert."""
+        async with self._cooldown_locks_guard:
+            lock = self._cooldown_locks.get(rule_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._cooldown_locks[rule_id] = lock
+            return lock
 
     async def create_rule(
         self,
@@ -43,7 +58,8 @@ class AlertService:
 
         Args:
             entity_name: Entity to monitor.
-            metric: Metric to watch (reference_count, sentiment_change, volume_spike).
+            metric: Metric to watch (reference_count, sentiment_change,
+                volume_spike, saga_failure, compensation_failure, saga_timeout).
             operator: Comparison operator (z_score>, pct_change>, absolute>).
             threshold: Threshold value for triggering.
             channel: Notification channel.
@@ -64,9 +80,10 @@ class AlertService:
                 cooldown_minutes=cooldown_minutes,
                 enabled=True,
             )
+            # session_context commits on clean exit; an explicit commit here
+            # was redundant on every path that reached it.
             session.add(rule)
             await session.flush()
-            await session.commit()
 
             return {
                 "id": rule.id,
@@ -149,6 +166,19 @@ class AlertService:
                 for r in rules
             ]
 
+    # Fields that update_rule may set via setattr. Explicit allowlist —
+    # hasattr-based reflection would accept any ORM attribute (id, state…).
+    _UPDATABLE_FIELDS: frozenset[str] = frozenset(
+        {
+            "metric",
+            "operator",
+            "threshold",
+            "channel",
+            "cooldown_minutes",
+            "enabled",
+        }
+    )
+
     async def update_rule(self, rule_id: int, **fields: Any) -> dict[str, Any] | None:
         """Update an alert rule."""
         from sqlalchemy import select
@@ -161,9 +191,10 @@ class AlertService:
             if rule is None:
                 return None
             for key, value in fields.items():
-                if hasattr(rule, key):
-                    setattr(rule, key, value)
-            await session.commit()
+                if key not in self._UPDATABLE_FIELDS:
+                    log.warning("alert_rule_update_field_rejected", field=key)
+                    continue
+                setattr(rule, key, value)
             return {
                 "id": rule.id,
                 "entity_name": rule.entity_name,
@@ -221,11 +252,10 @@ class AlertService:
             )
             # 3. Delete the rule itself.
             rule_result = await session.execute(delete(AlertRule).where(AlertRule.id == rule_id))
-            await session.commit()
             # DuckDB's CursorResult.rowcount frequently returns -1 for DELETE
             # statements (driver limitation), which would produce misleading
             # log output. Clamp to >= 0 so operators do not see negative
-            # "removed" counts (MEDIUM-4: delete_rule rowcount logging).
+            # "removed" counts (delete_rule rowcount logging).
             events_removed = max(0, events_result.rowcount) if events_result.rowcount else 0
             rule_removed = max(0, rule_result.rowcount) if rule_result.rowcount else 0
             log.info(
@@ -276,7 +306,12 @@ class AlertService:
 
         from core.db import AlertEvent, AlertRule
 
-        async with self._pool.session_context() as session:
+        # Hold a per-rule lock across the cooldown check and the insert so
+        # concurrent evaluations of the same rule cannot both pass the check.
+        # (DuckDB does not support SELECT ... FOR UPDATE, so a process-level
+        # lock is the portable serialization point.)
+        cooldown_lock = await self._get_cooldown_lock(rule_id)
+        async with cooldown_lock, self._pool.session_context() as session:
             # 1. Get the rule
             result = await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
             rule = result.scalars().first()
@@ -308,8 +343,10 @@ class AlertService:
                 metric_value=metric_value,
                 detail=detail,
             )
+            # session_context commits on clean exit; flush here populates the
+            # DB-generated primary key before the response dict is built.
             session.add(event)
-            await session.commit()
+            await session.flush()
 
             log.info(
                 "trigger_alert_created",
@@ -323,7 +360,7 @@ class AlertService:
                 "rule_id": event.rule_id,
                 "entity_name": event.entity_name,
                 "metric_value": float(event.metric_value),
-                "triggered_at": event.triggered_at.isoformat() if event.triggered_at else None,
+                "triggered_at": (event.triggered_at.isoformat() if event.triggered_at else None),
                 "acknowledged_at": (
                     event.acknowledged_at.isoformat() if event.acknowledged_at else None
                 ),
@@ -349,7 +386,6 @@ class AlertService:
             if event is None:
                 return False
             event.acknowledged_at = datetime.now(UTC)
-            await session.commit()
             return True
 
     async def list_events(

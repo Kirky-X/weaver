@@ -1,23 +1,36 @@
-# Weaver 系统架构文档
+# 🏗️ Weaver 系统架构文档
 
-本文档详细说明 Weaver 系统的核心架构设计，包括数据持久化、一致性保证、容错机制和性能优化。
+Weaver 采用 **Protocol + 双数据库故障转移** 架构，通过 FastAPI Depends 模式实现依赖注入，支持 PostgreSQL↔DuckDB、Neo4j↔LadybugDB 启动时自动降级。本文档详细说明核心架构设计，包括数据持久化、一致性保证、容错机制和性能优化。
 
-## 目录
+## 📋 目录
 
-- [依赖注入架构](#依赖注入架构)
-- [端口自动检测](#端口自动检测)
-- [Saga 模式设计](#saga-模式设计)
-- [PersistStatus 状态机](#persiststatus-状态机)
-- [数据一致性保证机制](#数据一致性保证机制)
-- [Circuit Breaker 线程安全设计](#circuit-breaker-线程安全设计)
-- [向量索引架构](#向量索引架构)
-- [社区检测架构](#社区检测架构)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [依赖注入架构](#-依赖注入架构)
+- [端口自动检测](#-端口自动检测)
+- [Smart LLM Router 架构](#-smart-llm-router架构)
+- [Schema-Driven Structured Output](#-schema-driven-structured-output)
+- [MAGMA Memory 集成架构](#-magma-memory集成架构)
+- [Saga 模式设计](#-saga-模式设计)
+- [PersistStatus 状态机](#-persiststatus-状态机)
+- [数据一致性保证机制](#-数据一致性保证机制)
+- [Circuit Breaker 线程安全设计](#-circuit-breaker-线程安全设计)
+- [后台任务调度](#-后台任务调度)
+- [向量索引架构](#-向量索引架构)
+- [社区检测架构](#-社区检测架构)
+- [降级数据处理](#-降级数据处理)
+- [Redis 健康检查与 Fallback](#-redis-健康检查与-fallback)
+- [Embedding 缓存优化](#-embedding-缓存优化)
+- [总结](#-总结)
+
+</details>
 
 ---
 
-## 依赖注入架构
+## 🧱 依赖注入架构
 
-### 概述
+### 🎯 概述
 
 Weaver 采用 **FastAPI Depends 模式** 实现依赖注入,统一管理服务的创建、生命周期和依赖关系。该架构确保了组件间的松耦合,提高了可测试性和可维护性。
 
@@ -39,32 +52,25 @@ Weaver 支持多种数据库后端,根据配置自动选择并使用 Protocol �
 **缓存 (Cache)**:
 
 - **Redis**: 生产环境,分布式缓存
-- **CashewsRedisFallback**: 开发环境,内存缓存自动降级
+- **FallbackCachePool**: Redis 主 + Cashews 备,运行时自动降级
 
 ### 架构层次
 
-```
-main.py (lifespan)
-       ↓
-Container.startup() / shutdown()
-       ↓
-Endpoints 类变量设置 (通过 Container 内部管理)
-  - Container 直接管理服务实例,不通过 register_endpoints()
-  - Endpoints 类通过静态变量存储实例
-  - 提供静态 getter 方法
-  - 抛出 HTTPException(503) 而非 RuntimeError
-       ↓
-dependencies.py (依赖函数层)
-  - 调用 Endpoints.get_*() 方法
-  - 定义 Type Aliases 供端点使用
-  - 检查 Container._container 是否初始化
-       ↓
-API Endpoints (使用层)
-  - pool: RelationalPoolDep (推荐)
+```mermaid
+graph TD
+    A["main.py<br/>(lifespan)"] --> B["Container.startup() / shutdown()"]
+    B --> C["Endpoints 类变量设置<br/>(通过 Container 内部管理)"]
+    C --> D["dependencies.py<br/>(依赖函数层)"]
+    D --> E["API Endpoints<br/>(使用层)"]
+
+    C -.- C1["Container 直接管理服务实例"]
+    C -.- C2["静态 getter 方法"]
+    C -.- C3["抛出 HTTPException(503)"]
+    D -.- D1["调用 Endpoints.get_*()"]
+    E -.- E1["pool: RelationalPool = Depends(get_relational_pool)"]
 ```
 
-**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(
-目前代码中未显式调用,依赖全局 Container 实例)。
+**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。`Endpoints.initialize` 由 `main.lifespan` 与 `Container.startup()` 显式调用,内部经 `set_container` 注册全局容器。
 
 ### 初始化顺序和依赖关系
 
@@ -74,7 +80,7 @@ API Endpoints (使用层)
 | ------------------- | ----------------------- | ----------------------- |
 | database            | -                       | init_strategy()         |
 | migrations          | database                | initialize_database()   |
-| redis               | -                       | init_redis()            |
+| redis               | -                       | init_cache_client()     |
 | llm                 | database, redis         | init_llm()              |
 | search_engines      | database, llm           | init_search_engines()   |
 | bm25_index          | search_engines          | \_init_bm25_index()     |
@@ -110,27 +116,33 @@ relational_pool = container.relational_pool()
 - 管理连接池的启动和关闭
 - 提供服务实例的访问方法
 
-#### Endpoints 类 (deps_registry.py)
+#### Endpoints 注册入口 (deps_registry.py)
 
-集中式依赖注册中心,供所有端点模块使用:
+依赖注册入口,供容器启动链调用。所有依赖 getter 定义在 `api/dependencies.py`:
 
 ```python
+from typing import Annotated
+
+from fastapi import Depends
+
 from api.dependencies import get_relational_pool
+from core.protocols import RelationalPool
 
 # 在端点中使用
 @router.get("/items")
 async def list_items(
-    pool: RelationalPoolDep,
+    pool: Annotated[RelationalPool, Depends(get_relational_pool)],
 ):
     ...
 ```
 
 **特点**:
 
-- 所有 getter 为静态方法,直接返回服务实例
+- `Endpoints` 类 (deps_registry.py) 仅提供 `initialize`/`reset` 两个 classmethod,负责注册/清理全局容器
+- 所有 getter 为 `api/dependencies.py` 的模块级 FastAPI 依赖函数,通过全局容器解析服务实例
 - 服务未初始化时抛出 `HTTPException(503)`
-- 提供 Optional 版本的方法 (如 `get_relational_pool_optional()`)
-- 数据库类型查询方法: `get_relational_type()`, `get_graph_type()`, `get_cache_type()`
+- 提供 Optional 版本的依赖函数 (如 `get_relational_pool_optional()`)
+- 数据库类型查询依赖函数: `get_relational_type()`, `get_graph_type()`, `get_cache_type()`
 
 ### 可用依赖列表
 
@@ -157,23 +169,13 @@ async def list_items(
 | `get_pipeline_service()`      | `PipelineServiceImpl`  | Pipeline 服务                          |
 | `get_task_registry()`         | `InMemoryTaskRegistry` | 任务注册表                             |
 
-**Type Aliases** (用于更简洁的函数签名):
-
-```python
-RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
-GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
-LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
-# ... 更多类型别名见 dependencies.py
-```
-
-**数据库类型查询** (Endpoints 类方法):
+**数据库类型查询** (api/dependencies.py 模块级依赖函数):
 
 | 方法                    | 返回值 | 说明                                                  |
 | ----------------------- | ------ | ----------------------------------------------------- |
 | `get_relational_type()` | `str`  | "postgres" 或 "duckdb" (未初始化返回 "unknown")       |
 | `get_graph_type()`      | `str`  | "neo4j" 或 "ladybug" (未初始化返回 "unknown")         |
-| `get_cache_type()`      | `str`  | 类名: "RedisClient", "CashewsRedisFallback" 或 "none" |
+| `get_cache_type()`      | `str`  | 'redis'/'cashews' (FallbackCachePool.cache_type), 未初始化返回 "none" |
 
 ### 服务生命周期
 
@@ -215,9 +217,9 @@ Weaver 使用 EventBus 实现组件间的松耦合通信:
 
 ---
 
-## 端口自动检测
+## 🔌 端口自动检测
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了端口自动检测和分配功能，在应用启动时自动检查配置的端口是否可用，若被占用则自动寻找可用端口，确保服务能够正常启动。
 
@@ -319,9 +321,9 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 
 ---
 
-## Smart LLM Router架构
+## 🧠 Smart LLM Router架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了智能 LLM 路由系统，通过历史性能学习、熔断器集成和多 Provider 自动切换，确保 LLM 调用的可靠性和成本效益。
 
@@ -349,7 +351,7 @@ SmartRouter 负责智能选择最优 LLM Provider:
    - 基于历史性能动态调整优先级
    - 支持成本优化路由
 
-**配置示例** (config/llm.toml):
+**配置示例** (config/llm.example.toml):
 
 ```toml
 # Provider 配置 (两层嵌套结构)
@@ -412,7 +414,7 @@ EvalRunner 提供影子评估能力:
 **配置**:
 
 ```toml
-# 影子评估配置 (config/llm.toml)
+# 影子评估配置 (config/llm.example.toml)
 [eval]
 enabled = false                    # 启用影子评估
 sample_rate = 0.1                  # 10% 的请求触发影子调用
@@ -448,25 +450,25 @@ llm_token_total{provider="openai",model="gpt-4o",call_point="search_local"} 2023
 
 **LLM 调用流程**:
 
-```
-LLMClient.call()
-  ↓
-SmartRouter.select_provider()
-  ↓
-ProviderPool.execute()
-  ↓
-发布 LLMUsageEvent → Redis Buffer
-                  → Database Raw Record
-                  → Prometheus Metrics
-  ↓
-失败时发布 LLMFailureEvent → Database Record
+```mermaid
+graph TD
+    A["LLMClient.call()"] --> B["SmartRouter.route()"]
+    B --> C["ProviderPool.execute()"]
+    C --> D{"调用结果"}
+    D -->|"成功"| E["发布 LLMUsageEvent"]
+    D -->|"失败"| F["发布 LLMFailureEvent"]
+
+    E --> G["Redis Buffer"]
+    E --> H["Database Raw Record"]
+    E --> I["Prometheus Metrics"]
+    F --> J["Database Record"]
 ```
 
 ---
 
-## Schema-Driven Structured Output
+## 📘 Schema-Driven Structured Output
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 SchemaNode 的 LLM 结构化输出能力，将图数据库中存储的 JSON Schema 转换为 LLM `response_format` 参数，并对响应进行校验和重试。该机制使业务事件抽取（融资、政策发布、并购等）能够获得符合预定义 schema 的结构化数据，而非自由文本。
 
@@ -543,6 +545,20 @@ async def structured_call(
 ### Schema 缓存
 
 `LLMClient._schema_cache` (TTLCache, maxsize=64, ttl=300s) 缓存 schema 查询结果,避免同一 `schema_node_id` 重复查询图数据库。SchemaNode 由 SchemaExtractorNode 偶发更新,5 分钟 TTL 是合理的 freshness/perf 折中。
+
+### 响应缓存与 Prompt 稳定性
+
+LLM 响应缓存（内存 TTLCache + Redis, TTL 按 call_point 1-7 天）的 key 由 `LLMClient._build_cache_key` 统一生成（单次 `call` 与 `batch_call` 同源）,默认使用 v2 稳定 key（`cache:llm:v2:{call_point}:{sha256[:16]}`,剥离 `article_id`/`task_id` 等非语义字段;设 `LLM_CACHE_KEY_V2_ENABLED=false` 可回退旧格式）。
+
+Prompt 侧的时间锚定采用**日粒度 + 尾置**：`call_at` 在 system prompt 模板尾部追加 `当前日期: YYYY-MM-DD`,而非前缀注入秒级时间戳。这保证同一自然日内 request_payload 逐字节稳定——客户端缓存 key 可命中、服务端前缀缓存自当日第二次调用起命中；跨日自然轮换,保留缓存新鲜度。
+
+成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.openai.gpt-4o`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。项目默认接入 OpenAI 等大型 LLM,Agnes 仅为测试档。
+
+### Token 消耗控制
+
+- **briefing 输入 summary 优先**：每日简报与叙事简报的 LLM payload 优先渲染每篇文章的 `ArticleBody.summary`（analyze 产物）,缺失时回退 body 前 500 字符；body JOIN 仅用于 AI 分类关键词过滤。
+- **MC 采样批量评分**：长文档（>10k 字符）的采样区域评分合并为单次 LLM 调用（payload 携带 `R1..Rn` 编号区域,返回 `{"scores": [...]}` 数组,按索引对齐）；数组长度不符或调用失败时全部区域降级默认低分,由低置信度 fallback（返回截断原文）兜底。
+- **实体消解批量 Select**：`resolve_entities_batch` 两阶段执行——本地阶段（归一化/精确匹配/向量候选/规则合并）逐实体顺序处理后,将未决实体合并为**单次批量决策调用**（`call_at(ENTITY_RESOLVER, output_model=EntityBatchDedupOutput)`,每实体 ≤5 候选,按 `entity_index` 回显对齐）；长度不符重试 1 次,仍失败逐实体回退到原单实体路径（正确性优先）。每篇 LLM 消解调用从 O(触发实体数) 降为 ⌈待决/20⌉ 次。
 
 ### Container Wiring
 
@@ -623,9 +639,9 @@ except StructuredOutputValidationError as exc:
 
 ---
 
-## MAGMA Memory集成架构
+## 🔮 MAGMA Memory集成架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 MAGMA 框架的记忆集成服务，支持快速检索、深度整合和因果关系推理，为搜索和对话提供长期记忆能力。
 
@@ -634,6 +650,36 @@ Weaver 实现了基于 MAGMA 框架的记忆集成服务，支持快速检索、
 #### MemoryIntegrationService
 
 记忆集成服务提供三大核心能力:
+
+```mermaid
+graph TB
+    subgraph Input ["Pipeline 事件"]
+        EVT["MemoryIngestEvent"]
+    end
+
+    subgraph Fast ["Fast Path 快速路径 < 100ms"]
+        SYN["SynapticIngestionService<br/>同步摄入"]
+        TG["TemporalGraphRepo<br/>时间骨架图"]
+    end
+
+    subgraph Slow ["Slow Path 慢速路径 后台整合"]
+        WRK["StructuralConsolidationWorker<br/>合并冗余记忆"]
+        CG["CausalGraphRepo<br/>因果关系图"]
+        Q["ConsolidationQueue<br/>Redis 队列"]
+    end
+
+    subgraph Search ["搜索集成"]
+        ASE["AdaptiveSearchEngine<br/>意图感知检索"]
+    end
+
+    EVT --> SYN
+    SYN --> TG
+    EVT --> Q
+    Q --> WRK
+    WRK --> CG
+    TG --> ASE
+    CG --> ASE
+```
 
 **1. Fast Path (快速路径)**:
 
@@ -663,7 +709,7 @@ causal_confidence_threshold = 0.7  # 因果关系置信度阈值
 max_traversal_depth = 5            # 最大遍历深度
 beam_width = 10                    # Beam Search 宽度
 token_budget = 4000                # Token 预算
-consolidation_interval_minutes = 60  # 后台整合间隔 (分钟)
+consolidation_interval_minutes = 30  # 后台整合间隔 (分钟)
 ```
 
 **核心组件**:
@@ -727,9 +773,9 @@ Memory 服务需要以下组件:
 
 ---
 
-## Saga 模式设计
+## 🔄 Saga 模式设计
 
-### 概述
+### 🎯 概述
 
 Weaver 采用 **Saga 模式** 实现跨数据库（PostgreSQL + Neo4j）的原子性批量持久化，通过两阶段提交和补偿事务确保数据一致性。
 
@@ -799,7 +845,7 @@ new_states = [s for s in valid_states if s["raw"].url not in existing_urls]
 
 ---
 
-## PersistStatus 状态机
+## 🚦 PersistStatus 状态机
 
 ### 状态定义
 
@@ -811,6 +857,8 @@ class PersistStatus(str, enum.Enum):
     NEO4J_DONE = "neo4j_done"    # Neo4j 持久化完成（终态）
     FAILED = "failed"            # 失败状态
 ```
+
+> 以上为核心成员摘录,另含 LADYBUG_DONE、NEO4J_FAILED 及 SAGA_* 中间态 (完整定义见 src/core/protocols/types.py)。
 
 ### 状态转换图
 
@@ -841,7 +889,7 @@ stateDiagram-v2
 
 ---
 
-## 数据一致性保证机制
+## 🛡️ 数据一致性保证机制
 
 ### 多层次一致性策略
 
@@ -886,9 +934,9 @@ scheduler.add_job(
 
 ---
 
-## Circuit Breaker 线程安全设计
+## ⚡ Circuit Breaker 线程安全设计
 
-### 概述
+### 🎯 概述
 
 Circuit Breaker（熔断器）用于防止级联故障，在依赖服务不可用时快速失败，保护系统稳定性。
 
@@ -957,10 +1005,10 @@ if breaker.is_slow:    # 连续 >= 5 次慢请求
 
 ```promql
 # 熔断器状态 (通过 ProviderCircuitBreaker.state 查询)
-# CircuitState: CLOSED=0, OPEN=1, HALF_OPEN=2
+# CircuitState 为 str 枚举: CLOSED="closed", OPEN="open", HALF_OPEN="half_open"
 
-# 慢请求计数
-provider_slow_requests{provider="openai"} 3
+# 熔断失败计数
+circuit_breaker_failures_total{provider="openai"} 3
 ```
 
 ### 与 SmartRouter 集成
@@ -973,9 +1021,9 @@ Circuit Breaker 与 SmartRouter 的 ModelSelector 集成:
 
 ---
 
-## 后台任务调度
+## 🕐 后台任务调度
 
-### 概述
+### 🎯 概述
 
 Weaver 使用 **APScheduler** 实现统一的后台任务调度系统，替代了原有的多线程和分散调度器。所有任务通过单一调度器管理，确保资源可控、易于监控。
 
@@ -1011,9 +1059,9 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID                 | 触发器   | 间隔              | 说明                              |
 | ----------------------- | -------- | ----------------- | --------------------------------- |
-| `cleanup_old_synced`    | Cron     | 配置值 (默认每天) | 清理旧同步记录 (保留 7 天)        |
-| `llm_failure_cleanup`   | Interval | 24 小时           | 清理 LLM 失败记录 (保留 3 天)     |
-| `llm_usage_raw_cleanup` | Interval | 6 小时            | 清理 LLM 使用原始记录 (保留 2 天) |
+| `cleanup_old_synced`    | Cron     | 配置值 (默认每天 03:30) | 清理旧同步记录 (保留天数可配置，默认 7 天)  |
+| `llm_failure_cleanup`   | Interval | 配置值 (默认 24 小时)   | 清理 LLM 失败记录 (保留天数可配置，默认 3 天) |
+| `llm_usage_raw_cleanup` | Interval | 配置值 (默认 6 小时)    | 清理 LLM 使用原始记录 (保留天数可配置，默认 2 天) |
 
 #### 3. Pipeline 重试任务
 
@@ -1040,7 +1088,7 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID               | 触发器   | 间隔   | 说明                               |
 | --------------------- | -------- | ------ | ---------------------------------- |
-| `llm_usage_aggregate` | Interval | 5 分钟 | LLM 使用量 Redis → PostgreSQL 聚合 |
+| `llm_usage_aggregate` | Interval | 配置值 (默认 5 分钟) | LLM 使用量 Redis → PostgreSQL 聚合 |
 
 #### 7. 源评分任务 (Source Scoring)
 
@@ -1052,22 +1100,60 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 | 任务 ID                  | 触发器   | 间隔    | 说明                   |
 | ------------------------ | -------- | ------- | ---------------------- |
-| `community_auto_check`   | Interval | 30 分钟 | 社区自动检测检查       |
-| `community_health_check` | Interval | 6 小时  | 社区健康检查和自动修复 |
+| `community_auto_check`   | Interval | 配置值 (默认 30 分钟) | 社区自动检测检查       |
+| `community_health_check` | Interval | 配置值 (默认 6 小时)  | 社区健康检查和自动修复 |
 
 #### 9. 指标更新任务 (Metrics)
 
 | 任务 ID                         | 触发器   | 间隔   | 说明                           |
 | ------------------------------- | -------- | ------ | ------------------------------ |
-| `update_persist_status_metrics` | Interval | 5 分钟 | 更新 Prometheus 持久化状态指标 |
+| `update_persist_status_metrics` | Interval | 配置值 (默认 5 分钟) | 更新 Prometheus 持久化状态指标 |
 
-#### 10. Memory Consolidation (条件性)
+#### 10. 事件分发任务 (Outbox)
+
+| 任务 ID                    | 触发器   | 间隔    | 说明                                   |
+| -------------------------- | -------- | ------- | -------------------------------------- |
+| `dispatch_outbox_events`   | Interval | 30 秒   | 事务型 Outbox 事件分发（at-least-once）  |
+
+#### 11. BM25 索引维护 (条件性)
+
+需要 `settings.bm25_rebuild_enabled = true` 才注册:
+
+| 任务 ID              | 触发器   | 间隔              | 说明                           |
+| -------------------- | -------- | ----------------- | ------------------------------ |
+| `bm25_rebuild_index` | Interval | 配置值 (默认 5 分钟) | BM25 检索索引增量重建          |
+
+#### 12. 安全与数据同步任务
+
+| 任务 ID                    | 触发器 | 间隔              | 说明                             |
+| -------------------------- | ------ | ----------------- | -------------------------------- |
+| `sync_phishtank_data`      | Interval | 配置值 (默认 6 小时) | PhishTank 钓鱼 URL 数据同步     |
+| `check_expiring_api_keys`  | Cron   | 每天 02:00        | 检查并轮换即将过期的 API 密钥    |
+
+#### 13. 分析与简报任务
+
+| 任务 ID                      | 触发器   | 间隔              | 说明                                    |
+| ---------------------------- | -------- | ----------------- | --------------------------------------- |
+| `daily_briefing_generation`  | Cron     | 每天 08:00 (上海) | 每日简报生成（4 个分类）                |
+| `shift_detection`            | Interval | 配置值 (默认 60 分钟) | 情感偏移检测                           |
+| `daily_hotness_decay`        | Cron     | 每天 03:00        | 知识缓存热度衰减                        |
+| `evaluate_trend_alerts`      | Cron     | 每小时整点        | 趋势告警规则评估（trend_spike/trend_drop/sentiment_shift） |
+
+#### 14. 因果推理任务 (条件性)
+
+需要 CausalInferenceService 初始化成功才注册:
+
+| 任务 ID            | 触发器   | 间隔   | 说明                          |
+| ------------------ | -------- | ------ | ----------------------------- |
+| `causal_inference` | Interval | 2 小时 | 从图数据库提取因果关系边      |
+
+#### 15. Memory Consolidation (条件性)
 
 需要 Memory Service 可用才注册:
 
 | 任务 ID                | 触发器   | 间隔    | 说明              |
 | ---------------------- | -------- | ------- | ----------------- |
-| `memory_consolidation` | Interval | 60 分钟 | Memory 慢路径整合 |
+| `memory_consolidation` | Interval | 30 分钟 | Memory 慢路径整合 |
 
 ### 任务执行保证
 
@@ -1096,9 +1182,9 @@ scheduler.shutdown(wait=False)  # 不等待当前任务完成
 
 ---
 
-## 向量索引架构
+## 📐 向量索引架构
 
-### 概述
+### 🎯 概述
 
 Weaver 使用 **pgvector** 扩展在 PostgreSQL 中存储向量嵌入，并采用 **HNSW (Hierarchical Navigable Small World)**
 索引优化相似性搜索性能。
@@ -1136,9 +1222,9 @@ WITH (m = 16, ef_construction = 64);
 
 ---
 
-## 社区检测架构
+## 🏘️ 社区检测架构
 
-### 概述
+### 🎯 概述
 
 Weaver 实现了基于 **Hierarchical Leiden 算法** 的社区检测系统，用于发现知识图谱中的社区结构，支持更智能的全局搜索和 DRIFT
 搜索。
@@ -1204,9 +1290,9 @@ scheduler.add_job(
 
 ---
 
-## 降级数据处理
+## 📉 降级数据处理
 
-### 概述
+### 🎯 概述
 
 当 LLM 服务不可用或处理失败时，系统需要标记降级数据，确保后续处理能够识别和处理不完整的数据。
 
@@ -1253,30 +1339,32 @@ if has_degraded_data(state):
 ### 使用场景
 
 ```python
-# 在后续处理中检查降级状态
-if "entities" in state.degraded_fields:
-    logger.warning(f"Using fallback entity extraction: {state.degradation_reasons['entities']}")
+# 在后续处理中检查降级状态 (PipelineState 为 TypedDict,使用 get 访问)
+if "entities" in state.get("degraded_fields", []):
+    logger.warning(f"Using fallback entity extraction: {state.get('degradation_reasons', {}).get('entities')}")
     # 使用规则提取作为 fallback
 ```
 
 ---
 
-## Redis 健康检查与 Fallback
+## 🔄 Redis 健康检查与 Fallback
 
-### 概述
+### 🎯 概述
 
 `Deduplicator` 实现 Redis 健康检查和自动 fallback 到数据库，确保去重服务在 Redis 不可用时仍能正常工作。
 
 ### 架构设计
 
-```
-┌─────────────────┐
-│   Deduplicator  │
-├─────────────────┤
-│ 1. Redis Hash   │ ← 快速缓存层 (crawl:dedup)
-│ 2. 健康检查探测 │ ← 60秒间隔 (time.monotonic)
-│ 3. DB Fallback  │ ← 可靠持久层
-└─────────────────┘
+```mermaid
+graph TB
+    subgraph Dedup ["Deduplicator"]
+        L1["1. Redis Hash<br/>快速缓存层 (crawl:dedup)"]
+        L2["2. 健康检查探<br/>60秒间隔 (time.monotonic)"]
+        L3["3. DB Fallback<br/>可靠持久层"]
+    end
+
+    L1 -.->|"缓存不可用"| L3
+    L2 -.->|"控制"| L1
 ```
 
 ### 健康检查机制
@@ -1350,13 +1438,13 @@ async def dedup(self, items: list) -> list:
 | ------------------------------------------- | --------- | -------------------------------- |
 | `weaver_dedup_redis_fallback_total`         | Counter   | Redis 不可用时回退到数据库的次数 |
 | `weaver_dedup_total{stage="url"}`           | Counter   | URL 去重总数                     |
-| `weaver_dedup_processing_time{stage="url"}` | Histogram | 去重处理时间                     |
+| `weaver_dedup_processing_time_seconds{stage="url"}` | Histogram | 去重处理时间                     |
 
 ---
 
-## Embedding 缓存优化
+## 🚀 Embedding 缓存优化
 
-### 概述
+### 🎯 概述
 
 LLM Client 使用 Redis `MGET` 批量获取 embedding 缓存，避免 N+1 查询问题。
 
@@ -1393,49 +1481,32 @@ for i, cached in enumerate(cached_values):
 
 ---
 
-## 总结
+## 🎯 总结
 
 Weaver 通过以下核心架构设计确保系统的可靠性、一致性和高性能：
 
-1. **依赖注入架构**: FastAPI Depends 模式 + Container 统一管理,支持多数据库策略 (PostgreSQL/DuckDB, Neo4j/LadybugDB,
-   Redis/Cashews)
-2. **Smart LLM Router**: 智能路由系统,集成 ExperienceStore + ModelSelector + Circuit Breaker,支持影子评估和热重载
-3. **Saga 模式**: 跨数据库原子性保证,补偿事务机制,幂等性支持
-4. **PersistStatus 状态机**: 合法状态转换验证,支持失败重试和终态保护
-5. **多层次一致性**: 同步 Saga + 异步对账 + 自动重试,确保 PostgreSQL ↔ Neo4j 数据一致
-6. **Circuit Breaker**: 基于 pybreaker 实现,支持异步调用、慢请求追踪和自动降级
-7. **HNSW 向量索引**: 高性能相似性搜索 (m=16, ef_construction=200),支持大规模向量数据;ef_construction=200 经性能调优验证,提供更优召回率
-8. **社区检测系统**: Hierarchical Leiden 算法 + 健康检查 + 自动修复,支持智能搜索
-9. **降级数据处理**: TypedDict + 模块级函数跟踪降级字段,确保不完整数据可识别
-10. **Redis 健康检查与 Fallback**: 两级去重 (Hash + DB),自动切换,批量操作优化
-11. **Embedding 缓存优化**: MGET 批量获取,将 O(N) 网络往返降低到 O(1),性能提升高达 480x
-12. **Vault 密钥管理**: 支持 HashiCorp Vault 集成,动态获取敏感配置,默认禁用
-13. **PgBouncer 连接池**: 支持 PgBouncer 代理模式,优化生产环境连接管理,默认禁用
+| # | 架构组件 | 核心能力 |
+|:--:|:---------|:---------|
+| 1 | **依赖注入架构** | FastAPI Depends + Container 统一管理，多数据库策略 |
+| 2 | **Smart LLM Router** | ExperienceStore + Circuit Breaker，影子评估与热重载 |
+| 3 | **Saga 模式** | 跨数据库原子性保证，补偿事务机制 |
+| 4 | **PersistStatus 状态机** | 合法状态转换验证，失败重试与终态保护 |
+| 5 | **多层次一致性** | 同步 Saga + 异步对账 + 自动重试 |
+| 6 | **Circuit Breaker** | 异步调用、慢请求追踪、自动降级 |
+| 7 | **HNSW 向量索引** | 高性能相似性搜索，性能提升 480x |
+| 8 | **社区检测系统** | Hierarchical Leiden + 健康检查 + 自动修复 |
+| 9 | **降级数据处理** | TypedDict + 模块级函数跟踪降级字段 |
+| 10 | **Redis Fallback** | 两级去重，自动切换，批量操作优化 |
+| 11 | **Embedding 缓存** | MGET 批量获取，O(N) → O(1) |
+| 12 | **PgBouncer 连接池** | 代理模式，优化生产环境连接管理 |
 
-这些设计确保了 Weaver 在生产环境中的稳定运行,能够处理复杂的分布式数据持久化场景。
+## 🔗 相关文档
 
-### Vault 密钥管理
-
-Weaver 支持通过 HashiCorp Vault 管理敏感配置（密码、API 密钥等）。
-
-**配置方式**:
-
-```toml
-[vault]
-enabled = true
-url = "http://vault.internal:8200"
-mount_path = "secret/weaver"
-# token 通过 WEAVER_VAULT__TOKEN 环境变量注入
-```
-
-**部署步骤**:
-
-1. 启动 Vault 服务器（开发模式: `vault server -dev`，生产模式: 参照 Vault 官方文档）
-2. 存储密钥: `vault kv put secret/weaver/postgres password=xxx`
-3. 配置 Weaver: 设置 `WEAVER_VAULT__ENABLED=true` 和 `WEAVER_VAULT__TOKEN`
-4. Weaver 启动时从 Vault 获取密钥，覆盖环境变量中的值
-
-**默认密钥路径**: `postgres/password`, `neo4j/password`, `redis/password`, `api/api_key`, `api/admin_api_key`
+- [API 文档](API.md) — 完整 API 接口参考
+- [用户指南](USER_GUIDE.md) — 快速上手与使用指南
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [贡献指南](CONTRIBUTING.md) — 参与项目贡献
+- [项目 README](../README.md) — 返回首页
 
 ### PgBouncer 连接池
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for task_id propagation through pipeline components."""
 
 from __future__ import annotations
@@ -184,7 +184,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
     async def test_on_items_discovered_passes_task_id_to_insert_raw(self):
         """Test that on_items_discovered passes task_id to article_repo.bulk_insert_raw.
 
-        Note: T006 refactored the per-article ``insert_raw`` loop into a
+        Note: refactored the per-article ``insert_raw`` loop into a
         single ``bulk_insert_raw`` call. The task_id propagation contract
         is preserved — ``bulk_insert_raw`` accepts ``task_id`` kwarg.
         """
@@ -230,7 +230,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
     async def test_on_items_discovered_works_without_task_id(self):
         """Test backward compatibility - on_items_discovered works without task_id.
 
-        Note: T006 refactored to ``bulk_insert_raw``; task_id defaults to None.
+        Note: refactored to ``bulk_insert_raw``; task_id defaults to None.
         """
         from modules.ingestion.domain.processor import DiscoveryProcessor
 

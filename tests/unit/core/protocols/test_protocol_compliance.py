@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Protocol compliance tests for all classes claiming to implement a Protocol.
 
 Verifies that every class with an "Implements:" docstring declaration
@@ -60,7 +60,7 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "TaskRegistryService": TaskRegistryService,
     "KnowledgeCacheProtocol": KnowledgeCacheProtocol,
     "MapperProtocol": MapperProtocol,
-    # T007/T008: Briefing protocols
+    # Briefing protocols
     "AnalyticsStorageProtocol": AnalyticsStorageProtocol,
     "DailyBriefingProtocol": DailyBriefingProtocol,
 }
@@ -93,17 +93,15 @@ PROTOCOL_IMPLEMENTATIONS = [
     # Knowledge cache
     ("modules.knowledge.cache.storage", "KnowledgeCache", "KnowledgeCacheProtocol"),
     # Mapper implementations
-    ("core.mappers.postgres_article_mapper", "PostgresArticleMapper", "MapperProtocol"),
     ("core.mappers.neo4j_entity_mapper", "Neo4jEntityMapper", "MapperProtocol"),
-    ("core.mappers.community_mapper", "CommunityMapper", "MapperProtocol"),
     (
         "core.mappers.community_search_result_mapper",
         "CommunitySearchResultMapper",
         "MapperProtocol",
     ),
-    # T008: Briefing service implementations
+    # Briefing service implementations
     ("modules.briefing.service", "DailyBriefingService", "DailyBriefingProtocol"),
-    # T004/T008: Analytics storage (declares Implements: AnalyticsStorageProtocol)
+    # Analytics storage (declares Implements: AnalyticsStorageProtocol)
     ("modules.analytics.storage", "AnalyticsStorage", "AnalyticsStorageProtocol"),
 ]
 

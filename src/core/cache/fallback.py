@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """FallbackCachePool — runtime Redis→Cashews degradation proxy.
 
 Implements:
@@ -18,6 +18,7 @@ Design:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -28,6 +29,15 @@ log = get_logger(__name__)
 
 # Minimum seconds between health probes to the primary
 _HEALTH_PROBE_INTERVAL_SECONDS = 60
+
+# Per-operation wall-clock cap on PRIMARY calls. Redis 半开连接（对端挂死、
+# 路径 MTU 黑洞）会让 redis-py 的操作既不报错也不返回，无超时则探测与
+# 操作永久阻塞，调用方（如 ProcessingQueue 的 _op_lock）随之整体饿死。
+_PRIMARY_CALL_TIMEOUT_SECONDS = 5.0
+
+# Sentinel for getattr(): distinguishes "attribute absent" (programming
+# error in the operation name) from a legitimate None attribute value.
+_MISSING = object()
 
 
 class FallbackCachePool:
@@ -92,10 +102,26 @@ class FallbackCachePool:
                 error=str(exc),
                 exc_type=type(exc).__name__,
             )
-            self._primary_healthy = False
-            self._set_fallback_active(1)
+            self.mark_primary_degraded_at_startup(str(exc))
 
         await self._fallback.startup()
+
+    def mark_primary_degraded_at_startup(self, error: str = "") -> None:
+        """Flag the primary as unhealthy before any operation ran.
+
+        Public wrapper so callers that already know the primary failed
+        (e.g. container pools.py managing startup order) route through the
+        same state/metrics/logging path as runtime degradation instead of
+        poking private attributes.
+        """
+        self._primary_healthy = False
+        self._last_health_check = time.monotonic()
+        self._set_fallback_active(1)
+        self._increment_switches()
+        log.warning(
+            "fallback_cache_degraded_at_startup",
+            error=error or "primary startup failed",
+        )
 
     async def shutdown(self) -> None:
         """Close both primary and fallback clients."""
@@ -113,7 +139,11 @@ class FallbackCachePool:
         if self._primary_healthy:
             try:
                 return await self._primary.ping()
-            except Exception:
+            except Exception as exc:
+                # Keep health state consistent with subsequent _execute()
+                # routing: a failed authoritative probe degrades now instead
+                # of waiting for the next operation to fail.
+                self._degrade_to_fallback("ping", exc)
                 return False
         return await self._fallback.ping()
 
@@ -127,7 +157,9 @@ class FallbackCachePool:
 
         self._last_health_check = now
         try:
-            healthy = await self._primary.ping()
+            healthy = await asyncio.wait_for(
+                self._primary.ping(), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+            )
             if healthy and not self._primary_healthy:
                 self._primary_healthy = True
                 self._set_fallback_active(0)
@@ -182,11 +214,26 @@ class FallbackCachePool:
 
         Returns:
             Result from primary (if healthy) or fallback.
+
+        Raises:
+            AttributeError: If ``operation`` does not exist on the client.
+                A misspelled operation is a programming error, not an
+                infrastructure failure, so it must surface immediately
+                instead of silently degrading to a fallback that lacks the
+                attribute too.
         """
         if self._primary_healthy:
+            method = getattr(self._primary, operation, _MISSING)
+            if method is _MISSING:
+                raise AttributeError(
+                    f"{type(self._primary).__name__} has no operation {operation!r}"
+                )
             try:
-                method = getattr(self._primary, operation)
-                return await method(*args, **kwargs)
+                # wait_for 兜底：primary 挂死连接上的操作超时后按失败降级，
+                # 而不是把调用方（队列锁持有者）一起挂死。
+                return await asyncio.wait_for(
+                    method(*args, **kwargs), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+                )
             except Exception as exc:
                 self._degrade_to_fallback(operation, exc)
                 # Fall through to fallback
@@ -196,14 +243,19 @@ class FallbackCachePool:
 
         if self._primary_healthy:
             # Recovered during probe
-            try:
-                method = getattr(self._primary, operation)
-                return await method(*args, **kwargs)
-            except Exception as exc:
-                self._degrade_to_fallback(operation, exc)
+            method = getattr(self._primary, operation, _MISSING)
+            if method is not _MISSING:
+                try:
+                    return await asyncio.wait_for(
+                        method(*args, **kwargs), timeout=_PRIMARY_CALL_TIMEOUT_SECONDS
+                    )
+                except Exception as exc:
+                    self._degrade_to_fallback(operation, exc)
 
-        method = getattr(self._fallback, operation)
-        return await method(*args, **kwargs)
+        fallback_method = getattr(self._fallback, operation, _MISSING)
+        if fallback_method is _MISSING:
+            raise AttributeError(f"{type(self._fallback).__name__} has no operation {operation!r}")
+        return await fallback_method(*args, **kwargs)
 
     # ── Key/Value Operations ───────────────────────────────────────
 
@@ -324,14 +376,19 @@ class FallbackCachePool:
             Keys matching the pattern.
         """
         client = self._primary if self._primary_healthy else self._fallback
+        yielded: set[str] = set()
         try:
             async for key in client.scan_iter(pattern, count=count):
+                yielded.add(key)
                 yield key
         except Exception as exc:
             if self._primary_healthy:
                 self._degrade_to_fallback("scan_iter", exc)
+                # The fallback scan restarts from cursor 0; skip keys the
+                # primary already yielded so callers never see duplicates.
                 async for key in self._fallback.scan_iter(pattern, count=count):
-                    yield key
+                    if key not in yielded:
+                        yield key
             else:
                 raise
 
@@ -350,4 +407,14 @@ class FallbackCachePool:
             Script object from the active client.
         """
         client = self._primary if self._primary_healthy else self._fallback
+        if not self._primary_healthy:
+            # 降级态下 register_script 只返回一个在首次调用时才抛
+            # NotImplementedError 的占位对象，注册时告警以便运维尽早发现
+            # Lua 脚本能力不可用。
+            log.warning(
+                "fallback_register_script_degraded",
+                message=(
+                    "Redis 降级中：Lua 脚本注册返回占位对象，实际调用时才会抛 NotImplementedError"
+                ),
+            )
         return client.register_script(script)

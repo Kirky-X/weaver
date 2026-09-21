@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for Neo4jCommunityRepo - Schema migration and CRUD operations."""
 
 import uuid
@@ -210,6 +210,18 @@ class TestNeo4jCommunityRepoAddEntityToCommunity:
             community_id="non-existent",
             entity_canonical_name="NonExistent",
             entity_type="未知",
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_add_entity_to_community_returns_false_without_id(self, repo):
+        """#281: a row without the returned id must not count as success."""
+        repo._pool.execute_query = AsyncMock(return_value=[{}])
+
+        result = await repo.add_entity_to_community(
+            community_id="community-id",
+            entity_canonical_name="OpenAI",
+            entity_type="组织机构",
         )
         assert result is False
 
@@ -588,3 +600,56 @@ class TestNeo4jCommunityRepoGetLevelDistribution:
         assert result[0]["count"] == 20
         assert result[2]["level"] == 2
         assert result[2]["count"] == 1
+
+
+class TestNeo4jCommunityRepoDeleteCommunity:
+    """delete_community must inspect the deleted counter."""
+
+    @pytest.fixture
+    def repo(self):
+        pool = MagicMock()
+        pool.execute_query = AsyncMock(return_value=[])
+        return Neo4jCommunityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_count_is_zero(self, repo):
+        """RETURN count(c) always yields one row; deleted=0 means False."""
+        repo._pool.execute_query = AsyncMock(return_value=[{"deleted": 0}])
+        assert await repo.delete_community("nope") is False
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_deleted(self, repo):
+        repo._pool.execute_query = AsyncMock(return_value=[{"deleted": 1}])
+        assert await repo.delete_community("c1") is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_empty_result(self, repo):
+        repo._pool.execute_query = AsyncMock(return_value=[])
+        assert await repo.delete_community("c1") is False
+
+
+class TestNeo4jCommunityRepoSearchByText:
+    """summaries live on CommunityReport, not Community."""
+
+    @pytest.fixture
+    def repo(self):
+        pool = MagicMock()
+        pool.execute_query = AsyncMock(return_value=[])
+        return Neo4jCommunityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_query_joins_community_report_for_summary(self, repo):
+        repo._pool.execute_query = AsyncMock(return_value=[])
+        await repo.search_by_text("energy")
+        query = repo._pool.execute_query.call_args[0][0]
+        assert "c.summary" not in query
+        assert "CommunityReport" in query
+
+    @pytest.mark.asyncio
+    async def test_returns_dicts(self, repo):
+        repo._pool.execute_query = AsyncMock(
+            return_value=[{"id": "c1", "title": "Energy", "summary": "s", "score": 0.5}]
+        )
+        rows = await repo.search_by_text("energy")
+        assert rows[0]["id"] == "c1"
+        assert rows[0]["score"] == 0.5

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """URL normalization utilities.
 
 Extracted from Deduplicator.normalize_url to break circular dependency
@@ -38,7 +38,8 @@ def normalize_url(url: str) -> str:
         Normalized URL string.
     """
     # Handle protocol-relative URLs
-    if url.startswith("//"):
+    was_protocol_relative = url.startswith("//")
+    if was_protocol_relative:
         url = "https:" + url
 
     parsed = urlparse(url)
@@ -58,7 +59,9 @@ def normalize_url(url: str) -> str:
     # Remove default ports based on ORIGINAL scheme before upgrade
     # For HTTP URLs (upgraded to HTTPS), port 80 should be removed
     # For HTTPS URLs, port 443 should be removed
-    if original_scheme == "http" and netloc.endswith(":80"):
+    # Protocol-relative URLs (//host:80) had no scheme before we prepended
+    # one, so their ":80" would otherwise escape the strip below.
+    if (original_scheme == "http" or was_protocol_relative) and netloc.endswith(":80"):
         netloc = netloc[:-3]
     elif netloc.endswith(":443"):
         netloc = netloc[:-4]
@@ -82,15 +85,13 @@ def normalize_url(url: str) -> str:
     # Re-encode path (preserve non-ASCII characters for readability)
     path = quote(path, safe="/", encoding="utf-8")
 
-    if not path:
-        path = ""
-
     # 4. Remove query string and fragment
     # Special case: Some sites use query params as article identifiers:
     # - WeChat: __biz + mid + idx
     # - Solidot: sid
     # Preserve these to avoid collapsing distinct articles into one.
-    if netloc in ("mp.weixin.qq.com", "solidot.org", "www.solidot.org"):
+    # NOTE: netloc 已在上方小写化并剥离 "www."，因此这里只可能出现裸域名。
+    if netloc in ("mp.weixin.qq.com", "solidot.org"):
         query_params = parsed.query.split("&") if parsed.query else []
         kept = []
         dropped = []

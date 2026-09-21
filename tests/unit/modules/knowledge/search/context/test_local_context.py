@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for LocalContextBuilder - comprehensive coverage."""
 
 from __future__ import annotations
@@ -559,7 +559,7 @@ class TestLocalContextBuilderFetchArticleBodies:
     async def test_with_article_repo(self) -> None:
         """``fetch_article_bodies`` delegates to ``fetch_bodies_by_pg_ids`` when available.
 
-        T051: the legacy N+1 ``repo.get`` loop is replaced by a single batched
+        the legacy N+1 ``repo.get`` loop is replaced by a single batched
         SELECT. This test asserts the new contract: ``fetch_bodies_by_pg_ids``
         is called once with the full pg_ids list.
         """
@@ -593,7 +593,7 @@ class TestLocalContextBuilderFetchArticleBodies:
 
     @pytest.mark.asyncio
     async def test_fetch_article_bodies_no_truncation_in_legacy_fallback(self) -> None:
-        """MEDIUM-1: legacy fallback iterates ALL pg_ids (no ``[:5]`` truncation).
+        """legacy fallback iterates ALL pg_ids (no ``[:5]`` truncation).
 
         When ``fetch_bodies_by_pg_ids`` is unavailable on the repo (e.g.,
         a custom ArticleRepository impl that predates the Protocol
@@ -707,3 +707,108 @@ class TestLocalContextBuilderSecurity:
                 entity_names=["华为"],
                 relation_types=["MALICIOUS`; DROP ALL //"],
             )
+
+
+class TestRelMatchClauseCypherShape:
+    """Regression: _build_rel_match_clause already returns a fully dashed
+    pattern, so the caller must not wrap it in extra dashes — the generated
+    Cypher must not contain `--[`."""
+
+    @pytest.mark.asyncio
+    async def test_related_entities_cypher_has_no_double_dash(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._get_related_entities(["华为"])
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "--[" not in cypher
+        assert "MATCH (e:Entity)-[" in cypher
+
+    @pytest.mark.asyncio
+    async def test_related_entities_typed_cypher_has_no_double_dash(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._get_related_entities(["华为"], relation_types=["PARTNERS_WITH"])
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "--[" not in cypher
+        assert "MATCH (e:Entity)-[" in cypher
+
+
+class TestRetrievedCountMetadata:
+    """#205: metadata documents the *retrieved* count, not the included one."""
+
+    @pytest.mark.asyncio
+    async def test_metadata_counts_survive_token_budget_drops(self) -> None:
+        pool = _make_pool()
+        builder = LocalContextBuilder(graph_pool=pool, default_max_tokens=1)
+        builder._get_entities_with_details = AsyncMock(
+            return_value=[
+                {"canonical_name": "华为", "type": "组织", "description": ""},
+                {"canonical_name": "比亚迪", "type": "组织", "description": ""},
+            ]
+        )
+        builder._get_related_entities = AsyncMock(
+            return_value=[{"canonical_name": "小米", "type": "组织"}]
+        )
+        builder._get_relationships = AsyncMock(return_value=[])
+        builder._get_related_articles = AsyncMock(return_value=[])
+
+        ctx = await builder.build("q", max_tokens=1, entity_names=["华为"])
+
+        # Sections were dropped by the token budget ...
+        assert all(s.name != "Relevant Entities" for s in ctx.sections)
+        # ... yet the metadata still reports what was retrieved.
+        assert ctx.metadata["total_entities"] == 3
+
+
+class TestRelatedArticleOrdering:
+    """#209: the ORDER BY is a determinism guarantee on the returned cypher."""
+
+    @pytest.mark.asyncio
+    async def test_related_articles_query_orders_by_pg_id(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._get_related_articles(["华为"])
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "ORDER BY a.pg_id" in cypher
+
+
+class TestFindQueryEntitiesBidirectional:
+    """Entity linking must match both directions for CJK queries.
+
+    The legacy single-direction ``entity CONTAINS $query`` required the
+    entity name to contain the whole sentence — "华为的芯片战略" never
+    matched the entity 华为, so local-mode recall for natural-language
+    Chinese queries was ≈0.
+    """
+
+    @pytest.mark.asyncio
+    async def test_query_contains_entity_direction_present(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._find_query_entities("华为的芯片战略是什么")
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "$query CONTAINS toLower(e.canonical_name)" in cypher
+
+    @pytest.mark.asyncio
+    async def test_entity_contains_query_direction_kept(self) -> None:
+        """Short queries like the entity name itself must still match."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
+        builder = LocalContextBuilder(graph_pool=pool)
+
+        await builder._find_query_entities("华为")
+
+        cypher = pool.execute_query.call_args.args[0]
+        assert "toLower(e.canonical_name) CONTAINS $query" in cypher

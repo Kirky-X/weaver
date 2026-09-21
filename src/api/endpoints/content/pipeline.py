@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pipeline API endpoints for triggering and monitoring crawl tasks."""
 
 from __future__ import annotations
@@ -24,10 +24,11 @@ from api.dependencies import (
     get_source_scheduler,
 )
 from api.middleware.auth import verify_api_key
-from api.schemas.response import APIResponse, success_response
+from api.schemas.response import APIResponse, ResponseCode, success_response
 from config.settings import Settings
 from container import get_settings
-from core.constants import PipelineTaskStatus
+from core.constants import RedisKeys, Status
+from core.exceptions import BusinessError
 from core.observability import get_logger, metrics
 from core.protocols import CachePool, RelationalPool
 from core.security.safe_echo import safe_echo as _safe_echo
@@ -75,7 +76,7 @@ class TriggerResponse(BaseModel):
     """Response model for pipeline trigger."""
 
     task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
+    status: str = Status.QUEUED.value
     queued_at: str
 
 
@@ -122,14 +123,14 @@ class ProcessUrlResponse(BaseModel):
     """Response model for single URL processing."""
 
     task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
+    status: str = Status.QUEUED.value
     queued_at: str
 
 
 # ── Constants ───────────────────────────────────────────────────
 
-TASK_QUEUE_KEY = "pipeline:task_queue"
-TASK_STATUS_KEY = "pipeline:task_status"
+TASK_QUEUE_KEY = RedisKeys.PIPELINE_TASK_QUEUE
+TASK_STATUS_KEY = RedisKeys.PIPELINE_TASK_STATUS
 QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 
 # SSE concurrency limiter (default 3 concurrent streams)
@@ -141,21 +142,27 @@ _sse_semaphore = asyncio.Semaphore(3)
 _URL_PROCESSING_CONCURRENCY = 10
 _url_processing_semaphore = asyncio.Semaphore(_URL_PROCESSING_CONCURRENCY)
 
-# Per-source timeout for background trigger (5 minutes). Keeps one slow
-# source from blocking the entire trigger batch, while still allowing the
-# background task to make progress and update task status.
-_TRIGGER_SOURCE_TIMEOUT_SECONDS = 300.0
-
-# Per-source dedup lock (vuln-0002 fix: CWE-362).
-# Prevents concurrent trigger_pipeline requests from scheduling the same
-# source multiple times. Lock is set in trigger_pipeline and released in
-# _execute_trigger_background's finally block. TTL matches trigger timeout
-# so a crashed task does not permanently lock the source.
+# Per-source timeout for background trigger keeps one slow source from
+# blocking the entire trigger batch; the dedup lock TTL must exceed it so a
+# crashed task never leaves the source permanently locked. Both read from
+# PipelineProcessSettings at call time (see _trigger_source_timeout()).
 _SOURCE_LOCK_KEY_PREFIX = "pipeline:source:lock:"
-_SOURCE_LOCK_TTL_SECONDS = 600  # 10 minutes (> _TRIGGER_SOURCE_TIMEOUT_SECONDS)
+
+
+def _trigger_source_timeout() -> float:
+    from config.settings import get_settings
+
+    return get_settings().pipeline_process.trigger_source_timeout_seconds
+
+
+def _source_lock_ttl() -> int:
+    from config.settings import get_settings
+
+    return get_settings().pipeline_process.source_lock_ttl_seconds
+
 
 # Strong references to fire-and-forget background tasks so they are not
-# garbage-collected before completion (MEDIUM-1: asyncio.create_task GC risk).
+# garbage-collected before completion (asyncio.create_task GC risk).
 # Tasks remove themselves via ``add_done_callback`` upon completion.
 _background_tasks: set[asyncio.Task[None]] = set()
 
@@ -192,11 +199,11 @@ def _build_trigger_status_payload(
     Centralizes task status construction so RUNNING / COMPLETED / FAILED
     updates share a consistent shape (``task_id`` + ``status`` + extra
     fields) without duplicating the ``json.dumps`` boilerplate at every
-    call site (LOW-2 performance: avoid repeating dict construction).
+    call site (performance: avoid repeating dict construction).
 
     Args:
         task_id: Task UUID string.
-        status: ``PipelineTaskStatus`` value (queued/running/completed/failed).
+        status: ``Status`` value (queued/running/completed/failed).
         **fields: Additional fields to include in the payload (e.g.
             ``source_id``, ``queued_at``, ``error``).
 
@@ -227,134 +234,51 @@ async def _execute_trigger_background(
     immediately. All exceptions are caught and logged — the process MUST NOT
     crash regardless of scheduler / cache / database failures.
 
-    Uses ``cache.hset`` directly (rather than ``_update_task_status``) so the
-    status payload is self-contained and does not require a preceding ``hget``
-    round-trip — this keeps the background task resilient even if the cache
-    entry was evicted between queue time and run time.
-
-    Source triggers are executed **sequentially** rather than via
-    ``asyncio.gather``: each ``scheduler.trigger_now`` call performs
-    ``bulk_insert_raw`` which holds a write lock on DuckDB. Concurrent
-    triggers would contend on the same lock and rely on exponential backoff
-    retries, which is slower than serializing (HIGH-1: DuckDB concurrent
-    write conflict). Per-source timeout still applies so one slow source
-    cannot block the entire batch.
-
-    Args:
-        task_id: UUID task identifier (string form).
-        target_source_ids: Explicit list of source IDs to trigger, or ``None``
-            to trigger all enabled sources (backward-compatible behaviour).
-        source_id_field: Original ``source_id`` from request (for status
-            payload; ``None`` if not provided).
-        source_ids_field: Original ``source_ids`` list from request (for
-            status payload; ``None`` if not provided). Passed in explicitly
-            to avoid recomputing from the request inside the background
-            task (LOW-1: avoid dual data paths).
-        max_items: Per-source item limit (``None`` for unlimited).
-        force: Force re-crawl even for recently fetched URLs.
-        cache: Cache client for task status updates.
-        scheduler: Source scheduler for triggering crawls.
-        queued_at: ISO timestamp captured at queue time.
-
+    Source triggers are executed **sequentially** to avoid DuckDB write lock
+    contention. Per-source timeout still applies.
     """
     started_at = datetime.now(UTC).isoformat()
     try:
-        # Update status to RUNNING
-        await cache.hset(
-            TASK_STATUS_KEY,
+        await _update_trigger_status(
+            cache,
             task_id,
-            _build_trigger_status_payload(
-                task_id=task_id,
-                status=PipelineTaskStatus.RUNNING.value,
-                source_id=source_id_field,
-                source_ids=source_ids_field,
-                queued_at=queued_at,
-                started_at=started_at,
-            ),
+            Status.RUNNING,
+            source_id_field,
+            source_ids_field,
+            queued_at,
+            started_at,
         )
 
-        if target_source_ids is None:
-            # Trigger all enabled sources (backward compat)
-            sources = scheduler.list_enabled_sources()
-            ids_to_trigger: list[str] = [source.id for source in sources]
-        else:
-            ids_to_trigger = list(target_source_ids)
+        ids_to_trigger = await _resolve_trigger_sources(target_source_ids, scheduler)
 
         if not ids_to_trigger:
-            # No sources to trigger — complete with a clear status
-            await cache.hset(
-                TASK_STATUS_KEY,
+            await _update_trigger_status(
+                cache,
                 task_id,
-                _build_trigger_status_payload(
-                    task_id=task_id,
-                    status=PipelineTaskStatus.COMPLETED.value,
-                    queued_at=queued_at,
-                    started_at=started_at,
-                    completed_at=datetime.now(UTC).isoformat(),
-                    note="no_sources_to_trigger",
-                ),
+                Status.COMPLETED,
+                source_id_field,
+                source_ids_field,
+                queued_at,
+                started_at,
+                completed_at=datetime.now(UTC).isoformat(),
+                note="no_sources_to_trigger",
             )
             return
 
         task_uuid = uuid.UUID(task_id)
-        # Sequential execution: see HIGH-1 docstring note above. Each
-        # ``trigger_now`` performs bulk_insert_raw (DuckDB write lock);
-        # concurrent writes contend and trigger backoff retries that are
-        # slower than serializing. Per-source timeout still applies.
-        #
-        # ``return_exceptions=True`` semantics from the previous gather
-        # are preserved: one failing source does NOT abort the batch —
-        # the exception is recorded and the next source is attempted.
-        results: list[BaseException | None] = []
-        for sid in ids_to_trigger:
-            try:
-                await asyncio.wait_for(
-                    scheduler.trigger_now(
-                        sid,
-                        max_items=max_items,
-                        task_id=task_uuid,
-                        force=force,
-                    ),
-                    timeout=_TRIGGER_SOURCE_TIMEOUT_SECONDS,
-                )
-                results.append(None)
-            except asyncio.CancelledError as exc:
-                # CancelledError inherits BaseException (not Exception), so
-                # the ``failures`` filter below would miss it. Track
-                # separately for accurate shutdown statistics (LOW-2).
-                # Stop further triggering — cancellation typically indicates
-                # shutdown or explicit task cancellation.
-                results.append(exc)
-                break
-            except Exception as exc:
-                # Record and continue so one failing source doesn't abort
-                # the entire batch.
-                results.append(exc)
-
-        # CancelledError is BaseException, not Exception, so the ``failures``
-        # filter naturally excludes it. Keep them in a separate ``cancelled``
-        # list so shutdown statistics are accurate (LOW-2).
-        failures = [r for r in results if isinstance(r, Exception)]
-        cancelled = [r for r in results if isinstance(r, asyncio.CancelledError)]
-        for idx, result in enumerate(results):
-            if isinstance(result, asyncio.CancelledError):
-                cancelled_sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
-                log.warning(
-                    "pipeline_trigger_source_cancelled",
-                    task_id=task_id,
-                    source_id=cancelled_sid,
-                )
-            elif isinstance(result, Exception):
-                failing_sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
-                log.warning(
-                    "pipeline_trigger_source_failed",
-                    task_id=task_id,
-                    source_id=failing_sid,
-                    error=str(result),
-                    error_type=type(result).__name__,
-                )
+        results = await _execute_sequential_triggers(
+            ids_to_trigger,
+            scheduler,
+            max_items,
+            task_uuid,
+            force,
+        )
+        _log_trigger_results(results, ids_to_trigger, task_id)
 
         completed_at = datetime.now(UTC).isoformat()
+        failures = [r for r in results if isinstance(r, Exception)]
+        cancelled = [r for r in results if isinstance(r, asyncio.CancelledError)]
+
         if failures or cancelled:
             error_parts: list[str] = []
             if failures:
@@ -364,20 +288,16 @@ async def _execute_trigger_background(
                 )
             if cancelled:
                 error_parts.append(f"{len(cancelled)}/{len(ids_to_trigger)} source(s) cancelled")
-            error_summary = "; ".join(error_parts)
-            await cache.hset(
-                TASK_STATUS_KEY,
+            await _update_trigger_status(
+                cache,
                 task_id,
-                _build_trigger_status_payload(
-                    task_id=task_id,
-                    status=PipelineTaskStatus.FAILED.value,
-                    source_id=source_id_field,
-                    source_ids=source_ids_field,
-                    queued_at=queued_at,
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    error=error_summary,
-                ),
+                Status.FAILED,
+                source_id_field,
+                source_ids_field,
+                queued_at,
+                started_at,
+                completed_at=completed_at,
+                error="; ".join(error_parts),
             )
             log.warning(
                 "pipeline_trigger_partial_failure",
@@ -387,24 +307,18 @@ async def _execute_trigger_background(
                 total_count=len(ids_to_trigger),
             )
         else:
-            await cache.hset(
-                TASK_STATUS_KEY,
+            await _update_trigger_status(
+                cache,
                 task_id,
-                _build_trigger_status_payload(
-                    task_id=task_id,
-                    status=PipelineTaskStatus.COMPLETED.value,
-                    source_id=source_id_field,
-                    source_ids=source_ids_field,
-                    queued_at=queued_at,
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    triggered_count=len(ids_to_trigger),
-                ),
+                Status.COMPLETED,
+                source_id_field,
+                source_ids_field,
+                queued_at,
+                started_at,
+                completed_at=completed_at,
+                triggered_count=len(ids_to_trigger),
             )
     except Exception as exc:
-        # Last-resort safety net: never let the background task propagate an
-        # exception out of asyncio.create_task (which would log "Task exception
-        # was never retrieved" and, in some configurations, tear down the loop).
         log.error(
             "pipeline_trigger_background_failed",
             task_id=task_id,
@@ -413,46 +327,142 @@ async def _execute_trigger_background(
             exc_info=True,
         )
         try:
-            await cache.hset(
-                TASK_STATUS_KEY,
+            await _update_trigger_status(
+                cache,
                 task_id,
-                _build_trigger_status_payload(
-                    task_id=task_id,
-                    status=PipelineTaskStatus.FAILED.value,
-                    source_id=source_id_field,
-                    source_ids=source_ids_field,
-                    queued_at=queued_at,
-                    completed_at=datetime.now(UTC).isoformat(),
-                    error=f"Background task error: {exc!s}",
-                ),
+                Status.FAILED,
+                source_id_field,
+                source_ids_field,
+                queued_at,
+                None,
+                completed_at=datetime.now(UTC).isoformat(),
+                error=f"Background task error: {exc!s}",
             )
         except Exception:
-            log.error(
-                "pipeline_trigger_status_update_failed",
-                task_id=task_id,
-                exc_info=True,
-            )
+            log.error("pipeline_trigger_status_update_failed", task_id=task_id, exc_info=True)
     finally:
-        # Release per-source dedup locks (vuln-0002 fix).
-        # Always release locks regardless of success/failure so the source
-        # is available for the next trigger request. Lock release errors are
-        # non-fatal — the TTL will eventually expire the lock anyway.
-        #
-        # M-1 optimization: batch release via a single ``cache.delete``
-        # call (the CacheKV Protocol's ``delete`` accepts variadic keys,
-        # mapping to Redis ``DEL k1 k2 ...``). This collapses N round-trips
-        # into one for the common multi-source trigger case.
-        if locked_source_ids:
-            release_keys = [f"{_SOURCE_LOCK_KEY_PREFIX}{sid}" for sid in locked_source_ids]
-            try:
-                await cache.delete(*release_keys)
-            except Exception:
-                log.warning(
-                    "source_lock_release_failed",
-                    task_id=task_id,
-                    source_ids=locked_source_ids,
-                    exc_info=True,
-                )
+        await _release_source_locks(cache, locked_source_ids, task_id)
+
+
+async def _resolve_trigger_sources(
+    target_source_ids: list[str] | None,
+    scheduler: SourceScheduler,
+) -> list[str]:
+    """Determine which source IDs to trigger."""
+    if target_source_ids is None:
+        sources = scheduler.list_enabled_sources()
+        return [source.id for source in sources]
+    return list(target_source_ids)
+
+
+async def _execute_sequential_triggers(
+    ids_to_trigger: list[str],
+    scheduler: SourceScheduler,
+    max_items: int | None,
+    task_uuid: uuid.UUID,
+    force: bool,
+) -> list[BaseException | None]:
+    """Execute source triggers sequentially with per-source timeout."""
+    results: list[BaseException | None] = []
+    for sid in ids_to_trigger:
+        try:
+            await asyncio.wait_for(
+                scheduler.trigger_now(
+                    sid,
+                    max_items=max_items,
+                    task_id=task_uuid,
+                    force=force,
+                ),
+                timeout=_trigger_source_timeout(),
+            )
+            results.append(None)
+        except asyncio.CancelledError as exc:
+            results.append(exc)
+            break
+        except Exception as exc:
+            results.append(exc)
+    return results
+
+
+def _log_trigger_results(
+    results: list[BaseException | None],
+    ids_to_trigger: list[str],
+    task_id: str,
+) -> None:
+    """Log individual source failures and cancellations."""
+    for idx, result in enumerate(results):
+        if isinstance(result, asyncio.CancelledError):
+            sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
+            log.warning("pipeline_trigger_source_cancelled", task_id=task_id, source_id=sid)
+        elif isinstance(result, Exception):
+            sid = ids_to_trigger[idx] if idx < len(ids_to_trigger) else "<unknown>"
+            log.warning(
+                "pipeline_trigger_source_failed",
+                task_id=task_id,
+                source_id=sid,
+                error=str(result),
+                error_type=type(result).__name__,
+            )
+
+
+async def _update_trigger_status(
+    cache: CachePool,
+    task_id: str,
+    status: Status,
+    source_id: str | None,
+    source_ids: list[str] | None,
+    queued_at: str,
+    started_at: str | None = None,
+    completed_at: str | None = None,
+    error: str | None = None,
+    note: str | None = None,
+    triggered_count: int | None = None,
+) -> None:
+    """Update task status in cache."""
+    await cache.hset(
+        TASK_STATUS_KEY,
+        task_id,
+        _build_trigger_status_payload(
+            task_id=task_id,
+            status=status.value,
+            source_id=source_id,
+            source_ids=source_ids,
+            queued_at=queued_at,
+            started_at=started_at,
+            completed_at=completed_at,
+            error=error,
+            note=note,
+            triggered_count=triggered_count,
+        ),
+    )
+
+
+async def _release_source_locks(
+    cache: CachePool,
+    locked_source_ids: list[str] | None,
+    task_id: str,
+) -> None:
+    """Release per-source dedup locks."""
+    if not locked_source_ids:
+        return
+    release_keys = [f"{_SOURCE_LOCK_KEY_PREFIX}{sid}" for sid in locked_source_ids]
+    try:
+        # Compare-and-delete: only release locks we still own. If our TTL
+        # expired and another task re-acquired, blindly deleting the key
+        # would release the *new* owner's lock.
+        stale_keys = []
+        for key in release_keys:
+            if await cache.get(key) == task_id:
+                stale_keys.append(key)
+        if stale_keys:
+            await cache.delete(*stale_keys)
+    except Exception:
+        log.warning(
+            "source_lock_release_failed",
+            task_id=task_id,
+            source_ids=locked_source_ids,
+            exc_info=True,
+        )
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -579,7 +589,7 @@ async def trigger_pipeline(
         # sources (preserves the original "crawl everything" behaviour).
         target_source_ids = None
 
-    # ── Per-source dedup lock (vuln-0002 fix: CWE-362) ──
+    # ── Per-source dedup lock (CWE-362) ──
     # Atomic acquire using SET NX: each lock is acquired atomically,
     # eliminating the TOCTOU window of the previous check-then-set
     # pattern (two concurrent requests could both pass ``cache.get``
@@ -593,7 +603,7 @@ async def trigger_pipeline(
     if target_source_ids:
         for sid in target_source_ids:
             lock_key = f"{_SOURCE_LOCK_KEY_PREFIX}{sid}"
-            acquired = await cache.set_nx(lock_key, task_id, ex=_SOURCE_LOCK_TTL_SECONDS)
+            acquired = await cache.set_nx(lock_key, task_id, ex=_source_lock_ttl())
             if not acquired:
                 # Roll back already-acquired locks before failing so we
                 # do not leak locks for sources that we did successfully
@@ -601,9 +611,10 @@ async def trigger_pipeline(
                 for prev_sid in locked_source_ids:
                     with contextlib.suppress(Exception):
                         await cache.delete(f"{_SOURCE_LOCK_KEY_PREFIX}{prev_sid}")
-                raise HTTPException(
+                raise BusinessError(
                     status_code=409,
-                    detail=(
+                    code=ResponseCode.ERR_PIPELINE_TRIGGER_FAILED,
+                    message=(
                         f"Source '{_safe_echo(sid)}' is already being processed "
                         f"by another task (lock held). Retry after the current "
                         f"task completes."
@@ -614,10 +625,10 @@ async def trigger_pipeline(
     # ── Queue the task (initial status = QUEUED) ──
     # ``source_ids_field`` is computed once and threaded through to the
     # background task to avoid recomputing it from ``request`` later
-    # (LOW-1: avoid dual data paths between ``target_source_ids`` and
+    # (avoid dual data paths between ``target_source_ids`` and
     # ``request.source_ids``).
     #
-    # HIGH-001: wrap the queue-write + ``asyncio.create_task`` in
+    # Wrap the queue-write + ``asyncio.create_task`` in
     # try/except so that a failure between lock acquire and background
     # task creation rolls back the acquired locks. Without this, a
     # ``cache.hset`` failure (e.g. Redis transient error) would leave
@@ -629,7 +640,7 @@ async def trigger_pipeline(
             task_id,
             _build_trigger_status_payload(
                 task_id=task_id,
-                status=PipelineTaskStatus.QUEUED.value,
+                status=Status.QUEUED.value,
                 source_id=request.source_id,
                 source_ids=source_ids_field,
                 queued_at=now,
@@ -642,8 +653,8 @@ async def trigger_pipeline(
         # ``_execute_trigger_background`` so the server process cannot crash.
         #
         # The task is added to ``_background_tasks`` so the event loop does
-        # not garbage-collect it before completion (MEDIUM-1:
-        # asyncio.create_task GC risk). ``add_done_callback`` removes the
+        # not garbage-collect it before completion (asyncio.create_task GC
+        # risk). ``add_done_callback`` removes the
         # entry automatically when the task finishes, so the set does not
         # grow unboundedly.
         background_task = asyncio.create_task(
@@ -663,7 +674,7 @@ async def trigger_pipeline(
         _background_tasks.add(background_task)
         background_task.add_done_callback(_background_tasks.discard)
     except Exception:
-        # Roll back acquired locks if task queueing fails (HIGH-001).
+        # Roll back acquired locks if task queueing fails.
         # Without this, a failure between lock acquire and background task
         # creation would leave the source locked for TTL (600s).
         for sid in locked_source_ids:
@@ -711,6 +722,11 @@ async def get_task_status(
         )
 
     data = json_repair.loads(status_data)
+    if not isinstance(data, dict):
+        # Corrupt cache payload: json_repair can return list/str/None.
+        raise HTTPException(
+            status_code=404, detail=f"Task '{_safe_echo(task_id)}' status corrupted"
+        )
 
     # Get article progress statistics for this task
     article_repo = ArticleRepo(relational_pool)
@@ -1007,7 +1023,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.RUNNING.value,
+                Status.RUNNING.value,
                 started_at=datetime.now(UTC).isoformat(),
             )
 
@@ -1040,7 +1056,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.COMPLETED.value,
+                Status.COMPLETED.value,
                 completed_at=datetime.now(UTC).isoformat(),
                 article_id=state.get("article_id", ""),
             )
@@ -1050,7 +1066,7 @@ async def _process_single_url(
             await _update_task_status(
                 cache,
                 task_id,
-                PipelineTaskStatus.FAILED.value,
+                Status.FAILED.value,
                 error=str(exc),
                 completed_at=datetime.now(UTC).isoformat(),
             )
@@ -1096,7 +1112,7 @@ async def process_single_url(
         json.dumps(
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.QUEUED.value,
+                "status": Status.QUEUED.value,
                 "url": request.url,
                 "queued_at": now,
             }
@@ -1105,7 +1121,7 @@ async def process_single_url(
 
     # Launch background processing. Track in ``_background_tasks`` so the
     # event loop does not garbage-collect the task before completion
-    # (MEDIUM-1 GC risk; previously suppressed via ``# noqa: RUF006``).
+    # (asyncio.create_task GC risk; RUF006 suppression no longer needed).
     background_task = asyncio.create_task(_process_single_url(request.url, task_id, cache))
     _background_tasks.add(background_task)
     background_task.add_done_callback(_background_tasks.discard)
@@ -1169,7 +1185,7 @@ async def _stream_url_processing(
         await _update_task_status(
             cache,
             task_id,
-            PipelineTaskStatus.RUNNING.value,
+            Status.RUNNING.value,
             started_at=datetime.now(UTC).isoformat(),
         )
         yield _sse_event(
@@ -1180,33 +1196,67 @@ async def _stream_url_processing(
         heartbeat_gen = _heartbeat()
         processing_task = asyncio.ensure_future(_do_process(url, task_id, crawler, pipeline))
 
-        # Alternate between heartbeat and processing
-        heartbeat_iter = heartbeat_gen.__aiter__()
-        while not processing_task.done():
+        try:
+            # Alternate between heartbeat and processing.
+            # asyncio.wait (not wait_for) so a quiet 0.5s window does NOT
+            # cancel the pending heartbeat __anext__ — injecting cancellation
+            # into the heartbeat generator would kill it on the first quiet
+            # interval and leave the loop spinning without events.
+            heartbeat_iter = heartbeat_gen.__aiter__()
+            hb_next: asyncio.Future[str] | None = None
+            while not processing_task.done():
+                if hb_next is None:
+                    hb_next = asyncio.ensure_future(heartbeat_iter.__anext__())
+                done, _pending = await asyncio.wait({hb_next}, timeout=0.5)
+                if hb_next in done:
+                    event: str | None = None
+                    with contextlib.suppress(StopAsyncIteration):
+                        event = hb_next.result()
+                    hb_next = None
+                    if event is not None:
+                        yield event
+                else:
+                    await asyncio.sleep(0)
+
+            # Stop heartbeat
+            heartbeat_stop.set()
+
+            # Get result from processing
+            result = processing_task.result()
+            yield result
+
+            # Update cache status
+            if result_event := _parse_result_event(result):
+                await _update_task_status(cache, task_id, **result_event)
+            else:
+                await _update_task_status(
+                    cache,
+                    task_id,
+                    Status.COMPLETED.value,
+                    completed_at=datetime.now(UTC).isoformat(),
+                )
+        finally:
+            # If the SSE stream is interrupted (client disconnect /
+            # generator aclose / GeneratorExit), the processing task would
+            # keep crawling and writing to DuckDB untracked. Cancel it and
+            # observe its outcome so nothing leaks.
+            heartbeat_stop.set()
+            if hb_next is not None and not hb_next.done():
+                hb_next.cancel()
+            if not processing_task.done():
+                processing_task.cancel()
             try:
-                event = await asyncio.wait_for(heartbeat_iter.__anext__(), timeout=0.5)
-                yield event
-            except (StopAsyncIteration, TimeoutError):
+                await processing_task
+            except asyncio.CancelledError:
                 pass
-            await asyncio.sleep(0)
-
-        # Stop heartbeat
-        heartbeat_stop.set()
-
-        # Get result from processing
-        result = processing_task.result()
-        yield result
-
-        # Update cache status
-        if result_event := _parse_result_event(result):
-            await _update_task_status(cache, task_id, **result_event)
-        else:
-            await _update_task_status(
-                cache,
-                task_id,
-                PipelineTaskStatus.COMPLETED.value,
-                completed_at=datetime.now(UTC).isoformat(),
-            )
+            except Exception as exc:
+                log.debug(
+                    "sse_processing_task_ended_with_error",
+                    task_id=task_id,
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
+            await heartbeat_gen.aclose()
 
     except Exception as exc:
         heartbeat_stop.set()
@@ -1214,7 +1264,7 @@ async def _stream_url_processing(
         await _update_task_status(
             cache,
             task_id,
-            PipelineTaskStatus.FAILED.value,
+            Status.FAILED.value,
             error=str(exc),
             completed_at=datetime.now(UTC).isoformat(),
         )
@@ -1269,7 +1319,7 @@ async def _do_process(
             "result",
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.COMPLETED.value,
+                "status": Status.COMPLETED.value,
                 "article_id": state.get("article_id", ""),
                 "completed_at": datetime.now(UTC).isoformat(),
             },
@@ -1354,7 +1404,7 @@ async def process_url_stream(
         json.dumps(
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.QUEUED.value,
+                "status": Status.QUEUED.value,
                 "url": request.url,
                 "queued_at": now,
             }

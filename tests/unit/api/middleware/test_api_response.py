@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for API response middleware."""
 
 from __future__ import annotations
@@ -424,11 +424,10 @@ class TestGenericExceptionHandler:
 
             response = asyncio.run(handler(request, exc))
 
-            # Verify exception was logged
+            # Verify exception was logged (loguru log.exception captures the
+            # active exception implicitly — no exc_info kwarg)
             mock_log.assert_called_once()
-            call_args = mock_log.call_args
-            assert call_args[0][0] == "Unhandled exception"
-            assert call_args[1]["exc_info"] == exc
+            assert mock_log.call_args[0][0] == "Unhandled exception"
 
         assert response.status_code == 500
 

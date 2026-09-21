@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RetryQueue (ingestion deduplication module)."""
 
 import json
@@ -7,6 +7,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from loguru import logger
 
 from core.constants import RedisKeys
 from modules.ingestion.deduplication.retry import RetryQueue
@@ -49,6 +50,7 @@ class TestRetryQueueEnqueue:
         cache = MagicMock()
         cache.zadd = AsyncMock()
         cache.lpush = AsyncMock()
+        cache.ltrim = AsyncMock()
         return cache
 
     @pytest.mark.asyncio
@@ -172,7 +174,10 @@ class TestRetryQueueGetDueItems:
         """Mock Redis client."""
         cache = MagicMock()
         cache.zrangebyscore = AsyncMock()
-        cache.zrem = AsyncMock()
+        # zrem must return the number of members actually removed (int) —
+        # get_due_items compares it against the fetched count to surface
+        # concurrent claims.
+        cache.zrem = AsyncMock(side_effect=lambda key, *members: len(members))
         return cache
 
     @pytest.mark.asyncio
@@ -260,6 +265,7 @@ class TestRetryQueueMoveToDeadLetter:
         """Mock Redis client."""
         cache = MagicMock()
         cache.lpush = AsyncMock()
+        cache.ltrim = AsyncMock()
         return cache
 
     @pytest.mark.asyncio
@@ -292,6 +298,7 @@ class TestRetryQueueIntegration:
         cache = MagicMock()
         cache.zadd = AsyncMock()
         cache.lpush = AsyncMock()
+        cache.ltrim = AsyncMock()
         cache.zrangebyscore = AsyncMock(return_value=[])
         cache.zrem = AsyncMock()
         return cache
@@ -334,3 +341,89 @@ class TestRetryQueueIntegration:
         )
         assert mock_cache.zadd.call_count == 3  # No new zadd
         assert mock_cache.lpush.call_count == 1  # Moved to dead letter
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    @pytest.fixture
+    def mock_cache(self):
+        """Mock Redis client returning payloads without claiming them."""
+        cache = MagicMock()
+        cache.zrangebyscore = AsyncMock()
+        cache.zrem = AsyncMock(side_effect=lambda key, *members: len(members))
+        return cache
+
+    @staticmethod
+    def _capture(records: list) -> int:
+        return logger.add(lambda message: records.append(message.record), level="DEBUG")
+
+    @pytest.mark.asyncio
+    async def test_payload_host_mismatch_is_flagged(self, mock_cache):
+        """#175: payload host disagreeing with the set's host is logged."""
+        mock_cache.zrangebyscore = AsyncMock(
+            return_value=[json.dumps({"url": "https://other.com/1", "host": "other.com"})]
+        )
+        records: list = []
+        sink_id = self._capture(records)
+        try:
+            retry_queue = RetryQueue(cache=mock_cache)
+            result = await retry_queue.get_due_items("example.com")
+        finally:
+            logger.remove(sink_id)
+
+        # The item is still returned, but the corruption is surfaced.
+        assert len(result) == 1
+        mismatches = [r for r in records if r["message"] == "retry_item_host_mismatch"]
+        assert mismatches, "expected retry_item_host_mismatch to be logged"
+        assert mismatches[0]["extra"]["expected_host"] == "example.com"
+        assert mismatches[0]["extra"]["item_host"] == "other.com"
+
+    @pytest.mark.asyncio
+    async def test_matching_payload_host_is_not_flagged(self, mock_cache):
+        """#175: the happy path stays silent."""
+        mock_cache.zrangebyscore = AsyncMock(
+            return_value=[json.dumps({"url": "https://example.com/1", "host": "example.com"})]
+        )
+        records: list = []
+        sink_id = self._capture(records)
+        try:
+            retry_queue = RetryQueue(cache=mock_cache)
+            result = await retry_queue.get_due_items("example.com")
+        finally:
+            logger.remove(sink_id)
+
+        assert len(result) == 1
+        assert not [r for r in records if r["message"] == "retry_item_host_mismatch"]
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    @pytest.mark.asyncio
+    async def test_host_mismatch_is_logged(self):
+        """#175: a payload host that disagrees with the set's host is flagged."""
+        import modules.ingestion.deduplication.retry as retry_module
+        from modules.ingestion.deduplication.retry import RetryQueue
+
+        cache = AsyncMock()
+        payload = '{"url": "https://a.example.com/x", "host": "other.example.com", "attempt": 0}'
+        cache.zrangebyscore = AsyncMock(return_value=[payload])
+        cache.zrem = AsyncMock(return_value=1)
+        queue = RetryQueue(cache=cache)
+
+        warnings: list = []
+
+        class _Sink:
+            def warning(self, event, **kwargs):
+                warnings.append((event, kwargs))
+
+        original = retry_module.log
+        retry_module.log = _Sink()
+        try:
+            due = await queue.get_due_items("a.example.com")
+        finally:
+            retry_module.log = original
+
+        assert due, "the item should still be returned"
+        assert any(event == "retry_item_host_mismatch" for event, _ in warnings)

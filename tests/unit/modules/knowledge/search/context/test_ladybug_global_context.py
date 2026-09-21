@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for LadybugDB global context builder."""
 
 from __future__ import annotations
@@ -471,8 +471,69 @@ class TestVectorSearchCommunities:
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
-    async def test_should_fallback_to_text_search_for_ladybugdb(self, mock_pool) -> None:
-        """Test that LadybugDB falls back to text search (no native vector)."""
+    async def test_ranks_report_embeddings_in_process(self, mock_pool) -> None:
+        """LadybugDB vector search scores stored report embeddings in Python.
+
+        No native vector index exists, but CommunityReport carries
+        full_content_embedding — cosine ranking here keeps parity with the
+        Neo4j builder instead of degrading to text search.
+        """
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "comm-1",
+                    "title": "Aligned",
+                    "summary": "Aligned",
+                    "rank": 0.8,
+                    "entity_count": 3,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [0.9, 0.1, 0.0],
+                },
+                {
+                    "id": "comm-2",
+                    "title": "Orthogonal",
+                    "summary": "Orthogonal",
+                    "rank": 0.9,
+                    "entity_count": 4,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [0.0, 1.0, 0.0],
+                },
+                {
+                    "id": "comm-3",
+                    "title": "No embedding",
+                    "summary": "No embedding",
+                    "rank": 1.0,
+                    "entity_count": 5,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": None,
+                },
+            ]
+        )
+
+        mock_llm = AsyncMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
+
+        builder = LadybugGlobalContextBuilder(
+            graph_pool=mock_pool,
+            llm_client=mock_llm,
+        )
+
+        result = await builder._vector_search_communities("technology", level=0)
+
+        # Only candidates above threshold with usable embeddings rank; the
+        # aligned community wins, the embedding-less one is dropped.
+        assert [r["id"] for r in result] == ["comm-1"]
+        assert result[0]["similarity_score"] > 0.9
+        # The candidate query carried a level filter
+        assert "level" in mock_pool.execute_query.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_embeddings_stored(self, mock_pool) -> None:
+        """Without stored embeddings the method yields [] so the caller
+        falls through to text search (which never wastes an embedding)."""
         mock_pool.execute_query = AsyncMock(
             return_value=[{"id": "comm-1", "title": "Tech", "summary": "Tech", "rank": 0.8}]
         )
@@ -487,8 +548,7 @@ class TestVectorSearchCommunities:
 
         result = await builder._vector_search_communities("technology", level=0)
 
-        # Should use text search as fallback
-        assert len(result) == 1
+        assert result == []
 
 
 class TestTextSearchCommunities:
@@ -1272,3 +1332,85 @@ class TestMetadataTracking:
         context = await builder.build(query="test", community_level=3)
 
         assert context.metadata["community_level"] == 3
+
+
+class TestVectorSearchScoreAlignment:
+    """Regression: cosine scores must stay aligned with their result rows
+    even when some rows carry unusable embeddings."""
+
+    @pytest.mark.asyncio
+    async def test_scores_aligned_after_dropping_invalid_embedding_rows(self, mock_pool) -> None:
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "comm-1",
+                    "title": "Near",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [0.9, 0.1, 0.0],
+                },
+                {
+                    "id": "comm-2",
+                    "title": "Tuple embedding",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    # Not a list — must be dropped without shifting scores.
+                    "embedding": (0.5, 0.5, 0.5),
+                },
+                {
+                    "id": "comm-3",
+                    "title": "Exact",
+                    "summary": "",
+                    "rank": 0.8,
+                    "entity_count": 1,
+                    "full_content": "c",
+                    "key_entities": [],
+                    "embedding": [1.0, 0.0, 0.0],
+                },
+            ]
+        )
+
+        mock_llm = AsyncMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
+
+        builder = LadybugGlobalContextBuilder(
+            graph_pool=mock_pool,
+            llm_client=mock_llm,
+        )
+
+        result = await builder._vector_search_communities("technology", level=0)
+
+        # comm-3 has cosine 1.0, comm-1 ~0.9938; the dropped tuple row must
+        # not shift either score.
+        assert [r["id"] for r in result] == ["comm-3", "comm-1"]
+        assert result[0]["similarity_score"] == pytest.approx(1.0, abs=1e-3)
+        assert result[1]["similarity_score"] == pytest.approx(0.9938, abs=1e-3)
+
+
+class TestEmbeddingCandidateCap:
+    """#207: the module-level cap is applied as a PRE-rank LIMIT."""
+
+    @pytest.mark.asyncio
+    async def test_cap_passed_as_candidate_cap_parameter(self, mock_pool) -> None:
+        from modules.knowledge.search.context.ladybug_global_context import (
+            _EMBEDDING_CANDIDATE_CAP,
+        )
+
+        mock_pool.execute_query = AsyncMock(return_value=[])
+        mock_llm = AsyncMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 8])
+
+        builder = LadybugGlobalContextBuilder(graph_pool=mock_pool, llm_client=mock_llm)
+
+        await builder._vector_search_communities("test", level=0)
+
+        cypher, params = mock_pool.execute_query.call_args.args
+        assert params["candidate_cap"] == _EMBEDDING_CANDIDATE_CAP
+        # The cap is applied before cosine ranking, ordered by community rank.
+        assert "ORDER BY c.rank DESC" in cypher

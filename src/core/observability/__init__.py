@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Core observability module - Logging, metrics, and tracing."""
 
 from core.observability.logging import (
@@ -11,7 +11,11 @@ from core.observability.logging import (
 )
 from core.observability.metrics import MetricsCollector, metrics
 from core.observability.throughput import PipelineThroughputTracker
-from core.observability.tracing import configure_tracing, get_tracer
+from core.observability.tracing import (
+    configure_tracing,
+    get_tracer,
+    instrument_fastapi,
+)
 
 __all__ = [
     "MetricsCollector",
@@ -22,6 +26,7 @@ __all__ = [
     "context_vars",
     "get_logger",
     "get_tracer",
+    "instrument_fastapi",
     "metrics",
     "set_task_context",
 ]

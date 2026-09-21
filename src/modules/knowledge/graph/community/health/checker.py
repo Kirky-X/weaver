@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community health checker for diagnosing community issues.
 
 Performs comprehensive health diagnostics on the community system including
@@ -9,7 +9,7 @@ empty communities, missing reports, stale reports, hierarchy integrity, and modu
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.models import (
@@ -22,6 +22,7 @@ from modules.knowledge.graph.community.health.repo import CommunityHealthRepo
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
+    from modules.knowledge.graph.community.updater_modularity import ModularityCalculator
 
 log = get_logger(__name__)
 
@@ -63,18 +64,27 @@ class CommunityHealthChecker:
     def __init__(
         self,
         pool: GraphPool,
-        modularity_calculator: object | None = None,
+        modularity_calculator: ModularityCalculator | None = None,
     ) -> None:
         """Initialize the health checker.
 
         Args:
             pool: Graph database connection pool.
-            modularity_calculator: Optional object with _calculate_modularity() method.
-                If None, modularity check will be skipped.
+            modularity_calculator: Optional ``ModularityCalculator``; its
+                ``_calculate_modularity()`` is used by ``check_modularity_score``.
+                If None, the modularity check is skipped.
         """
         self._pool = pool
         self._repo = CommunityHealthRepo(pool)
         self._modularity_calculator = modularity_calculator
+
+    async def get_overall_metrics(self) -> dict[str, Any]:
+        """Return quick overall community metrics (public wrapper for _repo)."""
+        return await self._repo.get_overall_metrics()
+
+    async def find_hierarchy_breaks(self) -> list[dict[str, Any]]:
+        """Return detected hierarchy breaks (public wrapper for _repo)."""
+        return await self._repo.find_hierarchy_breaks()
 
     async def diagnose_all(self) -> CommunityHealthReport:
         """Perform comprehensive community health diagnostics.
@@ -359,10 +369,12 @@ class CommunityHealthChecker:
             issue_counts[issue.issue_type] = issue_counts.get(issue.issue_type, 0) + 1
 
         # Entity count mismatch penalty
+        # Ratio checks are inclusive (>= threshold) for consistency with the
+        # empty-community ratios above: hitting the threshold exactly warns.
         mismatch_count = issue_counts.get(IssueType.ENTITY_COUNT_MISMATCH, 0)
         if (
             total_communities > 0
-            and mismatch_count / total_communities > self.ENTITY_MISMATCH_WARNING_RATIO
+            and mismatch_count / total_communities >= self.ENTITY_MISMATCH_WARNING_RATIO
         ):
             score -= self.PENALTY_ENTITY_MISMATCH
 
@@ -370,7 +382,7 @@ class CommunityHealthChecker:
         missing_count = issue_counts.get(IssueType.MISSING_REPORT, 0)
         if (
             total_communities > 0
-            and missing_count / total_communities > self.REPORT_MISSING_WARNING_RATIO
+            and missing_count / total_communities >= self.REPORT_MISSING_WARNING_RATIO
         ):
             score -= self.PENALTY_REPORT_MISSING
 
@@ -392,11 +404,14 @@ class CommunityHealthChecker:
                         score -= self.PENALTY_CRITICAL_MODULARITY
                     else:
                         score -= self.PENALTY_LOW_MODULARITY
-                break
+                    # Apply the penalty once, for the first modularity issue
+                    # found — not after the first issue of any type.
+                    break
 
         return max(0.0, min(100.0, score))
 
-    def _determine_status(self, score: float) -> CommunityHealthStatus:
+    @staticmethod
+    def _determine_status(score: float) -> CommunityHealthStatus:
         """Determine health status from score.
 
         Args:
@@ -412,3 +427,46 @@ class CommunityHealthChecker:
         if score >= 40:
             return CommunityHealthStatus.DEGRADED
         return CommunityHealthStatus.CRITICAL
+
+
+def score_health_overview(metrics: dict[str, Any]) -> tuple[CommunityHealthStatus, float]:
+    """Derive (status, score) from ``CommunityHealthChecker.get_overall_metrics`` output.
+
+    Single source for the admin (``/admin/communities/health``) and monitoring
+    (``/monitoring/communities/health``) overview endpoints, which previously
+    each maintained their own copy of this scoring heuristic.
+
+    Penalties: empty_ratio >10% → -30, >5% → -15; report_ratio <70% → -10;
+    any stale reports → -5. Status bands: ≥80 healthy, ≥60 moderate,
+    ≥40 degraded, else critical. Zero communities → critical / 0.0.
+
+    Args:
+        metrics: Overall metrics dict (total_communities, empty_community_count,
+            communities_with_reports, stale_report_count).
+
+    Returns:
+        Tuple of (health status, score clamped to [0, 100]).
+    """
+    total = metrics.get("total_communities", 0)
+    empty = metrics.get("empty_community_count", 0)
+    with_reports = metrics.get("communities_with_reports", 0)
+    stale = metrics.get("stale_report_count", 0)
+
+    if total == 0:
+        return CommunityHealthStatus.CRITICAL, 0.0
+
+    score = 100.0
+    empty_ratio = empty / total
+    report_ratio = with_reports / total
+
+    if empty_ratio > 0.10:
+        score -= 30
+    elif empty_ratio > 0.05:
+        score -= 15
+    if report_ratio < 0.7:
+        score -= 10
+    if stale > 0:
+        score -= 5
+
+    score = max(0.0, min(100.0, score))
+    return CommunityHealthChecker._determine_status(score), score

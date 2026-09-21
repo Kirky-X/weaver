@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Main pipeline flow definition."""
 
 from __future__ import annotations
@@ -9,13 +9,15 @@ import time
 import traceback
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from core.constants import EmbeddingModel
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.observability.throughput import PipelineThroughputTracker
-from modules.ingestion.domain.models import RawArticle
+from core.types.ingestion_models import RawArticle
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.nodes.classification.categorizer import CascadeCategorizerNode
@@ -107,8 +109,15 @@ class Pipeline:
         debug: bool = False,
     ) -> None:
         self._accepting = True
+        # In-flight batch tracking for graceful shutdown: drain() waits on
+        # this counter reaching zero before the container tears down pools.
+        self._active_batches = 0
+        self._batch_slot_lock = asyncio.Condition()
         self._deps = deps
         self._settings = settings
+        # Debug mode: asyncio.gather uses return_exceptions=False so exceptions
+        # propagate immediately — all `if self._debug:` branches below skip
+        # error handling / fatal-error checks accordingly.
         self._debug = debug
         self._throughput_tracker = PipelineThroughputTracker()
 
@@ -125,7 +134,7 @@ class Pipeline:
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
         self._phase3_semaphore = asyncio.Semaphore(self._phase3_concurrency)
 
-        # T004: read independent stage enabled flags from TOML config.
+        # Read independent stage enabled flags from TOML config.
         # Only independent stages (no downstream dependents) respect the
         # disabled flag; dependency stages always execute to preserve DAG
         # integrity. Empty set when TOML doesn't configure stages —
@@ -177,14 +186,26 @@ class Pipeline:
             ),
         )
         self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
-        self._vectorize = VectorizeNode(llm)
-        self._batch_merger = BatchMergerNode(
-            llm, prompt_loader, vector_repo, saga_orchestrator=saga_orchestrator
-        )
 
         # Get embedding model from configuration
         embedding_model = self._extract_embedding_model_id(settings)
-        self._re_vectorize = ReVectorizeNode(llm, embedding_model)
+        text_limit = (
+            settings.pipeline_process.embedding_text_limit
+            if settings and hasattr(settings, "pipeline_process")
+            else 2000
+        )
+        self._vectorize = VectorizeNode(llm, embedding_model, text_limit=text_limit)
+        self._batch_merger = BatchMergerNode(
+            llm,
+            prompt_loader,
+            vector_repo,
+            saga_orchestrator=saga_orchestrator,
+            similarity_threshold=(
+                pipeline_settings.merge_similarity_threshold if pipeline_settings else 0.80
+            ),
+        )
+
+        self._re_vectorize = ReVectorizeNode(llm, embedding_model, text_limit=text_limit)
 
         self._analyze = AnalyzeNode(
             llm,
@@ -192,6 +213,9 @@ class Pipeline:
             prompt_loader,
             mc_sampler=mc_sampler,
             sentiment_analyzer=sentiment_analyzer,
+            merge_narrative=(
+                pipeline_settings.phase3.merge_analyze_narrative if pipeline_settings else False
+            ),
         )
         self._quality_scorer = RuleBasedQualityScorerNode()
         self._credibility = RuleBasedCredibilityCheckerNode(deps.event_bus, source_auth_repo)
@@ -209,6 +233,9 @@ class Pipeline:
             article_repo=article_repo,
             vector_repo=vector_repo,
             llm_client=llm,
+            similarity_threshold=(
+                pipeline_settings.conflict_similarity_threshold if pipeline_settings else 0.7
+            ),
         )
         self._fake_news_node = (
             FakeNewsDetectorNode(detector=fake_news_detector)
@@ -220,12 +247,24 @@ class Pipeline:
         # Replaces the former separate NarrativeGeneratorNode +
         # SchemaExtractorNode (token optimization: 2 calls → 1). Each graph
         # write degrades independently per Rule 12.
+        merge_narrative = (
+            pipeline_settings.phase3.merge_analyze_narrative if pipeline_settings else False
+        )
+        if merge_narrative and "narrative_schema" in self._disabled_phase3_stage_names:
+            # 误配置防护：stage 被禁用时合并调用的 narrative 半截白算
+            # （与 TOML 注释约定一致，把人为纪律变成机器约束）。
+            log.warning(
+                "merge_narrative_with_stage_disabled",
+                hint="disable [phase3] merge_analyze_narrative or re-enable narrative_schema stage",
+            )
         self._narrative_schema = (
-            NarrativeSchemaExtractorNode(llm, budget, prompt_loader, graph_writer)
+            NarrativeSchemaExtractorNode(
+                llm, budget, prompt_loader, graph_writer, merge_narrative=merge_narrative
+            )
             if graph_writer is not None
             else None
         )
-        # T003: Sentiment tracker node — pure computation (no LLM). Computes
+        # Sentiment tracker node — pure computation (no LLM). Computes
         # per-entity article-level sentiment shifts against the previous
         # article mentioning the same entity, persists to sentiment_shifts
         # (article_id/entity_name/shift_value fields from migration 30).
@@ -245,10 +284,19 @@ class Pipeline:
             vector_repo=vector_repo,
             graph_writer=graph_writer,
             phase3_concurrency=self._phase3_concurrency,
+            pending_sync_repo=deps.infrastructure.pending_sync_repo,
         )
-        self._content_hash_cache = ContentHashCacheService(cache_client=cache_client)
+        self._content_hash_cache = ContentHashCacheService(
+            cache_client=cache_client,
+            schema_version=(pipeline_settings.content_hash_version if pipeline_settings else 2),
+            ttl_seconds=(
+                pipeline_settings.content_hash_cache_ttl_seconds if pipeline_settings else 604800
+            ),
+        )
         self._community_trigger = CommunityUpdateTrigger(community_updater=community_updater)
-        self._memory_publisher = MemoryEventPublisher(event_bus=deps.event_bus)
+        self._memory_publisher = MemoryEventPublisher(
+            event_bus=deps.event_bus, outbox_repo=deps.infrastructure.outbox_repo
+        )
 
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
@@ -319,6 +367,9 @@ class Pipeline:
     ) -> list[PipelineState]:
         """Process a batch of articles through the full pipeline.
 
+        Tracks the batch as in-flight so ``drain()`` (graceful shutdown)
+        waits for it; refuses new batches after ``stop_accepting()``.
+
         Args:
             articles: List of raw articles to process.
             article_ids: Optional list of article UUIDs aligned with articles list.
@@ -327,9 +378,16 @@ class Pipeline:
         Returns:
             List of completed pipeline states.
         """
-        if not self._accepting:
-            raise RuntimeError("Pipeline is not accepting new tasks")
+        async with self._batch_slot():
+            return await self._process_batch_impl(articles, article_ids, task_id)
 
+    async def _process_batch_impl(
+        self,
+        articles: list[RawArticle],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
+        """Run the full pipeline over a batch (caller holds a batch slot)."""
         log.info("pipeline_batch_start", batch_size=len(articles))
 
         # Batch-local progress counters (not instance variables — safe for concurrent batches)
@@ -360,17 +418,20 @@ class Pipeline:
             log.info("content_hash_cache_hit", hits=cache_hits, total=len(articles))
 
         # ── Section: Phase 1 — Per-article concurrent nodes (batched) ────────
+        # Cache-hit states already carry a complete processed snapshot; they
+        # skip Phase 1 (and Phase 3) — that is the point of the short-circuit.
+        cache_hit_states = [s for s in states if s.get("_cache_hit")]
+        pending_phase1 = [s for s in states if not s.get("_cache_hit")]
         batch_size = self._settings.pipeline_process.worker_batch_size if self._settings else 20
         phase1_results: list[Any] = []
-        for i in range(0, len(states), batch_size):
-            batch = states[i : i + batch_size]
+        for i in range(0, len(pending_phase1), batch_size):
+            batch = pending_phase1[i : i + batch_size]
             batch_tasks = [self._phase1_per_article(s, pending_stage_updates) for s in batch]
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
 
-        # Debug mode: exceptions already raised, skip error handling
         if self._debug:
-            states = list(phase1_results)
+            states = cache_hit_states + list(phase1_results)
         else:
             # Fatal provider errors must abort the entire batch immediately
             _check_fatal_provider_errors(phase1_results, "phase1")
@@ -379,19 +440,16 @@ class Pipeline:
             await self._flush_stage_updates(pending_stage_updates)
 
             # Handle errors gracefully - failed articles get error state, others continue
-            states = []
+            states = list(cache_hit_states)
             for i, result in enumerate(phase1_results):
                 if isinstance(result, Exception):
-                    article_id = (
-                        str(article_ids[i])
-                        if article_ids is not None and i < len(article_ids)
-                        else None
-                    )
+                    src = pending_phase1[i]
+                    raw_obj = src.get("raw")
                     log.error(
                         "phase1_task_failed",
                         article_index=i,
-                        article_id=article_id,
-                        url=articles[i].url,
+                        article_id=src.get("article_id"),
+                        url=getattr(raw_obj, "url", "unknown"),
                         error=str(result),
                         error_type=type(result).__name__,
                     )
@@ -399,10 +457,14 @@ class Pipeline:
                         stage="phase1",
                         error_type=type(result).__name__,
                     ).inc()
-                    # Create failed state for the article
-                    failed_state = PipelineState(raw=articles[i])
-                    if article_id:
-                        failed_state["article_id"] = article_id
+                    # Create failed state for the article (raw may be absent
+                    # on a malformed/cached state — PipelineState is
+                    # total=False).
+                    failed_state = (
+                        PipelineState(raw=raw_obj) if raw_obj is not None else PipelineState()
+                    )
+                    if src.get("article_id"):
+                        failed_state["article_id"] = src["article_id"]
                     if task_id is not None:
                         failed_state["task_id"] = str(task_id)
                     failed_state["terminal"] = True
@@ -420,21 +482,23 @@ class Pipeline:
                 time.monotonic() - start
             )
 
-            # Phase 3: Per-article post-merge nodes (concurrent)
-            pre_phase3_states = list(states)
+            # Phase 3: Per-article post-merge nodes (concurrent).
+            # Cache-hit states skip Phase 3: their snapshot already contains
+            # the full Phase 3 analysis from the original processing run.
+            pre_phase3_states = [s for s in states if not s.get("_cache_hit")]
             phase3_tasks = [
-                self._phase3_per_article(state, pending_stage_updates) for state in states
+                self._phase3_per_article(state, pending_stage_updates)
+                for state in pre_phase3_states
             ]
             phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=not self._debug)
 
-            # Debug mode: exceptions already raised, skip error handling
             if self._debug:
-                states = list(phase3_results)
+                states = cache_hit_states + list(phase3_results)
             else:
                 # Fatal provider errors must abort the entire batch immediately
                 _check_fatal_provider_errors(phase3_results, "phase3")
                 # Handle errors gracefully - preserve original state for failed articles
-                states = []
+                states = list(cache_hit_states)
                 for i, result in enumerate(phase3_results):
                     if isinstance(result, Exception):
                         log.error(
@@ -549,9 +613,16 @@ class Pipeline:
         Returns:
             List of completed pipeline states (Phase 1 only).
         """
-        if not self._accepting:
-            raise RuntimeError("Pipeline is not accepting new tasks")
+        async with self._batch_slot():
+            return await self._process_batch_fast_impl(articles, article_ids, task_id)
 
+    async def _process_batch_fast_impl(
+        self,
+        articles: list[RawArticle],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
+        """Run the Phase-1-only pipeline over a batch (caller holds a slot)."""
         log.info("pipeline_batch_fast_start", batch_size=len(articles))
 
         # Batch-local progress counters (not instance variables — safe for concurrent batches)
@@ -579,7 +650,6 @@ class Pipeline:
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
 
-        # Debug mode: exceptions already raised, skip error handling
         if self._debug:
             states = list(phase1_results)
         else:
@@ -721,7 +791,6 @@ class Pipeline:
             )
             categorizer_result, vectorize_result = gather_results[0], gather_results[1]
 
-            # Debug mode: exceptions already raised, use results directly
             if self._debug:
                 state.update(categorizer_result)
                 state.update(vectorize_result)
@@ -817,7 +886,6 @@ class Pipeline:
             )
             analyze_result, quality_result = gather_results[0], gather_results[1]
 
-            # Debug mode: exceptions already raised, use results directly
             if self._debug:
                 state.update(analyze_result)
                 state.update(quality_result)
@@ -876,7 +944,7 @@ class Pipeline:
                 state, PHASE3_STAGES["entity_extractor"], pending_updates
             )
 
-            # === Phase 3 concurrent block (P1-3 fix) ===
+            # === Phase 3 concurrent block (fix) ===
             # fake_news_detector + conflict_detector + narrative_schema are
             # independent (each reads shared state and writes its own keys).
             # Run them via asyncio.gather to cut Phase 3 tail latency from
@@ -932,17 +1000,39 @@ class Pipeline:
 
             # Update processing stages serially after concurrent completion
             # to preserve stage ordering (fake_news → conflict →
-            # narrative_schema). Skip exceptions (when self._debug=False,
-            # gather returns Exception objects for failed nodes; log them
-            # via stage update).
-            for stage_key in concurrent_results:
-                if not isinstance(stage_key, str):
+            # narrative_schema).
+            stage_runners = {
+                "fake_news_detector": "phase3_fake_news_detector",
+                "conflict_detector": "phase3_conflict_detector",
+                "narrative_schema": "phase3_narrative_schema",
+            }
+            for runner, stage_key in zip(concurrent_results, stage_runners):
+                if isinstance(runner, BaseException):
+                    # Exception from gather: record it like the other phase
+                    # gather blocks do — silently skipping here would leave
+                    # the article persisted with missing analysis data and
+                    # no trace in metrics.
+                    raw = state.get("raw")
+                    log.error(
+                        "phase3_concurrent_stage_failed",
+                        stage=stage_key,
+                        article_id=state.get("article_id"),
+                        url=getattr(raw, "url", None) if raw else None,
+                        error=str(runner),
+                        error_type=type(runner).__name__,
+                    )
+                    MetricsCollector.pipeline_failure_count.labels(
+                        stage="phase3",
+                        error_type=type(runner).__name__,
+                    ).inc()
                     continue
+                if runner is None:
+                    continue  # stage disabled or node unavailable
                 await self._update_processing_stage(
                     state, PHASE3_STAGES[stage_key], pending_updates
                 )
 
-            # === Sentiment Tracker 阶段 (T003) ===
+            # === Sentiment Tracker 阶段 ===
             # Pure computation node — no LLM. Computes per-entity article-level
             # sentiment shifts and persists to sentiment_shifts. Skipped when
             # sentiment_shift_repo is unavailable, when terminal/merged, or
@@ -966,9 +1056,13 @@ class Pipeline:
                     entities=state["entities"]
                 )
                 state["resolved_entities"] = resolved_entities
+                # state["raw"] is always set for current callers, but use
+                # .get() so a future caller that omits it cannot crash this
+                # debug log.
+                raw_obj = state.get("raw")
                 log.debug(
                     "entity_resolver_complete",
-                    url=state["raw"].url,
+                    url=raw_obj.url if raw_obj else None,
                     resolved_count=len(resolved_entities),
                 )
 
@@ -999,13 +1093,44 @@ class Pipeline:
         )
 
     async def stop_accepting(self) -> None:
-        """Stop accepting new pipeline tasks."""
-        self._accepting = False
+        """Stop accepting new pipeline tasks.
+
+        Acquires the same condition lock as _batch_slot so a batch cannot
+        claim a slot while _accepting flips (relevant when this is called
+        from another thread via call_soon_threadsafe).
+        """
+        async with self._batch_slot_lock:
+            self._accepting = False
         log.info("pipeline_stop_accepting")
 
+    @asynccontextmanager
+    async def _batch_slot(self):
+        """Claim a batch slot: reject when not accepting, track in-flight.
+
+        The accept check and the counter increment share the condition lock
+        so a batch cannot slip in between stop_accepting() and drain().
+        """
+        async with self._batch_slot_lock:
+            if not self._accepting:
+                raise RuntimeError("Pipeline is not accepting new tasks")
+            self._active_batches += 1
+        try:
+            yield
+        finally:
+            async with self._batch_slot_lock:
+                self._active_batches -= 1
+                self._batch_slot_lock.notify_all()
+
     async def drain(self) -> None:
-        """Wait for all in-progress tasks to complete."""
-        # In a production implementation, this would track in-flight tasks.
+        """Wait for all in-progress batches to complete.
+
+        Used by graceful shutdown: after ``stop_accepting()`` refuses new
+        batches, this returns only once every already-running batch has
+        finished, so the container never closes DB pools under a writing
+        batch.
+        """
+        async with self._batch_slot_lock:
+            await self._batch_slot_lock.wait_for(lambda: self._active_batches == 0)
         log.info("pipeline_drained")
 
     async def process_article_phase3(
@@ -1043,7 +1168,7 @@ class Pipeline:
             if article is None:
                 raise ValueError(f"Article not found: {article_id}")
 
-            from modules.ingestion.domain.models import RawArticle
+            from core.types.ingestion_models import RawArticle
 
             raw = RawArticle(
                 url=article.source_url,
@@ -1107,20 +1232,12 @@ class Pipeline:
     def _extract_embedding_model_id(settings: Any) -> str:
         """Extract embedding model ID from settings.
 
-        Parses defaults.embedding.primary from LLM config.
-        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
-
-        The label format is "<type>.<provider>.<model_id>" where model_id may
-        contain dots (e.g., Qwen3-Embedding-0.6B). We split on first 2 dots only.
+        Delegates to the shared helper in ``core.utils.model_id`` — the
+        single implementation backing container, pipeline and memory wiring.
         """
-        try:
-            if settings and hasattr(settings, "llm"):
-                embedding_config = settings.llm.defaults.get("embedding")
-                if embedding_config and embedding_config.primary:
-                    # Split only on first 2 dots to preserve model_id with dots
-                    parts = embedding_config.primary.split(".", 2)
-                    if len(parts) >= 3:
-                        return parts[2]  # Return model_id (third part)
-        except (AttributeError, KeyError, IndexError) as exc:
-            log.debug("extract_embedding_model_id_failed", error=str(exc))
-        return "Qwen3-Embedding-0.6B"
+        from core.utils.model_id import extract_embedding_model_id
+
+        llm_settings = getattr(settings, "llm", None)
+        if llm_settings is None:
+            return EmbeddingModel.DEFAULT
+        return extract_embedding_model_id(llm_settings)

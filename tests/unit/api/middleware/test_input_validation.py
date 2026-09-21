@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for API input validation in sources endpoints."""
 
 from __future__ import annotations
@@ -268,6 +268,72 @@ class TestSourceInputValidation:
         assert request.per_host_concurrency == 5
         assert request.credibility == 0.8
         assert request.tier == 2
+
+    # ── Source Type Validation Tests ────────────────────────────────────────
+
+    @pytest.mark.parametrize("source_type", ["rss", "atom", "html", "json", "pdf", "newsnow"])
+    def test_supported_source_types_accepted(self, source_type: str) -> None:
+        """Every type with a registered parser is accepted."""
+        request = SourceCreateRequest(
+            id="test",
+            name="Test",
+            url="https://example.com/feed",
+            source_type=source_type,
+        )
+        assert request.source_type == source_type
+
+    @pytest.mark.parametrize("source_type", ["twitter", "telegram", "api"])
+    def test_declared_but_unimplemented_source_type_rejected(self, source_type: str) -> None:
+        """A declared SourceType with no parser is rejected, with a clear reason.
+
+        These are real enum members, so the failure mode differs from a typo:
+        the message must say the type is recognized but unimplemented, rather
+        than implying the caller misspelled it. Such a source used to be
+        accepted and persisted, then skipped on every scheduled crawl with
+        no_parser_for_type — a silent no-op. It must fail fast instead.
+        """
+        with pytest.raises(ValidationError, match="no parser implementation yet"):
+            SourceCreateRequest(
+                id="test",
+                name="Test",
+                url="https://example.com/feed",
+                source_type=source_type,
+            )
+
+    def test_unknown_source_type_rejected_as_unrecognized(self) -> None:
+        """A value outside SourceType is reported as unrecognized, not unimplemented."""
+        with pytest.raises(ValidationError, match="not a recognized source type"):
+            SourceCreateRequest(
+                id="test",
+                name="Test",
+                url="https://example.com/feed",
+                source_type="bogus",
+            )
+
+    def test_rejection_message_lists_supported_types(self) -> None:
+        """The error names the accepted types so the caller can self-correct."""
+        with pytest.raises(ValidationError) as excinfo:
+            SourceCreateRequest(
+                id="test",
+                name="Test",
+                url="https://example.com/feed",
+                source_type="bogus",
+            )
+
+        message = str(excinfo.value)
+        for supported in ("rss", "atom", "html", "json", "pdf"):
+            assert supported in message
+
+    def test_update_rejects_unsupported_source_type(self) -> None:
+        """The same check applies when changing a source's type."""
+        with pytest.raises(ValidationError, match="no parser implementation yet"):
+            SourceUpdateRequest(source_type="twitter")
+
+    def test_update_accepts_supported_source_type(self) -> None:
+        """A supported type passes on update."""
+        request = SourceUpdateRequest(source_type="json")
+
+        assert request.source_type == "json"
 
     # ── Interval Validation Tests ───────────────────────────────────────────
 

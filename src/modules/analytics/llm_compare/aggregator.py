@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM comparison statistics aggregation utilities.
 
 This module provides utilities for aggregating LLM comparison data from Redis to PostgreSQL:
@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from core.constants import REDIS_SCAN_BATCH_SIZE, RedisKeys
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -20,11 +21,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Redis key prefix for LLM comparison buffer
-REDIS_KEY_PREFIX = "llm:compare"
-
-# Batch size for Redis SCAN operations
-REDIS_SCAN_BATCH_SIZE = 100
+# Redis key prefix for LLM comparison buffer (without trailing colon)
+REDIS_KEY_PREFIX = RedisKeys.LLM_COMPARE_PREFIX
 
 
 async def flush_compare_buffer(
@@ -73,9 +71,18 @@ async def flush_compare_buffer(
 
     for key in keys_to_process:
         try:
-            # Parse time bucket from key (llm:compare:2024011510)
+            # Parse time bucket from key (llm:compare:2024011510). A malformed
+            # bucket (e.g. a manually-created key) must not poison the flush
+            # loop forever: previously the ValueError skipped cache.delete(key),
+            # leaving the key to error on every cycle.
             bucket_str = key.split(":")[-1]
-            time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
+            try:
+                time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
+            except ValueError:
+                log.warning("llm_compare_aggregator_bad_bucket", key=key)
+                await cache.delete(key)
+                processed += 1
+                continue
 
             # Get all data from the hash
             data = await cache.hgetall(key)
@@ -176,4 +183,7 @@ def aggregate_compare_data(
         elif metric == "candidate_success":
             aggregated[key]["candidate_success"] += value
 
-    return aggregated
+    # Wrap in a plain dict so callers get the declared return type; a bare
+    # defaultdict would silently materialize zeroed records on unknown-key
+    # access instead of raising KeyError.
+    return dict(aggregated)

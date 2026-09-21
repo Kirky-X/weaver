@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Modularity calculation module for community detection.
 
 Provides three strategies for calculating graph modularity:
@@ -48,22 +48,31 @@ def _find_connected_components(
         List of component sets (largest first).
     """
     if not edges:
-        return [set()]
+        # An empty edge list has zero components, not one empty component.
+        return []
 
     # Union-Find implementation
     parent: dict[str, str] = {}
+    size: dict[str, int] = {}
 
     def find(x: str) -> str:
         if x not in parent:
             parent[x] = x
+            size[x] = 1
         if parent[x] != x:
             parent[x] = find(parent[x])  # Path compression
         return parent[x]
 
     def union(x: str, y: str) -> None:
         px, py = find(x), find(y)
-        if px != py:
-            parent[px] = py
+        if px == py:
+            return
+        # Union by size: keeps trees shallow so find() stays near O(1)
+        # amortized on large sparse graphs (path compression alone is O(log N)).
+        if size[px] < size[py]:
+            px, py = py, px
+        parent[py] = px
+        size[px] += size[py]
 
     # Build connected components
     for source, target, _ in edges:
@@ -97,7 +106,9 @@ def _compute_modularity(
         return 0.0
 
     total_weight = sum(w for _, _, w in edges)
-    if total_weight == 0:
+    # Guard against a zero *or negative* total: with negative weights a
+    # cancellation could otherwise pass through to the division below.
+    if total_weight <= 0:
         return 0.0
 
     # Calculate community degree sums and internal edges

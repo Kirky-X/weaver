@@ -20,6 +20,9 @@ dependencies = [
     "numpy>=2.0.0,<3.0.0",
     "openai>=1.0.0",
     "opentelemetry-instrumentation-fastapi>=0.65b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.65b0",
+    "opentelemetry-instrumentation-redis>=0.65b0",
+    "opentelemetry-instrumentation-httpx>=0.65b0",
     "opentelemetry-sdk>=1.40.0",
     "pgvector>=0.5.0",
     "crawl4ai>=0.8.6,<0.10.0",
@@ -82,6 +85,16 @@ cache-fallback = [
 search-enhancement = [
     "flashrank>=0.2.10",
 ]
+# NOTE: SourceType.PDF sources require a text extractor. pypdf is the primary,
+# pure-python path (no compiled deps); pdfplumber is the fallback used when
+# pypdf yields nothing (layout-heavy PDFs). Neither is a core dependency
+# because PDF sources are an opt-in source type — without the extra the PDF
+# parser still fetches byte-exactly and degrades to a clean no-op
+# (pdf_text_extraction_failed) instead of failing the crawl batch.
+pdf-extraction = [
+    "pypdf>=5.1.0",
+    "pdfplumber>=0.11.4",
+]
 # NOTE: PaddleNLP SKEP sentiment analysis (paddlenlp>=2.7.0) is NOT declared
 # as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.40.0
 # via protobuf version pin (paddlenlp→protobuf==3.20.2 vs otel→protobuf>=5.0,<7.0).
@@ -136,6 +149,12 @@ test = [
 # ────────────────────────────────────────────────────────────
 
 # Ruff — fast Python linter & formatter
+[project.scripts]
+weaver-pipeline = "scripts.pipeline:main"
+weaver-db = "scripts.db:main"
+weaver-data-io = "scripts.data_io:main"
+weaver-tools = "scripts.tools:main"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -167,7 +186,7 @@ exclude = [
 # 启用规则
 select = [
     # ── 错误级别 ─────────────────────────────────────────
-    "E", # pycodestyle errors（保留 E501 由 black 处理）
+    "E", # pycodestyle errors（保留 E501 由 ruff format 处理）
     "F", # Pyflakes（错误级别）
     "W", # pycodestyle warnings
     # ── 代码风格 ─────────────────────────────────────────
@@ -187,14 +206,12 @@ select = [
 ]
 # 忽略的规则
 ignore = [
-    # E501 — 由 black 处理行长度，在此忽略
+    # E501 — 由 ruff format 处理行长度，在此忽略
     "E501",
     # B023 — 函数内绑定后期静默赋值（误报较多）
     "B023",
     # B008 — FastAPI Depends 在默认参数中使用（标准模式）
     "B008",
-    # B904 — 异常链中的 raise（pydantic 场景误报）
-    "B904",
     # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
     "UP007",
     # S101 — 使用 assert（测试文件中可接受，生产代码由 bandit B101 检查）
@@ -466,6 +483,9 @@ module = [
     "pgvector.*",
     "opentelemetry.*",
     "loguru.*",
+    "pypdf.*",
+    "pdfplumber.*",
+    "pdfminer.*",
     # ── 已忽略的模块 ─────────────────────────────────────
     "numpy.*", # 类型覆盖率低
     "_pytest.*",
@@ -652,6 +672,8 @@ filterwarnings = [
     "ignore:builtin type.*has no __module__:DeprecationWarning",
     "ignore:There is no current event loop:DeprecationWarning",
     "ignore:enable_cleanup_closed ignored:DeprecationWarning:aiohttp.connector",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated::",
+    "ignore:The `resume_download` argument is deprecated:UserWarning:huggingface_hub",
 ]
 
 # ────────────────────────────────────────────────────────────

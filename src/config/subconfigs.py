@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Sub-configuration models for pydantic-settings.
 
 All configuration models are defined here as pydantic BaseModel classes.
@@ -17,8 +17,9 @@ import os
 import secrets
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
+from core.constants import CHROME_USER_AGENT, NEWSBOT_USER_AGENT, PHISHTANK_DATA_URL
 from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
 
@@ -87,6 +88,9 @@ class LadybugSettings(BaseModel):
     """
 
     enabled: bool = True
+    # Max concurrent queries (connections + threads); raises the pool default
+    # of 4 to prevent exhaustion when queries hang.
+    max_concurrent_queries: int = 16
     db_path: str = data_path("weaver.lbug")
 
 
@@ -100,7 +104,6 @@ class RedisSettings(BaseModel):
     port: int = 6379
     db: int = 0
     password: str = ""  # Set via WEAVER_REDIS__PASSWORD (optional)
-    scan_count: int = 100  # Default Redis SCAN batch size
 
     @property
     def url(self) -> str:
@@ -108,6 +111,15 @@ class RedisSettings(BaseModel):
         if self.password:
             return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
         return f"redis://{self.host}:{self.port}/{self.db}"
+
+
+class SecuritySettings(BaseModel):
+    """Startup security audit settings.
+
+    Environment variables: WEAVER_SECURITY__STRICT_STARTUP_AUDIT.
+    """
+
+    strict_startup_audit: bool = False  # Raise at startup when audit finds critical issues
 
 
 class APISettings(BaseModel):
@@ -125,27 +137,43 @@ class APISettings(BaseModel):
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = True  # CWE-200: require auth for /metrics by default
     hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
+    log_response_body: bool = (
+        False  # Log response body previews (DEBUG level; privacy: keep off in production)
+    )
+    trusted_proxies: list[str] = (
+        Field(  # Peers whose X-Forwarded-For may be trusted (default: none)
+            default_factory=list
+        )
+    )
     hmac_secret: str | None = (
         None  # Independent HMAC signing key (WEAVER_API__HMAC_SECRET). Falls back to API key if not set.
     )
     shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
+    # Lazily generated fallback key: generated once per process, never per request
+    _generated_api_key: str | None = PrivateAttr(default=None)
+
     def get_api_key(self) -> str:
-        """Get API key, generating one if not set."""
+        """Get API key, generating one if not set.
+
+        The generated fallback key is cached on the instance so repeated
+        calls (e.g. unauthenticated requests hitting the auth middleware)
+        neither regenerate it nor flood the log.
+        """
         if self.api_key:
             return self.api_key
 
-        # Generate a secure random key
-        generated = secrets.token_urlsafe(32)
-        from core.observability import get_logger
+        if self._generated_api_key is None:
+            self._generated_api_key = secrets.token_urlsafe(32)
+            from core.observability import get_logger
 
-        log = get_logger(__name__)
-        log.info(
-            "api_key_generated",
-            message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
-            key_prefix=generated[:8] + "...",
-        )
-        return generated
+            log = get_logger(__name__)
+            log.info(
+                "api_key_generated",
+                message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
+                key_prefix=self._generated_api_key[:8] + "...",
+            )
+        return self._generated_api_key
 
     def validate_security(self, environment: str = "development") -> list[str]:
         """Validate security settings and return warnings."""
@@ -173,6 +201,17 @@ class APISettings(BaseModel):
                 raise ValueError("Admin API key must be at least 32 characters in production.")
             warnings.append(
                 f"Admin API key length ({len(self.admin_api_key)}) is less than recommended 32 characters."
+            )
+
+        # Production must not reuse the API key for HMAC signing
+        if self.hmac_signing_enabled and not self.hmac_secret:
+            if environment == "production":
+                raise ValueError(
+                    "HMAC signing is enabled but WEAVER_API__HMAC_SECRET is not set. "
+                    "Set an independent HMAC secret for production (key reuse is forbidden)."
+                )
+            warnings.append(
+                "HMAC signing enabled without a dedicated secret; it will fall back to the API key."
             )
 
         # Warn if admin key not configured in production
@@ -245,13 +284,33 @@ class SchedulerSettings(BaseModel):
     retry_flush_interval_seconds: int = 30
     pipeline_retry_interval_minutes: int = 15
     pipeline_retry_batch_size: int = 20
+    # Resilience jobs
+    recover_stale_sagas_interval_minutes: int = 10
+    dispatch_outbox_interval_seconds: int = 30
+    # Security job: API key rotation check (cron hour, daily)
+    api_key_rotation_check_cron_hour: int = 2
+    # Analytics jobs
+    sentiment_shift_interval_minutes: int = 60
+    hotness_decay_cron_hour: int = 3
+    trend_alert_cron_minute: int = 0
+    causal_inference_interval_hours: int = 2
+    community_health_check_interval_hours: int = 6
+    # Daily briefing publish time (deployment decision: hour + tz)
+    briefing_cron_hour: int = 8
+    briefing_timezone: str = "Asia/Shanghai"
+
     pipeline_retry_dynamic_batch: bool = False
     pipeline_retry_success_rate_threshold: float = 0.8
+    pipeline_retry_dynamic_batch_max: int = 50
+    pipeline_retry_dynamic_batch_min: int = 5
     pipeline_retry_stuck_timeout_minutes: int = 30
     pipeline_retry_max_retries: int = 3
 
     # Pipeline B — Enrichment
     enrichment_interval_minutes: int = 5
+
+    # Analytics
+    sentiment_shift_window_days: int = 14
 
     # Cleanup
     cleanup_old_synced_days: int = 7
@@ -284,6 +343,10 @@ class SchedulerSettings(BaseModel):
     # Knowledge Graph
     community_check_interval_minutes: int = 30
 
+    # BM25 检索索引增量维护 (水位线增量; 索引空/无水位线时自动全量)
+    bm25_rebuild_enabled: bool = True
+    bm25_rebuild_interval_seconds: int = 300
+
     # PhishTank Sync
     sync_phishtank_interval_hours: int = 6
 
@@ -292,18 +355,28 @@ class FetcherSettings(BaseModel):
     """Fetcher settings."""
 
     default_per_host_concurrency: int = 2
-    global_max_concurrency: int = 32
+    # Global concurrency cap for the batch crawler (min(cpu, hosts, this))
+    crawl_max_concurrency: int = 32
+    # Body length below which fetched content is treated as invalid
+    min_article_length: int = 100
+    # Wall-clock cap for a single crawl_batch call (seconds)
+    max_crawl_batch_time: float = 300.0
+    # Minimum content length for SmartFetcher to consider a page valid
+    min_content_length: int = 500
+    # httpx connection pool limits
+    httpx_max_connections: int = 100
+    httpx_max_keepalive_connections: int = 20
     httpx_timeout: float = 15.0
-    user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
-    # User-Agent rotation pool (P1-4 fix). Each request draws a random
+    user_agent: str = NEWSBOT_USER_AGENT
+    # User-Agent rotation pool (fix). Each request draws a random
     # UA from this list (plus the base ``user_agent``) to defeat naive
     # rate-limiter fingerprinting. Empty by default → single-UA behavior.
-    user_agent_pool: list[str] = []
+    user_agent_pool: list[str] = Field(default_factory=list)
 
     # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True
     crawl4ai_stealth_enabled: bool = True
-    crawl4ai_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    crawl4ai_user_agent: str = CHROME_USER_AGENT
     crawl4ai_timeout: float = 30.0
 
     rate_limit_enabled: bool = True
@@ -319,22 +392,42 @@ class FetcherSettings(BaseModel):
 class SearchSettings(BaseModel):
     """Search enhancement settings."""
 
+    # Hybrid 检索引擎总开关与融合后处理(接线到 HybridSearchConfig)
+    hybrid_enabled: bool = True
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
+    # Min cosine similarity for community-level (global) vector search
+    community_similarity_threshold: float = 0.3
+    # Min cosine similarity for hybrid engine's article vector search.
+    # 0.80 旧硬编码默认对常见 embedding 模型过高(qwen3-embedding 实测
+    # top 命中 ~0.58), 会把全部结果过滤成空。
+    similarity_threshold: float = 0.3
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
-    # MEDIUM-1 (T051-B): max concurrent Bing-fallback background pipeline
+    # Causal/temporal endpoint protections (API layer wait_for timeouts)
+    causal_search_timeout: float = 60.0
+    temporal_search_timeout: float = 30.0
+    temporal_window_fetch_limit: int = 500
+    # 时序衰减(RRF 融合后、MMR 前应用;接线到 HybridSearchConfig)
+    temporal_decay_enabled: bool = False
+    temporal_decay_half_life_days: float = 30.0
+    # Short-TTL response cache for hot search queries (seconds; 0 = off)
+    result_cache_ttl: int = 300
+    # Max concurrent Bing-fallback background pipeline
     # tasks. When at cap, the next Bing fallback call drops the new task
     # (logs warning, sets ``metadata.background_task_throttled=true``)
     # rather than queueing — protects memory / DB connection pool from
     # unbounded growth under sustained three-tier-empty traffic.
+    # Default 2 matches _DEFAULT_MAX_BACKGROUND_TASKS in
+    # fallback_orchestrator (DuckDB single-writer: each background task
+    # holds a DuckDB write lock, more concurrency just adds contention).
     # Env var: WEAVER_SEARCH__MAX_BACKGROUND_TASKS
-    max_background_tasks: int = 8
-    # MEDIUM-2 (T051-B): total wall-clock budget for a single Bing-fallback
+    max_background_tasks: int = 2
+    # Total wall-clock budget for a single Bing-fallback
     # background task that processes N URLs sequentially. Per-URL timeout
     # (300s) bounds one slow URL, but without a total budget a 5-URL
     # batch could hang the task for 25 minutes. On total timeout, the
@@ -363,11 +456,7 @@ class MemorySettings(BaseModel):
     consolidation_interval_minutes: int = 30
     causal_confidence_threshold: float = 0.7
     consolidation_batch_size: int = 10
-    # Temporal chain query limits for adaptive search
-    temporal_chain_why_limit: int = 5  # WHY query anchor limit
-    temporal_chain_when_limit: int = 3  # WHEN query anchor limit
     temporal_chain_default_limit: int = 3  # Default anchor limit
-    temporal_chain_event_lookup_limit: int = 1000  # Event data lookup limit
     max_traversal_depth: int = 5
     beam_width: int = 10
     token_budget: int = 4000
@@ -392,16 +481,11 @@ class URLSecuritySettings(BaseModel):
     enabled: bool = True
     urlhaus_api_key: str = ""
     urlhaus_api_timeout: float = 5.0
+    urlhaus_api_url: str = "https://urlhaus-api.abuse.ch/v1/url/"
     phishtank_enabled: bool = True
-    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
-    phishtank_sync_interval_hours: int = 6
-    phishtank_data_path: str = data_path("phishtank.json")
+    phishtank_data_url: str = PHISHTANK_DATA_URL
     heuristic_enabled: bool = True
-    heuristic_check_encoded_chars: bool = True
-    heuristic_check_suspicious_keywords: bool = True
-    heuristic_check_domain_structure: bool = True
     ssl_verify_enabled: bool = True
-    ssl_verify_timeout: float = 10.0
     cache_enabled: bool = True
     cache_safe_ttl_seconds: int = 21600
     cache_malicious_ttl_seconds: int = 900
@@ -411,7 +495,9 @@ class EntitySettings(BaseModel):
     """Entity extraction and resolution configuration."""
 
     disable_data_metrics_nodes: bool = False
-    resolution_candidate_limit: int = 10  # Vector search candidate limit for entity resolution
+    # EntityResolver candidate-similarity cutoff (looser than the merge
+    # threshold on purpose: resolution only proposes, merge commits).
+    resolve_similarity_threshold: float = 0.85
 
 
 class HealthCheckSettings(BaseModel):
@@ -443,22 +529,27 @@ class TemporalMemorySettings(BaseModel):
 class PipelineUrlEndpointSettings(BaseModel):
     """Single URL pipeline processing endpoint configuration."""
 
-    whitelist_enabled: bool = False
     allowed_domains: list[str] = Field(default_factory=list)
 
 
 class PipelineProcessSettings(BaseModel):
     """Pipeline processing configuration."""
 
-    merge_cross_query_limit: int = 20  # Cross-query similar articles limit
-    drain_timeout: float = 30.0  # Pipeline drain timeout
+    causal_llm_timeout: float = 30.0  # 因果推理 LLM 调用超时(秒)
+    # Background trigger (POST /pipeline/trigger): per-source wall-clock cap
+    # and the matching dedup lock TTL (must exceed the timeout so a crashed
+    # task never leaves the source permanently locked).
+    trigger_source_timeout_seconds: float = 300.0
+    source_lock_ttl_seconds: int = 600
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
     # Processing mode: "deep" runs full Phase 1+2+3 pipeline (default);
     # "fast" runs only Phase 1 (classification + vectorization), skipping
-    # batch merger and deep analysis. See temp/report.md D2.
+    # batch merger and deep analysis.
     processing_mode: Literal["fast", "deep"] = "deep"
+    # Body character cap for embedding inputs (vectorize / re_vectorize)
+    embedding_text_limit: int = 2000
 
 
 class KnowledgeCacheSettings(BaseModel):
@@ -475,17 +566,6 @@ class KnowledgeCacheSettings(BaseModel):
     hotness_threshold: float = 0.3  # Minimum hotness to keep cluster
 
 
-class DailyBriefingSettings(BaseModel):
-    """Daily briefing generation configuration.
-
-    Environment variables: WEAVER__DAILY_BRIEFING__MAX_ITEMS, etc.
-    """
-
-    max_items: int = 10
-    max_per_category: int = 3
-    lookback_hours: int = 24
-
-
 class SagaSettings(BaseModel):
     """Saga compensation transaction configuration.
 
@@ -500,17 +580,28 @@ class SagaSettings(BaseModel):
     log_retention_days: int = 30  # Days to retain saga logs before archival
 
 
+class DedupSettings(BaseModel):
+    """Cross-source deduplication configuration.
+
+    Environment variables: WEAVER_DEDUP__ENABLE_SIMHASH_DEDUP, etc.
+    Backed by settings.toml [dedup]; consumed by the SimHash title
+    deduplicator wiring in the container.
+    """
+
+    enable_simhash_dedup: bool = True
+    simhash_hamming_threshold: int = 3  # Max Hamming distance for duplicates
+
+
 class FakeNewsDetectorSettings(BaseModel):
     """Fake news detector configuration (5-dimensional feature fusion).
 
-    Environment variables: WEAVER_ANALYTICS__FAKE_NEWS_DETECTOR__ENABLED, etc.
+    Environment variables: WEAVER_FAKE_NEWS_DETECTOR__ENABLED, etc.
     """
 
     enabled: bool = True
     model_path: str = ""  # Empty = rule-based fallback
     confidence_trusted: float = 0.8
     confidence_suspicious: float = 0.4
-    clickbait_similarity_threshold: float = 0.5
     exaggeration_keywords: list[str] = Field(
         default_factory=lambda: ["震惊", "惊天", "竟然", "不敢相信", "绝密", "曝光"]
     )
@@ -519,7 +610,7 @@ class FakeNewsDetectorSettings(BaseModel):
 class PaddleNLPSentimentSettings(BaseModel):
     """PaddleNLP SKEP sentiment analysis configuration.
 
-    Environment variables: WEAVER__PADDLENLP__SENTIMENT__ENABLED, etc.
+    Environment variables: WEAVER_PADDLENLP_SENTIMENT__ENABLED, etc.
     """
 
     enabled: bool = True
@@ -578,6 +669,7 @@ class BingSettings(BaseModel):
     WEAVER_BING__TIMEOUT, WEAVER_BING__USER_AGENT,
     WEAVER_BING__CACHE_TTL_SECONDS, WEAVER_BING__NEWS_ENABLED,
     WEAVER_BING__NEWS_MAX_RESULTS, WEAVER_BING__TIME_FILTER,
+    WEAVER_BING__SEARCH_URL, WEAVER_BING__NEWS_SEARCH_URL,
     WEAVER_BING__QUERY_EXPANSION_ENABLED,
     WEAVER_BING__QUERY_EXPANSION_MAX_TERMS,
     WEAVER_BING__QUERY_EXPANSION_TIMEOUT
@@ -615,10 +707,9 @@ class BingSettings(BaseModel):
     max_results: int = 5
     timeout: int = 15  # seconds (passed to asyncio.wait_for in BingSearcher)
     cache_ttl_seconds: int = 1800  # 30 minutes; 0 disables caching
-    user_agent: str = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    )
+    user_agent: str = CHROME_USER_AGENT
+    search_url: str = "https://cn.bing.com/search"
+    news_search_url: str = "https://cn.bing.com/news/search"
 
     # News vertical search (cn.bing.com/news/search). Parallel to general
     # search; results merged + deduplicated.

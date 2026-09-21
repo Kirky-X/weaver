@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Phase 4 hybrid integration tests: DuckDB + Neo4j.
 
 Validates that Weaver works correctly when Neo4j is the graph primary
@@ -113,7 +113,7 @@ async def test_health_dependencies_returns_duckdb_neo4j(phase4_container):
 async def test_article_graph_node_only_stores_pg_id(phase4_container):
     """Graph Article node stores only pg_id; title lives in DuckDB.
 
-    After Article node slim-down (design.md §D2), Neo4j Article node stores
+    After Article node slim-down, Neo4j Article node stores
     only {id, pg_id}; title/score live in DuckDB and are batch-fetched by
     GraphArticleReader on read.
     """
@@ -161,7 +161,7 @@ async def test_search_returns_results_with_duckdb_title_enrichment(phase4_contai
 async def test_graph_repo_get_article_enriches_title_from_duckdb(phase4_container):
     """GraphRepository.get_article returns pg_id and enriches title from DuckDB.
 
-    This is the core contract of design.md §D2: graph nodes are slim,
+    This is the core contract: graph nodes are slim,
     business fields come from DuckDB via fetch_titles_by_pg_ids.
     """
     pg_id = str(uuid.uuid4())

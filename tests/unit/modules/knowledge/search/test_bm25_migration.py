@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for BM25 index persistence and signing verification."""
 
 from __future__ import annotations
@@ -46,17 +46,20 @@ class TestSigningKey:
             else:
                 os.environ["INDEX_SIGNING_KEY"] = original
 
-    def test_signing_key_generates_random_if_not_set(self) -> None:
-        """Test that signing key generates random key if not configured."""
+    def test_signing_key_raises_if_not_set(self) -> None:
+        """Missing signing key fails fast instead of silently generating one.
+
+        regression: a random key invalidated every persisted
+        signature across restarts; now a missing env var raises RuntimeError.
+        """
         import os
 
         original = os.environ.get("INDEX_SIGNING_KEY")
         os.environ.pop("INDEX_SIGNING_KEY", None)
 
         try:
-            key = SigningKey.from_env()
-            assert key is not None
-            assert len(key.key) == 64  # 32 bytes hex = 64 chars
+            with pytest.raises(RuntimeError, match="INDEX_SIGNING_KEY"):
+                SigningKey.from_env()
         finally:
             if original is not None:
                 os.environ["INDEX_SIGNING_KEY"] = original
@@ -89,9 +92,9 @@ class TestSignedJson:
             save_signed_json(data, path, key)
 
             # Tamper with the file
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
             tampered = content.replace("value", "tampered")
-            path.write_text(tampered)
+            path.write_text(tampered, encoding="utf-8")
 
             with pytest.raises(IntegrityError):
                 load_signed_json(path, key)
@@ -106,7 +109,7 @@ class TestSignedJson:
             # Write JSON without signature
             import json
 
-            path.write_text(json.dumps({"test": "value"}))
+            path.write_text(json.dumps({"test": "value"}), encoding="utf-8")
 
             with pytest.raises(IntegrityError):
                 load_signed_json(path, key)
@@ -189,7 +192,7 @@ class TestBM25IndexMigration:
 
             # Tamper with the index
             json_path = Path(tmpdir) / "documents.json"
-            content = json_path.read_text()
+            content = json_path.read_text(encoding="utf-8")
             tampered = content.replace("Test", "Tampered")
             json_path.write_text(tampered)
 
@@ -198,20 +201,36 @@ class TestBM25IndexMigration:
             with pytest.raises(IntegrityError):
                 retriever2.load()
 
-    def test_missing_key_still_loads_unverified(self) -> None:
-        """Test that missing signing key allows loading (unverified)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Save with a key
-            key = SigningKey.generate()
-            retriever1 = BM25Retriever(index_dir=tmpdir, signing_key=key)
-            documents = [BM25Document(doc_id="1", title="Test", content="Content")]
-            retriever1.index(documents)
-            retriever1.save()
+    def test_missing_key_rejects_load(self) -> None:
+        """Missing signing key fails fast at retriever construction.
 
-            # Load without key (should still work, but unverified)
-            # Note: The implementation may require a key, so this tests behavior
-            retriever2 = BM25Retriever(index_dir=tmpdir)  # No signing key
-            # This may or may not work depending on implementation
+        : previously a missing env key silently generated a random
+        key (invalidating persisted signatures) and loading proceeded
+        unverified. Now BM25Retriever without an explicit signing_key calls
+        SigningKey.from_env, which raises RuntimeError when
+        INDEX_SIGNING_KEY is unset.
+        """
+        import os
+
+        original = os.environ.get("INDEX_SIGNING_KEY")
+        os.environ.pop("INDEX_SIGNING_KEY", None)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Save an index with a valid key first — loading it without
+                # a key must be rejected at construction, not silently run
+                # unverified.
+                key = SigningKey.generate()
+                retriever1 = BM25Retriever(index_dir=tmpdir, signing_key=key)
+                documents = [BM25Document(doc_id="1", title="Test", content="Content")]
+                retriever1.index(documents)
+                retriever1.save()
+
+                with pytest.raises(RuntimeError, match="INDEX_SIGNING_KEY"):
+                    BM25Retriever(index_dir=tmpdir)  # No signing key
+        finally:
+            if original is not None:
+                os.environ["INDEX_SIGNING_KEY"] = original
 
 
 class TestBM25DocumentSerialization:

@@ -71,6 +71,44 @@ services:
     networks:
       - weaver
 
+  # Full application stack: docker compose --profile full up -d
+  # Runs migrations, then starts the API. Hosts default to the compose
+  # service names; override via WEAVER_* env vars in .env.
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    profiles: [ "full" ]
+    container_name: weaver_app
+    environment:
+      WEAVER_POSTGRES__HOST: postgres
+      WEAVER_NEO4J__HOST: neo4j
+      WEAVER_REDIS__HOST: redis
+    env_file:
+      - path: ../.env
+        required: false
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../config:/app/config:ro
+      - ../alembic.ini:/app/alembic.ini:ro
+      - ../data:/app/data
+    command:
+      - sh
+      - -c
+      - |
+        uv run alembic upgrade head
+        exec uv run uvicorn src.main:get_app --factory --host 0.0.0.0 --port 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - weaver
+
 volumes:
   postgres_data:
   neo4j_data:

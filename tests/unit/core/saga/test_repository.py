@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for SagaLogRepo repository."""
 
 from __future__ import annotations
@@ -177,19 +177,22 @@ class TestSagaLogRepoArchive:
     @pytest.mark.asyncio
     async def test_archive_old_logs(self, repo, mock_pool):
         _, session = mock_pool
-        mock_result = MagicMock()
-        mock_result.rowcount = 5
-        session.execute.return_value = mock_result
+        # archive_old_logs 在同一事务内先 COUNT 匹配行、再执行 DELETE
+        # （rowcount 在部分后端不可靠），因此两次 execute 的返回需要区分。
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 5
+        session.execute.side_effect = [count_result, MagicMock()]
 
         deleted = await repo.archive_old_logs(retention_days=30)
         assert deleted == 5
+        assert session.execute.call_count == 2
 
     @pytest.mark.asyncio
     async def test_archive_with_custom_retention(self, repo, mock_pool):
         _, session = mock_pool
-        mock_result = MagicMock()
-        mock_result.rowcount = 0
-        session.execute.return_value = mock_result
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        session.execute.side_effect = [count_result, MagicMock()]
 
         deleted = await repo.archive_old_logs(retention_days=7)
         assert deleted == 0

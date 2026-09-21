@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for HeuristicChecker."""
+
+from unittest.mock import patch
 
 import pytest
 
@@ -187,3 +189,30 @@ class TestHeuristicChecker:
         assert result.source == CheckSource.HEURISTIC
         # Empty URL is valid but has no warnings
         assert result.risk in (URLRisk.SAFE, URLRisk.MEDIUM)
+
+
+class TestKeywordOrdering:
+    """关键词匹配结果必须对同一输入稳定。
+
+    ``SUSPICIOUS_KEYWORDS`` 是 set，迭代顺序不确定，风险消息里报告的第一个
+    关键词会随之漂移；排序后必须固定为字典序最小者。
+    """
+
+    @pytest.fixture
+    def checker(self) -> HeuristicChecker:
+        return HeuristicChecker(enabled=True)
+
+    def test_reported_keyword_is_sorted_first(self, checker: HeuristicChecker) -> None:
+        with patch.object(checker, "SUSPICIOUS_KEYWORDS", {"zeta", "alpha"}):
+            risk, message = checker._check_keywords("http://example.com/alpha/zeta")
+
+        assert risk == URLRisk.MEDIUM
+        assert message == "Suspicious keyword found: alpha"
+
+    def test_repeated_calls_are_stable(self, checker: HeuristicChecker) -> None:
+        with patch.object(checker, "SUSPICIOUS_KEYWORDS", {"zeta", "alpha", "mid"}):
+            results = {
+                checker._check_keywords("http://example.com/alpha/mid/zeta") for _ in range(20)
+            }
+
+        assert len(results) == 1

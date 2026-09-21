@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for Neo4jWriter."""
 
 import uuid
@@ -212,8 +212,8 @@ class TestNeo4jWriterWrite:
         writer._entity_repo.merge_entity.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_write_entity_merge_failure_handled(self, writer):
-        """Test write handles entity merge failure."""
+    async def test_write_entity_merge_failure_propagates(self, writer):
+        """entity merge failure propagates (no silent partial graph state)."""
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
@@ -236,15 +236,14 @@ class TestNeo4jWriterWrite:
             {"name": "张三", "type": "人物"},
         ]
 
-        result = await writer.write(state)
-
-        assert len(result) == 0
+        with pytest.raises(Exception, match="Merge error"):
+            await writer.write(state)
 
     @pytest.mark.asyncio
     async def test_write_with_merged_sources(self, writer):
         """Test write creates FOLLOWED_BY relations for merged articles.
 
-        P4 fix: existence check uses batch ``find_articles_by_pg_ids``
+        existence check uses batch ``find_articles_by_pg_ids``
         instead of per-source ``find_article_by_id``.
         """
         article_id = str(uuid.uuid4())
@@ -364,48 +363,14 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        entity_ids = await writer._write_entities(
-            article_neo4j_id="article_id",
-            entities=[
-                {"name": "张三", "type": "人物"},
-            ],
-            state=state,
-        )
-
-        assert len(entity_ids) == 1
-
-
-class TestNeo4jWriterResolveCanonicalName:
-    """Test _resolve_canonical_name method."""
-
-    @pytest.fixture
-    def writer(self):
-        """Create Neo4jWriter instance."""
-        writer = Neo4jWriter(MagicMock())
-        writer._entity_repo = MagicMock()
-        return writer
-
-    @pytest.mark.asyncio
-    async def test_resolve_existing_entity(self, writer):
-        """Test resolve returns existing entity name."""
-        writer._entity_repo.find_entity = AsyncMock(
-            return_value=EntityView.model_validate(
-                {"neo4j_id": "id1", "name": "张三", "entity_type": "人物"}
+        with pytest.raises(Exception, match="Relation error"):
+            await writer._write_entities(
+                article_neo4j_id="article_id",
+                entities=[
+                    {"name": "张三", "type": "人物"},
+                ],
+                state=state,
             )
-        )
-
-        result = await writer._resolve_canonical_name("张三", "人物")
-
-        assert result == "张三"
-
-    @pytest.mark.asyncio
-    async def test_resolve_new_entity(self, writer):
-        """Test resolve returns provided name for new entity."""
-        writer._entity_repo.find_entity = AsyncMock(return_value=None)
-
-        result = await writer._resolve_canonical_name("李四", "人物")
-
-        assert result == "李四"
 
 
 class TestNeo4jWriterCreateFollowedRelations:
@@ -425,7 +390,7 @@ class TestNeo4jWriterCreateFollowedRelations:
         After the Article node slim-down, ``_create_followed_relations``
         no longer accepts ``publish_time``; ``time_gap_hours`` is always 0.0.
 
-        P4 fix: existence check now uses batch ``find_articles_by_pg_ids``
+        existence check now uses batch ``find_articles_by_pg_ids``
         instead of per-source ``find_article_by_id``.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(
@@ -451,7 +416,7 @@ class TestNeo4jWriterCreateFollowedRelations:
         (previously it was created with time_gap=0.0; now we skip to avoid
         creating a relation pointing at a non-existent node).
 
-        P4 fix: missing sources are simply absent from the
+        missing sources are simply absent from the
         ``find_articles_by_pg_ids`` result dict.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(return_value={})
@@ -480,7 +445,7 @@ class TestNeo4jWriterCreateFollowedRelations:
     async def test_create_followed_relations_multiple_sources(self, writer):
         """Test create FOLLOWED_BY for multiple sources.
 
-        P4 fix: a single ``find_articles_by_pg_ids`` call replaces N
+        a single ``find_articles_by_pg_ids`` call replaces N
         per-source ``find_article_by_id`` round-trips.
         """
         writer._article_repo.find_articles_by_pg_ids = AsyncMock(
@@ -546,7 +511,7 @@ class TestNeo4jWriterArchiveOldArticles:
     async def test_archive_old_articles_empty_list_skips_cleanup(self, writer):
         """Empty cutoff_pg_ids short-circuits at the repo layer.
 
-        LSP alignment (H1 fix): the writer no longer calls
+        LSP alignment: the writer no longer calls
         cleanup_orphan_entities() — that responsibility moved to the
         caller (MaintenanceJobs). So even for non-empty input,
         cleanup_orphan_entities must NOT be invoked here.
@@ -562,7 +527,7 @@ class TestNeo4jWriterArchiveOldArticles:
 
     @pytest.mark.asyncio
     async def test_archive_old_articles_does_not_cleanup_orphans(self, writer):
-        """LSP alignment (H1 fix): writer does not call cleanup_orphan_entities.
+        """LSP alignment: writer does not call cleanup_orphan_entities.
 
         Previously Neo4jWriter.archive_old_articles invoked
         cleanup_orphan_entities() when cutoff_pg_ids was non-empty, but

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for API authentication middleware (auth.py)."""
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.exceptions import BusinessError
 from tests.helpers import create_test_client
 
 
@@ -24,10 +25,10 @@ class TestVerifyApiKeyEdgeCases:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="")
             assert exc_info.value.status_code == 403
-            assert "Invalid API Key" in exc_info.value.detail
+            assert "Invalid API Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_whitespace_only_key_raises_403(self, mock_settings):
@@ -37,7 +38,7 @@ class TestVerifyApiKeyEdgeCases:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="   ")
             assert exc_info.value.status_code == 403
 
@@ -64,7 +65,7 @@ class TestVerifyApiKeyEdgeCases:
             patch("container.get_settings", return_value=mock_settings),
             patch("api.middleware.auth.secrets.compare_digest", return_value=False) as mock_compare,
         ):
-            with pytest.raises(HTTPException):
+            with pytest.raises(BusinessError):
                 await verify_api_key(key="wrong-key-1234567890abcdefghijkl")
             # Verify compare_digest was called with the provided key and expected key
             mock_compare.assert_called_once_with(
@@ -95,18 +96,26 @@ class TestVerifyApiKeyEdgeCases:
 
         This ensures the auth function does not use plain `==` comparison which could
         leak timing information about the expected key through response time variation.
+        The env/admin key comparison lives in ``_verify_env_or_admin_key``, which
+        ``verify_api_key`` delegates to after a DB lookup miss.
         """
         # Read the source to confirm compare_digest is used
         import inspect
 
-        from api.middleware.auth import verify_api_key
+        from api.middleware.auth import _verify_env_or_admin_key, verify_api_key
 
-        source = inspect.getsource(verify_api_key)
+        source = inspect.getsource(_verify_env_or_admin_key)
         assert "compare_digest" in source, (
-            "verify_api_key must use secrets.compare_digest to prevent timing attacks"
+            "verify_api_key (via _verify_env_or_admin_key) must use "
+            "secrets.compare_digest to prevent timing attacks"
         )
         assert "==" not in source.split("compare_digest")[0][-50:], (
             "No plain == comparison should be used on the API key"
+        )
+        # verify_api_key itself must route the env/admin fallback through the
+        # helper so the constant-time comparison cannot be bypassed.
+        assert "_verify_env_or_admin_key" in inspect.getsource(verify_api_key), (
+            "verify_api_key must delegate env/admin key checks to _verify_env_or_admin_key"
         )
 
 
@@ -152,7 +161,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -170,7 +182,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_pool = MagicMock()
@@ -228,7 +243,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_cache_client, get_source_scheduler
         from api.endpoints.content.pipeline import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_cache = MagicMock()
@@ -248,7 +266,10 @@ class TestAuthMiddlewareIntegration:
         from api.dependencies import get_cache_client
         from api.endpoints.content.pipeline import router
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
+        register_exception_handlers(app)
         app.include_router(router)
 
         mock_cache = MagicMock()

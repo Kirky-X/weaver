@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test Settings singleton is unified between config.settings and container.
 
-Validates GAP-M05 fix: config.settings.get_settings() delegates to
+Validates config.settings.get_settings() delegates to
 container.get_settings(), ensuring a single Settings instance.
 """
 

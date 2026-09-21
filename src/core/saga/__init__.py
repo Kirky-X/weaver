@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Saga compensation transaction module.
 
 Provides the Saga orchestration pattern for cross-database atomicity
@@ -21,7 +21,12 @@ from core.saga.compensation import (
     PostgresCompensation,
 )
 from core.saga.executor import CompensationExecutor
-from core.saga.orchestrator import SagaOrchestrator
+from core.saga.orchestrator import (
+    SagaOrchestrator,
+    SagaResult,
+    SagaStatus,
+    SagaStep,
+)
 from core.saga.repository import SagaLogRepo
 
 __all__ = [
@@ -32,4 +37,7 @@ __all__ = [
     "SagaAlertService",
     "SagaLogRepo",
     "SagaOrchestrator",
+    "SagaResult",
+    "SagaStatus",
+    "SagaStep",
 ]

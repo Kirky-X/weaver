@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test HMAC secret key separation from API key.
 
-Validates GAP-H04 fix: HMAC signing key is independent from API key,
+Validates HMAC signing key is independent from API key,
 with fallback to API key + WARNING log when not configured.
 """
 

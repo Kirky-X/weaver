@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """DuckDB schema initialization.
 
 Creates all required tables for the Weaver pipeline.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
+from core.db.relation_type_seeds import RELATION_TYPE_SEEDS as _RELATION_TYPE_SEEDS
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -20,6 +21,7 @@ log = get_logger(__name__)
 BIGINT_PK_TABLES: dict[str, str] = {
     "source_authorities": "source_authorities_seq",
     "pending_sync": "pending_sync_seq",
+    "event_outbox": "event_outbox_seq",
     "llm_failure_records": "llm_failure_records_seq",
     "llm_usage_hourly": "llm_usage_hourly_seq",
     "llm_usage_raw": "llm_usage_raw_seq",
@@ -158,6 +160,19 @@ SCHEMA_QUERIES = [
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         synced_at TIMESTAMP WITH TIME ZONE
     )""",
+    # ── Event Outbox (transactional outbox, at-least-once) ──
+    """CREATE TABLE IF NOT EXISTS event_outbox
+    (
+        id BIGINT DEFAULT nextval('event_outbox_seq') PRIMARY KEY,
+        event_type VARCHAR NOT NULL,
+        article_id UUID,
+        payload JSON NOT NULL,
+        status VARCHAR DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        last_error VARCHAR,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        dispatched_at TIMESTAMP WITH TIME ZONE
+    )""",
     # ── Saga Logs ───────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS saga_logs
     (
@@ -269,7 +284,7 @@ SCHEMA_QUERIES = [
         last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",
     # ── Article Vectors ─────────────────────────────────────────
-    # REM-003: Schema upgraded to match PostgreSQL ORM (ArticleVector).
+    # Schema upgraded to match PostgreSQL ORM (ArticleVector).
     # Previously used composite PK (article_id, vector_type); now uses
     # id BIGINT PK + UNIQUE(article_id, vector_type) to match ORM and
     # support proper updated_at tracking.
@@ -443,7 +458,7 @@ SCHEMA_QUERIES = [
         UNIQUE (time_bucket, call_point, primary_model, candidate_model)
     )""",
     # ── Prompt Templates ────────────────────────────────────────
-    # REM-006: Added to match PostgreSQL ORM (PromptTemplate) and
+    # Added to match PostgreSQL ORM (PromptTemplate) and
     # migration 10_simplify_prompt_templates. Legacy columns (version,
     # prompt_type, is_active, change_reason, prompt_metadata, created_by,
     # content) are intentionally omitted — migration 10 dropped them.
@@ -461,6 +476,7 @@ SCHEMA_QUERIES = [
 SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS source_authorities_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
+    "CREATE SEQUENCE IF NOT EXISTS event_outbox_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_failure_records_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_hourly_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_raw_seq START 1",
@@ -478,9 +494,9 @@ SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS article_versions_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS audit_log_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_compare_hourly_seq START 1",
-    # REM-003: article_vectors upgraded from composite PK to id PK
+    # article_vectors upgraded from composite PK to id PK
     "CREATE SEQUENCE IF NOT EXISTS article_vectors_seq START 1",
-    # REM-006: prompt_templates table added to DuckDB schema
+    # prompt_templates table added to DuckDB schema
     "CREATE SEQUENCE IF NOT EXISTS prompt_templates_seq START 1",
 ]
 
@@ -624,7 +640,7 @@ async def _upgrade_schema(session) -> None:
 
     # created_at column: ORM SentimentShift model defines created_at with
     # default NOW(), but pre-existing DuckDB sentiment_shifts tables lacked
-    # this column. T003 SentimentTrackerNode is the first path to write
+    # this column. SentimentTrackerNode is the first path to write
     # sentiment_shifts via ORM (save_shift), which would fail without this
     # column. Idempotent ALTER TABLE for pre-existing files.
     result = await session.execute(
@@ -645,7 +661,7 @@ async def _upgrade_schema(session) -> None:
         except Exception as exc:
             log.warning("duckdb_schema_upgrade_sentiment_shifts_created_at_failed", error=str(exc))
 
-    # Migration 31: covering index for T003 SentimentTrackerNode's
+    # Migration 31: covering index for SentimentTrackerNode's
     # get_last_article_shift query (WHERE entity_name=? AND article_id IS
     # NOT NULL ORDER BY detected_at DESC LIMIT 1). DuckDB does not support
     # partial indexes (postgresql_where is ignored), so this is a regular
@@ -663,7 +679,7 @@ async def _upgrade_schema(session) -> None:
         log.warning("duckdb_schema_upgrade_sentiment_shifts_article_index_failed", error=str(exc))
 
     # Migration 32: Add category column + composite UNIQUE(briefing_date,
-    # category) to daily_briefings for T004 BriefingGenerator's per-category
+    # category) to daily_briefings for BriefingGenerator's per-category
     # briefings (finance/tech/ai/general).
     # Pre-existing DuckDB files won't get the column via CREATE TABLE IF
     # NOT EXISTS. Idempotent ALTER TABLE + CREATE UNIQUE INDEX IF NOT EXISTS
@@ -701,7 +717,7 @@ async def _upgrade_schema(session) -> None:
             error=str(exc),
         )
 
-    # REM-003: Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
+    # Upgrade article_vectors from composite PK to id PK + UNIQUE constraint.
     # This migration is idempotent: it checks column existence before applying changes.
     await _upgrade_article_vectors_schema(session)
 
@@ -815,15 +831,31 @@ async def _reset_duckdb_sequences(session) -> None:
             )
             log.info("duckdb_schema_sequence_reset", sequence=seq_name, next_value=next_id)
         except Exception as exc:
+            # If DROP DEFAULT succeeded but a later step failed, the column is
+            # left without its auto-increment default. Restore it so the table
+            # keeps working (pointing at the old sequence is still valid when
+            # the failure happened before DROP SEQUENCE).
+            try:
+                await session.execute(
+                    text(
+                        f"ALTER TABLE \"{table}\" ALTER COLUMN id SET DEFAULT nextval('{seq_name}')"
+                    )
+                )
+            except Exception as restore_exc:
+                log.warning(
+                    "duckdb_schema_sequence_default_restore_failed",
+                    sequence=seq_name,
+                    error=str(restore_exc),
+                )
             log.warning("duckdb_schema_sequence_reset_failed", sequence=seq_name, error=str(exc))
 
 
 async def _upgrade_article_vectors_schema(session) -> None:
     """Upgrade article_vectors table to match ORM (id PK + updated_at column).
 
-    Pre-REM-003 schema:
+    Pre-schema:
         PRIMARY KEY (article_id, vector_type), no id, no updated_at
-    Post-REM-003 schema:
+    Post-schema:
         id BIGINT PK + UNIQUE(article_id, vector_type) + updated_at
 
     DuckDB ALTER TABLE limitations:
@@ -863,7 +895,7 @@ async def _upgrade_article_vectors_schema(session) -> None:
                 CREATE TABLE article_vectors
                 (
                     id BIGINT DEFAULT nextval('article_vectors_seq') PRIMARY KEY,
-                    article_id VARCHAR,
+                    article_id UUID,
                     vector_type VARCHAR,
                     embedding FLOAT[1024],
                     model_id VARCHAR NOT NULL,
@@ -874,7 +906,7 @@ async def _upgrade_article_vectors_schema(session) -> None:
                 """)
         )
         # Copy existing data back (id auto-generated, updated_at defaults to NOW())
-        # REM-003: Check if backup table has created_at column — old schema may lack it.
+        # Check if backup table has created_at column — old schema may lack it.
         backup_cols_result = await session.execute(
             text(
                 "SELECT column_name FROM information_schema.columns "
@@ -908,168 +940,9 @@ async def _upgrade_article_vectors_schema(session) -> None:
 
 
 # ── Seed Data ────────────────────────────────────────────────────────
-
-_RELATION_TYPE_SEEDS: list[dict] = [
-    # --- 组织 ---
-    {
-        "name": "任职于",
-        "name_en": "WORKS_AT",
-        "category": "组织",
-        "is_symmetric": False,
-        "sort_order": 1,
-        "description": "某人在某组织担任职务",
-        "aliases": ["就职于", "工作于", "供职于", "担任", "就职"],
-    },
-    {
-        "name": "隶属于",
-        "name_en": "AFFILIATED_WITH",
-        "category": "组织",
-        "is_symmetric": False,
-        "sort_order": 2,
-        "description": "某组织隶属于另一组织",
-        "aliases": ["隶属", "下属", "从属", "归属", "所属"],
-    },
-    {
-        "name": "控股",
-        "name_en": "CONTROLS",
-        "category": "组织",
-        "is_symmetric": False,
-        "sort_order": 3,
-        "description": "某组织控股另一组织",
-        "aliases": ["控制", "控股关系", "持股", "持有", "掌控", "实际控制"],
-    },
-    # --- 空间 ---
-    {
-        "name": "位于",
-        "name_en": "LOCATED_IN",
-        "category": "空间",
-        "is_symmetric": False,
-        "sort_order": 4,
-        "description": "某实体位于某地理位置",
-        "aliases": ["地处", "坐落于", "在", "驻地", "所在地"],
-    },
-    # --- 商业 ---
-    {
-        "name": "收购",
-        "name_en": "ACQUIRES",
-        "category": "商业",
-        "is_symmetric": False,
-        "sort_order": 5,
-        "description": "某实体收购另一实体",
-        "aliases": ["并购", "收购了", "吞并", "买下", "收购案"],
-    },
-    {
-        "name": "供应",
-        "name_en": "SUPPLIES",
-        "category": "商业",
-        "is_symmetric": False,
-        "sort_order": 6,
-        "description": "某实体向另一实体提供产品或服务",
-        "aliases": ["提供", "供应商", "供货", "供给", "供应了"],
-    },
-    {
-        "name": "投资",
-        "name_en": "INVESTS_IN",
-        "category": "商业",
-        "is_symmetric": False,
-        "sort_order": 7,
-        "description": "某实体投资另一实体",
-        "aliases": ["注资", "投资了", "融资", "领投", "参投", "入股"],
-    },
-    {
-        "name": "合作",
-        "name_en": "PARTNERS_WITH",
-        "category": "商业",
-        "is_symmetric": True,
-        "sort_order": 8,
-        "description": "实体之间的合作关系",
-        "aliases": ["战略合作", "联合", "合作开发", "协作", "携手", "结盟", "联名"],
-    },
-    {
-        "name": "竞争",
-        "name_en": "COMPETES_WITH",
-        "category": "商业",
-        "is_symmetric": True,
-        "sort_order": 9,
-        "description": "实体之间的竞争关系",
-        "aliases": ["对抗", "竞品", "竞争关系", "对手", "对峙", "相争"],
-    },
-    # --- 行为 ---
-    {
-        "name": "发布",
-        "name_en": "PUBLISHES",
-        "category": "行为",
-        "is_symmetric": False,
-        "sort_order": 10,
-        "description": "某实体发布某内容或产品",
-        "aliases": ["公布", "宣布", "发表", "推出", "公布于", "对外发布"],
-    },
-    {
-        "name": "签署",
-        "name_en": "SIGNS",
-        "category": "行为",
-        "is_symmetric": False,
-        "sort_order": 11,
-        "description": "某实体签署某协议或文件",
-        "aliases": ["签订", "签约", "缔结", "达成", "签署了", "签订协议"],
-    },
-    {
-        "name": "参与",
-        "name_en": "PARTICIPATES_IN",
-        "category": "行为",
-        "is_symmetric": False,
-        "sort_order": 12,
-        "description": "某实体参与某事件或活动",
-        "aliases": ["加入", "参加了", "介入", "出席", "参与活动"],
-    },
-    # --- 权力 ---
-    {
-        "name": "监管",
-        "name_en": "REGULATES",
-        "category": "权力",
-        "is_symmetric": False,
-        "sort_order": 13,
-        "description": "某实体监管另一实体",
-        "aliases": ["监管关系", "监督", "管理", "管辖", "监察", "督导"],
-    },
-    {
-        "name": "支持",
-        "name_en": "SUPPORTS",
-        "category": "权力",
-        "is_symmetric": False,
-        "sort_order": 14,
-        "description": "某实体支持另一实体",
-        "aliases": ["援助", "资助", "扶持", "力挺", "背书", "支持了"],
-    },
-    {
-        "name": "制裁",
-        "name_en": "SANCTIONS",
-        "category": "权力",
-        "is_symmetric": False,
-        "sort_order": 15,
-        "description": "某实体对另一实体实施制裁",
-        "aliases": ["惩罚", "封禁", "处罚", "禁运", "制裁了", "限制"],
-    },
-    # --- 因果 ---
-    {
-        "name": "引发",
-        "name_en": "CAUSES",
-        "category": "因果",
-        "is_symmetric": False,
-        "sort_order": 16,
-        "description": "某事件引发另一事件",
-        "aliases": ["导致", "触发", "造成", "引起", "引发了", "催生"],
-    },
-    {
-        "name": "影响",
-        "name_en": "INFLUENCES",
-        "category": "因果",
-        "is_symmetric": False,
-        "sort_order": 17,
-        "description": "某实体影响另一实体",
-        "aliases": ["左右", "波及", "影响了", "作用于", "传导"],
-    },
-]
+# The canonical relation-type vocabulary lives in core.db.relation_type_seeds
+# (imported above as _RELATION_TYPE_SEEDS) so the entity-extraction prompt
+# fallback and this DuckDB seeder share a single source and cannot drift.
 
 
 async def _seed_relation_types(session) -> None:
@@ -1102,6 +975,11 @@ async def _seed_relation_types(session) -> None:
             {"name_en": rt_copy["name_en"]},
         )
         type_id = result.scalar()
+        if type_id is None:
+            raise RuntimeError(
+                "relation_types seed INSERT did not yield an id "
+                f"(name_en={rt_copy['name_en']!r}); transaction state is inconsistent"
+            )
 
         for alias in aliases:
             await session.execute(

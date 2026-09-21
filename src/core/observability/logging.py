@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """loguru configuration for formatted logging.
 
 Features:
@@ -88,8 +88,17 @@ SENSITIVE_PATTERNS = [
         re.compile(r"(postgres|mysql|mongodb|redis|bolt)://([^:]+):([^@]+)@", re.IGNORECASE),
         r"\1://\2:***REDACTED***@",
     ),
-    # Bearer token patterns
-    (re.compile(r"(bearer|token)\s+([^\s]+)", re.IGNORECASE), r"\1 ***REDACTED***"),
+    # Bearer/token patterns. The value must look like a credential
+    # (>= 20 chars of token-alphabet characters) so prose such as
+    # "token was refreshed" or "token count exceeded" is not redacted.
+    (
+        re.compile(
+            r"((?:api[-_]?|access[-_]?|refresh[-_]?|auth[-_]?)?token|bearer)"
+            r"[\s\"':=]+([A-Za-z0-9_\-+/=\.]{20,})",
+            re.IGNORECASE,
+        ),
+        r"\1 ***REDACTED***",
+    ),
 ]
 
 

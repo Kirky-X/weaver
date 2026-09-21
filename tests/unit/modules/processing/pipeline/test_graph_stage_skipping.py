@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for Pipeline Phase 3 independent stage skipping — D1 config-driven.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED test for Pipeline Phase 3 independent stage skipping — config-driven.
 
 Phase 3 has 5 independent stages (no downstream dependencies) that should
 respect the TOML `enabled=false` flag:
@@ -23,8 +23,6 @@ This test asserts:
 2. Independent stage without disabled flag is EXECUTED
 3. Dependency stage executes even when TOML says enabled=false
 4. Multiple independent stages can be disabled simultaneously
-
-See specmark/changes/fix-deadcode-integration T004-T005.
 """
 
 from __future__ import annotations
@@ -55,7 +53,7 @@ def _make_pipeline_with_mock_nodes(
     pipeline._debug = False
     pipeline._phase3_semaphore = asyncio.Semaphore(5)
 
-    # T004: set of explicitly-disabled independent stage names
+    # Set of explicitly-disabled independent stage names
     pipeline._disabled_phase3_stage_names = disabled_stage_names or set()
 
     # 4 concurrent-able independent nodes
@@ -209,7 +207,7 @@ async def test_multiple_independent_stages_skipped() -> None:
     pipeline._sentiment_tracker.execute.assert_not_called()
 
 
-# ── T006: TOML ↔ graph.py mapping consistency ─────────────────────────
+# ── TOML ↔ graph.py mapping consistency ─────────────────────────
 
 
 def test_toml_phase3_stage_names_subset_of_graph_phase3_stages() -> None:

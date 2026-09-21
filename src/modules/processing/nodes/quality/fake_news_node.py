@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """FakeNewsDetectorNode — Pipeline wrapper for FakeNewsDetector.
 
 Wraps FakeNewsDetector.predict() as a Pipeline Phase 3 node.
@@ -92,6 +92,14 @@ class FakeNewsDetectorNode:
                 url=getattr(state.get("raw"), "url", "unknown"),
             )
             state["fake_news_detection"] = {"skipped": True, "reason": "error"}
+            return state
+
+        if not isinstance(result, dict):
+            log.warning(
+                "fake_news_detection_invalid_result",
+                result_type=type(result).__name__,
+            )
+            state["fake_news_detection"] = {"skipped": True, "reason": "invalid_result"}
             return state
 
         state["fake_news_detection"] = result

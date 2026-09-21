@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Unit tests for sentiment trend API endpoint (T013 / R-sentiment-003).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Unit tests for sentiment trend API endpoint.
 
 Covers:
 - GET /trends/sentiment — sentiment trend analysis for an entity over a window
 - Router registration (prefix, tags, routes)
 - Parameter validation (entity required, window in {7d, 30d})
 - Response serialization (SentimentTrendResult → APIResponse[dict])
-- No-data contract (R-sentiment-002): HTTP 200 with empty stable result
+- No-data contract: HTTP 200 with empty stable result
 - Error propagation (Rule 12: HTTP 500 on service failure)
 
 Patch surface: ``api.endpoints.trends._get_sentiment_trend_service`` returns a
 mock SentimentTrendAnalyzer. Tests do NOT hit the real service/DB.
 
 Spec conflict (Rule 7 — exposed):
-    R-sentiment-003 says "entity 参数可选" (entity param optional), but
+    says "entity 参数可选" (entity param optional), but
     Constraints say "entity_name 和 community_id 不能同时为 None". Since the
     endpoint only exposes ``entity`` (no community_id param), entity is
     declared Optional in the signature (spec compliance) but the handler
@@ -44,7 +44,7 @@ def _make_trend_result(
 
     ``list_field`` parameter name avoids shadowing the ``list`` builtin
     in the test helper signature (the dataclass field itself is ``list``
-    per spec R-sentiment-001).
+    per spec).
     """
     return SentimentTrendResult(
         entity_name=entity_name,
@@ -86,7 +86,7 @@ class TestTrendsRouterRegistration:
 
 
 class TestGetSentimentTrend:
-    """Tests for GET /trends/sentiment endpoint (R-sentiment-003)."""
+    """Tests for GET /trends/sentiment endpoint."""
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
@@ -176,7 +176,7 @@ class TestGetSentimentTrend:
         assert body["data"]["trend_direction"] == "stable"
 
     def test_get_sentiment_trend_no_data_returns_empty_stable(self) -> None:
-        """No shifts in window → HTTP 200 with empty stable result (R-sentiment-002)."""
+        """No shifts in window → HTTP 200 with empty stable result."""
         mock_service = MagicMock()
         mock_service.analyze_trend = AsyncMock(
             return_value=_make_trend_result(
@@ -206,10 +206,10 @@ class TestGetSentimentTrend:
     def test_get_sentiment_trend_missing_entity_returns_400(self) -> None:
         """Missing entity param → HTTP 400 (Constraints: at least one filter required).
 
-        Spec R-sentiment-003 says entity is optional, but Constraints say
-        "entity_name 和 community_id 不能同时为 None". The endpoint only
-        exposes entity (no community_id param), so missing entity means no
-        filter → HTTP 400 (user task spec: "entity 必传（HTTP 400 缺失时）").
+        Spec says entity is optional, but Constraints say
+                "entity_name 和 community_id 不能同时为 None". The endpoint only
+                exposes entity (no community_id param), so missing entity means no
+                filter → HTTP 400 (user task spec: "entity 必传（HTTP 400 缺失时）").
         """
         mock_service = MagicMock()
         mock_service.analyze_trend = AsyncMock(return_value=_make_trend_result())
@@ -387,7 +387,7 @@ class TestGetSentimentTrend:
 
         body = response.json()
         data = body["data"]
-        # All 6 fields present (spec R-sentiment-001).
+        # All 6 fields present.
         assert "entity_name" in data
         assert "window_days" in data
         assert "shifts" in data

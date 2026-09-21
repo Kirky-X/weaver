@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Knowledge cache protocol for cluster caching service.
 
 This module defines the Protocol for knowledge cluster caching,
@@ -9,7 +9,7 @@ enabling semantic similarity search and hotness-based eviction.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -33,10 +33,12 @@ class KnowledgeCluster:
     version: int = 0
 
     def __post_init__(self) -> None:
+        # Timezone-aware UTC to stay comparable with storage-layer stamps
+        # (modules/knowledge/cache/storage.py uses datetime.now(UTC)).
         if self.create_time is None:
-            self.create_time = datetime.now()
+            self.create_time = datetime.now(UTC)
         if self.last_modified is None:
-            self.last_modified = datetime.now()
+            self.last_modified = datetime.now(UTC)
 
 
 @runtime_checkable

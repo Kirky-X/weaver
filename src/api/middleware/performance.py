@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Performance monitoring middleware for API response times."""
 
 from __future__ import annotations
@@ -16,6 +16,18 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 log = get_logger(__name__)
+
+
+def _metric_path(request: Request) -> str:
+    """Resolve the metric path label for a request.
+
+    Prefers the matched route template so dynamic IDs do not explode
+    Prometheus/log label cardinality; falls back to "unmatched" when no
+    route was matched.
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if path else "unmatched"
 
 
 class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
@@ -51,15 +63,32 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
         """
         start_time = time.time()
 
-        response = await call_next(request)
+        response = None
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+        finally:
+            duration_ms = (time.time() - start_time) * 1000
 
-        duration_ms = (time.time() - start_time) * 1000
+            # Record metrics for every outcome, including downstream
+            # failures, so error rates are not silently undercounted.
+            # Imported locally so tests can patch the source module's
+            # ``record_http_request`` and observe the call.
+            from api.middleware.prometheus_metrics import record_http_request
+
+            record_http_request(
+                method=request.method,
+                path=_metric_path(request),
+                status=status_code,
+                duration_seconds=duration_ms / 1000,
+            )
 
         # Log all requests with duration
         log.debug(
             "request_completed",
             method=request.method,
-            path=request.url.path,
+            path=_metric_path(request),
             status_code=response.status_code,
             duration_ms=round(duration_ms, 2),
         )
@@ -69,7 +98,7 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
             log.error(
                 "very_slow_response",
                 method=request.method,
-                path=request.url.path,
+                path=_metric_path(request),
                 duration_ms=round(duration_ms, 2),
                 threshold_ms=self._p99_threshold_ms,
             )
@@ -77,22 +106,12 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
             log.warning(
                 "slow_response",
                 method=request.method,
-                path=request.url.path,
+                path=_metric_path(request),
                 duration_ms=round(duration_ms, 2),
                 threshold_ms=self._p95_threshold_ms,
             )
 
         # Add timing header for client-side monitoring
-        response.headers["X-Response-Time-Ms"] = str(round(duration_ms, 2))
-
-        # Record Prometheus metrics
-        from api.middleware.prometheus_metrics import record_http_request
-
-        record_http_request(
-            method=request.method,
-            path=request.url.path,
-            status=response.status_code,
-            duration_seconds=duration_ms / 1000,
-        )
+        response.headers.setdefault("X-Response-Time-Ms", str(round(duration_ms, 2)))
 
         return response

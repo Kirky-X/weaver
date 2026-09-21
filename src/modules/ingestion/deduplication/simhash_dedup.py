@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Title SimHash deduplication for fast pre-filtering of similar articles."""
 
 from __future__ import annotations
 
 import time
 import warnings
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # Suppress SyntaxWarning from simhash library (third-party, cannot fix directly)
@@ -16,19 +15,12 @@ with warnings.catch_warnings():
 
 from core.observability import get_logger
 from core.observability.metrics import metrics
+from modules.ingestion.deduplication.models import TitleItem
 
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
 log = get_logger(__name__)
-
-
-@dataclass
-class TitleItem:
-    """Item with title for SimHash deduplication."""
-
-    url: str
-    title: str
 
 
 class SimHashDeduplicator:
@@ -86,9 +78,8 @@ class SimHashDeduplicator:
         Returns:
             Number of differing bits.
         """
-        # XOR the two fingerprints and count 1 bits
-        xor = fp1 ^ fp2
-        return bin(xor).count("1")
+        # XOR the two fingerprints and count 1 bits (int.bit_count is C-level)
+        return (fp1 ^ fp2).bit_count()
 
     async def dedup_titles(self, items: list[TitleItem]) -> list[TitleItem]:
         """Deduplicate items by title similarity.
@@ -124,7 +115,8 @@ class SimHashDeduplicator:
                             "simhash_duplicate_found",
                             title=item.title[:50],
                             distance=distance,
-                            existing_url=existing_url,
+                            # Cache value is "url|timestamp" — log the URL part.
+                            existing_url=str(existing_url).split("|", 1)[0],
                         )
                         is_duplicate = True
                         break

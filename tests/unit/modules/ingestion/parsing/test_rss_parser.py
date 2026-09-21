@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for RSS Parser (ingestion module)."""
 
 from datetime import UTC, datetime
@@ -449,3 +449,80 @@ class TestRSSParserClose:
         parser = RSSParser(MagicMock())
 
         await parser.close()
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    @pytest.fixture
+    def parser(self):
+        """Create RSSParser with a mock fetcher."""
+        fetcher = MagicMock()
+        fetcher.fetch = AsyncMock()
+        return RSSParser(fetcher)
+
+    @pytest.fixture
+    def config(self):
+        """Create a SourceConfig with stored conditional-fetch validators."""
+        return SourceConfig(
+            id="test-source-id",
+            name="test_source",
+            url="https://example.com/feed.xml",
+            etag='W/"old-etag"',
+            last_modified="Mon, 01 Jan 2024 00:00:00 GMT",
+        )
+
+    @staticmethod
+    def _feed() -> str:
+        return '<?xml version="1.0"?><rss version="2.0"><channel><title>t</title></channel></rss>'
+
+    @pytest.mark.asyncio
+    async def test_absent_validator_headers_do_not_clear_stored_values(self, parser, config):
+        """#180: a 200 without ETag/Last-Modified keeps the previous validators."""
+        parser._fetcher.fetch = AsyncMock(return_value=(200, self._feed(), {}))
+
+        await parser.parse(config)
+
+        assert config.etag == 'W/"old-etag"'
+        assert config.last_modified == "Mon, 01 Jan 2024 00:00:00 GMT"
+
+    @pytest.mark.asyncio
+    async def test_present_validator_headers_refresh_stored_values(self, parser, config):
+        """#180: present headers still update the stored validators."""
+        parser._fetcher.fetch = AsyncMock(
+            return_value=(
+                200,
+                self._feed(),
+                {
+                    "ETag": 'W/"new-etag"',
+                    "Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT",
+                },
+            )
+        )
+
+        await parser.parse(config)
+
+        assert config.etag == 'W/"new-etag"'
+        assert config.last_modified == "Tue, 02 Jan 2024 00:00:00 GMT"
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    @pytest.mark.asyncio
+    async def test_missing_etag_header_does_not_clear_stored_etag(self):
+        """#180: an absent ETag/Last-Modified header must not wipe stored values."""
+        fetcher = MagicMock()
+        fetcher.fetch = AsyncMock(
+            return_value=(200, "<?xml version='1.0'?><rss version='2.0'><channel/></rss>", {})
+        )
+        parser = RSSParser(fetcher)
+
+        config = SourceConfig(id="s", name="n", url="https://example.com/feed.xml")
+        config.etag = "stored-etag"
+        config.last_modified = "stored-lm"
+
+        await parser.parse(config, force=False)
+
+        assert config.etag == "stored-etag"
+        assert config.last_modified == "stored-lm"

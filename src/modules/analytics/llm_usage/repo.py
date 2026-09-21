@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LLM usage statistics repository for raw records and hourly aggregation."""
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
+from core.constants import AGG_DELIMITER
 from core.db import LLMUsageHourly, LLMUsageRaw
 from core.event import LLMUsageEvent
 from core.observability import get_logger
@@ -19,6 +20,11 @@ if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 log = get_logger(__name__)
+
+# Delimiter for string_agg dimension columns (ASCII unit separator 0x1F,
+# not a comma): labels/providers/models may legitimately contain commas,
+# which would silently split into fake entries on parsing. Single source
+# in core.constants; the DuckDB repo must stay in sync with it.
 
 
 class LLMUsageRepo:
@@ -71,103 +77,6 @@ class LLMUsageRepo:
                 )
             )
             await session.commit()
-
-    async def insert_raw_batch(self, events: list[LLMUsageEvent]) -> int:
-        """Insert multiple LLM usage raw records in batch.
-
-        Args:
-            events: List of LLM usage events to persist.
-
-        Returns:
-            Number of records inserted.
-        """
-        if not events:
-            return 0
-
-        records = [
-            LLMUsageRaw(
-                label=event.label,
-                call_point=event.call_point,
-                llm_type=event.llm_type,
-                provider=event.provider,
-                model=event.model,
-                input_tokens=event.tokens.input_tokens,
-                output_tokens=event.tokens.output_tokens,
-                total_tokens=event.tokens.total_tokens,
-                cached_tokens=event.tokens.cached_tokens,
-                reasoning_tokens=event.tokens.reasoning_tokens,
-                cost_usd=event.cost_usd,
-                latency_ms=event.latency_ms,
-                success=event.success,
-                error_type=event.error_type,
-                article_id=uuid.UUID(event.article_id) if event.article_id else None,
-                task_id=event.task_id,
-                created_at=event.timestamp,
-            )
-            for event in events
-        ]
-
-        async with self._pool.session() as session:
-            session.add_all(records)
-            await session.commit()
-
-        log.debug("llm_usage_raw_batch_inserted", count=len(records))
-        return len(records)
-
-    async def query_raw(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        provider: str | None = None,
-        model: str | None = None,
-        llm_type: str | None = None,
-        call_point: str | None = None,
-        success: bool | None = None,
-        limit: int = 1000,
-    ) -> list[LLMUsageRaw]:
-        """Query raw usage records with filters.
-
-        Args:
-            start_time: Start of time range.
-            end_time: End of time range.
-            provider: Filter by provider name.
-            model: Filter by model name.
-            llm_type: Filter by LLM type (chat/embedding/rerank).
-            call_point: Filter by call point.
-            success: Filter by success status.
-            limit: Maximum records to return (default 1000, max 10000).
-
-        Returns:
-            List of matching LLMUsageRaw records.
-        """
-        limit = min(limit, 10000)
-
-        stmt = (
-            select(LLMUsageRaw)
-            .where(
-                and_(
-                    LLMUsageRaw.created_at >= start_time,
-                    LLMUsageRaw.created_at <= end_time,
-                )
-            )
-            .order_by(LLMUsageRaw.created_at.desc())
-            .limit(limit)
-        )
-
-        if provider:
-            stmt = stmt.where(LLMUsageRaw.provider == provider)
-        if model:
-            stmt = stmt.where(LLMUsageRaw.model == model)
-        if llm_type:
-            stmt = stmt.where(LLMUsageRaw.llm_type == llm_type)
-        if call_point:
-            stmt = stmt.where(LLMUsageRaw.call_point == call_point)
-        if success is not None:
-            stmt = stmt.where(LLMUsageRaw.success == success)
-
-        async with self._pool.session() as session:
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
 
     # ── Aggregation Operations ────────────────────────────────────
 
@@ -303,65 +212,6 @@ class LLMUsageRepo:
 
     # ── Query Operations ──────────────────────────────────────────
 
-    async def get_hourly_stats(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        label: str | None = None,
-        call_point: str | None = None,
-        provider: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Query hourly aggregated statistics.
-
-        Args:
-            start_time: Start of the time range.
-            end_time: End of the time range.
-            label: Optional label filter.
-            call_point: Optional call point filter.
-            provider: Optional provider filter.
-
-        Returns:
-            List of hourly stat dictionaries.
-        """
-        stmt = select(LLMUsageHourly).where(
-            LLMUsageHourly.time_bucket >= start_time,
-            LLMUsageHourly.time_bucket < end_time,
-        )
-
-        if label:
-            stmt = stmt.where(LLMUsageHourly.label == label)
-        if call_point:
-            stmt = stmt.where(LLMUsageHourly.call_point == call_point)
-        if provider:
-            stmt = stmt.where(LLMUsageHourly.provider == provider)
-
-        stmt = stmt.order_by(LLMUsageHourly.time_bucket.desc())
-
-        async with self._pool.session() as session:
-            result = await session.execute(stmt)
-            records = result.scalars().all()
-
-        return [
-            {
-                "time_bucket": r.time_bucket.isoformat(),
-                "label": r.label,
-                "call_point": r.call_point,
-                "llm_type": r.llm_type,
-                "provider": r.provider,
-                "model": r.model,
-                "call_count": r.call_count,
-                "input_tokens_sum": r.input_tokens_sum,
-                "output_tokens_sum": r.output_tokens_sum,
-                "total_tokens_sum": r.total_tokens_sum,
-                "latency_avg_ms": r.latency_avg_ms,
-                "latency_min_ms": r.latency_min_ms,
-                "latency_max_ms": r.latency_max_ms,
-                "success_count": r.success_count,
-                "failure_count": r.failure_count,
-            }
-            for r in records
-        ]
-
     async def query_hourly(
         self,
         start_time: datetime,
@@ -422,11 +272,17 @@ class LLMUsageRepo:
                 func.max(LLMUsageHourly.latency_max_ms).label("latency_max_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
                 func.sum(LLMUsageHourly.failure_count).label("failure_count"),
-                func.string_agg(func.distinct(LLMUsageHourly.label), ",").label("labels"),
-                func.string_agg(func.distinct(LLMUsageHourly.call_point), ",").label("call_points"),
-                func.string_agg(func.distinct(LLMUsageHourly.llm_type), ",").label("llm_types"),
-                func.string_agg(func.distinct(LLMUsageHourly.provider), ",").label("providers"),
-                func.string_agg(func.distinct(LLMUsageHourly.model), ",").label("models"),
+                func.string_agg(func.distinct(LLMUsageHourly.label), AGG_DELIMITER).label("labels"),
+                func.string_agg(func.distinct(LLMUsageHourly.call_point), AGG_DELIMITER).label(
+                    "call_points"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.llm_type), AGG_DELIMITER).label(
+                    "llm_types"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.provider), AGG_DELIMITER).label(
+                    "providers"
+                ),
+                func.string_agg(func.distinct(LLMUsageHourly.model), AGG_DELIMITER).label("models"),
             )
             .where(
                 and_(
@@ -463,17 +319,27 @@ class LLMUsageRepo:
                 "latency_max_ms": float(row.latency_max_ms or 0),
                 "success_count": row.success_count or 0,
                 "failure_count": row.failure_count or 0,
-                "label": ", ".join(sorted(set(row.labels.split(",")))) if row.labels else "",
+                "label": (
+                    ", ".join(sorted(set(row.labels.split(AGG_DELIMITER)))) if row.labels else ""
+                ),
                 "call_point": (
-                    ", ".join(sorted(set(row.call_points.split(",")))) if row.call_points else ""
+                    ", ".join(sorted(set(row.call_points.split(AGG_DELIMITER))))
+                    if row.call_points
+                    else ""
                 ),
                 "llm_type": (
-                    ", ".join(sorted(set(row.llm_types.split(",")))) if row.llm_types else ""
+                    ", ".join(sorted(set(row.llm_types.split(AGG_DELIMITER))))
+                    if row.llm_types
+                    else ""
                 ),
                 "provider": (
-                    ", ".join(sorted(set(row.providers.split(",")))) if row.providers else ""
+                    ", ".join(sorted(set(row.providers.split(AGG_DELIMITER))))
+                    if row.providers
+                    else ""
                 ),
-                "model": ", ".join(sorted(set(row.models.split(",")))) if row.models else "",
+                "model": (
+                    ", ".join(sorted(set(row.models.split(AGG_DELIMITER)))) if row.models else ""
+                ),
             }
             for row in rows
         ]
@@ -559,77 +425,13 @@ class LLMUsageRepo:
             "error_types": {},
         }
 
-    async def get_summary_stats(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        group_by: str = "label",
-    ) -> list[dict[str, Any]]:
-        """Query aggregated summary statistics grouped by specified dimension.
-
-        Args:
-            start_time: Start of the time range.
-            end_time: End of the time range.
-            group_by: Dimension to group by (label, call_point, provider, model).
-
-        Returns:
-            List of summary stat dictionaries.
-        """
-        group_column = {
-            "label": LLMUsageHourly.label,
-            "call_point": LLMUsageHourly.call_point,
-            "provider": LLMUsageHourly.provider,
-            "model": LLMUsageHourly.model,
-        }.get(group_by, LLMUsageHourly.label)
-
-        stmt = (
-            select(
-                group_column.label("group_key"),
-                func.sum(LLMUsageHourly.call_count).label("total_calls"),
-                func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
-                func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
-                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                case(
-                    (
-                        func.sum(LLMUsageHourly.call_count) > 0,
-                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
-                        / func.sum(LLMUsageHourly.call_count),
-                    ),
-                    else_=0.0,
-                ).label("avg_latency_ms"),
-                func.sum(LLMUsageHourly.success_count).label("total_success"),
-                func.sum(LLMUsageHourly.failure_count).label("total_failure"),
-            )
-            .where(
-                LLMUsageHourly.time_bucket >= start_time,
-                LLMUsageHourly.time_bucket < end_time,
-            )
-            .group_by(group_column)
-        )
-
-        async with self._pool.session() as session:
-            result = await session.execute(stmt)
-            rows = result.all()
-
-        return [
-            {
-                "group": row.group_key,
-                "total_calls": row.total_calls or 0,
-                "total_input_tokens": row.total_input_tokens or 0,
-                "total_output_tokens": row.total_output_tokens or 0,
-                "total_tokens": row.total_tokens or 0,
-                "avg_latency_ms": float(row.avg_latency_ms) if row.avg_latency_ms else 0.0,
-                "total_success": row.total_success or 0,
-                "total_failure": row.total_failure or 0,
-            }
-            for row in rows
-        ]
-
     async def get_by_provider(
         self,
         start_time: datetime,
         end_time: datetime,
         llm_type: str | None = None,
+        model: str | None = None,
+        call_point: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by provider.
 
@@ -637,6 +439,8 @@ class LLMUsageRepo:
             start_time: Start of time range.
             end_time: End of time range.
             llm_type: Filter by LLM type.
+            model: Filter by model name.
+            call_point: Filter by call point.
 
         Returns:
             List of provider statistics with:
@@ -652,6 +456,10 @@ class LLMUsageRepo:
         ]
         if llm_type:
             conditions.append(LLMUsageHourly.llm_type == llm_type)
+        if model:
+            conditions.append(LLMUsageHourly.model == model)
+        if call_point:
+            conditions.append(LLMUsageHourly.call_point == call_point)
 
         stmt = (
             select(
@@ -697,6 +505,8 @@ class LLMUsageRepo:
         start_time: datetime,
         end_time: datetime,
         provider: str | None = None,
+        llm_type: str | None = None,
+        call_point: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by model.
 
@@ -704,6 +514,8 @@ class LLMUsageRepo:
             start_time: Start of time range.
             end_time: End of time range.
             provider: Filter by provider name.
+            llm_type: Filter by LLM type.
+            call_point: Filter by call point.
 
         Returns:
             List of model statistics with:
@@ -720,6 +532,10 @@ class LLMUsageRepo:
         ]
         if provider:
             conditions.append(LLMUsageHourly.provider == provider)
+        if llm_type:
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
+        if call_point:
+            conditions.append(LLMUsageHourly.call_point == call_point)
 
         stmt = (
             select(
@@ -766,16 +582,33 @@ class LLMUsageRepo:
         self,
         start_time: datetime,
         end_time: datetime,
+        provider: str | None = None,
+        model: str | None = None,
+        llm_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get usage statistics grouped by call point.
 
         Args:
             start_time: Start of time range.
             end_time: End of time range.
+            provider: Filter by provider name.
+            model: Filter by model name.
+            llm_type: Filter by LLM type.
 
         Returns:
             List of call point statistics.
         """
+        conditions = [
+            LLMUsageHourly.time_bucket >= start_time,
+            LLMUsageHourly.time_bucket <= end_time,
+        ]
+        if provider:
+            conditions.append(LLMUsageHourly.provider == provider)
+        if model:
+            conditions.append(LLMUsageHourly.model == model)
+        if llm_type:
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
+
         stmt = (
             select(
                 LLMUsageHourly.call_point,
@@ -791,12 +624,7 @@ class LLMUsageRepo:
                 ).label("avg_latency_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
             )
-            .where(
-                and_(
-                    LLMUsageHourly.time_bucket >= start_time,
-                    LLMUsageHourly.time_bucket <= end_time,
-                )
-            )
+            .where(and_(*conditions))
             .group_by(LLMUsageHourly.call_point)
             .order_by(func.sum(LLMUsageHourly.total_tokens_sum).desc())
         )

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Tests for ValidatedPipelineState model validation (task 3.3.5)."""
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Tests for ValidatedPipelineState model validation."""
 
 from __future__ import annotations
 
@@ -393,3 +393,31 @@ class TestIntegrationWithExistingCode:
         assert state.is_news is False
         assert state.terminal is True
         assert state.category == "politics"
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    def test_populate_by_name_removed_and_no_aliases_exist(self):
+        """#261: the no-op populate_by_name flag is gone and nothing regressed."""
+        assert "populate_by_name" not in ValidatedPipelineState.model_config
+        assert ValidatedPipelineState.model_config["extra"] == "allow"
+        assert all(field.alias is None for field in ValidatedPipelineState.model_fields.values())
+
+    def test_extra_fields_still_accepted(self):
+        """#261: extra="allow" behaviour is preserved."""
+        state = ValidatedPipelineState.from_dict({"raw": None, "custom_field": 1})
+
+        assert state.custom_field == 1
+
+    def test_content_vector_returns_none_for_non_list_dict_value(self):
+        """#119: the dict fallback must not leak a non-list as list[float]."""
+        state = ValidatedPipelineState(vectors={"content": "not-a-list"})
+
+        assert state.get_content_vector() is None
+
+    def test_content_vector_returns_list_from_dict(self):
+        """#119: a well-formed dict payload is still returned unchanged."""
+        state = ValidatedPipelineState(vectors={"content": [0.1, 0.2]})
+
+        assert state.get_content_vector() == [0.1, 0.2]

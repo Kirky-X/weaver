@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Test that system environment variables take priority over .env file values.
 
-Validates GAP-H03 fix: load_dotenv(override=False) ensures system env vars
+Validates load_dotenv(override=False) ensures system env vars
 are not overwritten by .env file values.
 """
 

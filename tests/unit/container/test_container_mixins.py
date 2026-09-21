@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Tests for container mixin modules.
 
 Covers:
@@ -81,6 +81,10 @@ def _make_settings(**overrides):
     # Scheduler
     settings.scheduler = MagicMock()
     settings.scheduler.enabled = False
+    # The briefing cron trigger builds ZoneInfo(scheduler.briefing_timezone),
+    # which requires a real tz string rather than a MagicMock attribute.
+    settings.scheduler.briefing_timezone = "Asia/Shanghai"
+    settings.scheduler.briefing_cron_hour = 8
 
     # Pipeline
     settings.pipeline = MagicMock()
@@ -125,12 +129,22 @@ def _make_settings(**overrides):
     # Pipeline process
     settings.pipeline_process = MagicMock()
     settings.pipeline_process.worker_batch_size = 10
-    settings.pipeline_process.drain_timeout = 120
+    settings.pipeline_process.causal_llm_timeout = 120
 
     # spaCy
     settings.spacy = MagicMock()
     settings.spacy.zh_model_path = "zh_core_web_lg"
     settings.spacy.en_model_path = "en_core_web_lg"
+
+    # Fake news detector (numeric fields required: from_settings validates
+    # confidence_suspicious < confidence_trusted via real comparison)
+    settings.fake_news_detector = MagicMock(
+        enabled=False,
+        confidence_suspicious=0.4,
+        confidence_trusted=0.7,
+        exaggeration_keywords=[],
+        model_path="",
+    )
 
     for k, v in overrides.items():
         setattr(settings, k, v)
@@ -876,6 +890,52 @@ class TestContainerServicesPipeline:
         assert c._pipeline is mock_pipeline
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("fnd_enabled", [True, False])
+    async def test_init_pipeline_wires_fake_news_detector_switch(self, fnd_enabled) -> None:
+        """settings.fake_news_detector.enabled controls the detector wiring."""
+        c = _make_container()
+        c._settings = _make_settings()
+        c._settings.fake_news_detector.enabled = fnd_enabled
+        c._llm_client = MagicMock()
+        c._prompt_loader = MagicMock()
+        c._cache_client = MagicMock()
+        c._event_bus = MagicMock()
+        c._pipeline = None
+        c._debug_mode = False
+        c._strategy = _make_strategy(has_graph=True)
+        c._vector_repo = MagicMock()
+        c._article_repo = MagicMock()
+        c._graph_writer = MagicMock()
+        c._source_authority_repo = MagicMock()
+        c._entity_resolver = MagicMock()
+        c._community_updater = MagicMock()
+        c._relation_type_normalizer = MagicMock()
+
+        mock_pipeline = MagicMock()
+        fake_news_module = "modules.analytics.fake_news_detector"
+        with (
+            patch("core.llm.config.token_budget.TokenBudgetManager", return_value=MagicMock()),
+            patch(
+                "modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=MagicMock()
+            ),
+            patch("modules.processing.pipeline.graph.Pipeline", return_value=mock_pipeline) as p,
+            patch.object(c, "_get_embedding_model_id", return_value="text-embedding-3-small"),
+            patch(
+                f"{fake_news_module}.FakeNewsDetector",
+                return_value=MagicMock(),
+            ) as mock_detector_cls,
+        ):
+            await c.init_pipeline()
+
+        deps = p.call_args[1]["deps"]
+        if fnd_enabled:
+            mock_detector_cls.assert_called_once()
+            assert deps.analyzers.fake_news_detector is mock_detector_cls.return_value
+        else:
+            mock_detector_cls.assert_not_called()
+            assert deps.analyzers.fake_news_detector is None
+
+    @pytest.mark.asyncio
     async def test_init_pipeline_creates_event_bus_if_none(self) -> None:
         c = _make_container()
         c._settings = _make_settings()
@@ -894,10 +954,8 @@ class TestContainerServicesPipeline:
         c._community_updater = MagicMock()
         c._relation_type_normalizer = MagicMock()
 
-        mock_event_bus = MagicMock()
         mock_pipeline = MagicMock()
         with (
-            patch("core.event.EventBus", return_value=mock_event_bus),
             patch("core.llm.config.token_budget.TokenBudgetManager", return_value=MagicMock()),
             patch(
                 "modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=MagicMock()
@@ -906,7 +964,10 @@ class TestContainerServicesPipeline:
             patch.object(c, "_get_embedding_model_id", return_value="text-embedding-3-small"),
         ):
             await c.init_pipeline()
-        assert c._event_bus is mock_event_bus
+        # The container reuses the module-level singleton (never forks the bus).
+        from core.event import event_bus as global_event_bus
+
+        assert c._event_bus is global_event_bus
 
 
 class TestContainerServicesProcessingQueue:
@@ -961,6 +1022,8 @@ class TestContainerServicesPipelineService:
         c = _make_container()
         c._pipeline = MagicMock()
         c._pipeline_service = None
+        # pipeline_service() now wires the lazy crawler getter into the impl
+        c.crawler = MagicMock(return_value=MagicMock())
 
         mock_svc = MagicMock()
         with patch("core.services.pipeline_service.PipelineServiceImpl", return_value=mock_svc):
@@ -1432,9 +1495,7 @@ class TestContainerLifecycleLLMClient:
         c._cache_client = MagicMock()
         c._eval_runner = None
 
-        mock_event_bus = MagicMock()
         with (
-            patch("core.event.EventBus", return_value=mock_event_bus),
             patch("core.llm.evaluation.experience.ExperienceStore", return_value=MagicMock()),
             patch("core.llm.routing.smart_router.SmartRouter", return_value=MagicMock()),
             patch("core.llm.config.live_config.LiveConfig", return_value=MagicMock()),
@@ -1442,7 +1503,10 @@ class TestContainerLifecycleLLMClient:
             patch.object(c, "prompt_loader", return_value=MagicMock()),
         ):
             await c.init_llm()
-        assert c._event_bus is mock_event_bus
+        # The container reuses the module-level singleton (never forks the bus).
+        from core.event import event_bus as global_event_bus
+
+        assert c._event_bus is global_event_bus
 
     @pytest.mark.asyncio
     async def test_init_llm_reuses_event_bus(self) -> None:
@@ -2033,6 +2097,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2062,6 +2129,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2075,7 +2145,7 @@ class TestContainerLifecycleSetupScheduler:
         ):
             c._setup_scheduler()
 
-        job_ids = [call.kwargs.get("id", "") for call in mock_scheduler.add_job.call_args_list]
+        job_ids = [call.kwargs.get("id", "") for call in spy_add_job.call_args_list]
         assert "archive_old_neo4j_nodes" in job_ids
         assert "cleanup_orphan_entity_vectors" in job_ids
 
@@ -2093,6 +2163,9 @@ class TestContainerLifecycleSetupScheduler:
         mock_scheduler = MagicMock()
         mock_scheduler.get_jobs.return_value = []
         mock_scheduler.start = MagicMock()
+        # Keep introspection when lifecycle wraps add_job with the distributed lock
+        spy_add_job = MagicMock(side_effect=mock_scheduler.add_job)
+        mock_scheduler.add_job = spy_add_job
 
         with (
             patch.object(c, "scheduler_job_runner", return_value=mock_jobs),
@@ -2106,7 +2179,7 @@ class TestContainerLifecycleSetupScheduler:
         ):
             c._setup_scheduler()
 
-        job_ids = [call.kwargs.get("id", "") for call in mock_scheduler.add_job.call_args_list]
+        job_ids = [call.kwargs.get("id", "") for call in spy_add_job.call_args_list]
         assert "memory_consolidation" in job_ids
 
 

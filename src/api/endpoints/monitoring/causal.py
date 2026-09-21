@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Causal graph monitoring endpoints for statistics."""
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.dependencies import get_container
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/monitoring/causal", tags=["monitoring", "causal"])
 
@@ -46,7 +49,11 @@ async def get_causal_stats(
             detail="Causal graph repository unavailable",
         )
 
-    count = await causal_repo.count_causal_links()
+    try:
+        count = await causal_repo.count_causal_links()
+    except Exception as exc:
+        log.error("count_causal_links_failed", error=str(exc), exc_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Failed to count causal links") from exc
 
     return success_response(
         {

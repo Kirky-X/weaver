@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for fallback_orchestrator (web search module).
 
 TDD Red phase: tests fail until ``detect_three_tier_empty``,
 ``trigger_web_search``, and ``schedule_pipeline_background`` are
 implemented in ``src/modules/search/web/fallback_orchestrator.py``
-(T008/T010/T012 Green).
+(//Green).
 
 These three functions form the Bing fallback orchestration layer:
     1. ``detect_three_tier_empty``: checks if all three search layers
@@ -16,7 +16,7 @@ These three functions form the Bing fallback orchestration layer:
        for each Bing result URL, using the project's _background_tasks GC
        pattern (add + add_done_callback(discard)).
 
-HIGH-1 fix verification: ``schedule_pipeline_background`` now creates
+Verification: ``schedule_pipeline_background`` now creates
 a SINGLE background task that processes URLs SEQUENTIALLY (not N
 concurrent tasks). This matches the DuckDB write-lock serialization
 convention in ``src/api/endpoints/content/pipeline.py:285``
@@ -222,7 +222,7 @@ class TestTriggerWebSearch:
 class TestSchedulePipelineBackground:
     """Tests for schedule_pipeline_background (R-web-search-006).
 
-    HIGH-1 fix: N URLs → SINGLE background task that processes URLs
+    N URLs now map to a SINGLE background task that processes URLs
     SEQUENTIALLY (not N concurrent tasks). This matches the DuckDB
     write-lock serialization convention in
     ``src/api/endpoints/content/pipeline.py:285``.
@@ -261,7 +261,7 @@ class TestSchedulePipelineBackground:
 
     @pytest.mark.asyncio
     async def test_multiple_urls_create_single_task_sequential(self) -> None:
-        """HIGH-1: N URLs → SINGLE task, pipeline called N times sequentially.
+        """N URLs → SINGLE task, pipeline called N times sequentially.
 
         Old behavior (N concurrent tasks) caused DuckDB write-lock
         contention. New behavior: 1 task, for-loop, matches
@@ -278,7 +278,7 @@ class TestSchedulePipelineBackground:
         background_tasks: set[asyncio.Task] = set()
         schedule_pipeline_background(urls, pipeline_service, background_tasks)
 
-        # HIGH-1 fix: only ONE task should be created (not 3).
+        # Only ONE task should be created (not 3).
         assert len(background_tasks) == 1
 
         # Wait for completion.
@@ -340,7 +340,7 @@ class TestSchedulePipelineBackground:
 
     @pytest.mark.asyncio
     async def test_url_exception_does_not_abort_sequential_batch(self) -> None:
-        """HIGH-1: one URL's failure must NOT abort the sequential for-loop.
+        """One URL's failure must NOT abort the sequential for-loop.
 
         Old test (N tasks) verified exception isolation via separate
         asyncio tasks. New test verifies the same guarantee via
@@ -362,7 +362,7 @@ class TestSchedulePipelineBackground:
         background_tasks: set[asyncio.Task] = set()
         schedule_pipeline_background(urls, pipeline_service, background_tasks)
 
-        # HIGH-1: only one task created.
+        # Only one task created.
         assert len(background_tasks) == 1
 
         # Wait for the single task to complete (no exception propagates
@@ -377,7 +377,7 @@ class TestSchedulePipelineBackground:
 
     @pytest.mark.asyncio
     async def test_urls_processed_sequentially_not_concurrently(self) -> None:
-        """HIGH-1: URLs must be processed SEQUENTIALLY (no overlap).
+        """URLs must be processed SEQUENTIALLY (no overlap).
 
         Verify by recording start/finish timestamps for each URL's
         pipeline call. Sequential → timestamps do NOT overlap.
@@ -415,7 +415,7 @@ class TestSchedulePipelineBackground:
         assert len(background_tasks) == 1
         await asyncio.gather(*background_tasks)
 
-        # HIGH-1 assertion: max 1 active pipeline call at any time
+        # Max 1 active pipeline call at any time
         # (sequential execution, no overlap).
         assert max_active == 1, (
             f"Expected sequential execution (max_active=1), got max_active={max_active}"
@@ -487,7 +487,7 @@ class TestSchedulePipelineBackground:
 
 
 class TestSchedulePipelineBackgroundConcurrencyCap:
-    """Tests for MEDIUM-1 fix: concurrency cap on background pipeline tasks.
+    """Tests for fix: concurrency cap on background pipeline tasks.
 
     When ``len(background_tasks) >= max_concurrent``, the next call must
     drop (not spawn), log a warning, and return ``ScheduleResult.THROTTLED``.
@@ -676,7 +676,7 @@ class TestSchedulePipelineBackgroundConcurrencyCap:
 
 
 class TestRunPipelinesSequentiallyTotalTimeout:
-    """Tests for MEDIUM-2 fix: total timeout on the sequential batch.
+    """Tests for fix: total timeout on the sequential batch.
 
     Per-URL timeout (300s) bounds one slow URL, but with N URLs the
     total wall time was unbounded (N * 300s). The fix wraps the whole
@@ -818,3 +818,19 @@ class TestRunPipelinesSequentiallyTotalTimeout:
         """
         assert _PIPELINE_BATCH_TOTAL_TIMEOUT_SECONDS == 600.0
         assert _PIPELINE_URL_TIMEOUT_SECONDS == 300.0
+
+
+class TestT008LowFixes:
+    """Regression tests for LOW findings."""
+
+    def test_numeric_string_zero_still_triggers_fallback(self):
+        """#427: a ``"0"`` context token must not suppress the Bing fallback."""
+        assert (
+            detect_three_tier_empty({"entities": [], "sources": [], "context_tokens": "0"}) is True
+        )
+
+    def test_non_zero_context_tokens_suppresses_fallback(self):
+        """#427: a genuinely grounded answer still blocks the fallback."""
+        assert (
+            detect_three_tier_empty({"entities": [], "sources": [], "context_tokens": 12}) is False
+        )

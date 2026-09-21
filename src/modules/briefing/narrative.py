@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Narrative briefing generator — produces briefings from NarrativeNode framing (T020 / R-briefing-007).
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Narrative briefing generator — produces briefings from NarrativeNode framing.
 
-NarrativeBriefingGenerator is the narrative-mode counterpart of BriefingGenerator
-(T004). Instead of feeding raw article text to the LLM, it aggregates
+NarrativeBriefingGenerator is the narrative-mode counterpart of BriefingGenerator.
+Instead of feeding raw article text to the LLM, it aggregates
 NarrativeNode framing dimensions (source_bias/frame/tone/emphasis) across
 multiple articles and asks the LLM to produce a narrative-style summary that
 reflects how different sources framed the same topic.
 
-Spec R-briefing-007 acceptance:
+Spec acceptance:
 - Query NarrativeNode (HAS_NARRATIVE relationship from EventNode, which is
   linked to Article via HAS_EVENT).
 - Filter articles by category (delegated to storage.fetch_articles_for_briefing
@@ -31,12 +31,12 @@ Constructor injection (Rule — Protocol type, not concrete class):
 
 Failure handling (Rule 12 — fail loud):
     - LLM failures (AllProvidersFailedError / CircuitOpenError / ValueError)
-      degrade gracefully: empty summary, briefing still persisted (R-briefing-002
+      degrade gracefully: empty summary, briefing still persisted (
       best-effort contract, consistent with BriefingGenerator).
     - Storage failures (save_briefing) propagate to caller.
     - Graph DB errors propagate (Rule 12).
     - InsufficientNarrativeError is the explicit "no degradation" signal —
-      the caller (DailyBriefingService T021) catches it to fall back to
+      the caller (DailyBriefingService) catches it to fall back to
       template mode. This is NOT an error to swallow; it carries enough
       context (narrative_count, threshold, briefing_date, category, reason)
       for the caller to log a meaningful warning.
@@ -52,6 +52,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.constants import BRIEFING_CATEGORIES as VALID_BRIEFING_CATEGORIES
 from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
@@ -65,11 +66,11 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Spec R-briefing-003: 4 briefing categories (mirrors BriefingGenerator).
-VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
+# Briefing categories — single source in core.constants (shared with
+# BriefingGenerator).
 
-# Spec R-briefing-007: minimum NarrativeNode count to produce narrative briefing.
-# Below this threshold, raise InsufficientNarrativeError so the caller (T021)
+# Minimum NarrativeNode count to produce narrative briefing.
+# Below this threshold, raise InsufficientNarrativeError so the caller
 # can degrade to template mode.
 MIN_NARRATIVE_COUNT: int = 3
 
@@ -81,22 +82,22 @@ TOP_N_ITEMS: int = 10
 class InsufficientNarrativeError(Exception):
     """Raised when NarrativeNode count is below the narrative-mode threshold.
 
-    Spec R-briefing-007: NarrativeBriefingGenerator requires at least 3
-    NarrativeNodes to produce a narrative-style briefing. Below this threshold,
-    the generator raises this exception so the caller (DailyBriefingService
-    T021) can degrade to template mode (BriefingGenerator).
+        Spec NarrativeBriefingGenerator requires at least 3
+        NarrativeNodes to produce a narrative-style briefing. Below this threshold,
+        the generator raises this exception so the caller (DailyBriefingService
+    ) can degrade to template mode (BriefingGenerator).
 
-    This is NOT a programming bug — it signals data insufficiency. The caller
-    is expected to catch this exception (spec R-briefing-008: 降级为模板模式,
-    log warning 含原因). Propagating it would surface as a 500 to the API
-    caller, which is incorrect — degradation is the intended behavior.
+        This is NOT a programming bug — it signals data insufficiency. The caller
+        is expected to catch this exception (spec 降级为模板模式,
+        log warning 含原因). Propagating it would surface as a 500 to the API
+        caller, which is incorrect — degradation is the intended behavior.
 
-    Attributes:
-        narrative_count: Actual NarrativeNode count found.
-        threshold: Minimum required count (3, per spec).
-        briefing_date: Date the briefing was requested for.
-        category: Briefing category (finance/tech/ai/general).
-        reason: Human-readable explanation of why the threshold was not met.
+        Attributes:
+            narrative_count: Actual NarrativeNode count found.
+            threshold: Minimum required count (3, per spec).
+            briefing_date: Date the briefing was requested for.
+            category: Briefing category (finance/tech/ai/general).
+            reason: Human-readable explanation of why the threshold was not met.
     """
 
     def __init__(
@@ -120,7 +121,7 @@ class InsufficientNarrativeError(Exception):
 
 
 class NarrativeBriefingGenerator:
-    """Generate narrative-style briefings from NarrativeNode framing (R-briefing-007).
+    """Generate narrative-style briefings from NarrativeNode framing.
 
     Implements:
         NarrativeBriefingGenerator: Narrative-mode briefing generator with
@@ -192,11 +193,11 @@ class NarrativeBriefingGenerator:
             ValueError: If category is not None and not in
                 VALID_BRIEFING_CATEGORIES.
             InsufficientNarrativeError: If NarrativeNode count < 3
-                (spec R-briefing-007). Caller (T021) catches this to degrade.
+                (spec). Caller catches this to degrade.
             Exception: Graph DB errors and storage failures propagate
                 (Rule 12). LLM failures degrade to empty summary.
         """
-        # Normalize None → 'general' (spec R-briefing-001: None 表示综合).
+        # Normalize None → 'general' (None 表示综合).
         normalized_category = category or "general"
         if normalized_category not in VALID_BRIEFING_CATEGORIES:
             raise ValueError(
@@ -233,7 +234,7 @@ class NarrativeBriefingGenerator:
         ]
         narratives = await self._query_narratives_for_articles(article_ids)
 
-        # Step 3: Check threshold (R-briefing-007).
+        # Step 3: Check threshold.
         if len(narratives) < MIN_NARRATIVE_COUNT:
             log.info(
                 "narrative_briefing_insufficient_data",
@@ -399,7 +400,7 @@ class NarrativeBriefingGenerator:
             bugs must surface (Rule 12).
 
         Args:
-            articles: List of article dicts (title/body/score/category).
+            articles: List of article dicts (title/body/summary/score/category).
             narratives_by_article: Dict mapping article_id → list of
                 NarrativeNode framing dicts.
             category: Briefing category (for category-specific prompt).
@@ -453,14 +454,18 @@ class NarrativeBriefingGenerator:
 
         Each article is rendered as:
             [N] title (score=X.XX, category=Y)
-            body
+            content
             [Narrative Framing]
             - Source bias: <bias1>, <bias2>, ...
             - Frame: <frame1>, <frame2>, ...
             - Tone: <tone1>, <tone2>, ...
             - Emphasis: <emphasis1>, <emphasis2>, ...
 
-        Articles without narratives are still included (body only, no
+        Content source mirrors ``BriefingGenerator._format_articles_for_llm``:
+        per-article ``summary`` when present, else the first 500 chars of
+        ``body`` (token optimization).
+
+        Articles without narratives are still included (content only, no
         framing section) — they contribute to the article context but do
         not count toward the narrative threshold (already checked in
         ``generate()``).
@@ -470,12 +475,16 @@ class NarrativeBriefingGenerator:
         parts: list[str] = []
         for i, article in enumerate(articles, start=1):
             title = article.get("title", "(untitled)")
+            summary = article.get("summary")
             body = article.get("body", "")
-            score = article.get("score", 0.0)
+            content = summary if summary else body[:500]
+            # `or 0.0` also covers a present-but-None score, which would raise
+            # TypeError in the f-string format below.
+            score = article.get("score") or 0.0
             category = article.get("category", "unknown")
             article_id = article.get("article_id") or article.get("id")
 
-            section = f"[{i}] {title} (score={score:.2f}, category={category})\n{body}"
+            section = f"[{i}] {title} (score={score:.2f}, category={category})\n{content}"
 
             # Append narrative framing if available for this article.
             framings = narratives_by_article.get(article_id, []) if article_id else []

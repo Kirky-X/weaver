@@ -1,27 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for MCSampler concurrent region scoring — P1-2 fix.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""REVISED (llm-token-optimization): 区域评分已批量化.
 
-``sample_evidence`` currently scores regions in a sequential for-loop,
-making total time = N × single_region_time. With LLM scoring latency
-(~300ms each), 5 regions take 1.5s serial vs ~0.3s concurrent.
-
-This test asserts ``asyncio.gather`` concurrency: total time ≤ 2×
-single-region time (allowing scheduling overhead).
-
-See ``temp/report.md`` P1-2 (MC 采样器并发) and specmark change
-``fix-pipeline-deadcode-perf`` T020-T021.
+原 测试断言 asyncio.gather 并发评分（每区域一次调用）；
+批量化后 5 个区域合并为 1 次 LLM 调用，时延断言的前提不复存在，
+改断言新的调用次数契约：5 区域全程恰好 1 次 call_at。
 """
 
 from __future__ import annotations
 
-import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.evidence.models import EvidenceScoreOutput
+from core.evidence.models import EvidenceBatchScoreOutput, EvidenceScoreOutput
 
 
 @pytest.fixture
@@ -31,6 +23,7 @@ def sampler_with_mocks():
 
     llm = AsyncMock()
     budget = MagicMock()
+    budget.truncate = MagicMock(side_effect=lambda text, *a, **k: text)
     sampler = MCSampler(
         llm_client=llm,
         token_budget_manager=budget,
@@ -40,7 +33,6 @@ def sampler_with_mocks():
         confidence_threshold=0.0,  # Always use sampled text
     )
 
-    # 5 fixed regions
     regions = [f"region_{i} " + "x" * 95 for i in range(5)]
     sampler._find_anchor_points = MagicMock(return_value=[0, 1, 2, 3, 4])
     sampler._extract_regions = MagicMock(return_value=regions)
@@ -49,35 +41,33 @@ def sampler_with_mocks():
     return sampler, regions
 
 
-class TestMCSamplerConcurrentScoring:
-    """Tests that sample_evidence scores regions concurrently."""
+class TestMCSamplerBatchedScoring:
+    """5 区域全程恰好 1 次 LLM 调用（批量化契约）."""
 
     @pytest.mark.asyncio
-    async def test_sample_evidence_regions_scored_concurrently(self, sampler_with_mocks) -> None:
-        """5 regions scored in parallel: total ≤ 2× single-region time."""
+    async def test_sample_evidence_scores_all_regions_in_one_llm_call(
+        self, sampler_with_mocks
+    ) -> None:
         sampler, regions = sampler_with_mocks
 
-        single_region_delay = 0.3
-
-        async def _slow_score(region: str, title: str) -> EvidenceScoreOutput:
-            await asyncio.sleep(single_region_delay)
-            return EvidenceScoreOutput(
-                relevance_score=0.8,
-                information_density=0.8,
-                confidence=0.9,
-                key_facts=[],
+        sampler._llm.call_at = AsyncMock(
+            return_value=EvidenceBatchScoreOutput(
+                scores=[
+                    EvidenceScoreOutput(
+                        relevance_score=0.8,
+                        information_density=0.8,
+                        confidence=0.9,
+                        key_facts=[],
+                    )
+                    for _ in regions
+                ]
             )
-
-        sampler._score_region = _slow_score
-
-        start = time.monotonic()
-        await sampler.sample_evidence("document" * 200, title="test")
-        elapsed = time.monotonic() - start
-
-        # Serial 5 × 0.3s = 1.5s; concurrent ≈ 0.3s.
-        # Allow 2× single-region = 0.6s ceiling for scheduling overhead.
-        ceiling = single_region_delay * 2
-        assert elapsed < ceiling, (
-            f"Expected concurrent scoring < {ceiling:.2f}s; "
-            f"got {elapsed:.2f}s (serial would be ~{single_region_delay * len(regions):.2f}s)"
         )
+
+        sampled_text, confidence = await sampler.sample_evidence("document" * 200, title="test")
+
+        assert sampler._llm.call_at.await_count == 1
+        payload = sampler._llm.call_at.await_args.args[1]
+        assert len(payload["regions"]) == len(regions)
+        assert sampled_text == "synthesized"
+        assert confidence > 0

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community health repository for diagnostic queries.
 
 Provides data access methods for community health diagnostics.
@@ -150,7 +150,7 @@ class CommunityHealthRepo:
             query = """
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE r.stale = true
-               OR r.updated_at < datetime() - duration('P' + $days + 'D')
+               OR r.updated_at < datetime() - duration({days: $days})
             RETURN c.id AS community_id,
                    r.id AS report_id,
                    r.stale AS stale,

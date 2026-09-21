@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Migration 28 tests — extend alert_rules for trend triggers.
 
 Verifies:
@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 def _read_revision_vars(file_stem: str) -> tuple[str, str | None]:
     """Read revision and down_revision from a migration file without importing."""
     filepath = ALEMBIC_VERSIONS / f"{file_stem}.py"
-    content = filepath.read_text()
+    content = filepath.read_text(encoding="utf-8")
     rev_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     down_match = re.search(
         r'^down_revision:\s*str\s*\|\s*None\s*=\s*(None|["\']([^"\']*)["\'])',
@@ -250,7 +250,7 @@ def test_duckdb_schema_has_new_alert_rules_columns() -> None:
     # Default value
     assert "threshold" in alert_rules_stmt
 
-    # DuckDB must have CHECK constraint on trigger_type (Security H1 fix)
+    # DuckDB must have CHECK constraint on trigger_type
     assert "CHECK" in alert_rules_stmt.upper(), (
         "DuckDB alert_rules missing CHECK constraint — project convention "
         "requires VARCHAR+CHECK for DuckDB (no ENUM support)"
@@ -328,7 +328,7 @@ def test_migration_28_downgrade_order_delete_before_drop() -> None:
 def test_migration_28_downgrade_deletes_events_before_rules() -> None:
     """Downgrade must DELETE alert_events BEFORE alert_rules (FK NO ACTION).
 
-    Architecture review HIGH (T005 review): alert_events.rule_id has FK to
+    Architecture review HIGH (review): alert_events.rule_id has FK to
     alert_rules.id with default NO ACTION (behaviorally RESTRICT). Deleting
     rules first would fail if any trend rule has generated alert_events.
     Migration 28 downgrade must delete events first, then rules.

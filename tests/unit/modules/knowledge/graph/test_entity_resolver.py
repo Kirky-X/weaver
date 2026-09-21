@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for EntityResolver in knowledge module."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -520,15 +520,28 @@ class TestEntityResolverResolveEntityExtended:
     async def test_resolve_entity_llm_dedup_merge(self, mock_entity_repo, mock_vector_repo):
         """Test resolve_entity merges via LLM dedup.
 
-        P2 fix: _llm_deduplicate now routes via call_at(CallPoint.ENTITY_RESOLVER)
-        instead of raw self._llm.chat(). Mock call_at accordingly.
+        entity-resolver-batch-select: 单实体路径委托批量契约（v1.2.0），
+        mock call_at 返回 EntityBatchDedupOutput（target 须在候选集内）。
         """
-        from modules.knowledge.graph.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import (
+            EntityBatchDecision,
+            EntityBatchDedupOutput,
+            EntityResolver,
+        )
 
         mock_llm = MagicMock()
-        # call_at returns raw string content (parsed by parse_llm_json)
         mock_llm.call_at = AsyncMock(
-            return_value='{"should_merge": true, "confidence": 0.85, "target_entity": {"canonical_name": "TargetEntity", "neo4j_id": "target-id"}}'
+            return_value=EntityBatchDedupOutput(
+                decisions=[
+                    EntityBatchDecision(
+                        entity_index=0,
+                        should_merge=True,
+                        target_neo4j_id="sim-id",
+                        target_canonical_name="TargetEntity",
+                        confidence=0.85,
+                    )
+                ]
+            )
         )
 
         resolver = EntityResolver(
@@ -1013,3 +1026,649 @@ class TestEntityResolverDisableDataMetricsConfig:
         )
 
         assert result["is_new"] is True
+
+
+class TestEntityBatchDecisionModels:
+    """批量决策模型契约（R-entity-resolution-001）."""
+
+    def test_batch_decision_from_valid_json(self):
+        import json
+
+        from modules.knowledge.graph.entity_resolver import (
+            EntityBatchDecision,
+            EntityBatchDedupOutput,
+        )
+
+        raw = json.dumps(
+            {
+                "decisions": [
+                    {
+                        "entity_index": 0,
+                        "should_merge": True,
+                        "target_neo4j_id": "id-1",
+                        "target_canonical_name": "OpenAI",
+                        "confidence": 0.9,
+                    },
+                    {"entity_index": 1, "should_merge": False, "confidence": 0.2},
+                ]
+            }
+        )
+        out = EntityBatchDedupOutput.model_validate_json(raw)
+        assert len(out.decisions) == 2
+        assert out.decisions[0].entity_index == 0
+        assert out.decisions[0].should_merge is True
+        assert out.decisions[1].target_neo4j_id is None
+
+    def test_batch_decision_requires_entity_index(self):
+        import pytest
+        from pydantic import ValidationError
+
+        from modules.knowledge.graph.entity_resolver import EntityBatchDecision
+
+        with pytest.raises(ValidationError):
+            EntityBatchDecision(should_merge=False)
+
+    def test_batch_decision_confidence_bounds(self):
+        import pytest
+        from pydantic import ValidationError
+
+        from modules.knowledge.graph.entity_resolver import EntityBatchDecision
+
+        with pytest.raises(ValidationError):
+            EntityBatchDecision(entity_index=0, should_merge=True, confidence=1.5)
+
+
+class TestEntityResolverPromptBatchContract:
+    """prompt 批量契约（R-llm-integration-001）."""
+
+    def test_prompt_loader_returns_batch_contract(self):
+        from core.prompt.loader import PromptLoader
+
+        system = PromptLoader("config/prompts").get("entity_resolver")
+        assert "entity_index" in system
+        assert "decisions" in system
+        # 单实体语义关键词仍保留
+        assert "should_merge" in system
+        assert "confidence" in system
+
+
+class TestResolveEntitiesBatchTwoPhase:
+    """两阶段批量消解（R-entity-resolution-002/003）."""
+
+    @pytest.fixture
+    def mock_entity_repo(self):
+        repo = MagicMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        repo.merge_entity = AsyncMock(return_value="merged-id")
+        repo.add_alias = AsyncMock()
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
+        repo.create_entity = AsyncMock(return_value="new-id")
+        return repo
+
+    @pytest.fixture
+    def mock_vector_repo(self):
+        repo = MagicMock()
+        repo.find_similar_entities = AsyncMock(return_value=[])
+        repo.upsert_entity_vector = AsyncMock()
+        return repo
+
+    def _candidate_sim(self, idx: int):
+        from unittest.mock import MagicMock
+
+        sim = MagicMock()
+        sim.neo4j_id = f"cand-{idx}"
+        sim.similarity = 0.88
+        return sim
+
+    def _candidate_entity(self, idx: int):
+        from unittest.mock import MagicMock
+
+        e = MagicMock()
+        e.id = f"cand-{idx}"
+        e.canonical_name = f"Known Entity {idx}"
+        e.type = "PERSON"
+        return e
+
+    def _entities(self, n: int) -> list[dict]:
+        return [
+            {
+                "name": f"New Entity {i}",
+                "type": "PERSON",
+                "embedding": [0.1 + i * 0.001] * 8,
+                "description": None,
+            }
+            for i in range(n)
+        ]
+
+    def _wire_candidates(self, mock_vector_repo, mock_entity_repo, n: int):
+        """每个实体返回 1 个候选（互不相同），触发 LLM 待决。"""
+        mock_vector_repo.find_similar_entities = AsyncMock(
+            side_effect=lambda **kw: [self._candidate_sim(0)]
+        )
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            side_effect=lambda ids: [self._candidate_entity(0) for _ in ids]
+        )
+
+    def _batch_output(self, n: int, merge_all: bool = False, order=None):
+        from modules.knowledge.graph.entity_resolver import (
+            EntityBatchDecision,
+            EntityBatchDedupOutput,
+        )
+
+        decisions = []
+        for i in range(n):
+            merge = merge_all or (i % 2 == 0)
+            decisions.append(
+                EntityBatchDecision(
+                    entity_index=i,
+                    should_merge=merge,
+                    target_neo4j_id=f"cand-{i}" if merge else None,
+                    target_canonical_name=f"Known Entity {i}" if merge else None,
+                    confidence=0.85,
+                )
+            )
+        if order == "reversed":
+            decisions.reverse()
+        return EntityBatchDedupOutput(decisions=decisions)
+
+    @pytest.mark.asyncio
+    async def test_five_pending_entities_single_llm_call(self, mock_entity_repo, mock_vector_repo):
+        """5 个待决实体恰好 1 次 LLM 决策调用（原实现 5 次）."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 5)
+        llm = MagicMock()
+        llm.call_at = AsyncMock(return_value=self._batch_output(5))
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(entities=self._entities(5))
+
+        assert llm.call_at.await_count == 1
+        assert len(results) == 5
+        payload = llm.call_at.await_args.args[1]
+        assert len(payload["entities"]) == 5
+        # 决策应用：merge 的实体 match_type=llm_dedup
+        assert results[0]["match_type"] == "llm_dedup"
+
+    @pytest.mark.asyncio
+    async def test_exact_match_entities_excluded_from_llm(self, mock_entity_repo, mock_vector_repo):
+        """含精确命中实体时不为其发起 LLM 决策."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        existing = MagicMock()
+        existing.id = "known-id"
+        existing.canonical_name = "Known Entity 0"
+
+        async def find_entity(name, etype):
+            return existing if name.startswith("Known") else None
+
+        mock_entity_repo.find_entity = AsyncMock(side_effect=find_entity)
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 3)
+        llm = MagicMock()
+        llm.call_at = AsyncMock(return_value=self._batch_output(2))
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        entities = self._entities(3)
+        entities[0]["name"] = "Known Entity 0"
+        results = await resolver.resolve_entities_batch(entities=entities)
+
+        assert llm.call_at.await_count == 1
+        payload = llm.call_at.await_args.args[1]
+        assert len(payload["entities"]) == 2
+        assert results[0]["match_type"] == "exact"
+
+    @pytest.mark.asyncio
+    async def test_index_echo_aligns_reversed_decisions(self, mock_entity_repo, mock_vector_repo):
+        """decisions 乱序返回时按 entity_index 回显对齐."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 2)
+        llm = MagicMock()
+        llm.call_at = AsyncMock(return_value=self._batch_output(2, order="reversed"))
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(entities=self._entities(2))
+
+        assert results[0]["match_type"] == "llm_dedup"
+        assert results[1]["match_type"] != "llm_dedup"
+
+    @pytest.mark.asyncio
+    async def test_mismatch_retries_then_succeeds(self, mock_entity_repo, mock_vector_repo):
+        """首次长度不符重试一次后成功."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 2)
+        llm = MagicMock()
+        llm.call_at = AsyncMock(side_effect=[self._batch_output(1), self._batch_output(2)])
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(entities=self._entities(2))
+
+        assert llm.call_at.await_count == 2
+        assert all(r is not None for r in results)
+
+    @pytest.mark.asyncio
+    async def test_persistent_failure_degrades_to_per_entity(
+        self, mock_entity_repo, mock_vector_repo
+    ):
+        """批量持续失败 → 逐实体回退，最终结果完整."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 3)
+        llm = MagicMock()
+        llm.call_at = AsyncMock(side_effect=RuntimeError("api down"))
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(entities=self._entities(3))
+
+        assert len(results) == 3
+        assert all(r is not None for r in results)
+        # 批量 2 次重试 + 逐实体回退 3 次（每次含批量契约重试 2 次）= 8
+        assert llm.call_at.await_count == 8
+
+    @pytest.mark.asyncio
+    async def test_chunking_over_max_batch(self, mock_entity_repo, mock_vector_repo):
+        """21 个待决实体 → 2 次批量调用（20+1）."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        self._wire_candidates(mock_vector_repo, mock_entity_repo, 21)
+
+        async def respond(call_point, payload, **kwargs):
+            from modules.knowledge.graph.entity_resolver import (
+                EntityBatchDecision,
+                EntityBatchDedupOutput,
+            )
+
+            n = len(payload["entities"])
+            return EntityBatchDedupOutput(
+                decisions=[
+                    EntityBatchDecision(
+                        entity_index=j,
+                        should_merge=False,
+                        target_neo4j_id=None,
+                        target_canonical_name=None,
+                        confidence=0.2,
+                    )
+                    for j in range(n)
+                ]
+            )
+
+        llm = MagicMock()
+        llm.call_at = AsyncMock(side_effect=respond)
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(entities=self._entities(21))
+
+        assert llm.call_at.await_count == 2
+        assert len(results) == 21
+
+
+class TestEntityResolverTokenBudget:
+    """批量候选清单 token 限额（R-llm-integration-002）."""
+
+    def test_entity_resolver_limit_is_3000(self):
+        from core.llm.config.token_budget import LIMITS
+        from core.llm.types import CallPoint
+
+        assert LIMITS[CallPoint.ENTITY_RESOLVER] == 3000
+
+
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Unit tests for EntityResolver in knowledge module."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from core.models.shared import EntityView
+
+
+class TestBatchTargetValidation:
+    """H3：决策 target_neo4j_id 必须来自候选集（防幻觉 id）."""
+
+    @pytest.fixture
+    def mock_entity_repo(self):
+        repo = MagicMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        repo.merge_entity = AsyncMock(return_value="merged-id")
+        repo.add_alias = AsyncMock()
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
+        repo.create_entity = AsyncMock(return_value="new-id")
+        return repo
+
+    @pytest.fixture
+    def mock_vector_repo(self):
+        repo = MagicMock()
+        repo.find_similar_entities = AsyncMock(return_value=[])
+        repo.upsert_entity_vector = AsyncMock()
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_invalid_target_id_falls_back_to_create(self, mock_entity_repo, mock_vector_repo):
+        """幻觉 target_neo4j_id（不在候选集）→ 拒绝合并走创建."""
+        from modules.knowledge.graph.entity_resolver import (
+            EntityBatchDecision,
+            EntityBatchDedupOutput,
+            EntityResolver,
+        )
+
+        sim = MagicMock()
+        sim.neo4j_id = "real-cand-id"
+        sim.similarity = 0.9
+        mock_vector_repo.find_similar_entities = AsyncMock(return_value=[sim])
+        ent = MagicMock()
+        ent.id = "real-cand-id"
+        ent.canonical_name = "Known Entity"
+        ent.type = "PERSON"
+        mock_entity_repo.find_entities_by_ids = AsyncMock(return_value=[ent])
+
+        llm = MagicMock()
+        llm.call_at = AsyncMock(
+            return_value=EntityBatchDedupOutput(
+                decisions=[
+                    EntityBatchDecision(
+                        entity_index=0,
+                        should_merge=True,
+                        target_neo4j_id="hallucinated-id",
+                        target_canonical_name="Ghost",
+                        confidence=0.99,
+                    )
+                ]
+            )
+        )
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        results = await resolver.resolve_entities_batch(
+            entities=[{"name": "New Entity", "type": "PERSON", "embedding": [0.1] * 8}]
+        )
+
+        assert results[0]["match_type"] != "llm_dedup"
+        # 无效目标被拒后走创建路径（_create_entity 内部用 merge_entity 做 upsert）
+
+    @pytest.mark.asyncio
+    async def test_single_entity_path_uses_batch_contract(self, mock_entity_repo, mock_vector_repo):
+        """单实体 resolve_entity 第 6 步委托批量契约（H2 修复锁定）."""
+        from modules.knowledge.graph.entity_resolver import (
+            EntityBatchDecision,
+            EntityBatchDedupOutput,
+            EntityResolver,
+        )
+
+        sim = MagicMock()
+        sim.neo4j_id = "cand-9"
+        sim.similarity = 0.9
+        mock_vector_repo.find_similar_entities = AsyncMock(return_value=[sim])
+        ent = MagicMock()
+        ent.id = "cand-9"
+        ent.canonical_name = "Known Entity"
+        ent.type = "PERSON"
+        mock_entity_repo.find_entities_by_ids = AsyncMock(return_value=[ent])
+
+        llm = MagicMock()
+        llm.call_at = AsyncMock(
+            return_value=EntityBatchDedupOutput(
+                decisions=[
+                    EntityBatchDecision(
+                        entity_index=0,
+                        should_merge=True,
+                        target_neo4j_id="cand-9",
+                        target_canonical_name="Known Entity",
+                        confidence=0.9,
+                    )
+                ]
+            )
+        )
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=llm,
+        )
+
+        result = await resolver.resolve_entity(
+            name="New Entity", entity_type="PERSON", embedding=[0.1] * 8
+        )
+
+        assert result["match_type"] == "llm_dedup"
+        # payload 为批量契约形态（entities 列表）
+        payload = llm.call_at.await_args.args[1]
+        assert "entities" in payload
+
+
+class TestBatchRetrievalConcurrency:
+    """Phase A retrieval is bounded-concurrent with order preserved."""
+
+    @pytest.fixture
+    def mock_entity_repo(self):
+        repo = MagicMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        repo.merge_entity = AsyncMock(return_value="neo4j-id-123")
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
+        return repo
+
+    @pytest.fixture
+    def mock_vector_repo(self):
+        repo = MagicMock()
+        repo.find_similar_entities = AsyncMock(return_value=[])
+        repo.upsert_entity_vector = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def resolver(self, mock_entity_repo, mock_vector_repo):
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        return EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+    @pytest.mark.asyncio
+    async def test_retrieval_concurrent_bounded_and_ordered(
+        self, resolver, mock_entity_repo, mock_vector_repo
+    ):
+        import asyncio
+        from unittest.mock import patch
+
+        inflight = 0
+        max_inflight = 0
+
+        async def slow_exact(name, normalized, entity_type):
+            nonlocal inflight, max_inflight
+            inflight += 1
+            max_inflight = max(max_inflight, inflight)
+            await asyncio.sleep(0.02)
+            inflight -= 1
+            return
+
+        mock_vector_repo.find_similar_entities = AsyncMock(return_value=[])
+
+        entities = [
+            {"name": f"Entity{i}", "type": "PERSON", "embedding": [0.1] * 1536} for i in range(20)
+        ]
+        with patch.object(resolver, "_try_exact_match", new=slow_exact):
+            results = await resolver.resolve_entities_batch(entities)
+
+        assert len(results) == 20
+        names = [r.get("canonical_name") for r in results]
+        assert names == [f"Entity{i}" for i in range(20)], "result order must match input"
+        assert max_inflight > 1, "retrieval still fully serial"
+        assert max_inflight <= 8, "retrieval exceeds concurrency bound"
+
+    @pytest.mark.asyncio
+    async def test_exact_match_short_circuits_vector_lookup(
+        self, resolver, mock_entity_repo, mock_vector_repo
+    ):
+        mock_entity_repo.find_entity = AsyncMock(return_value=None)
+        existing = {"name": "Known", "neo4j_id": "id-1"}
+        from unittest.mock import patch
+
+        with (
+            patch.object(
+                resolver, "_try_exact_match", new=AsyncMock(return_value=existing)
+            ) as mock_exact,
+            patch.object(resolver, "_find_similar_candidates", new=AsyncMock()) as mock_similar,
+        ):
+            results = await resolver.resolve_entities_batch(
+                [{"name": "Known", "type": "PERSON", "embedding": [0.1] * 1536}]
+            )
+
+        mock_exact.assert_awaited_once()
+        mock_similar.assert_not_awaited()
+        assert results[0] == existing
+
+
+class TestEntityRepoRequired:
+    """Regression: entity_repo=None must fail fast in __init__ instead of
+    raising AttributeError at first resolution."""
+
+    def test_none_entity_repo_raises_immediately(self):
+        from unittest.mock import MagicMock
+
+        import pytest
+
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        with pytest.raises(ValueError, match="entity_repo is required"):
+            EntityResolver(
+                entity_repo=None,
+                vector_repo=MagicMock(),
+            )
+
+
+class TestConstraintErrorWrapped:
+    """Regression: constraint errors wrapped by drivers must be detected."""
+
+    def test_wrapped_cause_chain_detected(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        class ConstraintError(Exception):
+            pass
+
+        class SessionExecutionError(Exception):
+            pass
+
+        inner = ConstraintError("duplicate key")
+        wrapped = SessionExecutionError("query failed")
+        wrapped.__cause__ = inner
+
+        assert _is_constraint_error(wrapped) is True
+
+    def test_wrapped_context_chain_detected(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        class ConstraintError(Exception):
+            pass
+
+        class WrapperError(Exception):
+            pass
+
+        try:
+            try:
+                raise ConstraintError("dup")
+            except ConstraintError as inner:
+                raise WrapperError("outer") from inner
+        except WrapperError as exc:
+            wrapped = exc
+
+        assert _is_constraint_error(wrapped) is True
+
+    def test_plain_exception_not_matched(self):
+        from modules.knowledge.graph.entity_resolver import _is_constraint_error
+
+        assert _is_constraint_error(ValueError("unrelated")) is False
+
+
+class TestCreateEntityRetryExhaustion:
+    """Regression for #199: retry exhaustion re-raises the concrete error."""
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries_reraise_constraint_error(self):
+        """With reraise=True the ConstraintError surfaces, not a RuntimeError."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        class FakeConstraintError(Exception):
+            pass
+
+        mock_entity_repo = MagicMock()
+        mock_entity_repo.merge_entity = AsyncMock(side_effect=FakeConstraintError("duplicate"))
+        mock_entity_repo.find_entity = AsyncMock(return_value=None)
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.upsert_entity_vector = AsyncMock()
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        with (
+            patch(
+                "modules.knowledge.graph.entity_resolver._is_constraint_error",
+                return_value=True,
+            ),
+            patch(
+                "modules.knowledge.graph.entity_resolver.ConstraintError",
+                FakeConstraintError,
+            ),
+        ):
+            with pytest.raises(FakeConstraintError):
+                await resolver._create_entity(
+                    name="TestEntity",
+                    entity_type="PERSON",
+                    embedding=[0.1] * 10,
+                    description=None,
+                    is_new=True,
+                    match_type="new",
+                    confidence=1.0,
+                )
+
+        assert mock_entity_repo.merge_entity.await_count == 3
+
+
+class TestGetResolutionStats:
+    """Regression for #200: stats come from the rules' own public method."""
+
+    def test_stats_match_rule_counts(self):
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=MagicMock(),
+            vector_repo=MagicMock(),
+        )
+
+        stats = resolver.get_resolution_stats()
+
+        assert stats == resolver._rules.get_rule_counts()
+        assert set(stats) == {
+            "known_aliases",
+            "abbreviations",
+            "translations",
+            "rules_count",
+        }

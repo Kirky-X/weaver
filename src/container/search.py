@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Search engine initialization for the container."""
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ class ContainerSearchMixin:
                 graph_pool=graph_pool,
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
+                similarity_threshold=self._settings.search.community_similarity_threshold,
             )
         else:
             # Neo4j (default)
@@ -73,6 +74,7 @@ class ContainerSearchMixin:
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
                 article_repo=self.article_repo(),
+                similarity_threshold=self._settings.search.community_similarity_threshold,
             )
 
         if self._local_search_engine is None:
@@ -110,6 +112,10 @@ class ContainerSearchMixin:
         log = get_logger(__name__)
 
         if self._hybrid_engine is None:
+            # vector_repo() raises RuntimeError before init_strategy(); stay
+            # consistent with local/global getters and degrade to None.
+            if self._strategy is None:
+                return None
             # Trigger vector_repo lazy load
             self.vector_repo()
             if self._vector_repo is None:
@@ -150,29 +156,51 @@ class ContainerSearchMixin:
                 bm25_retriever=bm25_retriever,
                 reranker=reranker,
                 mmr_reranker=mmr_reranker,
-                config=HybridSearchConfig(),
+                config=HybridSearchConfig(
+                    hybrid_enabled=self._settings.search.hybrid_enabled,
+                    rerank_enabled=self._settings.search.rerank_enabled,
+                    rerank_model=self._settings.search.rerank_model,
+                    mmr_enabled=self._settings.search.mmr_enabled,
+                    mmr_lambda=self._settings.search.mmr_lambda,
+                    mmr_similarity_mode=self._settings.search.mmr_similarity_mode,
+                    similarity_threshold=self._settings.search.similarity_threshold,
+                    temporal_decay_enabled=self._settings.search.temporal_decay_enabled,
+                    temporal_decay_half_life_days=self._settings.search.temporal_decay_half_life_days,
+                ),
             )
         return self._hybrid_engine
 
-    async def _init_bm25_index(self) -> None:
-        """Initialize BM25 index service and build index if needed."""
+    async def _init_bm25_index(self) -> Any:
+        """Initialize BM25 index service and build index if needed.
+
+        Returns:
+            The initialized service instance, or None when unavailable
+            (hybrid engine absent / init failure) — scheduler job provider
+            依赖该返回值判定是否可执行增量重建。
+
+        """
         from core.observability import get_logger
         from modules.knowledge.search.retrievers.bm25_index_service import BM25IndexService
 
         log = get_logger(__name__)
 
         if self._bm25_index_service is not None:
-            return
+            return self._bm25_index_service
 
         try:
             # Trigger hybrid engine initialization (lazy load)
             hybrid_engine = self.hybrid_search_engine()
-            bm25_retriever = hybrid_engine._bm25_retriever if hybrid_engine else None
+            bm25_retriever = hybrid_engine.bm25_retriever if hybrid_engine else None
 
             if bm25_retriever is not None:
+                try:
+                    cache_client = self.cache_client()
+                except Exception:
+                    cache_client = None
                 self._bm25_index_service = BM25IndexService(
                     relational_pool=self.relational_pool(),
                     bm25_retriever=bm25_retriever,
+                    cache_client=cache_client,
                 )
 
                 # Build index on startup if empty
@@ -184,3 +212,4 @@ class ContainerSearchMixin:
                         log.info("bm25_index_build_skipped_no_articles")
         except Exception as e:
             log.error("bm25_index_init_failed", error=str(e), exc_info=True)
+        return self._bm25_index_service

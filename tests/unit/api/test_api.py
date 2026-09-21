@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for API endpoints."""
 
 import asyncio
@@ -12,6 +12,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from core.exceptions import BusinessError
+
 
 class TestAuthMiddleware:
     """Tests for authentication middleware."""
@@ -21,10 +23,10 @@ class TestAuthMiddleware:
         """Test verify_api_key raises 401 when key is missing."""
         from api.middleware.auth import verify_api_key
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await verify_api_key(key=None)
         assert exc_info.value.status_code == 401
-        assert "Missing API key" in exc_info.value.detail
+        assert "Missing API key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_api_key_invalid(self, mock_settings):
@@ -34,10 +36,10 @@ class TestAuthMiddleware:
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BusinessError) as exc_info:
                 await verify_api_key(key="invalid-api-key-1234567890123456")
             assert exc_info.value.status_code == 403
-            assert "Invalid API Key" in exc_info.value.detail
+            assert "Invalid API Key" in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_verify_api_key_valid(self, mock_settings):
@@ -141,15 +143,19 @@ class TestSourcesEndpoint:
         mock_config.tier = None
         mock_config.last_crawl_time = None
         mock_repo.list_sources = AsyncMock(return_value=[mock_config])
+        mock_repo.count_sources = AsyncMock(return_value=1)
 
         with patch("api.endpoints.content.sources.get_source_config_repo", return_value=mock_repo):
             result = await list_sources(
                 enabled_only=True,
+                page=1,
+                page_size=50,
                 _="test-key",
                 repo=mock_repo,
             )
-            assert len(result.data) == 1
-            assert result.data[0].id == "source-1"
+            assert result.data.total == 1
+            assert len(result.data.items) == 1
+            assert result.data.items[0].id == "source-1"
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
@@ -160,10 +166,10 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
-        # Mock scheduler with registry
+        # Mock scheduler public API (endpoints no longer touch _registry)
         mock_scheduler = MagicMock()
-        mock_scheduler._registry = MagicMock()
-        mock_scheduler._registry.add_source = MagicMock()
+        mock_scheduler.register_source = MagicMock()
+        mock_scheduler.schedule_source = MagicMock()
 
         # Mock fetcher for feed validation
         valid_rss = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -195,7 +201,8 @@ class TestSourcesEndpoint:
         )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
-        mock_scheduler._registry.add_source.assert_called_once()
+        mock_scheduler.register_source.assert_called_once()
+        mock_scheduler.schedule_source.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
@@ -211,7 +218,7 @@ class TestSourcesEndpoint:
             url="https://existing.com/feed.xml",
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await create_source(
                 request=request,
                 _="test-key",
@@ -247,6 +254,7 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
+            scheduler=MagicMock(),
         )
         assert mock_existing.name == "New Name"
         assert mock_existing.enabled is False
@@ -262,7 +270,7 @@ class TestSourcesEndpoint:
 
         request = SourceUpdateRequest(name="New Name")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await update_source(
                 source_id="missing-source",
                 request=request,
@@ -284,6 +292,7 @@ class TestSourcesEndpoint:
             source_id="source-1",
             _="test-key",
             repo=mock_repo,
+            scheduler=MagicMock(),
         )
         mock_repo.delete.assert_called_once_with("source-1")
 
@@ -296,7 +305,7 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.delete = AsyncMock(return_value=False)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await delete_source(
                 source_id="missing-source",
                 _="test-key",
@@ -737,19 +746,11 @@ class TestArticlesEndpoint:
             side_effect=[mock_count_result, mock_articles_result]
         )
 
-        from unittest.mock import MagicMock as ReqMock
-
-        from starlette.requests import Request
-
-        mock_request = ReqMock(spec=Request)
-        mock_request.client = ReqMock()
-        mock_request.client.host = "127.0.0.1"
-
         result = await list_articles(
-            request=mock_request,
             page=1,
             page_size=20,
             category=None,
+            language=None,
             source_host=None,
             min_score=None,
             min_credibility=None,
@@ -837,7 +838,7 @@ class TestArticlesEndpoint:
         mock_pool = create_mock_relational_pool()
         mock_pool.session().execute.return_value = mock_result
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BusinessError) as exc_info:
             await get_article(
                 request=MagicMock(),
                 article_id="12345678-1234-5678-1234-567812345678",
@@ -1133,6 +1134,7 @@ class TestAdminEndpoint:
         mock_authority = MagicMock()
         mock_authority.authority = 0.7
         mock_authority.tier = 2
+        mock_authority.description = "existing description"
 
         mock_repo = MagicMock()
         mock_repo.get = AsyncMock(return_value=mock_authority)
@@ -1199,38 +1201,42 @@ class TestSystemConfigEndpoint:
 
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
-        """Reset Endpoints state before and after each test."""
-        from api.endpoints.deps_registry import Endpoints
+        """Reset container state before and after each test."""
+        from container import reset_container
 
         # Reset before test
-        Endpoints.reset()
+        reset_container()
 
         yield
 
         # Reset after test
-        Endpoints.reset()
+        reset_container()
 
     def test_config_endpoint_calls_correct_methods(self):
-        """Test that system_config uses existing Endpoints methods (not broken ones)."""
-        from api.endpoints.deps_registry import Endpoints
+        """Test that system_config uses existing api.dependencies getters (not broken ones)."""
+        import api.dependencies
 
-        # Verify the correct methods exist (these are what main.py should call)
-        assert hasattr(Endpoints, "get_llm_client")
-        assert hasattr(Endpoints, "get_local_search_engine")
-        assert hasattr(Endpoints, "get_graph_pool_optional")
-        assert hasattr(Endpoints, "get_relational_type")
-        assert hasattr(Endpoints, "get_graph_type")
+        # Verify the correct getters exist (these are what main.py should call)
+        assert hasattr(api.dependencies, "get_llm_client")
+        assert hasattr(api.dependencies, "get_local_search_engine")
+        assert hasattr(api.dependencies, "get_graph_pool_optional")
+        assert hasattr(api.dependencies, "get_relational_type")
+        assert hasattr(api.dependencies, "get_graph_type")
 
     def test_config_endpoint_methods_return_expected_types(self):
-        """Test that Endpoints getter methods return correct types when uninitialized."""
-        from api.endpoints.deps_registry import Endpoints
+        """Test that dependency getters return correct types when uninitialized."""
+        from api.dependencies import get_container, get_graph_type, get_relational_type
 
         # Type getters should always work even when pools are None
         # When container is not set, get_relational_type returns "unknown"
         # and get_graph_type returns "unknown"
         try:
-            assert Endpoints.get_relational_type() in ("postgres", "duckdb", "unknown")
-            assert Endpoints.get_graph_type() in ("neo4j", "ladybug", "unknown")
+            assert get_relational_type(container=get_container()) in (
+                "postgres",
+                "duckdb",
+                "unknown",
+            )
+            assert get_graph_type(container=get_container()) in ("neo4j", "ladybug", "unknown")
         except Exception:
             # If container is not set, the dependency will raise HTTPException(503)
             # which is acceptable behavior for uninitialized state

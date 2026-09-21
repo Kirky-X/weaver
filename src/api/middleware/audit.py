@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""Audit logging middleware for admin and write endpoints.
-
-Implements: Weaver-数据库设计文档 §12.3
-"""
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""Audit logging middleware for admin and write endpoints."""
 
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.utils.client_ip import get_client_ip
 from core.observability import get_logger
 
 if TYPE_CHECKING:
@@ -79,8 +78,6 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
     Logs requests to admin endpoints (all methods) and write operations
     (POST/PUT/DELETE/PATCH) on configured paths to the audit_log table
     for security monitoring and compliance.
-
-    Implements: Weaver-数据库设计文档 §12.3
 
     Args:
         app: ASGI application.
@@ -171,7 +168,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         """
         try:
             # Extract client IP
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = get_client_ip(request)
 
             # Extract action from method and path
             action = f"{request.method}:{request.url.path}"
@@ -192,7 +189,10 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             if not key_id:
                 auth_header = request.headers.get("Authorization", "")
                 if auth_header.startswith("Bearer "):
-                    key_id = auth_header[7:15] + "..."
+                    #: store an irreversible fingerprint instead of
+                    # the token prefix, which is guessable/correlatable.
+                    token = auth_header[7:]
+                    key_id = "bearer:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]
                 else:
                     key_id = "anonymous"
 

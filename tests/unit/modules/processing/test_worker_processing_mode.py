@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for PipelineWorker processing_mode wiring — D2 dead code fix.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED test for PipelineWorker processing_mode wiring — dead code fix.
 
 ``process_batch_fast`` exists in Pipeline but is never called by
 PipelineWorker, making the fast mode dead code. This test asserts
 that when ``processing_mode="fast"``, the worker dispatches to
 ``process_batch_fast`` instead of ``process_batch``.
-
-See ``temp/report.md`` D2 (fast 模式死代码) and specmark change
-``fix-pipeline-deadcode-perf`` T015-T016.
 """
 
 from __future__ import annotations
@@ -59,7 +56,7 @@ def mock_settings() -> MagicMock:
 
 
 class TestPipelineWorkerProcessingMode:
-    """Tests for processing_mode dispatch (D2 fix)."""
+    """Tests for processing_mode dispatch (fix)."""
 
     @pytest.mark.asyncio
     async def test_fast_mode_calls_process_batch_fast(

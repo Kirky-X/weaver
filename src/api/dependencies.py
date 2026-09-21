@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """FastAPI dependency injection module.
 
 This module provides FastAPI-compatible dependency functions for all services.
@@ -21,7 +21,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, HTTPException
 
@@ -66,8 +66,8 @@ def get_container() -> Container:
 
     try:
         return _get_container()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Service not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Service not initialized") from _exc
 
 
 # ── Pool Dependencies (Protocol Types) ─────────────────────────────────
@@ -89,8 +89,8 @@ def get_relational_pool(
     """
     try:
         return container.relational_pool()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Relational pool not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Relational pool not initialized") from _exc
 
 
 def get_graph_pool(
@@ -184,8 +184,8 @@ def get_cache_client(
     """
     try:
         return container.cache_client()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Cache pool not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Cache pool not initialized") from _exc
 
 
 # ── Service Dependencies ──────────────────────────────────────────────
@@ -223,8 +223,8 @@ def get_vector_repo(
     """
     try:
         return container.vector_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Vector store not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Vector store not initialized") from _exc
 
 
 def get_graph_repo(
@@ -241,8 +241,8 @@ def get_graph_repo(
     """
     try:
         return container.graph_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Graph repository not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Graph repository not initialized") from _exc
 
 
 def get_local_search_engine(
@@ -313,8 +313,8 @@ def get_source_scheduler(
     """
     try:
         return container.source_scheduler()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source scheduler not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Source scheduler not initialized") from _exc
 
 
 def get_smart_fetcher(
@@ -331,8 +331,8 @@ def get_smart_fetcher(
     """
     try:
         return container.smart_fetcher()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Smart fetcher not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Smart fetcher not initialized") from _exc
 
 
 def get_source_config_repo(
@@ -349,8 +349,10 @@ def get_source_config_repo(
     """
     try:
         return container.source_config_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source config repository not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(
+            status_code=503, detail="Source config repository not initialized"
+        ) from _exc
 
 
 def get_source_authority_repo(
@@ -367,8 +369,10 @@ def get_source_authority_repo(
     """
     try:
         return container.source_authority_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Source authority repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(
+            status_code=503, detail="Source authority repo not initialized"
+        ) from _exc
 
 
 def get_llm_failure_repo(
@@ -385,8 +389,8 @@ def get_llm_failure_repo(
     """
     try:
         return container.llm_failure_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="LLM failure repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="LLM failure repo not initialized") from _exc
 
 
 def get_llm_usage_repo(
@@ -403,8 +407,8 @@ def get_llm_usage_repo(
     """
     try:
         return container.llm_usage_repo()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="LLM usage repo not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="LLM usage repo not initialized") from _exc
 
 
 def get_saga_orchestrator(
@@ -421,8 +425,8 @@ def get_saga_orchestrator(
     """
     try:
         return container.saga_orchestrator()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Saga orchestrator not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Saga orchestrator not initialized") from _exc
 
 
 def get_pipeline_service(
@@ -439,8 +443,8 @@ def get_pipeline_service(
     """
     try:
         return container.pipeline_service()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Pipeline service not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Pipeline service not initialized") from _exc
 
 
 def get_bing_searcher(
@@ -464,8 +468,8 @@ def get_bing_searcher(
     """
     try:
         return container.bing_searcher()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Bing searcher not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Bing searcher not initialized") from _exc
 
 
 def get_task_registry(
@@ -482,8 +486,8 @@ def get_task_registry(
     """
     try:
         return container.task_registry()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Task registry not initialized")
+    except RuntimeError as _exc:
+        raise HTTPException(status_code=503, detail="Task registry not initialized") from _exc
 
 
 def get_embedding_service(
@@ -498,10 +502,10 @@ def get_embedding_service(
         EmbeddingServiceProtocol instance.
 
     """
-    service = getattr(container, "_embedding_service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Embedding service not initialized")
-    return service
+    try:
+        return container.embedding_service()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Embedding service not initialized") from exc
 
 
 def get_intent_classifier(
@@ -516,10 +520,10 @@ def get_intent_classifier(
         Intent classifier instance.
 
     """
-    service = getattr(container, "_intent_classifier", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Intent classifier not initialized")
-    return service
+    try:
+        return container.intent_classifier()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Intent classifier not initialized") from exc
 
 
 # ── Optional Getters (return None instead of raising) ─────────────────
@@ -584,28 +588,17 @@ def get_embedding_service_optional(
     container: Container = Depends(get_container),
 ) -> EmbeddingServiceProtocol | None:
     """Get embedding service or None if not initialized."""
-    return getattr(container, "_embedding_service", None)
+    try:
+        return container.embedding_service()
+    except RuntimeError:
+        return None
 
 
 def get_intent_classifier_optional(
     container: Container = Depends(get_container),
 ) -> Any:
     """Get intent classifier or None if not initialized."""
-    return getattr(container, "_intent_classifier", None)
-
-
-# ── Type Aliases for Cleaner Signatures ────────────────────────────────
-
-RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
-GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
-LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
-VectorRepoDep = Annotated["VectorRepository", Depends(get_vector_repo)]
-GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]
-LocalSearchEngineDep = Annotated["LocalSearchEngine", Depends(get_local_search_engine)]
-GlobalSearchEngineDep = Annotated["GlobalSearchEngine", Depends(get_global_search_engine)]
-HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_engine)]
-SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
-SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
-SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]
-LLMUsageRepoDep = Annotated["LLMUsageRepo", Depends(get_llm_usage_repo)]
+    try:
+        return container.intent_classifier()
+    except RuntimeError:
+        return None

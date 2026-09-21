@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """LiteLLM unified caller for all LLM operations."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -15,7 +17,7 @@ from litellm import acompletion, aembedding, arerank
 from litellm.utils import token_counter
 from openai import AsyncOpenAI
 
-from core.llm.types import CacheUsage, Label, LLMResponse, LLMType, TokenUsage
+from core.llm.types import DEFAULT_LLM_TIMEOUT, CacheUsage, Label, LLMResponse, LLMType, TokenUsage
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -121,6 +123,19 @@ class LiteLLMCaller:
     提供统一的chat、embedding、rerank调用接口.
     """
 
+    # Default cap on cached rerank clients (endpoint credential pairs) —
+    # FIFO eviction keeps memory and sockets bounded under key rotation.
+    # Overridable via llm.toml [global].rerank_client_cap.
+    _RERANK_CLIENT_CAP = 32
+
+    def __init__(self, client_cap: int = _RERANK_CLIENT_CAP) -> None:
+        self._client_cap = client_cap
+        # (api_base, api_key) -> AsyncOpenAI client for custom rerank posts.
+        self._rerank_clients: dict[tuple[str, str], AsyncOpenAI] = {}
+        # Guards the check-then-act on _rerank_clients so concurrent first
+        # calls for the same credential build exactly one client.
+        self._rerank_clients_lock = asyncio.Lock()
+
     @staticmethod
     def _build_model_name(provider_type: str, model_id: str) -> str:
         """构建LiteLLM格式的模型名称.
@@ -145,8 +160,8 @@ class LiteLLMCaller:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         think: bool | None = None,
-        response_format: str | None = None,
-        timeout: float = 120.0,
+        response_format: str | dict[str, Any] | None = None,
+        timeout: float = DEFAULT_LLM_TIMEOUT,
     ) -> LLMResponse:
         """执行chat调用.
 
@@ -160,7 +175,9 @@ class LiteLLMCaller:
             temperature: 采样温度
             max_tokens: 最大token数
             think: 是否启用思考模式(None=不传递,由模型默认)
-            response_format: 响应格式("json" for Ollama JSON mode)
+            response_format: 响应格式约束。字符串 "json" 启用 OpenAI 兼容
+                JSON mode；dict 表示 JSON Schema —— 以指令形式注入
+                user_content（provider 无关，SchemaNode 校验闭环依赖它）。
             timeout: 超时时间
 
         Returns:
@@ -191,13 +208,29 @@ class LiteLLMCaller:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
 
-        # Ollama JSON mode via OpenAI-compatible response_format
-        if response_format == "json":
+        if isinstance(response_format, str) and response_format == "json":
+            # Ollama JSON mode via OpenAI-compatible response_format
             kwargs["response_format"] = {"type": "json_object"}
             log.debug(
                 "json_mode_enabled", provider_type=provider_type, model=model, max_tokens=max_tokens
             )
-            kwargs["max_tokens"] = max_tokens
+        elif isinstance(response_format, dict):
+            # JSON Schema constraint: inject it as an explicit instruction so
+            # providers without response_format support still receive it.
+            # The schema-validation retry lives in
+            # LLMClient.structured_call.
+            schema_instruction = (
+                "\n\n你的输出必须是符合以下 JSON Schema 的单个 JSON 对象，"
+                "不得包含任何解释文字或额外字段：\n"
+                f"{json.dumps(response_format, ensure_ascii=False)}"
+            )
+            messages[1]["content"] += schema_instruction
+            log.debug(
+                "json_schema_injected",
+                provider_type=provider_type,
+                model=model,
+                schema_keys=sorted(response_format.keys()),
+            )
 
         try:
             response = await acompletion(**kwargs)
@@ -420,7 +453,10 @@ class LiteLLMCaller:
         Returns:
             LLM响应，content为rerank结果列表
         """
-        top_n = top_n or len(documents)
+        # Only treat None as "not provided" so an explicit top_n=0 keeps
+        # its literal meaning instead of silently meaning "all documents".
+        if top_n is None:
+            top_n = len(documents)
         start_time = time.monotonic()
 
         try:
@@ -457,7 +493,9 @@ class LiteLLMCaller:
             # Rerank API 不返回 token usage, 使用 token_counter 估算
             all_text = query + " " + " ".join(documents)
             try:
-                estimated_tokens = token_counter(text=all_text)
+                # Pass the model so LiteLLM picks the matching tokenizer
+                # instead of an arbitrary default.
+                estimated_tokens = token_counter(text=all_text, model=label.model)
             except Exception:
                 # token_counter 可能因模型不支持而失败, 使用简单估算
                 log.warning(
@@ -494,6 +532,38 @@ class LiteLLMCaller:
             log.error("rerank_call_failed", provider_type=provider_type, error=str(exc))
             raise
 
+    async def _get_rerank_client(self, api_base: str, api_key: str, timeout: float) -> AsyncOpenAI:
+        """Return a cached AsyncOpenAI client for the endpoint credential pair.
+
+        Avoids a fresh TLS handshake per rerank call under load. The lock
+        serializes the check-then-act sequence; FIFO-evicted clients are
+        closed (outside the lock) to release their TLS connections.
+        """
+        cache_key = (api_base.rstrip("/"), api_key)
+        evicted: AsyncOpenAI | None = None
+        async with self._rerank_clients_lock:
+            client = self._rerank_clients.get(cache_key)
+            if client is None:
+                if len(self._rerank_clients) >= self._client_cap:
+                    oldest_key = next(iter(self._rerank_clients))
+                    evicted = self._rerank_clients.pop(oldest_key, None)
+                client = AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=cache_key[0],
+                    timeout=timeout,
+                )
+                self._rerank_clients[cache_key] = client
+        if evicted is not None:
+            try:
+                await evicted.close()
+            except Exception as exc:
+                log.warning(
+                    "rerank_client_close_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+        return client
+
     async def _rerank_openai_compatible(
         self,
         api_base: str,
@@ -524,12 +594,9 @@ class LiteLLMCaller:
         if not documents:
             return []
 
-        # 使用 OpenAI 库的 AsyncOpenAI 客户端
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=api_base.rstrip("/"),
-            timeout=timeout,
-        )
+        # Reuse a cached AsyncOpenAI client per endpoint credential pair to
+        # keep the HTTP connection (and TLS session) warm across calls.
+        client = await self._get_rerank_client(api_base, api_key, timeout)
 
         # 使用 client.post() 发送自定义请求
         response = await client.post(
@@ -562,7 +629,7 @@ class LiteLLMCaller:
         api_key: str,
         api_base: str,
         payload: dict[str, Any],
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_LLM_TIMEOUT,
     ) -> LLMResponse:
         """通用调用方法，根据label类型分发.
 

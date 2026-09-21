@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """GLiNER zero-shot entity extractor.
 
 Uses spaCy + GLiNER dual engine for entity extraction:
@@ -20,7 +20,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.constants import EntityType
+from core.llm.types import CallPoint
 from core.observability import get_logger
+from core.utils.paths import CONFIG_DIR
+from core.utils.toml_loader import load_toml_or_warn
 
 if __name__ != "__main__":
     from typing import TYPE_CHECKING
@@ -29,6 +33,43 @@ if __name__ != "__main__":
         from core.llm.client import LLMClient
 
 log = get_logger(__name__)
+
+ENTITY_TYPES_FILE = CONFIG_DIR / "entity_types.toml"
+
+
+def _gliner_config_data() -> dict[str, Any]:
+    """Load the [gliner] table from config/entity_types.toml once (cached).
+
+    Cached because GLiNERConfig labels and ``_normalize_type`` need it and the
+    file is static reference data; a plain module cache avoids re-reading the
+    TOML on every extractor call.
+    """
+    cached = getattr(_gliner_config_data, "_cache", None)
+    if cached is None:
+        cached = load_toml_or_warn(ENTITY_TYPES_FILE, event="entity_types_config").get("gliner", {})
+        _gliner_config_data._cache = cached  # type: ignore[attr-defined]
+    return cached
+
+
+def _gliner_default_labels() -> list[str]:
+    """Default GLiNER custom labels from config (validated against EntityType).
+
+    Unknown labels are dropped with a warning so a stale config cannot ask the
+    model for a type the downstream normalization does not understand.
+    """
+    allowed = {t.value for t in EntityType}
+    labels: list[str] = []
+    for label in _gliner_config_data().get("labels") or []:
+        if label not in allowed:
+            log.warning("gliner_label_not_entity_type", label=label)
+            continue
+        labels.append(str(label))
+    return labels
+
+
+def _gliner_type_map() -> dict[str, str]:
+    """Load GLiNER/spaCy label → internal code map from config (loaded once)."""
+    return {str(k): str(v) for k, v in (_gliner_config_data().get("type_map") or {}).items()}
 
 
 @dataclass
@@ -47,9 +88,7 @@ class GLiNERConfig:
     model_name: str = "urchade/gliner_multi-v2.1"
     threshold: float = 0.5
     max_input_length: int = 4096
-    labels: list[str] = field(
-        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品与技术"]
-    )
+    labels: list[str] = field(default_factory=_gliner_default_labels)
 
 
 class GLiNERExtractor:
@@ -93,7 +132,7 @@ class GLiNERExtractor:
 
         Uses double-checked locking so concurrent first calls (via
         asyncio.to_thread) only load the model once. On failure, leaves
-        _initialized=False to allow retry on subsequent calls (Bug-D HIGH-002).
+        _initialized=False to allow retry on subsequent calls.
         """
         if self._initialized:
             return
@@ -193,10 +232,14 @@ class GLiNERExtractor:
 
     def _merge_entities(
         self,
-        spacy_entities: list[dict[str, Any]],
+        spacy_entities: list[Any],
         gliner_entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Merge spaCy and GLiNER entities, removing duplicates.
+
+        spaCy entities may be ``SpacyEntity`` dataclasses (with ``.name``/
+        ``.type`` attributes) or pre-converted dicts; both are normalized
+        to the dict contract used below.
 
         Args:
             spacy_entities: Entities from spaCy NER.
@@ -210,9 +253,18 @@ class GLiNERExtractor:
 
         # Add spaCy entities first (higher priority for standard types)
         for entity in spacy_entities:
-            key = entity["text"].lower().strip()
+            if isinstance(entity, dict):
+                item = dict(entity)
+            else:
+                # SpacyEntity dataclass has no .text/.confidence fields
+                item = {
+                    "text": getattr(entity, "name", ""),
+                    "type": getattr(entity, "type", ""),
+                    "confidence": 1.0,
+                }
+            key = item["text"].lower().strip()
             if key:
-                entity_map[key] = entity
+                entity_map[key] = item
 
         # Add GLiNER entities (skip duplicates, keep higher confidence)
         for entity in gliner_entities:
@@ -295,7 +347,7 @@ class GLiNERExtractor:
             return entity
 
         result = await self._llm_client.call_at(
-            "entity_refine",
+            CallPoint.ENTITY_REFINE,
             {
                 "entity": entity["text"],
                 "type": entity["type"],
@@ -303,11 +355,19 @@ class GLiNERExtractor:
             },
         )
 
-        # Update entity with refined data
-        if result.get("entities"):
+        # Update entity with refined data. Without output_model the LLM
+        # result may be a raw string or a dict missing "entities" — guard
+        # instead of raising AttributeError/KeyError.
+        if isinstance(result, dict) and result.get("entities"):
             refined = result["entities"][0]
-            entity["text"] = refined.get("text", entity["text"])
-            entity["confidence"] = refined.get("confidence", entity["confidence"])
+            if isinstance(refined, dict):
+                entity["text"] = refined.get("text", entity["text"])
+                entity["confidence"] = refined.get("confidence", entity["confidence"])
+        elif not isinstance(result, dict):
+            log.warning(
+                "entity_refine_unexpected_result",
+                result_type=type(result).__name__,
+            )
 
         return entity
 
@@ -320,17 +380,9 @@ class GLiNERExtractor:
         Returns:
             Normalized type string.
         """
-        type_map = {
-            "PERSON": "PERSON",
-            "ORG": "ORG",
-            "GPE": "GPE",
-            "LOC": "LOC",
-            "事件": "EVENT",
-            "数据指标": "METRIC",
-            "法规与政策": "POLICY",
-            "产品与技术": "PRODUCT",
-        }
-        return type_map.get(label, "OTHER")
+        # type_map is loaded once from config/entity_types.toml ([gliner.type_map])
+        # at first use and cached, instead of rebuilt on every call.
+        return _gliner_type_map().get(label, "OTHER")
 
     def _normalize_text(self, text: str | None) -> str:
         """Normalize entity text.

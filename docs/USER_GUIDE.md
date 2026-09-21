@@ -1,24 +1,40 @@
-# Weaver 用户指南
+# 📖 Weaver 用户指南
 
-本文档帮助您快速上手 Weaver，了解如何使用其功能来采集、处理和分析新闻数据。
+**Weaver** 是一个智能新闻采集、分析与知识图谱构建平台。本指南将带您从快速上手一路到进阶用法，帮助您掌握如何使用其功能来采集、处理和分析新闻数据。
 
-## 目录
+## 📋 目录
 
-- [快速开始](#快速开始)
-- [配置说明](#配置说明)
-- [基本概念](#基本概念)
-- [管理新闻源](#管理新闻源)
-- [运行 Pipeline](#运行-pipeline)
-- [搜索文章](#搜索文章)
-- [探索知识图谱](#探索知识图谱)
-- [监控和运维](#监控和运维)
-- [常见问题](#常见问题)
+<details open>
+<summary>📑 目录（点击展开）</summary>
+
+- [快速开始](#-快速开始)
+- [配置说明](#️-配置说明)
+- [基本概念](#-基本概念)
+- [管理新闻源](#-管理新闻源)
+- [运行 Pipeline](#-运行-pipeline)
+- [搜索文章](#-搜索文章)
+- [探索知识图谱](#-探索知识图谱)
+- [监控和运维](#️-监控和运维)
+- [常见问题](#-常见问题)
+
+</details>
 
 ---
 
-## 快速开始
+## 🚀 快速开始
 
-### 1. 启动服务
+本指南将带您掌握：
+
+| 内容 | 说明 |
+|:-----|:-----|
+| **快速开始** | 5 分钟完成环境搭建 |
+| **灵活配置** | 支持 TOML + 环境变量 |
+| **Pipeline** | 自动化新闻采集与处理 |
+| **搜索与图谱** | 多种搜索模式 + 知识图谱探索 |
+
+> 💡 **提示**：本指南假设您已完成安装。如果尚未安装，请先查看 [部署指南](DEPLOYMENT.md)。
+
+### 📌 启动服务
 
 Weaver 支持端口自动检测，当配置的端口被占用时会自动寻找可用端口：
 
@@ -36,7 +52,7 @@ uv run python -m src.main
 - 端口被占用时自动寻找可用端口（双向搜索）
 - 实际端口信息输出到日志
 - 当 `WEAVER_WRITE_PORT_ENV=true` 时,端口信息会写入 `.env.weaver` 文件
-- Docker 健康检查自动适配动态端口
+- Docker 健康检查读取 `WEAVER_API__PORT` 配置端口，容器内建议关闭 `port_auto_detect`
 
 **配置端口检测**：
 
@@ -57,7 +73,7 @@ port_auto_detect = false
 
 服务启动后，访问 `http://localhost:8000/health` 验证健康状态。
 
-### 2. 添加第一个新闻源
+### 📌 添加第一个新闻源
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/sources" \
@@ -75,7 +91,7 @@ curl -X POST "http://localhost:8000/api/v1/sources" \
   }'
 ```
 
-### 3. 触发 Pipeline
+### 📌 触发 Pipeline
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
@@ -87,7 +103,7 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
   }'
 ```
 
-### 4. 查询文章
+### 📌 查询文章
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=10" \
@@ -96,7 +112,7 @@ curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=10" \
 
 ---
 
-## 配置说明
+## ⚙️ 配置说明
 
 Weaver 使用统一的配置系统,支持 TOML 文件和环境变量。
 
@@ -192,41 +208,51 @@ rate_limit = "100/minute"
 crawl_interval_minutes = 30        # RSS 抓取间隔
 neo4j_retry_interval_minutes = 10  # Neo4j 写入重试间隔
 retry_flush_interval_seconds = 30  # 爬虫重试队列刷新间隔
+bm25_rebuild_interval_seconds = 300 # BM25 索引重建间隔(秒)
 ```
 
 **搜索增强**:
 
 ```toml
 [search]
-hybrid_enabled = true              # 启用混合搜索 (向量 + 关键词)
 rerank_enabled = true              # 启用重排序
 rerank_model = "tiny"             # Flashrank 模型 (tiny/small/medium/multilingual)
 mmr_enabled = false               # 启用 MMR 多样性
 mmr_lambda = 0.7                  # MMR 平衡参数 (0-1)
-bm25_rebuild_interval = 300       # BM25 索引重建间隔(秒)
-temporal_decay_enabled = true     # ✅ 启用时间衰减（默认开启）
-temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模式 90 天，因果模式 365 天
 ```
+
+> ⚠️ **注意**：混合检索开关与时间衰减（默认关闭，代码内置半衰期 30 天）等混合检索参数当前由代码内置配置，`[search]` 段暂无对应 TOML 键（未知键会被静默忽略）。BM25 索引重建间隔见上方 `[scheduler]` 段的 `bm25_rebuild_interval_seconds`。
 
 ---
 
-## 基本概念
+## 🧩 基本概念
 
 ### 系统架构
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  数据源      │────▶│  采集层      │────▶│  处理流水线  │
-│  (RSS/Web)  │     │  (Fetcher)  │     │  (Pipeline) │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                         ┌─────────────────────┼─────────────────────┐
-                         │                     │                     │
-                         ▼                     ▼                     ▼
-                  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-                  │ PostgreSQL  │      │   Neo4j     │      │   Redis     │
-                  │  (文章存储)  │      │ (知识图谱)   │      │ (缓存/队列)  │
-                  └─────────────┘      └─────────────┘      └─────────────┘
+```mermaid
+graph LR
+    subgraph Input ["数据源"]
+        RSS["RSS/Atom"]
+        Web["网页抓取"]
+    end
+
+    subgraph Core ["处理核心"]
+        Fetcher["采集层<br/>Fetcher"]
+        Pipeline["处理流水线<br/>Pipeline"]
+    end
+
+    subgraph Storage ["存储层"]
+        PG["PostgreSQL<br/>文章存储"]
+        Neo4j["Neo4j<br/>知识图谱"]
+        Redis["Redis<br/>缓存/队列"]
+    end
+
+    RSS --> Fetcher
+    Web --> Fetcher
+    Fetcher --> Pipeline
+    Pipeline --> PG
+    Pipeline --> Neo4j
+    Pipeline --> Redis
 ```
 
 ### 核心概念
@@ -242,7 +268,7 @@ temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模�
 
 ---
 
-## 管理新闻源
+## 📰 管理新闻源
 
 ### 添加 RSS 源
 
@@ -312,11 +338,22 @@ curl -X DELETE "http://localhost:8000/api/v1/sources/bbc-news" \
 
 ---
 
-## 运行 Pipeline
+## ⚡ 运行 Pipeline
 
 ### 触发 Pipeline
 
-Pipeline 会抓取并处理新闻文章。
+Pipeline 会抓取并处理新闻文章。处理流程如下：
+
+```mermaid
+graph LR
+    A["URL 抓取<br/>Fetcher"] --> B["内容解析<br/>Parser"]
+    B --> C["URL 安全检查<br/>SSRF/PhishTank"]
+    C --> D["去重检测<br/>Deduplicator"]
+    D --> E["NLP 处理<br/>spaCy 实体抽取"]
+    E --> F["LLM 分析<br/>分类/摘要/可信度"]
+    F --> G["知识图谱写入<br/>Neo4j"]
+    G --> H["向量索引<br/>PgVector"]
+```
 
 ```bash
 # 触发所有源的 Pipeline
@@ -437,11 +474,22 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
 
 ---
 
-## 搜索文章
+## 🔍 搜索文章
 
 ### 统一搜索端点
 
 使用统一搜索端点，系统采用 **Intent-Aware Routing** 自动识别查询意图并选择最优搜索策略：
+
+```mermaid
+graph TD
+    Q["用户查询"] --> R["意图分类器"]
+    R -->|"实体相关"| L["Local 模式<br/>实体邻里向量搜索"]
+    R -->|"宏观趋势"| G["Global 模式<br/>社区报告聚合搜索"]
+    R -->|"文章检索"| A["Articles 模式<br/>混合向量+BM25"]
+    R -->|"复杂多面"| D["DRIFT 模式<br/>迭代式深度搜索"]
+    R -->|"因果关系"| C["Causal 模式<br/>MAGMA 因果链遍历"]
+    R -->|"时间序列"| T["Temporal 模式<br/>时间线检索"]
+```
 
 ```bash
 # 本地搜索（默认）- 实体聚焦的图谱问答
@@ -452,8 +500,10 @@ curl -X GET "http://localhost:8000/api/v1/search?q=雷军是谁" \
 curl -X GET "http://localhost:8000/api/v1/search?q=中国经济&mode=global" \
   -H "X-API-Key: your-api-key"
 
-# 文章搜索 - 混合向量+关键词检索
-curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&threshold=0.7" \
+# 文章搜索 - 意图路由自动选中文章检索（混合向量+关键词检索）
+# mode 仅支持 local/global/auto；文章检索由 auto 意图路由触发，
+# threshold/limit/category/use_hybrid 等参数仅在选中文章检索时生效
+curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=auto&threshold=0.7" \
   -H "X-API-Key: your-api-key"
 ```
 
@@ -472,10 +522,10 @@ curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&th
 | `q`               | string  | 必填           | 搜索查询                                    |
 | `mode`            | string  | `auto`       | 搜索模式：local/global/auto                  |
 | `community_level` | int     | 0            | 社区层级（global 模式），范围 0-10                 |
-| `threshold`       | float   | 0.0          | 相似度阈值（articles 模式），范围 0.0-1.0           |
-| `limit`           | int     | 20           | 最大结果数（articles 模式），范围 1-100             |
-| `category`        | string  | null         | 类别过滤（articles 模式）                       |
-| `use_hybrid`      | boolean | true         | 使用混合搜索（articles 模式）                     |
+| `threshold`       | float   | 0.0          | 相似度阈值（文章检索意图），范围 0.0-1.0                |
+| `limit`           | int     | 20           | 最大结果数（文章检索意图），范围 1-100                  |
+| `category`        | string  | null         | 类别过滤（文章检索意图）                            |
+| `use_hybrid`      | boolean | true         | 使用混合搜索（文章检索意图）                          |
 | `global_mode`     | string  | `map_reduce` | Global 搜索模式：map_reduce 或 simple         |
 | `output_mode`     | string  | `context`    | 输出格式：context（原始片段）或 narrative（LLM 综合答案） |
 | `enrich_entities` | boolean | false        | 启用实体聚合以丰富结果                             |
@@ -585,7 +635,7 @@ curl -X GET "http://localhost:8000/api/v1/articles/{article_id}" \
 
 ---
 
-## 探索知识图谱
+## 🕸️ 探索知识图谱
 
 ### 查询实体
 
@@ -747,7 +797,7 @@ curl -X POST "http://localhost:8000/api/v1/admin/communities/health/repair" \
 
 ---
 
-## 监控和运维
+## 📊 监控和运维
 
 ### 健康检查
 
@@ -758,7 +808,9 @@ curl -X GET "http://localhost:8000/health"
 ### Prometheus 指标
 
 ```bash
-curl -X GET "http://localhost:8000/metrics"
+# 默认需要 API Key 认证（require_auth_for_metrics 默认开启）
+curl -X GET "http://localhost:8000/metrics" \
+  -H "X-API-Key: your-api-key"
 ```
 
 ### 配置 Prometheus
@@ -781,22 +833,20 @@ rate(http_requests_total[5m])
 # P95 请求延迟
 histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
 
-# 文章处理成功率
-sum(rate(articles_processed_total{status="success"}[1h]))
-/
-sum(rate(articles_processed_total[1h]))
+# 文章处理速率
+sum(rate(weaver_articles_processed_total[1h]))
 
 # 数据库连接池使用率
-db_connection_pool_checked_out{database="postgres"}
+db_pool_checked_out{pool="postgres"}
 /
-db_connection_pool_size{database="postgres"}
+db_pool_size{pool="postgres"}
 ```
 
 ---
 
-## 常见问题
+## ❓ 常见问题
 
-### Q: Pipeline 运行后没有看到文章？
+### ❓ Pipeline 运行后没有看到文章？
 
 **可能原因：**
 
@@ -824,7 +874,7 @@ curl "http://localhost:8000/api/v1/pipeline/queue/stats" \
 # 查看应用日志中的错误信息，特别是 spaCy 模型加载和 LLM 调用错误
 ```
 
-### Q: 搜索返回空结果？
+### ❓ 搜索返回空结果？
 
 **可能原因：**
 
@@ -838,10 +888,10 @@ curl "http://localhost:8000/api/v1/pipeline/queue/stats" \
 ```bash
 # 检查向量表
 # 在 PostgreSQL 中运行：
-SELECT COUNT(*) FROM article_embeddings;
+SELECT COUNT(*) FROM article_vectors;
 
-# 降低阈值重试
-curl "http://localhost:8000/api/v1/search?q=test&mode=local" \
+# 降低阈值重试（threshold 仅在文章检索意图生效，需搭配 auto 模式）
+curl "http://localhost:8000/api/v1/search?q=test&mode=auto&threshold=0.3" \
   -H "X-API-Key: your-api-key"
 
 # 尝试 auto 模式（基于意图路由）
@@ -849,7 +899,7 @@ curl "http://localhost:8000/api/v1/search?q=test" \
   -H "X-API-Key: your-api-key"
 ```
 
-### Q: Neo4j 连接失败？
+### ❓ Neo4j 连接失败？
 
 **排查步骤：**
 
@@ -860,11 +910,15 @@ curl "http://localhost:8000/api/v1/search?q=test" \
 
 ```bash
 # 测试 Neo4j 连接
-curl "http://localhost:8000/health"
+# 根 /health 出于安全考虑只返回整体状态，依赖明细需调用鉴权端点
+# 基础明细（普通 API Key）：/api/v1/health/dependencies
+# 完整明细（Admin API Key，含 LLM/spaCy/BM25）：/api/v1/system/health/dependencies
+curl "http://localhost:8000/api/v1/system/health/dependencies" \
+  -H "X-API-Key: your-admin-api-key"
 # 查看响应中的 neo4j 状态
 ```
 
-### Q: 如何处理重复文章？
+### ❓ 如何处理重复文章？
 
 Weaver 自动处理重复文章：
 
@@ -883,7 +937,7 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
   }'
 ```
 
-### Q: 如何添加自定义实体类型？
+### ❓ 如何添加自定义实体类型？
 
 Weaver 的实体类型由 LLM 提示词和 spaCy 模型决定。你可以通过以下方式影响实体提取：
 
@@ -907,12 +961,12 @@ fallbacks = ["chat.another_provider.model"]
 
 ---
 
-## 下一步
+## 🔗 下一步
 
-- 阅读 [API 文档](./API.md) 了解完整 API 接口
-- 查看 [架构文档](./ARCHITECTURE.md) 了解系统设计
+- 阅读 [API 文档](API.md) 了解完整 API 接口
+- 查看 [架构文档](ARCHITECTURE.md) 了解系统设计
 - 查看 [配置说明](../config/settings.example.toml) 了解所有配置项
-- 参与 [贡献指南](../CONTRIBUTING.md) 帮助改进项目
+- 参与 [贡献指南](CONTRIBUTING.md) 帮助改进项目
 
 ### 管理员功能
 
@@ -935,6 +989,16 @@ Weaver 自动处理重复文章：
 enable_simhash_dedup = true            # 启用 SimHash 标题去重
 simhash_hamming_threshold = 3          # 最大汉明距离（0-64，越低越严格）
 ```
+
+---
+
+## 🔗 相关文档
+
+- [API 文档](API.md) — 完整 API 接口参考
+- [架构文档](ARCHITECTURE.md) — 系统设计与架构详解
+- [部署指南](DEPLOYMENT.md) — 部署与环境配置
+- [贡献指南](CONTRIBUTING.md) — 参与项目贡献
+- [项目 README](../README.md) — 返回首页
 
 ---
 

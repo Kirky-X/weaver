@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for EvalRunner shadow evaluation."""
 
 from dataclasses import replace
@@ -275,3 +275,117 @@ class TestEvalRunnerIsolation:
         )
 
         # Test passes if it doesn't hang
+
+
+class TestShadowPublishFailureIsContained:
+    """事件发布失败不得逃逸，也不得伪装成影子调用失败。
+
+    ``_run_shadow`` 是 fire-and-forget task，逃逸的异常没人 await，会无声丢失。
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_path_publish_failure_logged_not_raised(
+        self, eval_config, mock_event_bus, mock_llm
+    ) -> None:
+        mock_llm.call = AsyncMock(return_value="candidate")
+        mock_event_bus.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+        runner = EvalRunner.from_eval_config(
+            eval_cfg=eval_config, llm_client=mock_llm, event_bus=mock_event_bus
+        )
+
+        with patch("core.llm.evaluation.eval_runner.log") as mock_log:
+            await runner._run_shadow(
+                call_point="classifier",
+                primary_label=Label.parse("chat.provider1.model1"),
+                primary_result="baseline",
+                primary_latency=0.5,
+                primary_success=True,
+                primary_tokens=TokenUsage(input_tokens=1, output_tokens=2),
+                payload={"prompt": "x"},
+            )
+
+        assert [c.args[0] for c in mock_log.warning.call_args_list] == [
+            "eval_shadow_publish_failed"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_error_path_publish_failure_does_not_escape(
+        self, eval_config, mock_event_bus, mock_llm
+    ) -> None:
+        mock_llm.call = AsyncMock(side_effect=RuntimeError("provider down"))
+        mock_event_bus.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+        runner = EvalRunner.from_eval_config(
+            eval_cfg=eval_config, llm_client=mock_llm, event_bus=mock_event_bus
+        )
+
+        with patch("core.llm.evaluation.eval_runner.log") as mock_log:
+            # Must not raise even though both the call and the publish failed.
+            await runner._run_shadow(
+                call_point="classifier",
+                primary_label=Label.parse("chat.provider1.model1"),
+                primary_result="baseline",
+                primary_latency=0.5,
+                primary_success=True,
+                primary_tokens=TokenUsage(input_tokens=1, output_tokens=2),
+                payload={"prompt": "x"},
+            )
+
+        events = [c.args[0] for c in mock_log.warning.call_args_list]
+        assert events == ["eval_shadow_failed", "eval_shadow_publish_failed"]
+
+
+class TestShadowPublishFailureIsContained:
+    """事件发布失败不得逃逸，也不得伪装成影子调用失败。
+
+    ``_run_shadow`` 是 fire-and-forget task，逃逸的异常没人 await，会无声丢失。
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_path_publish_failure_logged_not_raised(
+        self, eval_config, mock_event_bus, mock_llm
+    ) -> None:
+        mock_llm.call = AsyncMock(return_value="candidate")
+        mock_event_bus.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+        runner = EvalRunner.from_eval_config(
+            eval_cfg=eval_config, llm_client=mock_llm, event_bus=mock_event_bus
+        )
+
+        with patch("core.llm.evaluation.eval_runner.log") as mock_log:
+            await runner._run_shadow(
+                call_point="classifier",
+                primary_label=Label.parse("chat.provider1.model1"),
+                primary_result="baseline",
+                primary_latency=0.5,
+                primary_success=True,
+                primary_tokens=TokenUsage(input_tokens=1, output_tokens=2),
+                payload={"prompt": "x"},
+            )
+
+        assert [c.args[0] for c in mock_log.warning.call_args_list] == [
+            "eval_shadow_publish_failed"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_error_path_publish_failure_does_not_escape(
+        self, eval_config, mock_event_bus, mock_llm
+    ) -> None:
+        mock_llm.call = AsyncMock(side_effect=RuntimeError("provider down"))
+        mock_event_bus.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+        runner = EvalRunner.from_eval_config(
+            eval_cfg=eval_config, llm_client=mock_llm, event_bus=mock_event_bus
+        )
+
+        with patch("core.llm.evaluation.eval_runner.log") as mock_log:
+            # Must not raise even though both the call and the publish failed.
+            await runner._run_shadow(
+                call_point="classifier",
+                primary_label=Label.parse("chat.provider1.model1"),
+                primary_result="baseline",
+                primary_latency=0.5,
+                primary_success=True,
+                primary_tokens=TokenUsage(input_tokens=1, output_tokens=2),
+                payload={"prompt": "x"},
+            )
+
+        events = [c.args[0] for c in mock_log.warning.call_args_list]
+        assert events == ["eval_shadow_failed", "eval_shadow_publish_failed"]

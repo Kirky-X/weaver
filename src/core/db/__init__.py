@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Core database module - PostgreSQL, Neo4j, DuckDB, and LadybugDB connection pools.
 
 公开 API:
@@ -118,17 +118,22 @@ __all__ = [
     "LLMUsageRaw",
     "LadybugPool",
     "Neo4jPool",
+    "ParsedDSN",
     "PendingSync",
     "PersistStatus",
     "PgVectorQueryBuilder",
     "PostgresPool",
     "PromptTemplate",
+    "RelationType",
+    "RelationTypeAlias",
     "RelationalPool",
     "SagaLog",
+    "SentimentShift",
     "SimilarityQuery",
     "SourceAuthority",
     "SourceConfig",
     "UnknownRelationType",
+    "VectorQueryBuilder",
     "VectorType",
     "check_database_exists",
     "create_database",

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Tests for LLMClient response caching with TTLCache."""
@@ -322,3 +322,103 @@ class TestTTLGrading:
 
         call_kwargs = mock_redis.set.call_args
         assert call_kwargs[1]["ex"] == CACHE_TTL["classifier"]  # 7 days
+
+
+def _make_mock_response(content: str = "test response content"):
+    from core.llm.types import CacheUsage
+
+    resp = MagicMock()
+    resp.content = content
+    resp.token_usage = TokenUsage(input_tokens=10, output_tokens=5, total_tokens=15)
+    resp.cache_usage = None
+    resp.label = "chat.openai.gpt-4o"
+    resp.latency_ms = 100
+    return resp
+
+
+class TestCacheKeyUsesTruncatedPayload:
+    """Cache keys must be computed on the truncated payload — the part the
+    model actually sees — so long bodies differing only past the truncation
+    limit share one cache entry."""
+
+    @pytest.mark.asyncio
+    async def test_bodies_differing_past_limit_share_cache(self):
+        client = _make_client()
+        base = "字" * 5000  # far past the classifier input limit
+        execute_mock = AsyncMock(return_value=_make_mock_response("first"))
+
+        with patch.object(client._pools["openai"], "execute", new=execute_mock):
+            await client.call(
+                "chat.openai.gpt-4o",
+                {"title": "T", "body": base + "-tail-one"},
+                call_point="classifier",
+            )
+            # Second call: body tail differs, but truncation makes the
+            # model-visible payload identical → cache hit, no second execute.
+            with patch.object(
+                client._pools["openai"], "execute", new=AsyncMock()
+            ) as second_execute:
+                result = await client.call(
+                    "chat.openai.gpt-4o",
+                    {"title": "T", "body": base + "-tail-two"},
+                    call_point="classifier",
+                )
+
+        assert result == "first"
+        second_execute.assert_not_called()
+        assert client._cache_hits == 1
+
+
+class TestJsonParseFailureFallsBack:
+    """A structurally-invalid response counts as a provider failure: the
+    parse error must trigger the fallback chain instead of raising, and the
+    bad response must not be written into the cache."""
+
+    @pytest.mark.asyncio
+    async def test_bad_json_falls_back_to_next_label(self):
+        from pydantic import BaseModel
+
+        from core.llm.types import ProviderConfig
+
+        class Out(BaseModel):
+            ok: bool
+
+        client = _make_client()
+        second = ProviderConfig(
+            name="agnes",
+            type="openai",
+            base_url="https://apihub.agnes-ai.com/v1",
+            api_key="k",
+            rpm_limit=100,
+            concurrency=5,
+            timeout=30.0,
+            priority=100,
+            weight=100,
+            models={},
+        )
+        client._pools["agnes"] = MagicMock()
+
+        def _resp(content: str):
+            r = _make_mock_response(content)
+            return r
+
+        first_execute = AsyncMock(return_value=_resp("not json at all"))
+        second_execute = AsyncMock(return_value=_resp('{"ok": true}'))
+
+        with (
+            patch.object(client._pools["openai"], "execute", new=first_execute),
+            patch.object(client._pools["agnes"], "execute", new=second_execute),
+        ):
+            result = await client.call(
+                "chat.openai.gpt-4o",
+                {"key": "value"},
+                call_point="classifier",
+                fallback_labels=["chat.agnes.agnes-3.0-flash"],
+                output_model=Out,
+            )
+
+        assert isinstance(result, Out)
+        assert result.ok is True
+        # The poisoned response must not be cached under the call's key.
+        first_execute.assert_awaited_once()
+        second_execute.assert_awaited_once()

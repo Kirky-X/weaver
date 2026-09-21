@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Community detector using Leiden algorithm."""
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import igraph as ig
 import leidenalg
 
+from core.constants import EntityType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
@@ -26,6 +27,7 @@ from modules.knowledge.graph.community.modularity import _compute_modularity
 from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 if TYPE_CHECKING:
+    from core.llm.client import LLMClient
     from core.protocols import GraphPool
 
 log = get_logger(__name__)
@@ -202,7 +204,7 @@ class CommunityDetector:
         # Persist to Neo4j
         await self._persist_communities(result.communities)
 
-        # R3 fix: backfill article_count on all communities. Community
+        # backfill article_count on all communities. Community
         # detection builds entity-entity co-occurrence graph but never
         # populates article_count. This Cypher traverses
         # Article-[:MENTIONS]->Entity<-[:HAS_ENTITY]-Community to count
@@ -293,10 +295,13 @@ class CommunityDetector:
             RETURN e.canonical_name AS name
             """
         else:
-            # Neo4j: Use NOT EXISTS pattern
+            # Neo4j: no entity-to-entity relationship outside the structural
+            # types — same semantics as the LadybugDB branch and the Leiden
+            # edge extraction (HAS_ENTITY/MENTIONS/FOLLOWED_BY excluded).
             query = """
             MATCH (e:Entity)
-            WHERE NOT EXISTS((e)-[:HAS_ENTITY|MENTIONS|FOLLOWED_BY]-(:Entity))
+            WHERE NOT EXISTS((e)-[r]-(:Entity)
+                             WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY'])
             RETURN e.canonical_name AS name
             """
         results = await self._pool.execute_query(query)
@@ -345,6 +350,10 @@ class CommunityDetector:
 
         max_depth = 10
         clusters: list[HierarchicalCluster] = []
+        # (level, cluster_id) pairs that were split further — marked non-final
+        # in one O(N) pass after recursion instead of rescanning the whole
+        # cluster list per oversized cluster (O(N^2)).
+        non_final: set[tuple[int, int]] = set()
 
         def _recursive_partition(
             graph: ig.Graph,
@@ -380,7 +389,7 @@ class CommunityDetector:
                         cluster=cluster_id,
                         level=current_level,
                         parent_cluster=parent_cluster_id,
-                        is_final_cluster=True,  # Will be updated below
+                        is_final_cluster=True,  # Updated in the post-pass below
                     )
                 )
 
@@ -389,16 +398,14 @@ class CommunityDetector:
                 for cid in range(len(partition)):
                     members = partition[cid]
                     if len(members) > max_size and len(members) > 1:
-                        # Mark parent cluster as non-final
-                        for c in clusters:
-                            if c.cluster == cid and c.level == current_level:
-                                # Use object.__setattr__ since it might be frozen
-                                try:
-                                    c.is_final_cluster = False
-                                except (AttributeError, TypeError):
-                                    pass
+                        non_final.add((current_level, cid))
 
-                        # Extract subgraph
+                        # Extract subgraph. `members` are vertex indices in the
+                        # parent graph, and `graph.subgraph` re-indexes them to
+                        # 0..len(members)-1 in `sub_g`; `sub_names` must
+                        # therefore be rebuilt from the parent `names` with the
+                        # *original* indices so the recursion still yields the
+                        # parent's node names.
                         sub_g = graph.subgraph(members)
                         sub_names = [names[i] for i in members]
 
@@ -413,6 +420,9 @@ class CommunityDetector:
                         )
 
         _recursive_partition(g, node_names, max_cluster_size, seed, iterations)
+        for c in clusters:
+            if (c.level, c.cluster) in non_final:
+                c.is_final_cluster = False
         return clusters
 
     def _build_communities_from_clusters(
@@ -648,7 +658,7 @@ class CommunityDetector:
                         {
                             "community_id": community.id,
                             "entity_name": name,
-                            "entity_type": entity_types_map.get(name, "未知"),
+                            "entity_type": entity_types_map.get(name, EntityType.UNKNOWN.value),
                         }
                         for name in community.entity_ids
                     ]
@@ -690,4 +700,4 @@ class CommunityDetector:
             RETURN e.canonical_name AS name, e.type AS type
             """
         results = await self._pool.execute_query(query, {"names": entity_names})
-        return {r.get("name", ""): r.get("type", "未知") for r in results}
+        return {r.get("name", ""): r.get("type", EntityType.UNKNOWN.value) for r in results}

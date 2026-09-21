@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pipeline service implementation."""
 
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from core.observability import get_logger
 
@@ -20,13 +21,17 @@ class PipelineServiceImpl:
     Implements: PipelineService
     """
 
-    def __init__(self, pipeline: Any) -> None:
+    def __init__(self, pipeline: Any, crawler: Any | None = None) -> None:
         """Initialize with a Pipeline instance.
 
         Args:
             pipeline: The Pipeline instance to wrap.
+            crawler: Optional Crawler used by ``run_full_pipeline`` to fetch
+                the URL before processing. Required only when callers invoke
+                ``run_full_pipeline``.
         """
         self._pipeline = pipeline
+        self._crawler = crawler
 
     async def run_phase3_per_article(
         self,
@@ -85,5 +90,27 @@ class PipelineServiceImpl:
             Processing result with article ID and status.
         """
         log.info("run_full_pipeline", url=url, source_name=source_name)
-        result = await self._pipeline.run(url=url, source_name=source_name)
-        return result
+
+        if self._crawler is None:
+            raise RuntimeError(
+                "Crawler not configured. Pass a crawler to PipelineServiceImpl "
+                "to use run_full_pipeline()."
+            )
+
+        from modules.ingestion.fetching.exceptions import FetchError
+        from core.types.ingestion_models import NewsItem
+
+        item = NewsItem(
+            url=url,
+            title="",
+            source=source_name or "url_endpoint",
+            source_host=urlparse(url).netloc,
+        )
+        results = await self._crawler.crawl_batch([item])
+        if results and isinstance(results[0], FetchError):
+            raise results[0]
+        if not results:
+            raise RuntimeError(f"Crawler returned no results for {url}")
+
+        states = await self._pipeline.process_batch([results[0]])
+        return states[0] if states else {}

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """URL Security Validator facade.
 
 Provides a unified interface for URL security checking that orchestrates
@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from config.settings import URLSecuritySettings
+from core.constants import PHISHTANK_DATA_URL
 from core.observability import get_logger
 from core.security.cache import URLSecurityCache
 from core.security.models import CheckResult, CheckSource, URLRisk, ValidationResult
@@ -40,8 +41,9 @@ class URLValidatorConfig:
     enabled: bool = True
     urlhaus_api_key: str = ""
     urlhaus_api_timeout: float = 5.0
+    urlhaus_api_url: str = "https://urlhaus-api.abuse.ch/v1/url/"
     phishtank_enabled: bool = True
-    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
+    phishtank_data_url: str = PHISHTANK_DATA_URL
     heuristic_enabled: bool = True
     ssl_verify_enabled: bool = True
     cache_enabled: bool = True
@@ -62,6 +64,7 @@ class URLValidatorConfig:
             enabled=settings.enabled,
             urlhaus_api_key=settings.urlhaus_api_key,
             urlhaus_api_timeout=settings.urlhaus_api_timeout,
+            urlhaus_api_url=settings.urlhaus_api_url,
             phishtank_enabled=settings.phishtank_enabled,
             phishtank_data_url=settings.phishtank_data_url,
             heuristic_enabled=settings.heuristic_enabled,
@@ -105,6 +108,10 @@ class URLValidator:
         self._config = config
         self._fetcher = fetcher
 
+        # Strong refs to fire-and-forget cache tasks — the event loop only
+        # holds weak refs, so unreferenced tasks can be GC'd mid-run.
+        self._cache_tasks: set[asyncio.Task[None]] = set()
+
         # Initialize cache
         self._cache = URLSecurityCache(
             cache_client=cache_client,
@@ -123,6 +130,7 @@ class URLValidator:
                 api_key=config.urlhaus_api_key,
                 fetcher=fetcher,
                 timeout=config.urlhaus_api_timeout,
+                api_url=config.urlhaus_api_url,
             )
 
         # Initialize PhishTank sync
@@ -145,6 +153,17 @@ class URLValidator:
         if self._phishtank:
             await self._phishtank.initialize()
         log.info("url_validator_initialized")
+
+    def check_connected_ip(self, ip_address: str, url: str) -> None:
+        """Validate the IP an outgoing connection actually reached.
+
+        Delegates to the SSRF checker's blocked-range list; closes the
+        DNS-rebinding TOCTOU window left by resolution-time validation.
+
+        Raises:
+            SSRFError: If the IP is in a blocked range.
+        """
+        self._ssrf_checker.check_connected_ip(ip_address, url)
 
     async def validate(self, url: str) -> ValidationResult:
         """Validate URL security.
@@ -199,13 +218,15 @@ class URLValidator:
         if should_run_local:
             # PhishTank
             if self._phishtank:
-                pt_result = self._phishtank.check(url)
+                pt_result = self._run_local_check(url, CheckSource.PHISHTANK, self._phishtank.check)
                 checks.append(pt_result)
                 if pt_result.risk == URLRisk.BLOCKED:
                     return self._build_result(url, checks)
 
             # Heuristic
-            heuristic_result = self._heuristic.check(url)
+            heuristic_result = self._run_local_check(
+                url, CheckSource.HEURISTIC, self._heuristic.check
+            )
             checks.append(heuristic_result)
 
         # 5. SSL verification
@@ -213,6 +234,38 @@ class URLValidator:
         checks.append(ssl_result)
 
         return self._build_result(url, checks)
+
+    def _run_local_check(self, url: str, source: CheckSource, check_fn) -> CheckResult:
+        """Run a synchronous local check, isolating internal checker failures.
+
+        A single checker crashing (e.g. a malformed URL slipping past its own
+        guards) must not abort the whole validation pipeline — degrade to a
+        LOW-risk result and let the remaining checks decide.
+
+        Args:
+            url: URL being validated.
+            source: Check source for the fallback result.
+            check_fn: The checker's ``check(url)`` callable.
+
+        Returns:
+            CheckResult from the checker, or a LOW-risk fallback on failure.
+        """
+        try:
+            return check_fn(url)
+        except Exception as exc:
+            log.warning(
+                "local_check_failed",
+                source=source.value,
+                url=url,
+                error=str(exc),
+                exc_info=True,
+            )
+            return CheckResult(
+                source=source,
+                risk=URLRisk.LOW,
+                message=f"{source.value} check failed: {exc!s}",
+                details={"error": str(exc)},
+            )
 
     async def _run_ssrf(self, url: str) -> CheckResult:
         """Run SSRF check.
@@ -283,22 +336,23 @@ class URLValidator:
         )
 
         # Cache result asynchronously (fire-and-forget with error logging)
-        _cache_task = asyncio.create_task(
+        cache_task = asyncio.create_task(
             self._cache.set(
                 url=url,
                 result={"risk": max_risk.value, "is_safe": is_safe},
                 risk=max_risk.value,
             )
         )
-        _cache_task.add_done_callback(
-            lambda t: (
-                log.warning("url_validation_cache_failed", error=str(t.exception()))
-                if t.exception()
-                else None
-            )
-        )
+        self._cache_tasks.add(cache_task)
+        cache_task.add_done_callback(self._on_cache_task_done)
 
         return result
+
+    def _on_cache_task_done(self, task: asyncio.Task[None]) -> None:
+        """Release the strong ref and surface cache-task failures."""
+        self._cache_tasks.discard(task)
+        if task.exception():
+            log.warning("url_validation_cache_failed", error=str(task.exception()))
 
     def _disabled_result(self, url: str) -> ValidationResult:
         """Return result when validation is disabled.
@@ -326,12 +380,3 @@ class URLValidator:
         """Manually trigger PhishTank data sync."""
         if self._phishtank:
             await self._phishtank.sync()
-
-    @property
-    def ssrf_checker(self) -> SSRFChecker:
-        """Get SSRF checker for direct access.
-
-        Returns:
-            SSRFChecker instance.
-        """
-        return self._ssrf_checker

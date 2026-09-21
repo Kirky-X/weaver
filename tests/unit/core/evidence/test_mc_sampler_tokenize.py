@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
-"""RED test for MCSampler word-level tokenization — P1-2 fix.
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+"""RED test for MCSampler word-level tokenization
 
 ``_simple_similarity`` currently uses ``set(text1)`` (character-level),
 which gives false-high similarity for unrelated Chinese text (many
@@ -10,9 +10,6 @@ characters but meaningless). Word-level tokenization fixes both:
 - Chinese: 2-gram sliding window over CJK runs (``技术发展`` →
   ``{技术, 术发, 发展}``)
 - English: ``re.findall(r'[a-zA-Z]+', text)``
-
-See ``temp/report.md`` P1-2 (MC 采样器 tokenize) and specmark change
-``fix-pipeline-deadcode-perf`` T018-T019.
 """
 
 from __future__ import annotations
@@ -59,3 +56,37 @@ class TestMCSamplerTokenizeSimilarity:
         assert sampler._simple_similarity("", "anything") == 0.0
         assert sampler._simple_similarity("anything", "") == 0.0
         assert sampler._simple_similarity("", "") == 0.0
+
+
+class TestFindFuzzAnchorsEdgeCases:
+    """``_find_fuzz_anchors`` 边界与 tokenizer 复用。"""
+
+    @pytest.fixture
+    def sampler(self):
+        from core.evidence.mc_sampler import MCSampler
+
+        return MCSampler.__new__(MCSampler)
+
+    def test_zero_window_returns_no_anchors(self, sampler) -> None:
+        """window == 0 时必须直接返回 []，不得把每个步进点都当成变化点。
+
+        短文本（text_len < 10）会算出 window == 0，此前切片得到空串、
+        相似度恒为 0.0 (< 0.5)，导致每个步进位置都被误判为锚点。
+        """
+        assert sampler._find_fuzz_anchors("a" * 50, window=0) == []
+        assert sampler._find_fuzz_anchors("short", window=-1) == []
+
+    def test_negative_window_returns_no_anchors(self, sampler) -> None:
+        assert sampler._find_fuzz_anchors("x" * 500, window=-5) == []
+
+    def test_tokenize_uses_module_level_patterns(self) -> None:
+        """tokenizer 复用模块级预编译正则，行为不变。"""
+        from core.evidence import mc_sampler
+
+        assert hasattr(mc_sampler, "_WORD_RE")
+        assert hasattr(mc_sampler, "_CJK_RUN_RE")
+        tokens = mc_sampler.MCSampler._tokenize("hello world 技术发展")
+        assert "hello" in tokens
+        assert "world" in tokens
+        assert "技术" in tokens
+        assert "发展" in tokens

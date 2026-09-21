@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Repository protocol definitions for data access abstraction.
 
 This module defines Protocol classes that specify the expected interface
@@ -83,7 +83,7 @@ class EntityRepository(Protocol):
             tier: Source tier (1=authoritative, 2+=general).
 
         Returns:
-            The Neo4j internal ID of the entity.
+            The graph database internal ID of the entity.
         """
         ...
 
@@ -271,33 +271,18 @@ class ArticleRepository(Protocol):
         """
         ...
 
-    async def get_existing_content_hashes(self, content_hashes: set[str]) -> set[str]:
-        """Check which content hashes already exist in the database.
-
-        Cross-source dedup (Level 2.5) for when the same content is
-        republished across different sources (different URLs). Catches
-        duplicates that URL dedup and title SimHash both miss —
-        especially when title extraction fails (empty title).
-
-        Args:
-            content_hashes: Set of SHA-256 content hashes to check.
-
-        Returns:
-            Set of content hashes that already exist in the database.
-        """
-        ...
-
     async def bulk_upsert(
         self,
         states: list[dict[str, Any]],
-    ) -> list[uuid.UUID]:
+    ) -> list[uuid.UUID | None]:
         """Bulk upsert articles.
 
         Args:
             states: List of pipeline states to persist.
 
         Returns:
-            List of article UUIDs.
+            Article UUIDs position-aligned with ``states``; ``None`` marks a
+            state that failed persistence.
         """
         ...
 
@@ -329,8 +314,7 @@ class ArticleRepository(Protocol):
     ) -> dict[str, ArticleTitleMeta]:
         """Batch fetch article metadata by PostgreSQL IDs.
 
-        Used by graph-query callers that, after the Article node slim-down
-        (design.md §D2), can only read ``pg_id`` from the graph DB and must
+        Used by graph-query callers that, after the Article node slim-down, can only read ``pg_id`` from the graph DB and must
         look up ``title`` / ``category`` / ``publish_time`` / ``score`` from
         the relational DB in a single batched query.
 
@@ -362,8 +346,7 @@ class ArticleRepository(Protocol):
         Used by ``ContextBuilder.fetch_article_bodies`` to replace the
         N+1 per-id ``repo.get`` loop with a single batched SELECT against
         ``article_bodies``. Pairs with ``fetch_titles_by_pg_ids`` to
-        rebuild full article context after the Article node slim-down
-        (design.md §D2).
+        rebuild full article context after the Article node slim-down.
 
         .. warning::
             Do NOT call this method inside a per-article loop — that
@@ -411,7 +394,7 @@ class SourceAuthorityRepository(Protocol):
 class GraphArticleRepository(Protocol):
     """Protocol for graph article repository implementations.
 
-    After the Article node slim-down (design.md §D2), the graph Article node
+    After the Article node slim-down, the graph Article node
     stores only ``{pg_id, created_at}`` (Neo4j) / ``{id, pg_id}`` (LadybugDB).
     Business fields (title / category / publish_time / score) are no longer
     persisted on the node — callers that need them must batch-fetch from
@@ -489,7 +472,7 @@ class GraphArticleRepository(Protocol):
     ) -> dict[str, dict[str, Any]]:
         """Batch existence lookup for Article nodes by pg_id.
 
-        P4 fix: replaces the per-pg_id ``find_article_by_id`` loop in
+        replaces the per-pg_id ``find_article_by_id`` loop in
         ``Neo4jWriter._create_followed_relations`` to avoid N+1
         round-trips on the pipeline write hot path. Returns a mapping
         of ``pg_id -> article_dict`` for every pg_id that exists in
@@ -533,7 +516,7 @@ class GraphArticleRepository(Protocol):
     async def delete_article(self, article_id: str) -> int:
         """Delete an Article node by PostgreSQL ID.
 
-        T051 LOW-1: return type unified to ``int`` (count of nodes
+        Return type unified to ``int`` (count of nodes
         actually deleted). Both Neo4j and LadybugDB implementations
         return the number of nodes actually deleted (0 if no match,
         1 if a node was deleted) — callers can distinguish the no-op
@@ -612,7 +595,7 @@ class GraphWriter(Protocol):
     async def archive_old_articles(self, cutoff_pg_ids: list[str]) -> int:
         """Archive (delete) Article nodes whose pg_id is in ``cutoff_pg_ids``.
 
-        After the Article node slim-down (design.md §D2), the graph node no
+        After the Article node slim-down, the graph node no
         longer carries ``publish_time``, so the cutoff must be computed by
         the caller (typically by querying PostgreSQL for
         ``publish_time < NOW() - INTERVAL '$days days'``) and the resulting
@@ -693,13 +676,13 @@ class AnalyticsStorageProtocol(Protocol):
           (src/modules/analytics/storage.py)
 
     Used by:
-        - BriefingGenerator (T004): depends on this Protocol for fetching
+        - BriefingGenerator: depends on this Protocol for fetching
           articles + persisting daily briefings.
-        - T008 DailyBriefingService: depends on this Protocol for fetching
+        - DailyBriefingService: depends on this Protocol for fetching
           (get_briefing) + listing (list_briefings) existing briefings.
           Generation is delegated to BriefingGenerator (which itself uses
           fetch_articles_for_briefing + save_briefing on this same Protocol).
-        - T010 scheduler: will use DailyBriefingService, transitively
+        - scheduler: will use DailyBriefingService, transitively
           depends on this Protocol.
 
     Decoupling rationale: BriefingGenerator is in modules/briefing/, storage

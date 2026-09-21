@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Provider pool for managing a single LLM provider's resources."""
@@ -43,6 +43,24 @@ class AllProvidersFailedError(Exception):
         super().__init__(message)
 
 
+# Wall-clock 硬超时的额外缓冲（秒）：覆盖连接建立与 litellm 内部重试，
+# 保证单次调用的总时长有界（见 _do_call）。
+_WALL_CLOCK_TIMEOUT_MARGIN_SECONDS = 30.0
+
+
+# Wall-clock 硬超时的额外缓冲（秒）：覆盖连接建立与 litellm 内部重试，
+# 保证单次调用的总时长有界（见 _do_call）。
+_WALL_CLOCK_TIMEOUT_MARGIN_SECONDS = 30.0
+
+# 流式生成吞吐的保守下限（tokens/s）：wall-clock 余量按
+# max_tokens / 此值 折算，确保满 max_tokens 的流式生成不被误切。
+# 实测参考：agnes-3.0-flash 免费档 55-83 tok/s；20 为保守下限。
+# 生成预算封顶 240s（8192 tokens @ 34 tok/s 已覆盖）——防止超大
+# max_tokens 配置把 wall-clock 上限推到不可用的时长。
+_MIN_STREAM_TOKENS_PER_SEC = 20.0
+_MAX_GENERATION_BUDGET_SECONDS = 240.0
+
+
 class ProviderPool:
     """单个Provider的资源池.
 
@@ -74,14 +92,26 @@ class ProviderPool:
         self.name = config.name
         self._event_bus = event_bus
 
+        _g = global_config or GlobalConfig()
+
+        # provider 未配置 timeout 时回落全局默认（llm.toml [global].default_timeout）
+        self._effective_timeout = (
+            config.timeout if config.timeout is not None else _g.default_timeout
+        )
+        # 重试策略来自 llm.toml [global]（retry_max_attempts/retry_min_wait/retry_max_wait）
+        self._retry_max_attempts = _g.retry_max_attempts
+        self._retry_min_wait = _g.retry_min_wait
+        self._retry_max_wait = _g.retry_max_wait
+
         # LiteLLM调用器
-        self._caller = LiteLLMCaller()
+        self._caller = LiteLLMCaller(client_cap=_g.rerank_client_cap)
 
         # 熔断器
         self._circuit_breaker = ProviderCircuitBreaker(
             name=config.name,
             fail_max=circuit_breaker_threshold,
             reset_timeout=circuit_breaker_timeout,
+            timeout=self._effective_timeout,
         )
 
         # 速率限制器
@@ -97,9 +127,6 @@ class ProviderPool:
 
         # 请求延迟器(类型注解)
         self._request_delay: Any = None
-
-        # Set timeout on circuit breaker for slow request detection
-        self._circuit_breaker._timeout = config.timeout
 
         # 初始化请求延迟器
         self._init_request_delay(config, global_config)
@@ -225,7 +252,7 @@ class ProviderPool:
                 response = await self._execute_single(
                     label=label,
                     payload=merged_payload,
-                    timeout=timeout or self.config.timeout,
+                    timeout=timeout or self._effective_timeout,
                     call_point=call_point,
                     article_id=article_id,
                     task_id=task_id,
@@ -261,7 +288,8 @@ class ProviderPool:
                 )
                 continue
 
-        raise AllProvidersFailedError(labels, last_error)
+        # 显式串联最后一次失败，保留因果链。
+        raise AllProvidersFailedError(labels, last_error) from last_error
 
     async def _execute_single(
         self,
@@ -296,7 +324,11 @@ class ProviderPool:
             async def _call_with_retry() -> LLMResponse:
                 """Retry loop内执行实际调用,每次重试重新获取rate limiter令牌."""
                 nonlocal attempt_number
-                async for attempt in retry_llm(max_attempts=3, min_wait=5.0, max_wait=60.0):
+                async for attempt in retry_llm(
+                    max_attempts=self._retry_max_attempts,
+                    min_wait=self._retry_min_wait,
+                    max_wait=self._retry_max_wait,
+                ):
                     with attempt:
                         try:
                             attempt_number += 1
@@ -332,14 +364,30 @@ class ProviderPool:
         timeout: float,
     ) -> LLMResponse:
         """执行实际的LLM调用,通过熔断器保护."""
-        response = await self._circuit_breaker.call(
-            self._caller.call,
-            label=label,
-            provider_type=self.config.type,
-            api_key=self.config.api_key,
-            api_base=self.config.base_url,
-            payload=payload,
-            timeout=timeout,
+        # Wall-clock 硬超时兜底：litellm 的 timeout 是 per-read/connect 语义，
+        # 上游慢速滴流响应（免费档排队、半开连接）可绕过它无限等待。wait_for
+        # 从外层硬切整个调用（含熔断器），超时经 CancelledError 传入熔断器的
+        # except 分支按失败计数。
+        #
+        # 余量必须覆盖「满 max_tokens 流式生成」的时间：read timeout 只管
+        # 数据间隔，长输出生成期间数据持续到达不会触发——固定 +30s 会在
+        # analyze_narrative（8192 tokens，实测 ~149s）场景误切 healthy 调用。
+        # 按 20 tok/s 保守下限折算生成时间，加 30s 连接/重试缓冲。
+        max_tokens = int(payload.get("max_tokens") or 4096)
+        generation_budget = min(
+            max_tokens / _MIN_STREAM_TOKENS_PER_SEC, _MAX_GENERATION_BUDGET_SECONDS
+        )
+        response = await asyncio.wait_for(
+            self._circuit_breaker.call(
+                self._caller.call,
+                label=label,
+                provider_type=self.config.type,
+                api_key=self.config.api_key.get_secret_value(),
+                api_base=self.config.base_url,
+                payload=payload,
+                timeout=timeout,
+            ),
+            timeout=timeout + _WALL_CLOCK_TIMEOUT_MARGIN_SECONDS + generation_budget,
         )
         await self._metrics.record_success(response.latency_ms)
         return response
@@ -371,12 +419,18 @@ class ProviderPool:
             attempt=attempt,
             fallback_tried=fallback_tried,
         )
-        await self._event_bus.publish(event)
+        try:
+            await self._event_bus.publish(event)
+        except Exception as exc:
+            # Telemetry must never fail the LLM call path (a publish error
+            # would otherwise surface as a retryable provider failure).
+            log.warning(
+                "llm_failure_event_publish_failed",
+                provider=self.config.name,
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""
         return self._metrics.to_dict()
-
-    def reset_circuit_breaker(self) -> None:
-        """重置熔断器."""
-        self._circuit_breaker.reset()

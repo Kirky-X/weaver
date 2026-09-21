@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """JSON parsing utilities using json_repair."""
@@ -10,7 +10,7 @@ import json
 from typing import Any, TypeVar
 
 from json_repair import repair_json
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -76,13 +76,23 @@ def parse_llm_json(content: str, model: type[T] | None = None) -> T | dict[str, 
         if isinstance(repaired, str):
             repaired = json.loads(repaired)
 
+        # repair_json can return None for unrecoverable input — surface a
+        # clear error instead of an opaque model_validate(None) TypeError.
+        if repaired is None:
+            raise ValueError("json_repair could not recover a JSON structure from the content")
+
         if model:
             return model.model_validate(repaired)
 
         return repaired
 
+    except ValidationError:
+        # 模型/schema 不匹配属于不可重试错误：保留原始类型（ValidationError
+        # 继承自 ValueError，不破坏既有 except ValueError 调用方），
+        # 以便上游区分「JSON 解析失败（可能可重试）」与「字段校验失败」。
+        raise
     except Exception as e:
-        raise ValueError(f"Failed to parse LLM JSON response: {e}") from e
+        raise ValueError(f"Failed to parse LLM JSON response ({type(e).__name__}): {e}") from e
 
 
 def extract_json_from_markdown(content: str) -> str:
@@ -97,8 +107,16 @@ def extract_json_from_markdown(content: str) -> str:
     """
     import re
 
-    # 匹配 ```json ... ``` 或 ``` ... ```
-    pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
+    # Prefer an explicit ```json fenced block: when the LLM emits multiple
+    # blocks (e.g. a ```python example followed by the JSON payload), the
+    # first arbitrary block would otherwise win and feed non-JSON content
+    # downstream.
+    json_match = re.search(r"```json\s*\n?(.*?)\n?```", content, re.DOTALL | re.IGNORECASE)
+    if json_match:
+        return json_match.group(1).strip()
+
+    # Fall back to the first fenced block of any language
+    pattern = r"```\s*\n?(.*?)\n?```"
     match = re.search(pattern, content, re.DOTALL)
 
     if match:
@@ -118,6 +136,11 @@ def extract_json_from_text(content: str) -> str:
     策略：取最先出现的 ``{`` 或 ``[`` 作为起点，用括号配对找到完整的
     JSON 块。使用括号配对而非纯正则，避免嵌套 JSON 被截断，且正确
     处理字符串内的括号。
+
+    局限性：状态机只跟踪双引号 ``"``，这是严格 JSON 的假设。若 LLM 输出
+    中出现单引号包裹的字符串（``'foo'``）、未转义的裸换行/制表符等非
+    严格 JSON 形态，``in_string`` 状态可能失配，导致返回空字符串。
+    此时调用方（``parse_llm_json``）会退回到 ``json_repair`` 全量修复路径。
 
     Args:
         content: 可能包含 JSON 的任意文本
@@ -165,3 +188,63 @@ def extract_json_from_text(content: str) -> str:
             if depth == 0:
                 return content[start : i + 1]
     return ""
+
+
+def _scan_balanced_end(text: str, start: int) -> int:
+    """Scan ``text`` from ``start`` (an opening ``{``) to the matching close.
+
+    Tracks double-quote string state so braces inside JSON string values do
+    not corrupt the depth count.
+
+    Returns:
+        Index of the matching closing ``}`` (inclusive), or -1 if unbalanced.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    for j in range(start, len(text)):
+        ch = text[j]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def extract_last_json_object(content: str, max_candidates: int = 128) -> dict[str, Any] | None:
+    """Extract the last valid JSON object from text that may contain
+    thinking/reasoning.
+
+    LLMs with think mode may return reasoning text before (and JSON payloads
+    after) prose, so candidates are tried from the last opening brace
+    backwards. Each failed candidate scans to its matching close only, and
+    the candidate list is capped to bound pathological brace-heavy inputs.
+
+    Args:
+        content: Raw LLM response text.
+        max_candidates: Maximum opening-brace candidates to try.
+
+    Returns:
+        Parsed dict if a balanced JSON object is found, None otherwise.
+    """
+    starts = [i for i, ch in enumerate(content) if ch == "{"][-max_candidates:]
+    for i in reversed(starts):
+        end = _scan_balanced_end(content, i)
+        if end == -1:
+            continue
+        try:
+            return json.loads(content[i : end + 1])
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None

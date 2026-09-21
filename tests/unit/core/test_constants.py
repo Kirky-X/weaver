@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for core/constants.py enum from_str() methods."""
 
 from __future__ import annotations
@@ -12,16 +12,15 @@ from core.constants import (
     GraphHealthStatus,
     HealthCheckStatus,
     HealthStatus,
+    LanguageCode,
     LLMProvider,
     LLMRole,
-    MigrationStatus,
-    PipelineTaskStatus,
     ProcessingStatus,
     ResponseStatus,
     SearchMode,
     SentimentType,
     SourceType,
-    TaskStatus,
+    Status,
     TiktokenEncoding,
 )
 from core.llm.types import RoutingMode
@@ -71,21 +70,37 @@ class TestProcessingStatus:
             ProcessingStatus.from_str("unknown")
 
 
-class TestMigrationStatus:
-    """Tests for MigrationStatus enum."""
+class TestStatus:
+    """Tests for the unified Status enum (merged task/pipeline/migration)."""
+
+    def test_values_preserved(self) -> None:
+        """Every merged member keeps its historical wire value."""
+        assert Status.PENDING.value == "pending"
+        assert Status.QUEUED.value == "queued"
+        assert Status.RUNNING.value == "running"
+        assert Status.PAUSED.value == "paused"
+        assert Status.COMPLETED.value == "completed"
+        assert Status.CANCELLED.value == "cancelled"
+        assert Status.FAILED.value == "failed"
+        assert Status.NOT_FOUND.value == "not_found"
+
+    def test_done_collapsed_into_completed(self) -> None:
+        """The former background-task 'done' is folded into 'completed'."""
+        assert not hasattr(Status, "DONE")
+        assert Status("completed") == Status.COMPLETED
+        with pytest.raises(ValueError):
+            Status("done")
 
     def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values."""
-        assert MigrationStatus.from_str("pending") == MigrationStatus.PENDING
-        assert MigrationStatus.from_str("running") == MigrationStatus.RUNNING
-        assert MigrationStatus.from_str("completed") == MigrationStatus.COMPLETED
-        assert MigrationStatus.from_str("failed") == MigrationStatus.FAILED
-        assert MigrationStatus.from_str("cancelled") == MigrationStatus.CANCELLED
+        assert Status.from_str("queued") == Status.QUEUED
+        assert Status.from_str("running") == Status.RUNNING
+        assert Status.from_str("completed") == Status.COMPLETED
+        assert Status.from_str("not_found") == Status.NOT_FOUND
+        assert Status.from_str("Completed") == Status.COMPLETED
 
     def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid migration status"):
-            MigrationStatus.from_str("unknown")
+        with pytest.raises(ValueError, match="Invalid status"):
+            Status.from_str("done")
 
 
 class TestRoutingMode:
@@ -178,7 +193,7 @@ class TestSourceType:
         assert SourceType.from_str("json") == SourceType.JSON
 
     def test_from_str_extended_values(self) -> None:
-        """Test from_str with new extended values per Weaver-数据库设计文档 §1.6.3."""
+        """Test from_str with new extended values."""
         assert SourceType.from_str("wechat") == SourceType.WECHAT
         assert SourceType.from_str("twitter") == SourceType.TWITTER
         assert SourceType.from_str("telegram") == SourceType.TELEGRAM
@@ -260,41 +275,6 @@ class TestSentimentType:
             SentimentType.from_str("unknown")
 
 
-class TestPipelineTaskStatus:
-    """Tests for PipelineTaskStatus enum."""
-
-    def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values."""
-        assert PipelineTaskStatus.from_str("queued") == PipelineTaskStatus.QUEUED
-        assert PipelineTaskStatus.from_str("running") == PipelineTaskStatus.RUNNING
-        assert PipelineTaskStatus.from_str("paused") == PipelineTaskStatus.PAUSED
-        assert PipelineTaskStatus.from_str("completed") == PipelineTaskStatus.COMPLETED
-        assert PipelineTaskStatus.from_str("cancelled") == PipelineTaskStatus.CANCELLED
-        assert PipelineTaskStatus.from_str("failed") == PipelineTaskStatus.FAILED
-
-    def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid pipeline task status"):
-            PipelineTaskStatus.from_str("unknown")
-
-
-class TestTaskStatus:
-    """Tests for TaskStatus enum."""
-
-    def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values."""
-        assert TaskStatus.from_str("running") == TaskStatus.RUNNING
-        assert TaskStatus.from_str("done") == TaskStatus.DONE
-        assert TaskStatus.from_str("cancelled") == TaskStatus.CANCELLED
-        assert TaskStatus.from_str("failed") == TaskStatus.FAILED
-        assert TaskStatus.from_str("not_found") == TaskStatus.NOT_FOUND
-
-    def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid task status"):
-            TaskStatus.from_str("unknown")
-
-
 class TestLLMRole:
     """Tests for LLMRole enum."""
 
@@ -334,3 +314,92 @@ class TestTiktokenEncoding:
         """Test from_str raises ValueError for invalid values."""
         with pytest.raises(ValueError, match="Invalid tiktoken encoding"):
             TiktokenEncoding.from_str("unknown")
+
+
+class TestLanguageCode:
+    """Tests for LanguageCode enum and its spaCy-model single source."""
+
+    def test_values_match_historical_literals(self) -> None:
+        """Enum values must equal the raw strings previously hard-coded."""
+        assert LanguageCode.ZH.value == "zh"
+        assert LanguageCode.EN.value == "en"
+
+    def test_from_str(self) -> None:
+        assert LanguageCode.from_str("zh") == LanguageCode.ZH
+        assert LanguageCode.from_str("EN") == LanguageCode.EN
+        with pytest.raises(ValueError, match="Invalid language code"):
+            LanguageCode.from_str("fr")
+
+    def test_spacy_model_names_match_old_map(self) -> None:
+        """Derived model names must be byte-identical to the pre-refactor maps.
+
+        Guards the single-sourcing refactor: spacy_extractor.MODEL_MAP and
+        bm25 SUPPORTED_LANGUAGES used to spell these names literally.
+        """
+        assert LanguageCode.ZH.spacy_models == ("zh_core_web_lg", "zh_core_web_trf")
+        assert LanguageCode.EN.spacy_models == ("en_core_web_lg", "en_core_web_trf")
+        assert LanguageCode.ZH.primary_spacy_model == "zh_core_web_lg"
+
+    def test_model_map_and_bm25_supported_languages_preserved(self) -> None:
+        """The derived maps equal the exact literals they replaced."""
+        from modules.processing.nlp.spacy_extractor import MODEL_MAP
+
+        assert MODEL_MAP == {
+            "zh": ["zh_core_web_lg", "zh_core_web_trf"],
+            "en": ["en_core_web_lg", "en_core_web_trf"],
+            "default": ["xx_ent_wiki_sm"],
+        }
+
+        from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
+
+        assert BM25Retriever.SUPPORTED_LANGUAGES == {
+            "zh": "zh_core_web_lg",
+            "en": "en_core_web_lg",
+        }
+
+
+class TestDatabaseTypeSingleSource:
+    """Axis enums must keep their historical string values after sourcing
+    member values from core.constants.DatabaseType (P1 de-duplication)."""
+
+    def test_relational_axis_values_unchanged(self) -> None:
+        from core.db.query_builders import DatabaseType as RelationalDatabaseType
+
+        assert RelationalDatabaseType.POSTGRES.value == "postgres"
+        assert RelationalDatabaseType.DUCKDB.value == "duckdb"
+        # str-subclass equality with the literal is preserved
+        assert RelationalDatabaseType.POSTGRES == "postgres"
+
+    def test_graph_axis_values_unchanged(self) -> None:
+        from core.db.graph_query_builders import GraphDatabaseType
+
+        assert GraphDatabaseType.NEO4J.value == "neo4j"
+        assert GraphDatabaseType.LADYBUG.value == "ladybug"
+
+    def test_axis_values_match_canonical(self) -> None:
+        from core.constants import DatabaseType as Canonical
+        from core.db.graph_query_builders import GraphDatabaseType
+        from core.db.query_builders import DatabaseType as RelationalDatabaseType
+
+        assert RelationalDatabaseType.POSTGRES.value == Canonical.POSTGRES.value
+        assert RelationalDatabaseType.DUCKDB.value == Canonical.DUCKDB.value
+        assert GraphDatabaseType.NEO4J.value == Canonical.NEO4J.value
+        assert GraphDatabaseType.LADYBUG.value == Canonical.LADYBUG.value
+
+
+class TestProcessingMode:
+    """ProcessingMode is the single source for the fast/deep vocabulary."""
+
+    def test_values(self) -> None:
+        from core.constants import ProcessingMode
+
+        assert {m.value for m in ProcessingMode} == {"fast", "deep"}
+        # str-subclass equality with the literal is preserved
+        assert ProcessingMode.FAST == "fast"
+
+    def test_settings_default_is_a_valid_mode(self) -> None:
+        from config.subconfigs import PipelineProcessSettings
+        from core.constants import ProcessingMode
+
+        default = PipelineProcessSettings().processing_mode
+        assert default in {m.value for m in ProcessingMode}

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Pytest configuration and fixtures for E2E tests.
 
 This module provides fixtures for end-to-end testing of the Weaver application.
@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Generator
@@ -55,7 +56,7 @@ def _load_env_file(env_file: Path) -> dict[str, str]:
     """
     env: dict[str, str] = {}
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
@@ -88,18 +89,32 @@ async def require_ollama() -> None:
 
 
 def _check_docker_available() -> bool:
-    """Check if Docker is available and docker compose command works.
+    """Check whether the Docker-backed E2E mode is enabled and reachable.
+
+    Full-stack Docker mode is opt-in via ``WEAVER_E2E_USE_DOCKER=1``: the
+    default (and CI) mode is the deterministic DuckDB/LadybugDB fallback,
+    which does not depend on a local Docker daemon being up.
 
     Returns:
-        True if Docker is available, False otherwise.
+        True if Docker mode is enabled and the daemon is reachable.
     """
+    if os.environ.get("WEAVER_E2E_USE_DOCKER", "").lower() not in ("1", "true", "yes"):
+        return False
     try:
         result = subprocess.run(
             ["docker", "compose", "version"],
             capture_output=True,
             timeout=10,
         )
-        return result.returncode == 0
+        if result.returncode != 0:
+            return False
+        info = subprocess.run(
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            timeout=10,
+        )
+        # Daemon unreachable: non-zero exit and empty stdout
+        return info.returncode == 0 and bool(info.stdout.strip())
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return False
 
@@ -135,7 +150,7 @@ class DockerComposeManager:
         # Write temporary .env file for docker-compose
         self._env_file = self.compose_file.parent / ".env.e2e"
         env_content = "\n".join(f"{k}={v}" for k, v in self.env_vars.items())
-        self._env_file.write_text(env_content)
+        self._env_file.write_text(env_content, encoding="utf-8")
 
         # Stop any existing containers
         subprocess.run(
@@ -260,7 +275,7 @@ async def _run_alembic_migrations(dsn: str, project_root: Path) -> None:
     alembic_ini = project_root.parent / "alembic.ini"
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "alembic",
             "-c",
@@ -618,6 +633,28 @@ def reset_tracer_provider() -> None:
         pass  # Best-effort cleanup
 
 
+# ── API Audit Recorder ──────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session")
+def recorder():
+    """Session-wide API audit recorder (one JSON file per request).
+
+    At session teardown the accumulated records are rendered into the
+    Markdown audit report (temp/api_audit_report.md) for human review.
+    """
+    from tests.e2e.api_response_recorder import APIResponseRecorder
+    from tests.e2e.reporting import generate_audit_report
+
+    api_recorder = APIResponseRecorder(output_dir="temp/api_responses")
+    yield api_recorder
+    report = generate_audit_report(api_recorder, "temp/api_audit_report.md")
+    summary = api_recorder.export_summary()
+    print(
+        f"\n[audit] requests={summary['total_calls']} report={report} records=temp/api_responses/"
+    )
+
+
 # ── Marker Registration ─────────────────────────────────────────────
 
 
@@ -631,6 +668,22 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "e2e_isolated: isolated E2E test (clean tables between runs)",
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def require_single_process() -> None:
+    """Fail fast when E2E runs under pytest-xdist.
+
+    The fallback databases (DuckDB file, LadybugDB directory) are single-writer;
+    parallel workers opening the same file crash with an OS file-lock error.
+    Run E2E with: pytest tests/e2e -m e2e -n 0 --no-cov
+    """
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        pytest.fail(
+            "E2E tests must run single-process (DuckDB/LadybugDB fallback are "
+            "single-writer). Use: pytest tests/e2e -m e2e -n 0 --no-cov",
+            pytrace=False,
+        )
 
 
 @pytest.hookimpl(hookwrapper=True)

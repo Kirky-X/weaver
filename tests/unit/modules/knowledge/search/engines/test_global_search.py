@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for GlobalSearchEngine - comprehensive coverage."""
 
 from __future__ import annotations
@@ -546,3 +546,90 @@ class TestMapReduceResult:
         assert result.final_answer == "answer"
         assert len(result.intermediate_answers) == 2
         assert result.communities_searched == 3
+
+
+class TestGlobalSearchNoLlmGuard:
+    """Regression: search() with llm=None must degrade to a context-only
+    result instead of crashing on self._llm.call."""
+
+    @pytest.mark.asyncio
+    async def test_search_without_llm_degrades_to_context_only(self):
+        context_builder = _make_mock_context_builder()
+        engine = GlobalSearchEngine(context_builder=context_builder, llm=None)
+
+        communities = [
+            MagicMock(
+                similarity_score=0.9,
+                title="C1",
+                summary="s",
+                full_content="c",
+                key_entities=["e1"],
+                id="c1",
+                entity_count=2,
+            )
+        ]
+        engine._get_community_contexts = AsyncMock(return_value=communities)
+
+        result = await engine.search("test query", use_llm=True)
+
+        assert result.metadata.get("llm_used") is False
+        assert "failed" not in result.answer.lower()
+
+
+class TestApplyLocalFallbackMetadata:
+    """#211: fallback metadata tagging is shared by both fallback paths."""
+
+    def _engine(self) -> GlobalSearchEngine:
+        return GlobalSearchEngine(
+            context_builder=_make_mock_context_builder(), llm=_make_mock_llm()
+        )
+
+    def test_dict_result_is_tagged(self) -> None:
+        engine = self._engine()
+        local_dict = {"answer": "a", "metadata": {"kept": 1}}
+
+        result = engine._apply_local_fallback_metadata(
+            local_dict, fallback_reason="low_relevance_skip"
+        )
+
+        assert result is local_dict
+        assert result["metadata"]["kept"] == 1
+        assert result["metadata"]["search_type"] == SearchMode.HYBRID.value
+        assert result["metadata"]["fallback_from_global"] is True
+        assert result["metadata"]["fallback_reason"] == "low_relevance_skip"
+
+    def test_object_result_is_tagged(self) -> None:
+        engine = self._engine()
+        local_result = MagicMock()
+        local_result.metadata = {}
+
+        result = engine._apply_local_fallback_metadata(local_result)
+
+        assert result is local_result
+        assert local_result.metadata["search_type"] == SearchMode.HYBRID.value
+        assert local_result.metadata["fallback_from_global"] is True
+        assert "fallback_reason" not in local_result.metadata
+
+    def test_untaggable_result_is_returned_unchanged(self) -> None:
+        engine = self._engine()
+
+        assert engine._apply_local_fallback_metadata("plain") == "plain"
+
+
+class TestMapCommunitiesSignature:
+    """#328: the unused ``communities`` parameter is gone."""
+
+    def test_communities_parameter_removed(self) -> None:
+        import inspect
+
+        params = list(inspect.signature(GlobalSearchEngine._map_communities_with_llm).parameters)
+
+        assert params == [
+            "self",
+            "query",
+            "sorted_communities",
+            "community_level",
+            "max_tokens",
+            "use_llm",
+            "start",
+        ]

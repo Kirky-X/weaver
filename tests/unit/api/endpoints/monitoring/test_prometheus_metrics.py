@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Integration tests for Prometheus metrics endpoint.
 
 Tests the /metrics endpoint and verifies:
@@ -21,8 +21,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from prometheus_client import CONTENT_TYPE_LATEST
 
+from api.endpoints.system import metrics_endpoint
+from api.middleware.auth import verify_api_key_optional
 from api.middleware.prometheus_metrics import (
-    metrics_endpoint,
     record_db_query,
     record_http_request,
     record_slow_query,
@@ -31,12 +32,12 @@ from api.middleware.prometheus_metrics import (
 
 @pytest.fixture
 def app():
-    """Create FastAPI app with /metrics endpoint."""
-    from starlette.routing import Route
-
+    """Create FastAPI app with the production /metrics endpoint."""
     app = FastAPI()
-    # Use add_route instead of add_api_route for functions that take Request parameter
-    app.add_route("/metrics", metrics_endpoint, methods=["GET"])
+    # The production endpoint guards via optional API-key auth; tests here
+    # exercise the metrics payload, not the auth policy.
+    app.dependency_overrides[verify_api_key_optional] = lambda: None
+    app.add_api_route("/metrics", metrics_endpoint, methods=["GET"])
     return app
 
 
@@ -60,12 +61,12 @@ class TestPrometheusMetricsEndpoint:
         response = client.get("/metrics")
         content_type = response.headers.get("content-type", "")
 
-        assert (
-            "text/plain" in content_type
-        ), f"Expected 'text/plain' in Content-Type, got '{content_type}'"
-        assert (
-            "charset=utf-8" in content_type
-        ), f"Expected 'charset=utf-8' in Content-Type, got '{content_type}'"
+        assert "text/plain" in content_type, (
+            f"Expected 'text/plain' in Content-Type, got '{content_type}'"
+        )
+        assert "charset=utf-8" in content_type, (
+            f"Expected 'charset=utf-8' in Content-Type, got '{content_type}'"
+        )
 
     def test_metrics_format_valid_prometheus(self, client):
         """Test that metrics follow Prometheus standard format.
@@ -115,14 +116,14 @@ class TestExpectedMetrics:
         content = response.text
 
         # Check for TYPE comment
-        assert (
-            "# TYPE http_request_duration_seconds" in content
-        ), "http_request_duration_seconds TYPE comment should be present"
+        assert "# TYPE http_request_duration_seconds" in content, (
+            "http_request_duration_seconds TYPE comment should be present"
+        )
 
         # Check for HELP comment
-        assert (
-            "# HELP http_request_duration_seconds" in content
-        ), "http_request_duration_seconds HELP comment should be present"
+        assert "# HELP http_request_duration_seconds" in content, (
+            "http_request_duration_seconds HELP comment should be present"
+        )
 
     def test_http_requests_total_metric(self, client):
         """Test that http_requests_total metric is present."""
@@ -132,12 +133,12 @@ class TestExpectedMetrics:
         response = client.get("/metrics")
         content = response.text
 
-        assert (
-            "# TYPE http_requests_total" in content
-        ), "http_requests_total TYPE comment should be present"
-        assert (
-            "# HELP http_requests_total" in content
-        ), "http_requests_total HELP comment should be present"
+        assert "# TYPE http_requests_total" in content, (
+            "http_requests_total TYPE comment should be present"
+        )
+        assert "# HELP http_requests_total" in content, (
+            "http_requests_total HELP comment should be present"
+        )
 
     def test_database_query_duration_seconds_metric(self, client):
         """Test that database_query_duration_seconds metric is present."""
@@ -147,12 +148,12 @@ class TestExpectedMetrics:
         response = client.get("/metrics")
         content = response.text
 
-        assert (
-            "# TYPE database_query_duration_seconds" in content
-        ), "database_query_duration_seconds TYPE comment should be present"
-        assert (
-            "# HELP database_query_duration_seconds" in content
-        ), "database_query_duration_seconds HELP comment should be present"
+        assert "# TYPE database_query_duration_seconds" in content, (
+            "database_query_duration_seconds TYPE comment should be present"
+        )
+        assert "# HELP database_query_duration_seconds" in content, (
+            "database_query_duration_seconds HELP comment should be present"
+        )
 
     def test_slow_queries_total_metric(self, client):
         """Test that slow_queries_total metric is present."""
@@ -162,12 +163,12 @@ class TestExpectedMetrics:
         response = client.get("/metrics")
         content = response.text
 
-        assert (
-            "# TYPE slow_queries_total" in content
-        ), "slow_queries_total TYPE comment should be present"
-        assert (
-            "# HELP slow_queries_total" in content
-        ), "slow_queries_total HELP comment should be present"
+        assert "# TYPE slow_queries_total" in content, (
+            "slow_queries_total TYPE comment should be present"
+        )
+        assert "# HELP slow_queries_total" in content, (
+            "slow_queries_total HELP comment should be present"
+        )
 
 
 class TestMetricsRecording:
@@ -287,9 +288,9 @@ class TestMetricsEdgeCases:
 
         # Should be less than 1MB
         max_reasonable_size = 1 * 1024 * 1024
-        assert (
-            content_size < max_reasonable_size
-        ), f"Metrics content size {content_size} exceeds limit"
+        assert content_size < max_reasonable_size, (
+            f"Metrics content size {content_size} exceeds limit"
+        )
 
         # Should not be empty
         assert content_size > 0, "Metrics content should not be empty"

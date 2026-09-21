@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for BaseGlobalContextBuilder - Template Method pattern."""
 
 from __future__ import annotations
@@ -450,3 +450,30 @@ class TestBaseGlobalContextBuilderHooks:
         pool = _make_pool()
         builder = ConcreteGlobalContextBuilder(graph_pool=pool)
         assert builder._include_cross_community_direction() is False
+
+
+class TestCommunitySummaryBranch:
+    """#203: the redundant `if relevant_communities` guard was removed."""
+
+    @pytest.mark.asyncio
+    async def test_summaries_added_whenever_communities_found(self) -> None:
+        """Non-empty search results always produce the summaries section."""
+        builder = ConcreteGlobalContextBuilder(graph_pool=_make_pool(), fallback_enabled=False)
+        builder.find_relevant_communities = AsyncMock(
+            return_value=([{"id": UUID_C1, "title": "T", "summary": "S"}], False, "text_search")
+        )
+
+        ctx = await builder.build("q")
+
+        assert "Community Summaries" in [s.name for s in ctx.sections]
+
+    @pytest.mark.asyncio
+    async def test_summaries_absent_when_no_communities(self) -> None:
+        """The empty case returns early and never adds the summaries section."""
+        builder = ConcreteGlobalContextBuilder(graph_pool=_make_pool(), fallback_enabled=False)
+        builder.find_relevant_communities = AsyncMock(return_value=([], False, "none"))
+        builder.has_any_communities = AsyncMock(return_value=True)
+
+        ctx = await builder.build("q")
+
+        assert "Community Summaries" not in [s.name for s in ctx.sections]

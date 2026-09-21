@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Hybrid search engine combining vector, BM25, and graph retrieval.
 
 This engine implements a multi-stage retrieval pipeline:
@@ -18,6 +18,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any
 
 from core.constants import SearchMode
@@ -31,6 +32,18 @@ from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 log = get_logger(__name__)
 
 
+def _coerce_datetime(value: Any) -> datetime | None:
+    """Parse a datetime that may already be one, an ISO string, or garbage."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
 @dataclass
 class HybridSearchConfig:
     """Configuration for hybrid search."""
@@ -41,11 +54,14 @@ class HybridSearchConfig:
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"
+    # Per-leg RRF contribution multipliers (default 1.0 = equal weight).
     vector_weight: float = 1.0
     bm25_weight: float = 1.0
-    graph_weight: float = 1.0
     rrf_k: int = 60
     top_k: int = 10
+    # Min cosine similarity for the vector retriever. 0.80（旧默认）对常见
+    # embedding 模型过高，会把全部命中过滤成空。
+    similarity_threshold: float = 0.3
     temporal_decay_enabled: bool = False
     temporal_decay_half_life_days: float = 30.0
 
@@ -74,10 +90,12 @@ class HybridSearchEngine:
     Combines:
     - Vector similarity search (semantic)
     - BM25 lexical search (keyword)
-    - Graph-based search (entity relationships)
 
-    Uses Reciprocal Rank Fusion (RRF) to merge results, with optional
-    cross-encoder re-ranking and MMR diversity.
+    Fuses them with Reciprocal Rank Fusion (per-leg weights configurable via
+    ``vector_weight`` / ``bm25_weight``), with optional cross-encoder
+    re-ranking and MMR diversity. A graph retrieval leg (entity
+    relationships) is a possible future addition; local-mode entity search
+    covers that use case today.
 
     Args:
         vector_repo: Vector repository for semantic search.
@@ -117,6 +135,16 @@ class HybridSearchEngine:
             mmr_enabled=self._config.mmr_enabled,
         )
 
+    @property
+    def bm25_retriever(self) -> BM25Retriever | None:
+        """Public accessor for the BM25 retriever.
+
+        The container reads this to build the BM25 index service; exposing a
+        property keeps that wiring safe against internal renames of the
+        underscore-prefixed attribute.
+        """
+        return self._bm25_retriever
+
     async def search(
         self,
         query: str,
@@ -149,17 +177,21 @@ class HybridSearchEngine:
             # Stage 2: RRF fusion
             fused = self._fuse_results(vector_results, bm25_results)
 
-            # Stage 3: Optional re-ranking
+            # Stage 3: Optional re-ranking (cross-encoder inference blocks: offload)
             if self._config.rerank_enabled and self._reranker:
-                fused = self._rerank_results(query, fused)
+                loop = asyncio.get_running_loop()
+                fused = await loop.run_in_executor(
+                    None, partial(self._rerank_results, query, fused)
+                )
 
             # Stage 3.5: Temporal decay (after rerank, before MMR)
             if self._config.temporal_decay_enabled:
                 fused = await self._apply_temporal_decay(fused)
 
-            # Stage 4: Optional MMR diversity
+            # Stage 4: Optional MMR diversity (sync scoring blocks: offload)
             if self._config.mmr_enabled and self._mmr_reranker:
-                fused = self._apply_mmr(fused)
+                loop = asyncio.get_running_loop()
+                fused = await loop.run_in_executor(None, partial(self._apply_mmr, fused))
 
             # Convert to output format
             results = self._to_hybrid_results(fused[:limit])
@@ -183,7 +215,7 @@ class HybridSearchEngine:
         query: str,
         embedding: list[float] | None,
         limit: int,
-    ) -> tuple[list[tuple[str, float]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Execute parallel retrieval from multiple sources.
 
         Args:
@@ -192,7 +224,7 @@ class HybridSearchEngine:
             limit: Number of results per source.
 
         Returns:
-            Tuple of (vector_results as tuples, bm25_results as dicts).
+            Tuple of (vector_results as dicts, bm25_results as dicts).
         """
         tasks = []
 
@@ -226,7 +258,7 @@ class HybridSearchEngine:
         self,
         embedding: list[float],
         limit: int,
-    ) -> list[tuple[str, float]]:
+    ) -> list[dict[str, Any]]:
         """Execute vector similarity search.
 
         Args:
@@ -234,14 +266,28 @@ class HybridSearchEngine:
             limit: Number of results.
 
         Returns:
-            List of (doc_id, score) tuples.
+            List of dicts with doc_id, score and title (from the vector
+            repo's JOIN with articles) so vector-only hits carry metadata
+            through fusion.
         """
         if not self._vector_repo:
             return []
 
         try:
-            results = await self._vector_repo.find_similar(embedding, limit=limit)
-            return [(r.article_id, r.similarity) for r in results]
+            results = await self._vector_repo.find_similar(
+                embedding, limit=limit, threshold=self._config.similarity_threshold
+            )
+            return [
+                {
+                    "doc_id": r.article_id,
+                    "score": r.similarity,
+                    "title": r.title or "",
+                    # Native datetimes: temporal decay reads these after fusion.
+                    "publish_time": r.publish_time,
+                    "created_at": r.created_at,
+                }
+                for r in results
+            ]
         except Exception as exc:
             log.error("vector_search_error", error=str(exc))
             return []
@@ -265,7 +311,7 @@ class HybridSearchEngine:
 
         try:
             # Run BM25 in thread pool (it's synchronous)
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             results = await loop.run_in_executor(
                 None,
                 lambda: self._bm25_retriever.retrieve(query, top_k=limit),
@@ -290,13 +336,13 @@ class HybridSearchEngine:
 
     def _fuse_results(
         self,
-        vector_results: list[tuple[str, float]],
+        vector_results: list[dict[str, Any]],
         bm25_results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Fuse results using Reciprocal Rank Fusion.
 
         Args:
-            vector_results: Vector search results as (doc_id, score) tuples.
+            vector_results: Vector search results as dicts (doc_id/score/title).
             bm25_results: BM25 search results as dicts with full info.
 
         Returns:
@@ -304,10 +350,12 @@ class HybridSearchEngine:
         """
         # Prepare results lists for RRF (need tuples)
         results_list = []
+        vector_tuples: list[tuple[str, float]] = []
         bm25_tuples: list[tuple[str, float]] = []
 
         if vector_results:
-            results_list.append(vector_results)
+            vector_tuples = [(r["doc_id"], r["score"]) for r in vector_results]
+            results_list.append(vector_tuples)
         if bm25_results:
             # Convert BM25 dicts to tuples for RRF
             bm25_tuples = [(r["doc_id"], r["score"]) for r in bm25_results]
@@ -320,28 +368,60 @@ class HybridSearchEngine:
         fused = reciprocal_rank_fusion(
             results_list,
             k=self._config.rrf_k,
+            weights=[self._config.vector_weight, self._config.bm25_weight],
         )
 
         # Track source ranks
-        vector_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(vector_results, 1)}
+        vector_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(vector_tuples, 1)}
         bm25_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(bm25_tuples, 1)}
 
-        # Build BM25 info map for content lookup
+        # Info maps for metadata lookup — vector-only hits carry the title
+        # (from the vector repo's JOIN with articles); BM25 hits carry
+        # title + content.
+        vector_info_map = {r["doc_id"]: r for r in vector_results}
         bm25_info_map = {r["doc_id"]: r for r in bm25_results}
 
-        return [
+        fused_items: list[dict[str, Any]] = [
             {
                 "doc_id": doc_id,
                 "rrf_score": score,
                 "vector_rank": vector_rank_map.get(doc_id),
                 "bm25_rank": bm25_rank_map.get(doc_id),
-                # Preserve BM25 content info
-                "title": bm25_info_map.get(doc_id, {}).get("title", ""),
+                # BM25 content info wins; vector-only hits fall back to the
+                # title carried by the vector repo (content stays empty —
+                # the vector store does not index full text).
+                "title": (
+                    bm25_info_map.get(doc_id, {}).get("title")
+                    or vector_info_map.get(doc_id, {}).get("title", "")
+                ),
                 "content": bm25_info_map.get(doc_id, {}).get("content", ""),
                 "metadata": bm25_info_map.get(doc_id, {}).get("metadata", {}),
             }
             for doc_id, score in fused
         ]
+
+        # Promote timestamps to top level: _apply_temporal_decay reads
+        # publish_time/created_at from the result dict itself, not metadata.
+        # Vector legs carry native datetimes (preferred); BM25 carries an ISO
+        # string inside metadata. Unparseable values become None rather than
+        # poisoning the decay calculation.
+        for item in fused_items:
+            doc_id = item["doc_id"]
+            vector_info = vector_info_map.get(doc_id, {})
+            publish_time = vector_info.get("publish_time")
+            created_at = vector_info.get("created_at")
+            if publish_time is None or created_at is None:
+                meta_ts = _coerce_datetime(
+                    bm25_info_map.get(doc_id, {}).get("metadata", {}).get("publish_time")
+                )
+                if publish_time is None:
+                    publish_time = meta_ts
+                if created_at is None:
+                    created_at = meta_ts
+            item["publish_time"] = publish_time
+            item["created_at"] = created_at
+
+        return fused_items
 
     def _rerank_results(
         self,
@@ -436,8 +516,11 @@ class HybridSearchEngine:
             # Calculate age and apply decay
             age_days = calculate_age_in_days(timestamp, now)
 
-            # Use rerank_score if available (after reranking), else rrf_score
-            original_score = result.get("rerank_score") or result.get("rrf_score", 0.0)
+            # Use rerank_score if available (after reranking), else rrf_score.
+            # Explicit None check: a legitimate 0.0 rerank score must not
+            # fall through to rrf_score.
+            rerank = result.get("rerank_score")
+            original_score = rerank if rerank is not None else result.get("rrf_score", 0.0)
 
             decayed_score = apply_temporal_decay(
                 score=original_score,
@@ -458,7 +541,9 @@ class HybridSearchEngine:
 
         # Re-sort by final score (rerank_score or rrf_score)
         results.sort(
-            key=lambda x: x.get("rerank_score") or x.get("rrf_score", 0),
+            key=lambda x: (
+                x["rerank_score"] if x.get("rerank_score") is not None else x.get("rrf_score", 0)
+            ),
             reverse=True,
         )
 
@@ -479,8 +564,14 @@ class HybridSearchEngine:
         return [
             HybridSearchResult(
                 doc_id=r.get("doc_id", ""),
-                # Use rerank_score if present and > 0, else rrf_score
-                score=r.get("rerank_score") if r.get("rerank_score") else r.get("rrf_score", 0.0),
+                # Use rerank_score if present, else rrf_score (0.0 is valid).
+                # float(): BM25/RRF produce numpy.float32, which pydantic
+                # refuses to serialize in API responses.
+                score=float(
+                    r["rerank_score"]
+                    if r.get("rerank_score") is not None
+                    else r.get("rrf_score", 0.0)
+                ),
                 title=r.get("title", ""),
                 content=r.get("content", ""),
                 source=SearchMode.HYBRID.value,
@@ -490,7 +581,9 @@ class HybridSearchEngine:
                 mmr_score=r.get("mmr_score"),
                 publish_time=r.get("publish_time"),
                 temporal_decay_multiplier=r.get("temporal_decay_multiplier"),
-                metadata=r,
+                # Copy: aliasing the internal result dict would leak mutations
+                # from callers back into the ranking pipeline.
+                metadata=dict(r),
             )
             for r in results
         ]
@@ -518,15 +611,15 @@ class HybridSearchEngine:
 
         return [
             HybridSearchResult(
-                doc_id=doc_id,
-                score=score,
-                title="",
+                doc_id=r["doc_id"],
+                score=r["score"],
+                title=r.get("title", ""),
                 content="",
                 source="vector",
                 vector_rank=i + 1,
-                metadata={"original_score": score},
+                metadata={"original_score": r["score"]},
             )
-            for i, (doc_id, score) in enumerate(results)
+            for i, r in enumerate(results)
         ]
 
     def set_config(self, config: HybridSearchConfig) -> None:

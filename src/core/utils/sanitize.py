@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Sensitive data sanitization utilities.
 
 This module provides utilities for sanitizing sensitive data before logging.
@@ -11,21 +11,23 @@ from __future__ import annotations
 
 import re
 
-# Patterns for sensitive data detection
+# Patterns for sensitive data detection.
+# 预编译并在此处传入 IGNORECASE，避免日志热路径上的每次 re.sub 都走一遍
+# 编译缓存查找。
 SENSITIVE_PATTERNS = [
     # PostgreSQL DSN: postgresql://user:pass@host/db
-    (r"(postgresql(?:\+[a-z]+)?://[^:]+:)([^@]+)(@.+)", r"\1***\3"),
+    (re.compile(r"(postgresql(?:\+[a-z]+)?://[^:]+:)([^@]+)(@.+)", re.IGNORECASE), r"\1***\3"),
     # Redis URL: redis://user:pass@host
-    (r"(redis://[^:]+:)([^@]+)(@.+)", r"\1***\3"),
+    (re.compile(r"(redis://[^:]+:)([^@]+)(@.+)", re.IGNORECASE), r"\1***\3"),
     # Neo4j URL: bolt://user:pass@host
-    (r"(bolt://[^:]+:)([^@]+)(@.+)", r"\1***\3"),
+    (re.compile(r"(bolt://[^:]+:)([^@]+)(@.+)", re.IGNORECASE), r"\1***\3"),
     # API keys in URL params
-    (r"([?&]api[_-]?key=)([^&]+)", r"\1***"),
+    (re.compile(r"([?&]api[_-]?key=)([^&]+)", re.IGNORECASE), r"\1***"),
     # Password in connection strings
-    (r"(password[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", r"\1***"),
+    (re.compile(r"(password[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
     # Generic secret/token patterns
-    (r"(token[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", r"\1***"),
-    (r"(secret[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", r"\1***"),
+    (re.compile(r"(token[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
+    (re.compile(r"(secret[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
 ]
 
 
@@ -47,6 +49,6 @@ def sanitize_dsn(dsn: str) -> str:
 
     result = dsn
     for pattern, replacement in SENSITIVE_PATTERNS:
-        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+        result = pattern.sub(replacement, result)
 
     return result

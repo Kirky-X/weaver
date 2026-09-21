@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 
 # Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Token budget management with tiktoken truncation."""
@@ -21,11 +21,18 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.CATEGORIZER: 1000,
     CallPoint.MERGER: 8000,
     CallPoint.ANALYZE: 4000,
+    # 合并调用点取 narrative 侧 8000（保守不折中：narrative 的 event_type/
+    # pattern 依赖更长上下文，且 RPM 是硬约束、token 不是）
+    CallPoint.ANALYZE_NARRATIVE: 8000,
     CallPoint.CREDIBILITY_CHECKER: 3000,
     CallPoint.QUALITY_SCORER: 3000,
     # Entity extraction & resolution
     CallPoint.ENTITY_EXTRACTOR: 4000,
-    CallPoint.ENTITY_RESOLVER: 2000,
+    # entity-resolver-batch-select: 文档性额度（该 call_point 无 truncate 消费点）。
+    # 批量 payload 体量由 MAX_BATCH_LLM_ENTITIES(20) x 候选数(<=5) 约束。
+    CallPoint.ENTITY_RESOLVER: 3000,
+    # GLiNER refine：单实体小 payload，对齐 COMMUNITY_TITLE 量级。
+    CallPoint.ENTITY_REFINE: 1000,
     # Embedding & reranking
     CallPoint.EMBEDDING: 500,
     CallPoint.RERANK: 500,
@@ -40,10 +47,17 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.CAUSAL_INFERENCE: 4000,
     CallPoint.NARRATIVE_SYNTHESIS: 8000,
     CallPoint.NARRATIVE_SCHEMA: 8000,
-    CallPoint.EVIDENCE_SAMPLING: 2000,
-    CallPoint.ROI_SUMMARY: 4000,
+    # 批量评分 per-region 防御网上限。整批体量由构造参数约束
+    # （sample_size × region_size = 5×2000 字符；中文最坏 ~1.5 token/字符
+    # 即整批可达 ~15k tokens），不依赖此限额做总量守门。
+    CallPoint.EVIDENCE_SAMPLING: 4000,
     CallPoint.SENTIMENT: 1000,
     CallPoint.CLAIM_EXTRACTION: 3000,
+    # Briefing: multi-article per-category summary (same scale as
+    # COMMUNITY_REPORT).
+    CallPoint.BRIEFING: 6000,
+    # Query expander: input is a short search query — tight budget.
+    CallPoint.QUERY_EXPANDER: 500,
 }
 
 DEFAULT_LIMIT = 4000
@@ -87,8 +101,15 @@ class TokenBudgetManager:
 
             settings = get_settings()
             return settings.llm.tokenizer_model
-        except Exception:
-            log.warning("Failed to get tokenizer model, falling back to default", exc_info=True)
+        except Exception as exc:
+            # 记录具体异常类型：仅 "falling back to default" 无法区分
+            # ImportError（无 config 包）与配置项错误（llm 属性缺失等）。
+            log.warning(
+                "tokenizer_model_unresolved",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                exc_info=True,
+            )
             return None
 
     def truncate(self, text: str, call_point: CallPoint) -> str:

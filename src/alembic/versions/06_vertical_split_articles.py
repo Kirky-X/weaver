@@ -1,36 +1,61 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+
+# SPDX-FileCopyrightText: © 2026 Kirky.X
+
 """Vertical split: articles → articles_core + article_bodies + article_analysis.
 
+
+
 Revision ID: 06_vertical_split_articles
+
 Revises: 05_create_security_tables
+
 Create Date: 2026-06-10
 
-Changes per Weaver-数据库设计文档 §9.1:
+
+
+Changes:
+
 - Create articles_core (high-frequency query columns, ~500 bytes/row)
+
 - Create article_bodies (large text fields, detail-page only)
+
 - Create article_analysis (LLM analysis results)
+
 - Migrate data from articles to the three new tables
+
 - Create backward-compatible `articles` VIEW joining all three tables
+
 - Drop original articles table
+
 - Redirect article_vectors FK to articles_core
+
 """
 
 from collections.abc import Sequence
 
+
 import sqlalchemy as sa
+
 from alembic import op
+
 from sqlalchemy.dialects import postgresql
 
+
 revision: str = "06_vertical_split_articles"
+
 down_revision: str | None = "05_create_security_tables"
+
 branch_labels: str | Sequence[str] | None = None
+
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Apply vertical split migration: articles → articles_core + article_bodies + article_analysis."""
+
     # ── Step 1: Create articles_core ──────────────────────────
+
     op.create_table(
         "articles_core",
         sa.Column(
@@ -121,30 +146,42 @@ def upgrade() -> None:
     )
 
     # Indexes for articles_core
+
     op.create_index("idx_core_category", "articles_core", ["category"])
+
     op.create_index("idx_core_publish_time", "articles_core", [sa.text("publish_time DESC")])
+
     op.create_index("idx_core_score", "articles_core", [sa.text("score DESC")])
+
     op.create_index("idx_core_credibility", "articles_core", [sa.text("credibility_score DESC")])
+
     op.create_index("idx_core_sentiment_score", "articles_core", [sa.text("sentiment_score DESC")])
+
     op.create_index("idx_core_merged_into", "articles_core", ["merged_into"])
+
     op.create_index(
         "idx_core_persist_status",
         "articles_core",
         ["persist_status"],
         postgresql_where=sa.text("persist_status IN ('pending', 'pg_done')"),
     )
+
     op.create_index(
         "idx_core_category_publish", "articles_core", ["category", sa.text("publish_time DESC")]
     )
+
     op.create_index(
         "idx_core_host_publish", "articles_core", ["source_host", sa.text("publish_time DESC")]
     )
+
     op.create_index(
         "idx_core_status_created", "articles_core", ["persist_status", sa.text("created_at ASC")]
     )
+
     op.create_index("idx_core_task_status", "articles_core", ["task_id", "persist_status"])
 
     # ── Step 2: Create article_bodies ─────────────────────────
+
     op.create_table(
         "article_bodies",
         sa.Column(
@@ -158,6 +195,7 @@ def upgrade() -> None:
     )
 
     # ── Step 3: Create article_analysis ───────────────────────
+
     op.create_table(
         "article_analysis",
         sa.Column(
@@ -216,49 +254,87 @@ def upgrade() -> None:
     )
 
     # ── Step 4: Migrate data from articles ────────────────────
+
     op.execute("""
+
         INSERT INTO articles_core (
+
             id, source_url, source_host, title, category, language, region,
+
             score, sentiment_score, credibility_score, persist_status, publish_time,
+
             merged_into, is_merged, merged_source_ids,
+
             content_hash, version, document_type, doc_metadata,
+
             task_id, processing_stage, processing_error, retry_count,
+
             created_at, updated_at
+
         )
+
         SELECT
+
             id, source_url, source_host, title, category, language, region,
+
             score, sentiment_score, credibility_score, persist_status, publish_time,
+
             merged_into, is_merged, merged_source_ids::uuid[],
+
             content_hash, version, document_type, doc_metadata,
+
             task_id, processing_stage, processing_error, retry_count,
+
             created_at, updated_at
+
         FROM articles
+
     """)
 
     op.execute("""
+
         INSERT INTO article_bodies (article_id, body, summary)
+
         SELECT id, body, summary FROM articles
+
     """)
 
     op.execute("""
+
         INSERT INTO article_analysis (
+
             article_id, is_news, subjects, key_data, impact, has_data,
+
             quality_score, sentiment, primary_emotion, emotion_targets,
+
             source_credibility, cross_verification, content_check_score,
+
             credibility_flags, verified_by_sources, data_conflicts,
+
             event_time, image_forensics, prompt_versions
+
         )
+
         SELECT
+
             id, is_news, subjects, key_data, impact, has_data,
+
             quality_score, sentiment, primary_emotion, emotion_targets,
+
             source_credibility, cross_verification, content_check_score,
+
             credibility_flags, verified_by_sources, data_conflicts,
+
             event_time, image_forensics, prompt_versions
+
         FROM articles
+
     """)
 
     # ── Step 5: Redirect article_vectors FK ───────────────────
+
     op.drop_constraint("article_vectors_article_id_fkey", "article_vectors", type_="foreignkey")
+
     op.create_foreign_key(
         "article_vectors_article_id_fkey",
         "article_vectors",
@@ -269,8 +345,11 @@ def upgrade() -> None:
     )
 
     # ── Step 6: Redirect other FKs ────────────────────────────
+
     # llm_failures
+
     op.drop_constraint("llm_failures_article_id_fkey", "llm_failures", type_="foreignkey")
+
     op.create_foreign_key(
         "llm_failures_article_id_fkey",
         "llm_failures",
@@ -281,7 +360,9 @@ def upgrade() -> None:
     )
 
     # pending_sync
+
     op.drop_constraint("pending_sync_article_id_fkey", "pending_sync", type_="foreignkey")
+
     op.create_foreign_key(
         "pending_sync_article_id_fkey",
         "pending_sync",
@@ -292,9 +373,11 @@ def upgrade() -> None:
     )
 
     # daily_briefing_items
+
     op.drop_constraint(
         "daily_briefing_items_article_id_fkey", "daily_briefing_items", type_="foreignkey"
     )
+
     op.create_foreign_key(
         "daily_briefing_items_article_id_fkey",
         "daily_briefing_items",
@@ -305,44 +388,87 @@ def upgrade() -> None:
     )
 
     # articles merged_into self-reference
+
     op.drop_constraint("articles_merged_into_fkey", "articles", type_="foreignkey")
 
     # ── Step 7: Drop original articles table ──────────────────
+
     op.drop_table("articles")
 
     # ── Step 8: Create backward-compatible view ───────────────
+
+    # invariant: the original `articles.body` was NOT NULL, but this
+
+    # view LEFT JOINs article_bodies, so `body` may be NULL for articles_core
+
+    # rows lacking a body row. Writers MUST insert into articles_core and
+
+    # article_bodies in the same transaction (the pipeline does). A DB-level
+
+    # trigger was deliberately NOT added here (write-amplification on the hot
+
+    # path), and COALESCE(b.body, '') would make this view non-auto-updatable,
+
+    # breaking INSERT/UPDATE passthrough — so readers must tolerate NULL body.
+
     op.execute("""
+
         CREATE VIEW articles AS
+
         SELECT
+
             c.id, c.source_url, c.source_host, c.title,
+
             c.category, c.language, c.region,
+
             b.body, b.summary,
+
             a.is_news, a.subjects, a.key_data, a.impact, a.has_data,
+
             a.quality_score, a.sentiment, a.primary_emotion, a.emotion_targets,
+
             a.source_credibility, a.cross_verification, a.content_check_score,
+
             a.credibility_flags, a.verified_by_sources, a.data_conflicts,
+
             a.event_time, a.image_forensics,
+
             c.document_type, c.doc_metadata, c.content_hash, c.version,
+
             c.score, a.prompt_versions,
+
             c.persist_status, c.publish_time, c.created_at, c.updated_at,
+
             c.merged_into, c.is_merged, c.merged_source_ids,
+
             c.task_id, c.processing_stage, c.processing_error, c.retry_count,
+
             c.sentiment_score
+
         FROM articles_core c
+
         LEFT JOIN article_bodies b ON c.id = b.article_id
+
         LEFT JOIN article_analysis a ON c.id = a.article_id
+
     """)
 
 
 def downgrade() -> None:
     """Revert vertical split: recreate monolithic articles table from split tables."""
+
     # Drop the view
+
     op.execute("DROP VIEW IF EXISTS articles")
 
     # Recreate the original articles table
+
     # Note: Full downgrade is complex; this is a simplified version
+
     # that recreates the table structure for rollback purposes.
+
     # Data loss will occur in downgrade.
+
     op.create_table(
         "articles",
         sa.Column(
@@ -461,31 +587,66 @@ def downgrade() -> None:
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
+        # Restore the CHECK constraints dropped by the split (schema parity
+        # with 01_initial); source rows already satisfy them.
+        sa.CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
+        sa.CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 1", name="chk_quality_score_range"
+        ),
+        sa.CheckConstraint(
+            "sentiment_score >= 0 AND sentiment_score <= 1", name="chk_sentiment_score_range"
+        ),
+        sa.CheckConstraint(
+            "credibility_score >= 0 AND credibility_score <= 1",
+            name="chk_credibility_score_range",
+        ),
+        sa.CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_no_self_merge"),
     )
 
     # Migrate data back
+
     op.execute("""
+
         INSERT INTO articles
+
         SELECT
+
             c.id, c.source_url, c.source_host, a.is_news, c.title,
+
             COALESCE(b.body, ''), c.category, c.language, c.region,
+
             c.merged_into, c.is_merged, c.merged_source_ids,
+
             b.summary, a.event_time, a.subjects, a.key_data, a.impact, a.has_data,
+
             a.data_conflicts, a.image_forensics,
+
             c.document_type, c.doc_metadata, c.content_hash, c.version,
+
             c.score, a.quality_score, a.sentiment, c.sentiment_score,
+
             a.primary_emotion, a.emotion_targets,
+
             c.credibility_score, a.source_credibility, a.cross_verification,
+
             a.content_check_score, a.credibility_flags, a.verified_by_sources,
+
             c.persist_status, c.task_id, c.processing_stage, c.processing_error,
+
             c.retry_count, a.prompt_versions, c.publish_time, c.created_at, c.updated_at
+
         FROM articles_core c
+
         LEFT JOIN article_bodies b ON c.id = b.article_id
+
         LEFT JOIN article_analysis a ON c.id = a.article_id
+
     """)
 
     # Redirect FKs back to articles
+
     op.drop_constraint("article_vectors_article_id_fkey", "article_vectors", type_="foreignkey")
+
     op.create_foreign_key(
         "article_vectors_article_id_fkey",
         "article_vectors",
@@ -496,6 +657,7 @@ def downgrade() -> None:
     )
 
     op.drop_constraint("llm_failures_article_id_fkey", "llm_failures", type_="foreignkey")
+
     op.create_foreign_key(
         "llm_failures_article_id_fkey",
         "llm_failures",
@@ -506,6 +668,7 @@ def downgrade() -> None:
     )
 
     op.drop_constraint("pending_sync_article_id_fkey", "pending_sync", type_="foreignkey")
+
     op.create_foreign_key(
         "pending_sync_article_id_fkey",
         "pending_sync",
@@ -518,6 +681,7 @@ def downgrade() -> None:
     op.drop_constraint(
         "daily_briefing_items_article_id_fkey", "daily_briefing_items", type_="foreignkey"
     )
+
     op.create_foreign_key(
         "daily_briefing_items_article_id_fkey",
         "daily_briefing_items",
@@ -528,6 +692,9 @@ def downgrade() -> None:
     )
 
     # Drop split tables
+
     op.drop_table("article_analysis")
+
     op.drop_table("article_bodies")
+
     op.drop_table("articles_core")

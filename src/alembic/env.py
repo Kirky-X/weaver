@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Alembic environment configuration for async SQLAlchemy."""
 
 from __future__ import annotations
@@ -34,6 +34,14 @@ target_metadata = Base.metadata
 # 2. WEAVER_POSTGRES__DSN environment variable (full DSN override)
 # 3. Settings class (built from components)
 dsn_override = config.get_main_option("postgres_dsn")
+if not dsn_override:
+    # The CLI stores -x args on cmd_opts, never in the main section,
+    # so get_main_option alone cannot see them.
+    x_args = getattr(getattr(config, "cmd_opts", None), "x", None) or []
+    for arg in x_args:
+        if arg.startswith("postgres_dsn="):
+            dsn_override = arg.split("=", 1)[1]
+            break
 if dsn_override:
     # Use DSN from command line argument
     sqlalchemy_url = dsn_override
@@ -95,10 +103,11 @@ async def run_async_migrations() -> None:
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
+    try:
+        async with connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+    finally:
+        await connectable.dispose()
 
 
 def run_migrations_online() -> None:

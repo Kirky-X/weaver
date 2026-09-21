@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for time_utils module."""
 
 import time
@@ -15,23 +15,25 @@ from core.utils.time_utils import (
     NTP_TIMEOUT,
     _get_ntp_time,
     _ntp_cache,
-    _ntp_client,
+    _ntp_cache_lock,
     get_current_time_with_timezone,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_cache():
-    """Reset NTP cache and singleton client before each test."""
+    """Reset NTP cache and probing flag before each test."""
     import core.utils.time_utils as time_utils
 
-    _ntp_cache["time"] = None
-    _ntp_cache["expires"] = 0.0
-    time_utils._ntp_client = None
+    with _ntp_cache_lock:
+        _ntp_cache["time"] = None
+        _ntp_cache["expires"] = 0.0
+        time_utils._ntp_probing = False
     yield
-    _ntp_cache["time"] = None
-    _ntp_cache["expires"] = 0.0
-    time_utils._ntp_client = None
+    with _ntp_cache_lock:
+        _ntp_cache["time"] = None
+        _ntp_cache["expires"] = 0.0
+        time_utils._ntp_probing = False
 
 
 class TestGetNtpTime:
@@ -125,10 +127,10 @@ class TestNtpCache:
         mock_client.request.return_value = mock_response
         mock_ntp_client.return_value = mock_client
 
-        # First call - should hit network (1 singleton client, 5 requests)
+        # First call - should hit network (one client per probe thread)
         result1 = _get_ntp_time()
         assert result1 is not None
-        assert mock_ntp_client.call_count == 1
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
 
         # Record call count after first probe
         calls_after_first = mock_ntp_client.call_count
@@ -186,8 +188,8 @@ class TestNtpCache:
         # After expiration, should probe again
         result2 = _get_ntp_time()
         assert result2 is not None
-        # Singleton: 1 NTPClient, but .request called 10 times (5 per round)
-        assert mock_ntp_client.call_count == 1
+        # One fresh client per probe thread (2 rounds x 5 servers)
+        assert mock_ntp_client.call_count == 2 * len(NTP_SERVERS)
 
     @patch("core.utils.time_utils.monotonic")
     @patch("core.utils.time_utils.ntplib.NTPClient")
@@ -203,8 +205,8 @@ class TestNtpCache:
         result = _get_ntp_time()
 
         assert result is not None
-        # One singleton client created (5 requests on it)
-        assert mock_ntp_client.call_count == 1
+        # One fresh client per probe thread (5 servers)
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
 
 
 class TestGetCurrentTimeWithTimezone:
@@ -254,8 +256,8 @@ class TestNtplibIntegration:
     """Integration tests for ntplib usage."""
 
     @patch("core.utils.time_utils.ntplib.NTPClient")
-    def test_ntplib_client_is_singleton(self, mock_ntp_client):
-        """Test NTPClient is created once and reused (singleton pattern)."""
+    def test_ntplib_client_per_probe_thread(self, mock_ntp_client):
+        """Each probe thread creates its own NTPClient (fix)."""
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.tx_time = 1704067200.0
@@ -264,12 +266,29 @@ class TestNtplibIntegration:
 
         _get_ntp_time()
 
-        # Singleton: only one NTPClient instantiated
-        assert mock_ntp_client.call_count == 1
-        # But .request called for all 5 servers
+        # One NTPClient per server probe — no shared instance
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
         assert mock_client.request.call_count == len(NTP_SERVERS)
 
     def test_ntplib_available(self):
         """Test ntplib is available and importable."""
         assert hasattr(ntplib, "NTPClient")
         assert hasattr(ntplib, "NTPException")
+
+
+class TestProbingGuard:
+    """a thread already probing must not spawn duplicate probes."""
+
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_probing_flag_prevents_thundering_herd(self, mock_ntp_client):
+        """When _ntp_probing is set, the call returns cached (local) fallback
+        immediately without creating probe threads."""
+        import core.utils.time_utils as time_utils
+
+        with _ntp_cache_lock:
+            time_utils._ntp_probing = True
+
+        result = _get_ntp_time()
+
+        assert result is None
+        assert mock_ntp_client.call_count == 0

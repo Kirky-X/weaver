@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Incremental community updater for knowledge graph.
 
 Periodically updates community assignments based on new entities and relationships,
@@ -20,6 +20,7 @@ wrappers so existing callers and tests keep working unchanged.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -191,8 +192,9 @@ class IncrementalCommunityUpdater:
         # Step 3: Get current assignments
         old_assignments = await self._get_current_assignments(nodes)
 
-        # Step 4: Run local clustering (synchronous)
-        new_assignments = self._run_local_clustering(nodes, edges)
+        # Step 4: Run local clustering (CPU-bound, offloaded to a thread so
+        # the event loop is not blocked for the whole partitioning run)
+        new_assignments = await asyncio.to_thread(self._run_local_clustering, nodes, edges)
 
         # Step 5: Write diff
         diff_result = await self._write_diff(old_assignments, new_assignments)
@@ -341,22 +343,6 @@ class IncrementalCommunityUpdater:
     async def check_and_run(self) -> dict[str, object]:
         """Unified entry point for community auto-scheduling. Delegates to trigger policy."""
         return await self._trigger_policy.check_and_run()
-
-    async def force_rebuild(self) -> dict[str, object]:
-        """Force full community rebuild unconditionally. Delegates to trigger policy."""
-        return await self._trigger_policy.force_rebuild()
-
-    async def _get_community_count(self) -> int:
-        """Get total number of Community nodes. Delegates to trigger policy."""
-        return await self._trigger_policy._get_community_count()
-
-    async def _check_entity_change(self) -> tuple[bool, int, int]:
-        """Check if entity count change exceeds threshold. Delegates to trigger policy."""
-        return await self._trigger_policy._check_entity_change()
-
-    async def check_full_rebuild_needed(self) -> bool:
-        """Check if full rebuild is needed. Delegates to trigger policy."""
-        return await self._trigger_policy.check_full_rebuild_needed()
 
     async def get_stats(self) -> CommunityStats:
         """Get current community update statistics. Delegates to trigger policy."""

@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Request context middleware for logging and tracing."""
 
 from __future__ import annotations
 
+import re
 import uuid
 from contextvars import ContextVar
 from typing import Any
@@ -12,18 +13,14 @@ from core.observability import context_vars, get_logger
 
 log = get_logger(__name__)
 
+# X-Request-ID sanitization bounds: ASGI header values arrive as bytes and
+# header injection rides on CR/LF, so anything outside printable ASCII is
+# rejected and overlong values are truncated (log flooding guard).
+_MAX_REQUEST_ID_LEN = 128
+_PRINTABLE_ASCII_RE = re.compile(r"[ -~]+")
+
 # Request-scoped context
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
-
-
-def get_request_id() -> str | None:
-    """Get the current request ID from context.
-
-    Returns:
-        The request ID if set, None otherwise.
-
-    """
-    return _request_id.get()
 
 
 def set_request_id(request_id: str | None) -> None:
@@ -73,11 +70,25 @@ class RequestContextMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Get or generate request_id
+        # Get or generate request_id.
+        # ASGI mandates lowercase header names; a mixed-case lookup would
+        # never match, silently disabling client-provided request IDs.
         headers = dict(scope.get("headers", []))
-        request_id = headers.get(self.HEADER_NAME.encode(), b"").decode()
+        raw_request_id = headers.get(self.HEADER_NAME.encode().lower(), b"").decode(
+            "ascii", errors="replace"
+        )[:_MAX_REQUEST_ID_LEN]
 
-        if not request_id:
+        # Reject values containing CR/LF or non-printable characters
+        # (header injection) and overlong values (log flooding) by falling
+        # back to a server-generated UUID.
+        if raw_request_id and _PRINTABLE_ASCII_RE.fullmatch(raw_request_id):
+            request_id = raw_request_id
+        else:
+            if raw_request_id:
+                log.warning(
+                    "request_id_rejected",
+                    reason="unprintable or invalid X-Request-ID header",
+                )
             request_id = str(uuid.uuid4())
 
         # Set in context for logging access

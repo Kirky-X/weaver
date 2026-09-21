@@ -1,17 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+# SPDX-FileCopyrightText: © 2026 Kirky.X
 """Source scheduler for periodic crawling using APScheduler."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from core.observability import get_logger
+from core.observability import get_logger, MetricsCollector
 from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.registry import SourceRegistry
 
@@ -22,6 +23,11 @@ log = get_logger(__name__)
 
 # After this many consecutive failures, auto-disable the source
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
+# Wall-clock cap for a single source parse. The fetcher has its own timeouts;
+# this is the last line of defence against a hung parser blocking its slot.
+DEFAULT_CRAWL_TIMEOUT_SECONDS = 300.0
+# Backoff: next run pushed by interval * 2^(failures-1), capped here.
+MAX_BACKOFF_MULTIPLIER = 8
 
 
 class SourceScheduler:
@@ -32,6 +38,7 @@ class SourceScheduler:
         on_items_discovered: Callback invoked with newly discovered items.
         repo: Optional repo for persisting crawl state (last_crawl_time etc).
         max_consecutive_failures: Threshold for auto-disabling a source.
+        crawl_timeout: Per-crawl wall-clock timeout in seconds.
     """
 
     def __init__(
@@ -42,23 +49,44 @@ class SourceScheduler:
         ],
         repo: SourceConfigRepo | None = None,
         max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+        crawl_timeout: float = DEFAULT_CRAWL_TIMEOUT_SECONDS,
     ) -> None:
         self._registry = registry
         self._on_items = on_items_discovered
         self._repo = repo
         self._max_consecutive_failures = max_consecutive_failures
+        self._crawl_timeout = crawl_timeout
         self._consecutive_failures: dict[str, int] = {}
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
-        """Start scheduling all enabled sources."""
+        """Start scheduling all enabled sources.
+
+        Idempotent: a second call while already running is a no-op instead of
+        raising ``SchedulerAlreadyRunningError``.
+        """
+        if self._scheduler.running:
+            log.debug("source_scheduler_already_running")
+            return
         for source in self._registry.list_sources(enabled_only=True):
             self._schedule_source(source)
         self._scheduler.start()
         log.info("source_scheduler_started")
 
+    def register_source(self, source: Any) -> None:
+        """Register a new source with the scheduler registry (public API)."""
+        self._registry.add_source(source)
+
     def stop(self) -> None:
-        """Stop the scheduler."""
+        """Stop the scheduler.
+
+        Idempotent: stopping a scheduler that was never started (or has
+        already been stopped) is a no-op instead of raising
+        ``SchedulerNotRunningError``.
+        """
+        if not self._scheduler.running:
+            log.debug("source_scheduler_stop_skipped_not_running")
+            return
         self._scheduler.shutdown(wait=False)
         log.info("source_scheduler_stopped")
 
@@ -69,6 +97,41 @@ class SourceScheduler:
             List of SourceConfig objects for enabled sources.
         """
         return self._registry.list_sources(enabled_only=True)
+
+    def schedule_source(self, source: SourceConfig) -> None:
+        """Schedule (or reschedule) periodic crawling for one source at runtime.
+
+        Public counterpart of ``_schedule_source``: callers that create or
+        update a source after ``start()`` must invoke this so the source is
+        actually crawled on its interval. No-op when the scheduler has not
+        been started yet (``start()`` will schedule it).
+
+        Args:
+            source: Source configuration to schedule.
+        """
+        if not self._scheduler.running:
+            log.debug(
+                "source_schedule_skipped_scheduler_not_running",
+                source_id=source.id,
+            )
+            return
+        self._schedule_source(source)
+
+    def unschedule_source(self, source_id: str) -> None:
+        """Remove the periodic job for a source (e.g. on delete/disable).
+
+        Args:
+            source_id: The source identifier.
+        """
+        try:
+            self._scheduler.remove_job(f"source_{source_id}")
+        except Exception as exc:
+            # Job may never have been scheduled (created while stopped).
+            log.debug(
+                "source_unschedule_skipped",
+                source_id=source_id,
+                error=str(exc),
+            )
 
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""
@@ -109,22 +172,30 @@ class SourceScheduler:
             return
 
         try:
-            items = await parser.parse(source, force=force)
+            items = await asyncio.wait_for(
+                parser.parse(source, force=force), timeout=self._crawl_timeout
+            )
+            # Persist crawl state in one shot. Validators (etag/last_modified)
+            # are stored independent of whether items were produced, so a
+            # 304-then-restart cycle keeps conditional-fetch capability (else
+            # every poll after a restart re-downloads the full feed/page).
             if items:
                 source.last_crawl_time = datetime.now(UTC)
-                # Persist last_crawl_time to database
-                if self._repo and source.last_crawl_time:
-                    try:
-                        await self._repo.update_crawl_state(
-                            source_id=source.id,
-                            last_crawl_time=source.last_crawl_time,
-                        )
-                    except Exception as repo_exc:
-                        log.warning(
-                            "persist_crawl_state_failed",
-                            source_id=source_id,
-                            error=str(repo_exc),
-                        )
+            if self._repo and (items or source.etag or source.last_modified):
+                try:
+                    await self._repo.update_crawl_state(
+                        source_id=source.id,
+                        last_crawl_time=source.last_crawl_time if items else None,
+                        etag=source.etag,
+                        last_modified=source.last_modified,
+                    )
+                except Exception as repo_exc:
+                    log.warning(
+                        "persist_crawl_state_failed",
+                        source_id=source_id,
+                        error=str(repo_exc),
+                    )
+            if items:
                 await self._on_items(items, source, max_items, task_id, force)
                 # Reset consecutive failure counter on success
                 self._consecutive_failures.pop(source_id, None)
@@ -154,9 +225,42 @@ class SourceScheduler:
                 traceback=traceback.format_exc(),
             )
 
+            # Back off the next scheduled run: a source that keeps failing
+            # should not keep burning its slot at the normal interval.
+            self._apply_failure_backoff(source_id, failure_count)
+
             # Auto-disable source when threshold exceeded
             if failure_count >= self._max_consecutive_failures:
                 await self._auto_disable_source(source, failure_count)
+
+    def _next_backoff_time(self, source_id: str, failure_count: int) -> datetime:
+        """Compute the backoff next-run time after ``failure_count`` failures."""
+        source = self._registry.get_source(source_id)
+        interval = source.interval_minutes if source else 30
+        multiplier = min(2 ** max(failure_count - 1, 0), MAX_BACKOFF_MULTIPLIER)
+        return datetime.now(tz=UTC) + timedelta(minutes=interval * multiplier)
+
+    def _apply_failure_backoff(self, source_id: str, failure_count: int) -> None:
+        """Push the source job's next run back when failures accumulate."""
+        if failure_count < 2:
+            return
+        try:
+            self._scheduler.modify_job(
+                f"source_{source_id}",
+                next_run_time=self._next_backoff_time(source_id, failure_count),
+            )
+            log.info(
+                "source_crawl_backoff",
+                source_id=source_id,
+                consecutive_failures=failure_count,
+            )
+        except Exception as exc:
+            # Job may not exist (manual trigger_now with no scheduled job).
+            log.debug(
+                "source_backoff_skipped",
+                source_id=source_id,
+                error=str(exc),
+            )
 
     async def _auto_disable_source(self, source: SourceConfig, failure_count: int) -> None:
         """Auto-disable a source after exceeding consecutive failure threshold.
@@ -170,13 +274,21 @@ class SourceScheduler:
         """
         source.enabled = False
         self._consecutive_failures.pop(source.id, None)
+        # Observability: auto-disable must not be silent — it silently
+        # shrinks collection coverage until someone notices.
+        MetricsCollector.source_auto_disabled_total.labels(source_id=source.id).inc()
 
-        # Remove scheduled job
+        # Remove scheduled job (absence is expected for never-run sources)
         job_id = f"source_{source.id}"
         try:
             self._scheduler.remove_job(job_id)
-        except Exception:
-            pass  # Job may not exist
+        except Exception as exc:
+            log.debug(
+                "source_job_removal_skipped",
+                job_id=job_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
 
         # Persist disabled state
         if self._repo:
@@ -192,7 +304,7 @@ class SourceScheduler:
                     error=str(repo_exc),
                 )
 
-        log.warning(
+        log.error(
             "source_auto_disabled",
             source_id=source.id,
             source_name=source.name,
