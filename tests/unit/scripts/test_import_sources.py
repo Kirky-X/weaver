@@ -312,8 +312,8 @@ class TestClassifyUpstreamDrift:
         new, vanished, redirects = classify_upstream_drift(upstream, local)
 
         assert new == ["fresh"]
-        assert vanished == ["sleeping"]
-        assert redirects == [("cfblocked", None)]
+        assert vanished == ["cfblocked"]
+        assert redirects == []
 
     def test_local_alias_id_reported_as_redirect(self):
         from scripts.pipeline import classify_upstream_drift
@@ -332,8 +332,8 @@ class TestClassifyUpstreamDrift:
         from scripts.pipeline import classify_upstream_drift
 
         upstream = {"bare": {}, "gone": {"disable": True}}
-        new, vanished, redirects = classify_upstream_drift(upstream, [])
+        new, vanished, redirects = classify_upstream_drift(upstream, ["gone"])
 
         assert new == ["bare"]
-        assert vanished == ["gone"]
+        assert vanished == ["gone"]  # locally present but upstream-disabled
         assert redirects == []
