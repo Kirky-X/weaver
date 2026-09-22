@@ -1115,6 +1115,100 @@ async def cmd_import_sources(args) -> int:
         await container.shutdown()
 
 
+UPSTREAM_SOURCES_URL = "https://raw.githubusercontent.com/newsnext/newsnow/main/shared/sources.json"
+
+
+def classify_upstream_drift(
+    upstream: dict[str, Any], local_ids: list[str]
+) -> tuple[list[str], list[str], list[tuple[str, str | None]]]:
+    """Split local newsnow ids against upstream sources.json into drift buckets.
+
+    Returns (upstream_new, vanished_or_disabled, redirects):
+    - upstream_new: available upstream (disable falsy, no redirect) but absent locally
+    - vanished_or_disabled: locally configured, but upstream marks it disable
+      (True or "cf") or the id no longer exists
+    - redirects: locally configured bare ids that upstream turned into
+      redirect aliases (server-side resolved, informational only)
+    """
+    available: list[str] = []
+    disabled: list[str] = []
+    redirect_map: dict[str, str | None] = {}
+    for sid, src in upstream.items():
+        src = src if isinstance(src, dict) else {}
+        disable = src.get("disable", False)
+        redirect = src.get("redirect")
+        if redirect:
+            redirect_map[sid] = redirect
+        elif not disable:
+            available.append(sid)
+        else:
+            disabled.append(sid)
+
+    local_set = set(local_ids)
+    upstream_new = sorted(set(available) - local_set)
+    vanished = sorted((local_set & set(disabled)) | (local_set - set(upstream)))
+    redirects = sorted((sid, redirect_map.get(sid)) for sid in local_set & set(redirect_map))
+    return upstream_new, vanished, redirects
+
+
+async def cmd_check_upstream(args) -> int:
+    """Report drift between locally configured newsnow sources and upstream.
+
+    Read-only: never mutates source_configs. Actionable drift is handled by
+    re-running seed-sources / import-sources, not by this command.
+    """
+    from config.settings import Settings
+    from container import Container
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.get(args.api_file)
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"Failed to fetch upstream sources from {args.api_file}: {exc}")
+        return 1
+
+    import json_repair
+
+    upstream = json_repair.loads(response.content)
+    if not isinstance(upstream, dict):
+        print(f"Unexpected upstream payload from {args.api_file} (not a JSON object)")
+        return 1
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+    try:
+        repo = container.source_config_repo()
+        sources = await repo.list_sources(enabled_only=False)
+        local_ids = sorted(
+            s.id.removeprefix("newsnow-") for s in sources if s.source_type == "newsnow"
+        )
+    finally:
+        await container.shutdown()
+
+    upstream_new, vanished, redirects = classify_upstream_drift(upstream, local_ids)
+
+    print(
+        f"Upstream sources: {len(upstream)} | local newsnow sources: {len(local_ids)} "
+        f"(from {args.api_file})"
+    )
+    print(f"\n+ upstream new ({len(upstream_new)}): available upstream, not configured locally")
+    for sid in upstream_new:
+        print(f"  + {sid}")
+    print(f"\n- vanished/disabled ({len(vanished)}): locally configured, unavailable upstream")
+    for sid in vanished:
+        print(f"  - {sid}")
+    print(f"\n~ redirect aliases ({len(redirects)}): server-side resolved, no action needed")
+    for sid, target in redirects:
+        print(f"  ~ {sid} -> {target}")
+    print(
+        "\nActionable: import new ids via `import-sources --type newsnow --verify`; "
+        "disable vanished ids via the sources API."
+    )
+    return 0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Server Management
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2374,6 +2468,17 @@ Examples:
         help=f"Parallel verifications with --verify (default: {_VERIFY_CONCURRENCY})",
     )
 
+    # check-upstream subcommand
+    upstream_parser = subparsers.add_parser(
+        "check-upstream",
+        help="Report drift between local newsnow sources and upstream newsnext/newsnow (read-only)",
+    )
+    upstream_parser.add_argument(
+        "--api-file",
+        default=UPSTREAM_SOURCES_URL,
+        help=f"Upstream sources.json URL (default: {UPSTREAM_SOURCES_URL})",
+    )
+
     args = parser.parse_args()
 
     if args.command == "test":
@@ -2386,6 +2491,8 @@ Examples:
         return asyncio.run(cmd_seed_sources(args))
     elif args.command == "import-sources":
         return asyncio.run(cmd_import_sources(args))
+    elif args.command == "check-upstream":
+        return asyncio.run(cmd_check_upstream(args))
     else:
         parser.print_help()
         return 1

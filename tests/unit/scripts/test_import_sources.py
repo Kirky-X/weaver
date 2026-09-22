@@ -292,3 +292,48 @@ def test_batch_import_call_sites_pass_preserve_enabled():
     src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
     assert re.search(r"repo\.upsert\(cfg, preserve_enabled=True\)", src)
     assert re.search(r"repo\.upsert\(SourceConfigModel\(\*\*cfg\), preserve_enabled=True\)", src)
+
+
+class TestClassifyUpstreamDrift:
+    """classify_upstream_drift sorts upstream ids vs local into three buckets."""
+
+    def test_three_way_classification(self):
+        from scripts.pipeline import classify_upstream_drift
+
+        upstream = {
+            "known": {"disable": False, "redirect": None},
+            "fresh": {"disable": False, "redirect": None},
+            "sleeping": {"disable": True, "redirect": None},
+            "cfblocked": {"disable": "cf", "redirect": None},
+            "alias": {"disable": False, "redirect": "known"},
+        }
+        local = ["known", "cfblocked"]
+
+        new, vanished, redirects = classify_upstream_drift(upstream, local)
+
+        assert new == ["fresh"]
+        assert vanished == ["sleeping"]
+        assert redirects == [("cfblocked", None)]
+
+    def test_local_alias_id_reported_as_redirect(self):
+        from scripts.pipeline import classify_upstream_drift
+
+        upstream = {
+            "cls": {"disable": False, "redirect": "cls-telegraph"},
+            "cls-telegraph": {"disable": False, "redirect": None},
+        }
+        new, vanished, redirects = classify_upstream_drift(upstream, ["cls"])
+
+        assert new == ["cls-telegraph"]
+        assert vanished == []
+        assert redirects == [("cls", "cls-telegraph")]
+
+    def test_tolerates_missing_fields(self):
+        from scripts.pipeline import classify_upstream_drift
+
+        upstream = {"bare": {}, "gone": {"disable": True}}
+        new, vanished, redirects = classify_upstream_drift(upstream, [])
+
+        assert new == ["bare"]
+        assert vanished == ["gone"]
+        assert redirects == []
