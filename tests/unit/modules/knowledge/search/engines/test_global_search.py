@@ -633,3 +633,55 @@ class TestMapCommunitiesSignature:
             "use_llm",
             "start",
         ]
+
+
+class TestCommunityContextsConcurrency:
+    """Per-community entity fetches must run concurrently (gather), not
+    serially — up to max_communities sequential graph queries sit on the
+    hot path before the LLM map stage."""
+
+    @pytest.fixture
+    def engine(self):
+        from modules.knowledge.search.engines.global_search import GlobalSearchEngine
+
+        builder = MagicMock()
+        builder.find_relevant_communities = AsyncMock()
+        builder.get_community_entities = AsyncMock(return_value=[])
+        return GlobalSearchEngine(context_builder=builder)
+
+    @pytest.mark.asyncio
+    async def test_fetches_contexts_concurrently_and_in_order(self, engine):
+        import time
+
+        n = 6
+        communities = [
+            {
+                "id": f"c{i}",
+                "title": f"C{i}",
+                "summary": "s",
+                "entity_count": 1,
+                "rank": 1.0,
+                "similarity_score": 0.9,
+            }
+            for i in range(n)
+        ]
+        engine._context_builder.find_relevant_communities = AsyncMock(
+            return_value=(communities, False, "test")
+        )
+
+        async def slow_entities(cid: str):
+            import asyncio as _asyncio
+
+            await _asyncio.sleep(0.1)
+            return [{"name": cid}]
+
+        engine._context_builder.get_community_entities = slow_entities
+
+        start = time.perf_counter()
+        contexts = await engine._get_community_contexts("q", 0)
+        elapsed = time.perf_counter() - start
+
+        assert [c.id for c in contexts] == [f"c{i}" for i in range(n)]  # order kept
+        assert [c.entities for c in contexts] == [[{"name": f"c{i}"}] for i in range(n)]
+        # Serial would be >= n*0.1 = 0.6s; concurrent should be ~0.1s.
+        assert elapsed < 0.4, f"expected concurrent fetch, took {elapsed:.2f}s"

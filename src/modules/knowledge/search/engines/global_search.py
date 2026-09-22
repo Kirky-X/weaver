@@ -550,11 +550,18 @@ class GlobalSearchEngine:
         if not communities:
             return []
 
-        contexts = []
-        for comm in communities:
-            # Get entities for this community
-            entities = await self._context_builder.get_community_entities(comm.get("id", ""))
+        # Fetch all community entities concurrently (gather keeps input
+        # order) — serial awaits here put up to max_communities graph
+        # round-trips on the hot path before the LLM map stage.
+        entity_lists = await asyncio.gather(
+            *(
+                self._context_builder.get_community_entities(comm.get("id", ""))
+                for comm in communities
+            )
+        )
 
+        contexts = []
+        for comm, entities in zip(communities, entity_lists, strict=True):
             similarity = comm.get("similarity_score")
             if similarity is None:
                 similarity = (comm.get("rank") or 1.0) / 10.0
