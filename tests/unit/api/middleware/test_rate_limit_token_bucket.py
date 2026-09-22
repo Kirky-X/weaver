@@ -449,9 +449,7 @@ class TestRateLimitExemptPaths:
         mock_limiter = AsyncMock()
         mock_limiter.acquire = AsyncMock(return_value=(True, 100))
 
-        middleware = self._make_middleware(
-            mock_app, mock_limiter, exempt_paths=frozenset()
-        )
+        middleware = self._make_middleware(mock_app, mock_limiter, exempt_paths=frozenset())
 
         await middleware(
             {"type": "http", "method": "GET", "path": "/metrics"},

@@ -341,9 +341,7 @@ class DRIFTSearchEngine:
             for r in settled:
                 # Do not swallow secondary failures silently — the first
                 # exception already propagates via `await fut` above
-                if isinstance(r, BaseException) and not isinstance(
-                    r, asyncio.CancelledError
-                ):
+                if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
                     log.warning(
                         "drift_follow_up_secondary_failure",
                         error=str(r),
