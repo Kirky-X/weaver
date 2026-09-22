@@ -7,6 +7,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import asyncio
+
 import pytest
 
 from modules.knowledge.graph.community.modularity import _compute_modularity
@@ -1047,3 +1049,78 @@ class TestCommunityModuleImports:
         import modules.knowledge.graph.community.updater_clustering as module
 
         assert hasattr(module, "time")
+
+
+class TestWriteDiffBatchedEmptyCheck:
+    """R-write-path-001: the emptied-community check must be ONE aggregate
+    count query for all candidate communities, not one query per community."""
+
+    @pytest.mark.asyncio
+    async def test_empty_check_is_single_batched_query(self, updater, mock_graph_pool):
+        old = {f"n{i}": "comm_1" for i in range(4)}
+        new = {**old, "n0": "comm_2", "n1": "comm_3"}
+
+        mock_graph_pool.execute_query = AsyncMock(
+            return_value=[
+                {"community_id": "comm_1", "count": 2},
+                {"community_id": "comm_2", "count": 0},
+                {"community_id": "comm_3", "count": 0},
+            ]
+        )
+        updater._mark_community_empty = AsyncMock()
+        updater._diff_writer._mark_community_empty = AsyncMock()
+        updater._diff_writer._reassign_entity = AsyncMock(return_value=None)
+
+        await updater._write_diff(old, new)
+
+        count_aggregates = [
+            call
+            for call in mock_graph_pool.execute_query.await_args_list
+            if call.args and isinstance(call.args[0], str) and "community_ids" in call.args[0]
+        ]
+        assert len(count_aggregates) == 1, (
+            f"expected 1 batched count query, got {len(count_aggregates)}"
+        )
+        # communities with 0 entities are marked empty
+        writer = updater._diff_writer._mark_community_empty
+        writer.assert_any_await("comm_2")
+        writer.assert_any_await("comm_3")
+
+
+class TestReassignConcurrency:
+    """R-write-path-002: reassignments run concurrently with a bounded
+    semaphore instead of one-await-at-a-time."""
+
+    @pytest.fixture
+    def diff_updater(self, mock_graph_pool):
+        return IncrementalCommunityUpdater(
+            mock_graph_pool,
+            update_threshold=50,
+            interval_minutes=30,
+            max_subgraph_size=2000,
+            full_rebuild_interval_days=7,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reassignments_run_concurrently(self, diff_updater, mock_graph_pool):
+        import time
+
+        n = 6
+        old = {f"n{i}": "old" for i in range(n)}
+        new = {f"n{i}": f"new{i}" for i in range(n)}
+        mock_graph_pool.execute_query = AsyncMock(return_value=[])
+
+        async def slow_reassign(node_id, old_comm, new_comm):
+            await asyncio.sleep(0.1)
+
+        diff_updater._diff_writer._reassign_entity = AsyncMock(side_effect=slow_reassign)
+        diff_updater._mark_community_empty = AsyncMock()
+
+        start = time.perf_counter()
+        result = await diff_updater._write_diff(old, new)
+        elapsed = time.perf_counter() - start
+
+        assert diff_updater._diff_writer._reassign_entity.await_count == n
+        assert result["reassigned"] == n
+        # Serial would be >= n*0.1 = 0.6s; concurrent ~0.1s.
+        assert elapsed < 0.4, f"expected concurrent reassignment, took {elapsed:.2f}s"
