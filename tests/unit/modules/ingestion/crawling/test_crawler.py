@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -557,3 +559,56 @@ class TestCrawlerTitleExtraction:
 
         assert len(results) == 1
         assert results[0].title == "Solidot 文章标题"
+
+
+class TestGlobalConcurrencyDecoupledFromCpu:
+    """R-concurrency-001: crawling is IO-bound — the global fetch limit
+    must be min(host_count, max_concurrency), not capped by os.cpu_count().
+    """
+
+    @pytest.fixture
+    def crawler(self):
+        from modules.ingestion.crawling.crawler import Crawler
+        from modules.ingestion.fetching.base import BaseFetcher
+
+        fetcher = MagicMock(spec=BaseFetcher)
+        return Crawler(smart_fetcher=fetcher, max_concurrency=16)
+
+    def _items(self, hosts: list[str]):
+        from modules.ingestion.domain.models import NewsItem
+
+        return [
+            NewsItem(
+                url=f"https://{h}/article-{i}",
+                title=f"t{i}",
+                source="s",
+                source_host=h,
+                source_id="src",
+            )
+            for i, h in enumerate(hosts)
+        ]
+
+    def test_global_semaphore_ignores_cpu_count(self, crawler, monkeypatch):
+        # 10 distinct hosts; a 1-core machine previously capped the global
+        # semaphore at 1 despite max_concurrency=16 (expected: 10).
+        monkeypatch.setattr("os.cpu_count", lambda: 1)
+        items = self._items([f"h{i}" for i in range(10)])
+
+        captured: list[int] = []
+        real_semaphore = asyncio.Semaphore
+
+        def spy_semaphore(value):
+            captured.append(value)
+            return real_semaphore(value)
+
+        monkeypatch.setattr("modules.ingestion.crawling.crawler.asyncio.Semaphore", spy_semaphore)
+        # Drive just the semaphore-setup path: stop after setup via a
+        # failing per-item fetch.
+        crawler._fetch_and_parse = AsyncMock(side_effect=RuntimeError("stop"))
+        try:
+            asyncio.run(crawler.crawl_batch(items))
+        except RuntimeError:
+            pass
+
+        assert 10 in captured  # global: min(host_count=10, max=16), no cpu term
+        assert 1 not in captured  # cpu_count=1 must not appear anywhere

@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import time
 from typing import TYPE_CHECKING
@@ -178,9 +177,11 @@ class Crawler:
                     f"Invalid concurrency for {host}: {limit!r} (expected positive integer)"
                 )
 
-        # Global concurrency = min(cpu, host_count, MAX)
+        # Fetching is IO-bound (async http + trafilatura offloaded to
+        # threads) — the global limit must not be capped by CPU cores.
+        # Per-host semaphores below still protect individual sites.
         host_count = len({urlparse(i.url).netloc for i in items})
-        global_limit = min(os.cpu_count() or 1, host_count, self._max_concurrency)
+        global_limit = min(host_count, self._max_concurrency)
         global_sem = asyncio.Semaphore(global_limit)
 
         # Per-host semaphores

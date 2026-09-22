@@ -356,13 +356,13 @@ async def get_article_graph(
             detail=f"Article '{article_id}' not found in graph",
         )
 
-    # Get entities and relationships
-
-    entities = await graph_repo.get_article_entities(article_id)
-
-    relationships = await graph_repo.get_article_relationships(article_id)
-
-    related_articles = await graph_repo.get_related_articles(article_id)
+    # Get entities, relationships and related articles — three independent
+    # queries, fetched concurrently (same pattern as the entity endpoint).
+    entities, relationships, related_articles = await asyncio.gather(
+        graph_repo.get_article_entities(article_id),
+        graph_repo.get_article_relationships(article_id),
+        graph_repo.get_related_articles(article_id),
+    )
 
     return success_response(
         ArticleGraphResponse(
