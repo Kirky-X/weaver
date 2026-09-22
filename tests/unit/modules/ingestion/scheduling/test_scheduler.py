@@ -459,3 +459,44 @@ class TestConsecutiveEmptyYield:
     @pytest.mark.asyncio
     async def test_default_threshold_is_six(self, scheduler):
         assert scheduler._max_consecutive_empty == 6
+
+
+class TestIntervalJitter:
+    """Interval triggers carry jitter = min(interval*60*0.15, 300s).
+
+    225+ sources share one 30-minute interval; without jitter they fire in
+    lockstep after every scheduler restart (60 newsnow sources on one host).
+    """
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        scheduler = SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+        scheduler._scheduler = MagicMock()
+        return scheduler
+
+    def _source(self, interval_minutes: int):
+        source = MagicMock()
+        source.id = "src-j"
+        source.enabled = True
+        source.interval_minutes = interval_minutes
+        return source
+
+    def test_30min_interval_gets_270s_jitter(self, scheduler):
+        scheduler._schedule_source(self._source(30))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 270
+
+    def test_long_interval_jitter_capped_at_300s(self, scheduler):
+        scheduler._schedule_source(self._source(120))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 300
+
+    def test_jitter_is_positive_for_short_interval(self, scheduler):
+        scheduler._schedule_source(self._source(5))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 45

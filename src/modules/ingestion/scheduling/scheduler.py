@@ -143,17 +143,27 @@ class SourceScheduler:
 
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""
+        # Stagger triggers: 225+ sources sharing one interval would otherwise
+        # fire in lockstep after every restart (crawling bursts, 60 newsnow
+        # sources on one host). 15% of the interval, hard-capped at 5 minutes.
+        jitter_seconds = min(int(source.interval_minutes * 60 * 0.15), 300)
         self._scheduler.add_job(
             self._crawl_source,
             "interval",
             minutes=source.interval_minutes,
+            jitter=jitter_seconds,
             args=[source.id, None, None],
             id=f"source_{source.id}",
             max_instances=1,
             coalesce=True,
             replace_existing=True,
         )
-        log.debug("source_scheduled", source_id=source.id, interval=source.interval_minutes)
+        log.debug(
+            "source_scheduled",
+            source_id=source.id,
+            interval=source.interval_minutes,
+            jitter_seconds=jitter_seconds,
+        )
 
     async def _crawl_source(
         self,
