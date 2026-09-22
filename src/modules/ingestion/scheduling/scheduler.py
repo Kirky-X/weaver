@@ -140,6 +140,10 @@ class SourceScheduler:
                 source_id=source_id,
                 error=str(exc),
             )
+        finally:
+            # A recreated source id must start with a clean zero-yield slate.
+            self._consecutive_empty.pop(source_id, None)
+            self._empty_warned.discard(source_id)
 
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""

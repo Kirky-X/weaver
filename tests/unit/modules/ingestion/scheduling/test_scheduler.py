@@ -500,3 +500,28 @@ class TestIntervalJitter:
         scheduler._schedule_source(self._source(5))
         kwargs = scheduler._scheduler.add_job.call_args.kwargs
         assert kwargs["jitter"] == 45
+
+
+class TestUnscheduleCleansEmptyCounters:
+    """R-ingestion-scheduling-001: removing a source's job must not leave
+    stale zero-yield counters (a recreated id would inherit the old count)."""
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        scheduler = SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+        scheduler._scheduler = MagicMock()
+        return scheduler
+
+    def test_unschedule_source_clears_empty_tracking(self, scheduler):
+        scheduler._consecutive_empty["src-gone"] = 3
+        scheduler._empty_warned.add("src-gone")
+
+        scheduler.unschedule_source("src-gone")
+
+        assert "src-gone" not in scheduler._consecutive_empty
+        assert "src-gone" not in scheduler._empty_warned
