@@ -126,6 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log_file=container.settings.observability.log_file,
         log_rotation=container.settings.observability.log_rotation,
         log_retention=container.settings.observability.log_retention,
+        log_format=container.settings.observability.log_format,
     )
 
     # Initialize OpenTelemetry tracing

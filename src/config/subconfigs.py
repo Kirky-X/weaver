@@ -450,6 +450,9 @@ class ObservabilitySettings(BaseModel):
     log_file: str = ""
     log_rotation: str = "10 MB"
     log_retention: str = "7 days"
+    # Output format: "text" (human-readable) or "json" (one JSON object per
+    # line for collectors); anything else fails fast at configure_logging
+    log_format: str = "text"
 
 
 class MemorySettings(BaseModel):

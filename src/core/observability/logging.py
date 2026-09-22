@@ -117,6 +117,17 @@ def redact_sensitive_data(message: str) -> str:
     return sanitized
 
 
+# Extra keys whose VALUE must be redacted wholesale. Key-level matching is
+# needed because SENSITIVE_PATTERNS expect `key=value` inside one string,
+# which never matches a bare extra value. `token_count`-style keys must NOT
+# match, hence the anchored `token` alternative.
+_SENSITIVE_EXTRA_KEY_RE = re.compile(
+    r"^(?:.*(?:password|pwd|passwd|api[_-]?key|secret|authorization)"
+    r"|(?:api[-_]?|access[-_]?|refresh[-_]?|auth[-_]?)?token)$",
+    re.IGNORECASE,
+)
+
+
 def log_filter(record: Any) -> bool:
     """Filter and sanitize log records to remove sensitive data.
 
@@ -147,15 +158,21 @@ def log_filter(record: Any) -> bool:
         else:
             record["extra"]["request_id"] = "N/A"
 
-    # Sanitize the log message
-    if hasattr(record, "message") and isinstance(record["message"], str):
+    # Sanitize the log message (loguru records are plain dicts — the old
+    # hasattr(record, "message"/"extra") guards were always False, silently
+    # disabling both redaction branches)
+    if isinstance(record.get("message"), str):
         record["message"] = redact_sensitive_data(record["message"])
 
     # Sanitize any extra fields
-    if hasattr(record, "extra"):
-        for key, value in record["extra"].items():
+    extra = record.get("extra")
+    if extra:
+        for key, value in extra.items():
             if isinstance(value, str):
-                record["extra"][key] = redact_sensitive_data(value)
+                if _SENSITIVE_EXTRA_KEY_RE.search(key):
+                    extra[key] = "***REDACTED***"
+                else:
+                    extra[key] = redact_sensitive_data(value)
 
     # Format structured extra fields for output (excluding internal fields)
     _INTERNAL_FIELDS = {"request_id", "trace_id", "component", "_format_extra"}
@@ -176,6 +193,7 @@ def configure_logging(
     log_file: str | None = None,
     log_rotation: str | None = None,
     log_retention: str | None = None,
+    log_format: str = "text",
 ) -> None:
     """Configure loguru with formatted output and context vars.
 
@@ -184,8 +202,15 @@ def configure_logging(
         log_file: Path to log file. If None, uses LOG_FILE env var.
         log_rotation: Log rotation size/time. Default "10 MB".
         log_retention: Log retention period. Default "7 days".
+        log_format: "text" (default, human-readable) or "json" (one JSON
+            object per line for log collectors). Any other value raises
+            ValueError before sinks are reconfigured.
     """
+    if log_format not in ("text", "json"):
+        raise ValueError(f"Unsupported log_format: {log_format!r} (expected 'text' or 'json')")
+
     level = "DEBUG" if debug else "INFO"
+    serialize = log_format == "json"
 
     logger.remove()
 
@@ -195,6 +220,7 @@ def configure_logging(
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>req={extra[request_id]}</yellow> <yellow>trace={extra[trace_id]}</yellow> - <level>{message}</level> <dim>{extra[_format_extra]}</dim>",
         level=level,
         filter=log_filter,
+        serialize=serialize,
     )
 
     # File output (if configured)
@@ -212,6 +238,7 @@ def configure_logging(
             retention=retention,
             compression="gz",  # Compress rotated logs
             enqueue=True,  # Thread-safe writes
+            serialize=serialize,
         )
 
 
