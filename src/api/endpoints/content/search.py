@@ -436,9 +436,19 @@ async def search_local(
     Shortcut for ``GET /search?mode=local``. Returns entity-focused results
     with article context from the local subgraph.
     """
+    # Key-compatible with search_unified's cache_params at its mode=local
+    # defaults, so `/search?q=...&mode=local` and this endpoint share entries.
     cache_params = {
         "q": q,
         "mode": "local",
+        "community_level": 0,
+        "threshold": 0.0,
+        "limit": 20,
+        "category": None,
+        "use_hybrid": True,
+        "global_mode": "map_reduce",
+        "output_mode": "context",
+        "enrich_entities": False,
         "no_cache": request.query_params.get("no_cache") == "true",
     }
     cached = await get_cached_search(request, cache_params)
@@ -463,10 +473,18 @@ async def search_global(
     Shortcut for ``GET /search?mode=global``. Returns community-report-based
     answers spanning multiple entities.
     """
+    # Key-compatible with search_unified's cache_params at mode=global.
     cache_params = {
         "q": q,
         "mode": "global",
         "community_level": community_level,
+        "threshold": 0.0,
+        "limit": 20,
+        "category": None,
+        "use_hybrid": True,
+        "global_mode": "map_reduce",
+        "output_mode": "context",
+        "enrich_entities": False,
         "no_cache": request.query_params.get("no_cache") == "true",
     }
     cached = await get_cached_search(request, cache_params)
