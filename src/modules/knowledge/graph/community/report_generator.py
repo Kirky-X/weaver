@@ -239,18 +239,22 @@ class CommunityReportGenerator:
             level=level, limit=MAX_COMMUNITIES_PER_LEVEL
         )
 
-        # Filter out communities that already have reports (unless stale)
-        to_generate: list[str] = []
-        for community in communities:
-            if community.level == -1:  # Skip orphan communities
-                continue
+        # Filter out communities that already have reports (unless stale).
+        # One batch existence query replaces up to N per-community get_report
+        # round-trips; stale inspection only hits the (usually few) existing
+        # reports when regeneration is requested.
+        candidates = [c for c in communities if c.level != -1]
+        existence = await self._repo.get_reports_existence([c.id for c in candidates])
 
-            existing_report = await self._repo.get_report(community.id)
-            if existing_report is None:
+        to_generate: list[str] = []
+        for community in candidates:
+            if not existence.get(community.id):
                 to_generate.append(community.id)
-            elif regenerate_stale and existing_report.stale:
-                await self._repo.delete_report(community.id)
-                to_generate.append(community.id)
+            elif regenerate_stale:
+                existing_report = await self._repo.get_report(community.id)
+                if existing_report is not None and existing_report.stale:
+                    await self._repo.delete_report(community.id)
+                    to_generate.append(community.id)
 
         log.info(
             "batch_report_generation_queue",
