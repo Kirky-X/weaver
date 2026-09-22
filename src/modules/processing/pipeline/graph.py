@@ -422,13 +422,7 @@ class Pipeline:
         # skip Phase 1 (and Phase 3) — that is the point of the short-circuit.
         cache_hit_states = [s for s in states if s.get("_cache_hit")]
         pending_phase1 = [s for s in states if not s.get("_cache_hit")]
-        batch_size = self._settings.pipeline_process.worker_batch_size if self._settings else 20
-        phase1_results: list[Any] = []
-        for i in range(0, len(pending_phase1), batch_size):
-            batch = pending_phase1[i : i + batch_size]
-            batch_tasks = [self._phase1_per_article(s, pending_stage_updates) for s in batch]
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
-            phase1_results.extend(batch_results)
+        phase1_results = await self._run_phase1(pending_phase1, pending_stage_updates)
 
         if self._debug:
             states = cache_hit_states + list(phase1_results)
@@ -729,6 +723,21 @@ class Pipeline:
                 )
 
         return states
+
+    async def _run_phase1(
+        self,
+        pending_phase1: list[PipelineState],
+        pending_stage_updates: list[tuple[str, str]],
+    ) -> list[Any]:
+        """Run phase1 over all pending states concurrently.
+
+        ``_phase1_semaphore`` is the sole concurrency limiter — no chunking.
+        A worker_batch_size chunk barrier would idle slots whenever one slow
+        article finishes its chunk, throttling throughput for no benefit
+        (``_flush_stage_updates`` is a bulk upsert and order-independent).
+        """
+        tasks = [self._phase1_per_article(s, pending_stage_updates) for s in pending_phase1]
+        return await asyncio.gather(*tasks, return_exceptions=not self._debug)
 
     async def _phase1_per_article(
         self, state: PipelineState, pending_updates: list[tuple[str, str]]

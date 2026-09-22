@@ -135,3 +135,44 @@ async def test_entity_resolver_debug_log_tolerates_missing_raw() -> None:
     resolver.resolve_entities_batch.assert_awaited_once()
     assert result["resolved_entities"] == [{"name": "X", "id": "1"}]
     assert "raw" not in result
+
+
+class TestPhase1NoChunkBarrier:
+    """R-pipeline-throughput-001: all pending phase1 tasks start together —
+    the semaphore is the sole limiter, no worker_batch_size chunk barrier."""
+
+    def _make_pipeline(self, delay: float = 0.1):
+        from modules.processing.pipeline.graph import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._debug = False
+        pipeline._phase1_semaphore = asyncio.Semaphore(10)
+        settings = MagicMock()
+        settings.pipeline_process.worker_batch_size = 5
+        pipeline._settings = settings
+
+        started: list[float] = []
+
+        async def fake_per_article(state, updates):
+            started.append(time.monotonic())
+            await asyncio.sleep(delay)
+            return state
+
+        pipeline._phase1_per_article = fake_per_article
+        return pipeline, started
+
+    @pytest.mark.asyncio
+    async def test_all_tasks_start_without_waiting_for_previous_chunk(self):
+        pipeline, started = self._make_pipeline(delay=0.1)
+        pending = [MagicMock() for _ in range(12)]  # 12 > batch_size 5
+
+        start = time.monotonic()
+        await pipeline._run_phase1(pending, [])
+        elapsed = time.monotonic() - start
+
+        assert len(started) == 12
+        # With a chunk barrier the 3rd chunk starts only after the 2nd
+        # finishes (spread ≈ 2×delay); barrier-free starts all at once.
+        start_spread = max(started) - min(started)
+        assert start_spread < 0.1, f"chunk barrier detected: spread {start_spread:.2f}s"
+        assert elapsed < 0.25  # serial chunks would be ≥ 0.3s
