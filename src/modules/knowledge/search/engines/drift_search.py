@@ -60,6 +60,12 @@ class DriftConfig:
     max_concurrent: int = 5
     similarity_threshold: float = 0.5
 
+    def __post_init__(self) -> None:
+        # max_concurrent=0 would deadlock the follow-up semaphore forever
+        # (the phase has no timeout of its own)
+        if self.max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {self.max_concurrent}")
+
 
 class DRIFTSearchEngine:
     """DRIFT Search Engine implementation.
@@ -267,10 +273,15 @@ class DRIFTSearchEngine:
             follow_up_questions: Questions generated during primer.
 
         Returns:
-            Follow-up results with intermediate answers.
+            Follow-up results with intermediate answers. ``results`` is
+            ordered by the original question order (not completion order);
+            ``llm_calls`` counts completed searches, ``cancelled`` counts
+            dispatched-but-cancelled ones — an in-flight cancelled call may
+            still have been spent provider-side.
         """
         results = []
         llm_calls = 0
+        cancelled = 0
 
         questions_to_process = follow_up_questions[: self._config.max_follow_ups]
 
@@ -282,7 +293,7 @@ class DRIFTSearchEngine:
                         reason="local_engine_not_configured",
                         question=question[:50],
                     )
-            return {"results": [], "llm_calls": 0}
+            return {"results": [], "llm_calls": 0, "cancelled": 0}
 
         questions_to_process = [q for q in questions_to_process if q.strip()]
 
@@ -310,7 +321,8 @@ class DRIFTSearchEngine:
                 )
 
                 # Early termination: cancel the not-yet-finished searches so
-                # no further LLM calls are spent beyond the threshold hit.
+                # no further *waiting* is spent beyond the threshold hit (an
+                # already-dispatched call may still cost provider-side).
                 if local_result.confidence >= self._config.confidence_threshold:
                     log.info(
                         "drift_early_termination",
@@ -322,11 +334,30 @@ class DRIFTSearchEngine:
             for task in tasks:
                 if not task.done():
                     task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            settled = await asyncio.gather(*tasks, return_exceptions=True)
+            cancelled = sum(1 for r in settled if isinstance(r, asyncio.CancelledError))
+            if cancelled:
+                log.info("drift_follow_up_cancelled", cancelled=cancelled)
+            for r in settled:
+                # Do not swallow secondary failures silently — the first
+                # exception already propagates via `await fut` above
+                if isinstance(r, BaseException) and not isinstance(
+                    r, asyncio.CancelledError
+                ):
+                    log.warning(
+                        "drift_follow_up_secondary_failure",
+                        error=str(r),
+                        exc_type=type(r).__name__,
+                    )
+
+        # Restore the primer's question order for deterministic output
+        order = {q: i for i, q in enumerate(questions_to_process)}
+        results.sort(key=lambda r: order.get(r["question"], len(order)))
 
         return {
             "results": results,
             "llm_calls": llm_calls,
+            "cancelled": cancelled,
         }
 
     async def _aggregate_results(

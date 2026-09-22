@@ -149,6 +149,10 @@ temporal_decay_half_life_days = 30.0     # Half-life for temporal decay (days)
 # 搜索结果缓存（Redis，0=关闭）
 result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 300，0=关闭）
 
+# Global search map 阶段（社区数与 LLM 并发，默认 3/3 冻结旧行为）
+global_max_communities = 3             # 进入 map 阶段的最大社区数（≥1）
+global_map_concurrency = 3             # map 阶段 LLM 并发上限（≥1，勿超过 llm.toml 各 provider concurrency）
+
 # ============================================================
 # Observability Configuration
 # ============================================================
@@ -157,6 +161,7 @@ result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 
 # Telemetry and monitoring settings
 # OTLP collector endpoint for OpenTelemetry tracing
 otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to disable)
+log_format = "text"                     # "text"（人类可读）或 "json"（采集器逐行解析）
 
 # ============================================================
 # spaCy Configuration

@@ -409,9 +409,11 @@ class SearchSettings(BaseModel):
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
     # Max communities entering the global search map phase and the LLM
-    # concurrency cap for it (defaults freeze the previous hardcoded 3/3)
-    global_max_communities: int = 3
-    global_map_concurrency: int = 3
+    # concurrency cap for it (defaults freeze the previous hardcoded 3/3).
+    # Concurrency above the per-provider limit in config/llm.toml only
+    # queues at the LLM pool — it adds latency, not throughput.
+    global_max_communities: int = Field(default=3, ge=1)
+    global_map_concurrency: int = Field(default=3, ge=1)
     # Causal/temporal endpoint protections (API layer wait_for timeouts)
     causal_search_timeout: float = 60.0
     temporal_search_timeout: float = 30.0
@@ -451,8 +453,8 @@ class ObservabilitySettings(BaseModel):
     log_rotation: str = "10 MB"
     log_retention: str = "7 days"
     # Output format: "text" (human-readable) or "json" (one JSON object per
-    # line for collectors); anything else fails fast at configure_logging
-    log_format: str = "text"
+    # line for collectors); validated at settings load
+    log_format: Literal["text", "json"] = "text"
 
 
 class MemorySettings(BaseModel):

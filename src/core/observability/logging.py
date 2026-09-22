@@ -227,6 +227,7 @@ def configure_logging(
             ValueError before sinks are reconfigured.
     """
     if log_format not in ("text", "json"):
+        # Direct callers bypass pydantic validation; keep the fail-fast here
         raise ValueError(f"Unsupported log_format: {log_format!r} (expected 'text' or 'json')")
 
     level = "DEBUG" if debug else "INFO"

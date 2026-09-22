@@ -563,8 +563,14 @@ class RateLimitMiddleware:
             return
 
         # Exact-match exemption before any key extraction or token spend
-        # (infrastructure endpoints like /metrics are scraped continuously)
-        if scope.get("path", "") in self._exempt_paths:
+        # (infrastructure endpoints like /metrics are scraped continuously).
+        # Behind a proxy mounted with --root-path, the prefix is stripped
+        # so the exemption still matches the route the app registered.
+        path = scope.get("path", "")
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :] or "/"
+        if path in self._exempt_paths:
             await self._app(scope, receive, send)
 
             return

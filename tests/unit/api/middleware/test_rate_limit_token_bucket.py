@@ -460,3 +460,25 @@ class TestRateLimitExemptPaths:
         )
 
         mock_limiter.acquire.assert_called_once()
+
+    async def test_exempt_with_root_path_prefix(self):
+        """--root-path deployments: /weaver/metrics must stay exempt."""
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(mock_app, mock_limiter)
+
+        await middleware(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/weaver/metrics",
+                "root_path": "/weaver",
+            },
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_app.assert_called_once()
+        mock_limiter.acquire.assert_not_called()
