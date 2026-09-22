@@ -64,3 +64,55 @@ class TestLogFormatSwitch:
 
         content = log_file.read_text(encoding="utf-8")
         assert "super-secret" not in content  # 脱敏在 JSON 模式下依然生效
+
+    def test_sensitive_key_name_variants_redacted(self) -> None:
+        """H1 回归：键名变体必须命中——包含语义（凭据词）与词边界（token）。"""
+        from core.observability.logging import _SENSITIVE_EXTRA_KEY_RE
+
+        for key in (
+            "password",
+            "db_password",
+            "my_password_value",
+            "Password1",
+            "api_key",
+            "openai_api_key",
+            "client_secret",
+            "authorization",
+            "token",
+            "id_token",
+            "jwt_token",
+            "access_token",
+            "auth-token",
+        ):
+            assert _SENSITIVE_EXTRA_KEY_RE.search(key), f"{key} 应命中脱敏"
+
+        # 包含语义的既定权衡：password_policy/secret_sauce 等非凭据键也会
+        # 被脱敏（过度脱敏是安全方向）；token 家族靠词边界保持精确
+        for key in ("token_count", "tokens_used", "tokenizer", "url"):
+            assert not _SENSITIVE_EXTRA_KEY_RE.search(key), f"{key} 不应命中脱敏"
+
+    def test_non_string_sensitive_extra_redacted(self, tmp_path) -> None:
+        import json as _json
+
+        from core.observability.logging import configure_logging, logger
+
+        log_file = tmp_path / "nonstr.log"
+        configure_logging(log_file=str(log_file), log_format="json")
+        logger.warning("cfg_dump", api_key=12345678, retries=3)
+        logger.complete()
+
+        content = log_file.read_text(encoding="utf-8")
+        assert "12345678" not in content  # 非 str 的敏感键值同样整体替换
+        assert "retries" in content  # 非敏感键不受影响
+
+    def test_connection_string_schemes_redacted(self) -> None:
+        """M1 回归：postgresql:// 与无用户名 redis:// 形态必须脱敏。"""
+        from core.observability.logging import redact_sensitive_data
+
+        redacted = redact_sensitive_data(
+            "connect failed for postgresql://user:secretpw@db:5432/weaver"
+            " and redis://:secretpw@redis:6379/0"
+        )
+        assert "secretpw" not in redacted
+        assert "postgresql://user:" in redacted
+        assert "redis://:" in redacted
