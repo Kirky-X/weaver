@@ -368,3 +368,95 @@ class TestSlowapiRemoval:
                 assert "slowapi" not in (node.module or ""), (
                     f"Found slowapi import from: {node.module}"
                 )
+
+
+class TestRateLimitExemptPaths:
+    """Infrastructure paths (/metrics, /health) must not consume tokens:
+
+    Prometheus scrapes every few seconds, so counting them drains the
+    global bucket exactly when observability matters most.
+    """
+
+    def _make_middleware(self, mock_app: AsyncMock, mock_limiter: AsyncMock, **kwargs):
+        from api.middleware.rate_limit import RateLimitMiddleware
+
+        return RateLimitMiddleware(mock_app, rate_limiter=mock_limiter, **kwargs)
+
+    async def test_metrics_path_exempt_from_rate_limiting(self):
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(mock_app, mock_limiter)
+
+        await middleware(
+            {"type": "http", "method": "GET", "path": "/metrics"},
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_app.assert_called_once()
+        mock_limiter.acquire.assert_not_called()
+
+    async def test_health_path_exempt_from_rate_limiting(self):
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(mock_app, mock_limiter)
+
+        await middleware(
+            {"type": "http", "method": "GET", "path": "/health"},
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_app.assert_called_once()
+        mock_limiter.acquire.assert_not_called()
+
+    async def test_business_path_still_counted(self):
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(mock_app, mock_limiter)
+
+        await middleware(
+            {"type": "http", "method": "GET", "path": "/api/v1/articles"},
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_limiter.acquire.assert_called_once()
+
+    async def test_exempt_paths_exact_match_only(self):
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(mock_app, mock_limiter)
+
+        await middleware(
+            {"type": "http", "method": "GET", "path": "/metrics-evil"},
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_limiter.acquire.assert_called_once()
+
+    async def test_exempt_paths_configurable_and_disablable(self):
+        mock_app = AsyncMock()
+        mock_limiter = AsyncMock()
+        mock_limiter.acquire = AsyncMock(return_value=(True, 100))
+
+        middleware = self._make_middleware(
+            mock_app, mock_limiter, exempt_paths=frozenset()
+        )
+
+        await middleware(
+            {"type": "http", "method": "GET", "path": "/metrics"},
+            AsyncMock(),
+            AsyncMock(),
+        )
+
+        mock_limiter.acquire.assert_called_once()
