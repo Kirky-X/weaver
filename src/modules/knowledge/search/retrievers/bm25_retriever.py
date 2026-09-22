@@ -482,8 +482,13 @@ class BM25Retriever:
         # Get scores using get_scores (more reliable than retrieve)
         scores = self._retriever.get_scores(query_tokens)
 
-        # Get top-k indices
-        top_k_indices = np.argsort(scores)[-top_k:][::-1]
+        # Get top-k indices: argpartition selects the top-k set in O(N),
+        # then only those k entries are sorted for descending order.
+        k = min(top_k, scores.shape[0])
+        if k <= 0:
+            return []
+        top_k_indices = np.argpartition(scores, scores.shape[0] - k)[scores.shape[0] - k :]
+        top_k_indices = top_k_indices[np.argsort(scores[top_k_indices])[::-1]]
 
         # Build result objects
         output = []
