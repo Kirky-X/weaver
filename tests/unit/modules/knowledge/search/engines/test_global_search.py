@@ -685,3 +685,75 @@ class TestCommunityContextsConcurrency:
         assert [c.entities for c in contexts] == [[{"name": f"c{i}"}] for i in range(n)]
         # Serial would be >= n*0.1 = 0.6s; concurrent should be ~0.1s.
         assert elapsed < 0.4, f"expected concurrent fetch, took {elapsed:.2f}s"
+
+
+class TestGlobalSearchCommunityConfig:
+    """global_max_communities / global_map_concurrency 配置化契约：
+
+    默认值 3/3 冻结现行为；配置调大后更多社区进入 map 阶段。
+    """
+
+    def _make_community(self, cid: str, score: float) -> CommunityContext:
+        return CommunityContext(
+            id=cid,
+            title=cid,
+            summary="",
+            entity_count=1,
+            rank=score,
+            similarity_score=score,
+            key_entities=None,
+        )
+
+    def _make_settings(self, **overrides):
+        from types import SimpleNamespace
+
+        settings = SimpleNamespace(
+            global_max_communities=3,
+            global_map_concurrency=3,
+            global_map_community_timeout=15.0,
+            global_map_overall_timeout=30.0,
+            global_reduce_timeout=15.0,
+        )
+        for key, value in overrides.items():
+            setattr(settings, key, value)
+        return settings
+
+    def _make_engine(self, settings):
+        engine = GlobalSearchEngine(
+            context_builder=MagicMock(),
+            llm=MagicMock(),
+            search_settings=settings,
+        )
+        engine._llm.call = AsyncMock(return_value="社区摘要")
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_configured_max_communities_expands_map_phase(self) -> None:
+        settings = self._make_settings(global_max_communities=5)
+        engine = self._make_engine(settings)
+
+        async def fake_contexts(query, level):
+            return [self._make_community(f"c{i}", 0.9) for i in range(5)]
+
+        with (
+            patch.object(engine, "_get_community_contexts", side_effect=fake_contexts),
+            patch.object(engine, "_reduce_and_synthesize", AsyncMock(return_value=MagicMock())),
+        ):
+            await engine.search("测试查询")
+
+        assert engine._llm.call.await_count == 5  # 配置 5 → 5 社区全部进入 map
+
+    @pytest.mark.asyncio
+    async def test_default_maps_three_communities(self) -> None:
+        engine = self._make_engine(settings=None)
+
+        async def fake_contexts(query, level):
+            return [self._make_community(f"c{i}", 0.9) for i in range(5)]
+
+        with (
+            patch.object(engine, "_get_community_contexts", side_effect=fake_contexts),
+            patch.object(engine, "_reduce_and_synthesize", AsyncMock(return_value=MagicMock())),
+        ):
+            await engine.search("测试查询")
+
+        assert engine._llm.call.await_count == 3  # 默认行为与现状一致

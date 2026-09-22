@@ -408,6 +408,10 @@ class SearchSettings(BaseModel):
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
+    # Max communities entering the global search map phase and the LLM
+    # concurrency cap for it (defaults freeze the previous hardcoded 3/3)
+    global_max_communities: int = 3
+    global_map_concurrency: int = 3
     # Causal/temporal endpoint protections (API layer wait_for timeouts)
     causal_search_timeout: float = 60.0
     temporal_search_timeout: float = 30.0
