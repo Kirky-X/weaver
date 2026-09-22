@@ -331,6 +331,31 @@ NEWSNOW_IDS = [
     "tencent",
     "qqvideo",
     "iqiyi",
+    # Synced with upstream newsnext/newsnow shared/sources.json on 2026-09-23;
+    # all live-verified against the czl.net instance (21/21 pass). The bare
+    # ids above (36kr, cls, wallstreetcn, ...) are upstream redirect aliases
+    # that the server resolves to the fine-grained sources listed here.
+    "aihot",
+    "bilibili-hot-search",
+    "chongbuluo-hot",
+    "chongbuluo-latest",
+    "cls-depth",
+    "cls-hot",
+    "cls-telegraph",
+    "dongqiudi",
+    "fastbull-express",
+    "fastbull-news",
+    "github-trending-today",
+    "iqiyi-hot-ranklist",
+    "mktnews-flash",
+    "pcbeta-windows11",
+    "qqvideo-tv-hotsearch",
+    "tencent-hot",
+    "v2ex-share",
+    "wallstreetcn-hot",
+    "wallstreetcn-news",
+    "wallstreetcn-quick",
+    "xueqiu-hotstock",
 ]
 
 # Live-verified 2026-09-22 (HTTP 200 + feedparser yields linked entries).
