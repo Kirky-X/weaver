@@ -38,7 +38,13 @@ def _cache_config(request: Request) -> tuple[Any | None, int]:
 
 
 def _fingerprint(params: dict[str, Any]) -> str:
-    canonical = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)
+    # Whitespace/case variants of a query are semantically identical for
+    # retrieval — normalize so they share one cache entry instead of
+    # diluting the hit rate. Responses still echo the caller's original q.
+    normalized = dict(params)
+    if isinstance(normalized.get("q"), str):
+        normalized["q"] = normalized["q"].strip().casefold()
+    canonical = json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 

@@ -436,7 +436,17 @@ async def search_local(
     Shortcut for ``GET /search?mode=local``. Returns entity-focused results
     with article context from the local subgraph.
     """
+    cache_params = {
+        "q": q,
+        "mode": "local",
+        "no_cache": request.query_params.get("no_cache") == "true",
+    }
+    cached = await get_cached_search(request, cache_params)
+    if cached is not None:
+        return success_response(SearchResponse.model_validate(cached))
+
     result = await _execute_explicit_search(q, "local", 0, local_engine, None)
+    await store_search(request, cache_params, result.model_dump(mode="json"))
     return success_response(result)
 
 
@@ -453,7 +463,18 @@ async def search_global(
     Shortcut for ``GET /search?mode=global``. Returns community-report-based
     answers spanning multiple entities.
     """
+    cache_params = {
+        "q": q,
+        "mode": "global",
+        "community_level": community_level,
+        "no_cache": request.query_params.get("no_cache") == "true",
+    }
+    cached = await get_cached_search(request, cache_params)
+    if cached is not None:
+        return success_response(SearchResponse.model_validate(cached))
+
     result = await _execute_explicit_search(q, "global", community_level, None, global_engine)
+    await store_search(request, cache_params, result.model_dump(mode="json"))
     return success_response(result)
 
 

@@ -602,3 +602,100 @@ class TestSearchShortcutsBehavior:
         assert result.data.metadata["enrich_entities"] is False
         assert result.data.metadata["intent"] == "OPEN"
         assert result.data.metadata["intent_confidence"] == 1.0
+
+
+# ── Response cache for shortcut endpoints (R-search-cache-001) ───────
+
+
+class _FakeRedis:
+    """Minimal async redis stand-in backed by a dict."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    async def get(self, key: str):
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, ex=None):
+        self.store[key] = value
+
+
+def _cacheable_request(mock_request: MagicMock) -> _FakeRedis:
+    """Wire mock_request.app.state.container so the search cache is enabled."""
+    fake = _FakeRedis()
+    container = mock_request.app.state.container
+    container.settings.search.result_cache_ttl = 300
+    container.cache_client.return_value = fake
+    return fake
+
+
+class TestShortcutEndpointResponseCache:
+    @pytest.fixture
+    def local_engine(self) -> MagicMock:
+        engine = MagicMock()
+        engine.search = AsyncMock(
+            return_value={
+                "answer": "ok",
+                "context_tokens": 10,
+                "confidence": 0.5,
+                "entities": [],
+                "sources": [],
+                "metadata": {},
+            }
+        )
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_second_identical_request_hits_cache(
+        self, mock_request: MagicMock, local_engine: MagicMock, api_key: str
+    ) -> None:
+        from api.endpoints.content.search import search_local
+
+        fake = _cacheable_request(mock_request)
+        await search_local(request=mock_request, q="graph", _=api_key, local_engine=local_engine)
+        assert local_engine.search.await_count == 1
+        assert len(fake.store) == 1  # response was stored
+
+        await search_local(request=mock_request, q="graph", _=api_key, local_engine=local_engine)
+        assert local_engine.search.await_count == 1  # served from cache
+
+    @pytest.mark.asyncio
+    async def test_query_normalization_shares_cache_key(
+        self, mock_request: MagicMock, local_engine: MagicMock, api_key: str
+    ) -> None:
+        from api.endpoints.content.search import search_local
+
+        fake = _cacheable_request(mock_request)
+        await search_local(request=mock_request, q="Tesla", _=api_key, local_engine=local_engine)
+        await search_local(
+            request=mock_request, q="  tesla  ", _=api_key, local_engine=local_engine
+        )
+        assert local_engine.search.await_count == 1  # same normalized key
+
+    @pytest.mark.asyncio
+    async def test_global_level_is_part_of_cache_key(
+        self,
+        mock_request: MagicMock,
+        mock_global_engine: MagicMock,
+        api_key: str,
+    ) -> None:
+        from api.endpoints.content.search import search_global
+
+        fake = _cacheable_request(mock_request)
+        await search_global(
+            request=mock_request, q="ai", community_level=0, _=api_key, global_engine=mock_global_engine
+        )
+        await search_global(
+            request=mock_request, q="ai", community_level=1, _=api_key, global_engine=mock_global_engine
+        )
+        # different community_level must NOT share a cache entry
+        assert mock_global_engine.search.await_count == 2
+        assert len(fake.store) == 2
+
+    def test_fingerprint_normalizes_query(self):
+        from api.endpoints.content.search_cache import _fingerprint
+
+        assert _fingerprint({"q": " Tesla "}) == _fingerprint({"q": "tesla"})
+        assert _fingerprint({"q": "tesla", "mode": "local"}) != _fingerprint(
+            {"q": "tesla", "mode": "global"}
+        )
