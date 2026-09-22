@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import time
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -270,45 +271,58 @@ class DRIFTSearchEngine:
         """
         results = []
         llm_calls = 0
-        iteration = 0
 
         questions_to_process = follow_up_questions[: self._config.max_follow_ups]
 
-        for question in questions_to_process:
-            if not question.strip():
-                continue
+        if self._local_engine is None:
+            for question in questions_to_process:
+                if question.strip():
+                    log.warning(
+                        "drift_follow_up_skipped",
+                        reason="local_engine_not_configured",
+                        question=question[:50],
+                    )
+            return {"results": [], "llm_calls": 0}
 
-            if self._local_engine is None:
-                log.warning(
-                    "drift_follow_up_skipped",
-                    reason="local_engine_not_configured",
-                    question=question[:50],
+        questions_to_process = [q for q in questions_to_process if q.strip()]
+
+        semaphore = asyncio.Semaphore(self._config.max_concurrent)
+
+        async def _search_one(question: str):
+            async with semaphore:
+                return question, await self._local_engine.search(question)
+
+        tasks = [asyncio.create_task(_search_one(q)) for q in questions_to_process]
+
+        try:
+            for fut in asyncio.as_completed(tasks):
+                question, local_result = await fut
+                llm_calls += 1
+                log.debug("drift_follow_up", question=question[:50])
+
+                results.append(
+                    {
+                        "question": question,
+                        "answer": local_result.answer,
+                        "confidence": local_result.confidence,
+                        "source_entities": local_result.entities,
+                    }
                 )
-                continue
 
-            iteration += 1
-            log.debug("drift_follow_up", iteration=iteration, question=question[:50])
-
-            # Execute local search for this question
-            local_result = await self._local_engine.search(question)
-            llm_calls += 1
-
-            follow_up_data = {
-                "question": question,
-                "answer": local_result.answer,
-                "confidence": local_result.confidence,
-                "source_entities": local_result.entities,
-            }
-            results.append(follow_up_data)
-
-            # Check early termination
-            if local_result.confidence >= self._config.confidence_threshold:
-                log.info(
-                    "drift_early_termination",
-                    reason="confidence_threshold_reached",
-                    confidence=local_result.confidence,
-                )
-                break
+                # Early termination: cancel the not-yet-finished searches so
+                # no further LLM calls are spent beyond the threshold hit.
+                if local_result.confidence >= self._config.confidence_threshold:
+                    log.info(
+                        "drift_early_termination",
+                        reason="confidence_threshold_reached",
+                        confidence=local_result.confidence,
+                    )
+                    break
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         return {
             "results": results,
