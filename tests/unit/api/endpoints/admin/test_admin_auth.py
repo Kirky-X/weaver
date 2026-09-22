@@ -580,8 +580,8 @@ class TestTriggerConsolidationBatchSizeValidation:
 
     """
 
-    @staticmethod
-    def _make_client() -> TestClient:
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         """Build a TestClient with admin router and mocked admin key.
 
 
@@ -597,6 +597,14 @@ class TestTriggerConsolidationBatchSizeValidation:
         (``ge=1, le=100``). By mocking the container, Query validation runs
 
         normally and rejects invalid ``batch_size`` values with 422.
+
+        The settings patch MUST be reverted after each test (monkeypatch, not
+
+        a bare ``patcher.start()``): a leaked ``container.get_settings`` mock
+
+        poisons every later endpoint test that reads a settings-derived
+
+        timeout.
 
         """
 
@@ -624,16 +632,12 @@ class TestTriggerConsolidationBatchSizeValidation:
 
         mock_settings.api.get_api_key.return_value = "regular-key-12345678901234567890123456"
 
-        patcher = patch("container.get_settings", return_value=mock_settings)
-
-        patcher.start()
+        monkeypatch.setattr("container.get_settings", lambda: mock_settings)
 
         return TestClient(app)
 
-    def test_batch_size_zero_rejected_with_422(self) -> None:
+    def test_batch_size_zero_rejected_with_422(self, client: TestClient) -> None:
         """batch_size=0 SHALL be rejected with 422 (regression for admin_046)."""
-
-        client = self._make_client()
 
         admin_key = "admin-key-123456789012345678901234567890"
 
@@ -644,10 +648,8 @@ class TestTriggerConsolidationBatchSizeValidation:
 
         assert response.status_code == 422
 
-    def test_batch_size_non_int_rejected_with_422(self) -> None:
+    def test_batch_size_non_int_rejected_with_422(self, client: TestClient) -> None:
         """batch_size=invalid SHALL be rejected with 422 (regression for admin_047)."""
-
-        client = self._make_client()
 
         admin_key = "admin-key-123456789012345678901234567890"
 
@@ -658,10 +660,8 @@ class TestTriggerConsolidationBatchSizeValidation:
 
         assert response.status_code == 422
 
-    def test_batch_size_over_100_rejected_with_422(self) -> None:
+    def test_batch_size_over_100_rejected_with_422(self, client: TestClient) -> None:
         """batch_size=101 SHALL be rejected with 422 (le=100)."""
-
-        client = self._make_client()
 
         admin_key = "admin-key-123456789012345678901234567890"
 
