@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -280,3 +281,14 @@ class TestCmdImportSources:
         empty.write_text("# nothing here\n\n", encoding="utf-8")
         args = SimpleNamespace(file=str(empty), type="rss", api_base="", interval=30, verify=False)
         assert asyncio.run(cmd_import_sources(args)) == 1
+
+
+def test_batch_import_call_sites_pass_preserve_enabled():
+    """seed-sources / import-sources must never overwrite a stored enabled flag."""
+    import pathlib
+
+    import scripts.pipeline as mod
+
+    src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+    assert re.search(r"repo\.upsert\(cfg, preserve_enabled=True\)", src)
+    assert re.search(r"repo\.upsert\(SourceConfigModel\(\*\*cfg\), preserve_enabled=True\)", src)

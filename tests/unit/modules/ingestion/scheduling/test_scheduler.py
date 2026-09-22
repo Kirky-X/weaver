@@ -383,3 +383,79 @@ class TestCrawlSourceReliability:
 
         after = counter._value.get()
         assert after == before + 1
+
+
+class TestConsecutiveEmptyYield:
+    """Zero-yield sources (reachable but 0 items) get their own counter.
+
+    A permanently empty source (e.g. newsnow-freebuf returning an empty
+    items list) used to reset the failure counter every round and never
+    triggered any warning. These tests pin the dedicated empty-yield logic.
+    """
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        return SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+
+    def _ok_source(self, scheduler, items):
+        source = MagicMock()
+        source.id = "src-empty"
+        source.enabled = True
+        source.source_type = "rss"
+        scheduler._registry.get_source.return_value = source
+        parser = MagicMock()
+        parser.parse = AsyncMock(return_value=items)
+        scheduler._registry.get_parser.return_value = parser
+        scheduler._repo = MagicMock()
+        scheduler._repo.update_crawl_state = AsyncMock()
+        return source
+
+    @pytest.mark.asyncio
+    async def test_empty_yield_increments_counter_and_warns_at_threshold(self, scheduler):
+        self._ok_source(scheduler, [])
+        for i in range(scheduler._max_consecutive_empty):
+            await scheduler._crawl_source("src-empty")
+            assert scheduler._consecutive_empty["src-empty"] == i + 1
+
+        assert scheduler._consecutive_empty["src-empty"] == scheduler._max_consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_nonempty_yield_resets_counter(self, scheduler):
+        from modules.ingestion.domain.models import NewsItem
+
+        item = NewsItem(
+            url="https://x/1", title="t", source="s", source_host="x", source_id="src-empty"
+        )
+        self._ok_source(scheduler, [item])
+
+        await scheduler._crawl_source("src-empty")
+        assert "src-empty" not in scheduler._consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_failure_resets_empty_counter(self, scheduler):
+        source = MagicMock()
+        source.id = "src-empty"
+        source.enabled = True
+        source.source_type = "rss"
+        scheduler._registry.get_source.return_value = source
+        parser = MagicMock()
+        parser.parse = AsyncMock(return_value=[])
+        scheduler._registry.get_parser.return_value = parser
+        scheduler._repo = MagicMock()
+        scheduler._repo.update_crawl_state = AsyncMock()
+
+        await scheduler._crawl_source("src-empty")
+        assert scheduler._consecutive_empty.get("src-empty") == 1
+
+        parser.parse = AsyncMock(side_effect=RuntimeError("boom"))
+        await scheduler._crawl_source("src-empty")
+        assert "src-empty" not in scheduler._consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_default_threshold_is_six(self, scheduler):
+        assert scheduler._max_consecutive_empty == 6

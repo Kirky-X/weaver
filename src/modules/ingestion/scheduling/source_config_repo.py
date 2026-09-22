@@ -157,11 +157,15 @@ class SourceConfigRepo:
             result = await session.execute(query)
             return result.scalar() or 0
 
-    async def upsert(self, config: SourceConfig) -> SourceConfig:
+    async def upsert(self, config: SourceConfig, *, preserve_enabled: bool = False) -> SourceConfig:
         """Create or update a source configuration.
 
         Args:
             config: Source configuration to persist.
+            preserve_enabled: When True and the source already exists, keep
+                the stored ``enabled`` value instead of overwriting it.
+                Batch imports use this so re-running a list never resurrects
+                sources that ops disabled.
 
         Returns:
             The persisted source configuration.
@@ -184,22 +188,29 @@ class SourceConfigRepo:
             }
 
             stmt = insert(SourceConfigRow).values(**values)
+            conflict_updates = {
+                "name": stmt.excluded.name,
+                "url": stmt.excluded.url,
+                "source_type": stmt.excluded.source_type,
+                "enabled": stmt.excluded.enabled,
+                "interval_minutes": stmt.excluded.interval_minutes,
+                "per_host_concurrency": stmt.excluded.per_host_concurrency,
+                "credibility": stmt.excluded.credibility,
+                "tier": stmt.excluded.tier,
+                "last_crawl_time": stmt.excluded.last_crawl_time,
+                "etag": stmt.excluded.etag,
+                "last_modified": stmt.excluded.last_modified,
+                "updated_at": stmt.excluded.updated_at,
+            }
+            if preserve_enabled:
+                # INSERT ... ON CONFLICT DO UPDATE requires at least one set
+                # expression; updating updated_at is a no-op semantically and
+                # keeps the preserved enabled/row intact.
+                conflict_updates["enabled"] = SourceConfigRow.enabled
+                conflict_updates["updated_at"] = func.now()
             stmt = stmt.on_conflict_do_update(
                 index_elements=["id"],
-                set_={
-                    "name": stmt.excluded.name,
-                    "url": stmt.excluded.url,
-                    "source_type": stmt.excluded.source_type,
-                    "enabled": stmt.excluded.enabled,
-                    "interval_minutes": stmt.excluded.interval_minutes,
-                    "per_host_concurrency": stmt.excluded.per_host_concurrency,
-                    "credibility": stmt.excluded.credibility,
-                    "tier": stmt.excluded.tier,
-                    "last_crawl_time": stmt.excluded.last_crawl_time,
-                    "etag": stmt.excluded.etag,
-                    "last_modified": stmt.excluded.last_modified,
-                    "updated_at": stmt.excluded.updated_at,
-                },
+                set_=conflict_updates,
             )
             # RETURNING reads the row written by this very statement — a
             # separate SELECT could race with a concurrent upsert and read

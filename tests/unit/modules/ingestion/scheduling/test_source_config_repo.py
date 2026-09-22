@@ -430,3 +430,55 @@ class TestSourceConfigRepoToConfig:
         config = SourceConfigRepo._to_config(mock_source)
 
         assert config.credibility is None
+
+
+class TestSourceConfigRepoUpsertPreserveEnabled:
+    """preserve_enabled=True: conflict updates keep the stored enabled flag.
+
+    Batch imports (seed-sources / import-sources) pass enabled=True configs;
+    re-running them must not silently re-enable sources that ops disabled.
+    These tests run against real in-memory DuckDB so the ON CONFLICT clause
+    is actually compiled and executed.
+    """
+
+    @pytest.fixture
+    async def repo(self):
+        from core.db.duckdb_pool import DuckDBPool
+        from core.db.duckdb_schema import initialize_duckdb_schema
+
+        pool = DuckDBPool(db_path=":memory:")
+        await pool.startup()
+        await initialize_duckdb_schema(pool)
+        yield SourceConfigRepo(pool)
+        await pool.shutdown()
+
+    async def test_preserve_enabled_keeps_existing_false(self, repo):
+        base = {"id": "rss-x", "name": "X", "url": "https://x/feed"}
+        await repo.upsert(SourceConfig(**base, enabled=True))
+        await repo.upsert(SourceConfig(**base, enabled=False))  # ops disables
+
+        await repo.upsert(
+            SourceConfig(**{**base, "name": "X (updated)"}, enabled=True),
+            preserve_enabled=True,
+        )  # list re-run must not resurrect
+
+        got = await repo.get("rss-x")
+        assert got.enabled is False
+        assert got.name == "X (updated)"  # other fields still update
+
+    async def test_default_overrides_enabled(self, repo):
+        base = {"id": "rss-y", "name": "Y", "url": "https://y/feed"}
+        await repo.upsert(SourceConfig(**base, enabled=False))
+        await repo.upsert(SourceConfig(**base, enabled=True))  # default path
+
+        got = await repo.get("rss-y")
+        assert got.enabled is True  # legacy behavior locked in
+
+    async def test_preserve_enabled_new_source_inserts_config_value(self, repo):
+        await repo.upsert(
+            SourceConfig(id="rss-new", name="New", url="https://n/feed", enabled=True),
+            preserve_enabled=True,
+        )
+
+        got = await repo.get("rss-new")
+        assert got.enabled is True

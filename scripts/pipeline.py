@@ -808,7 +808,7 @@ async def cmd_seed_sources(args) -> int:
             print(f"\nBatch {batch_num}/{len(batches)} ({len(batch)} sources)...")
             for cfg in batch:
                 try:
-                    await repo.upsert(cfg)
+                    await repo.upsert(cfg, preserve_enabled=True)
                     added += 1
                 except Exception:
                     skipped += 1
@@ -1102,7 +1102,7 @@ async def cmd_import_sources(args) -> int:
         created = 0
         for cfg in to_upsert:
             try:
-                await repo.upsert(SourceConfigModel(**cfg))
+                await repo.upsert(SourceConfigModel(**cfg), preserve_enabled=True)
                 created += 1
             except Exception as exc:
                 print(f"  ! upsert failed {cfg['id']}: {exc}")
