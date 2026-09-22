@@ -914,7 +914,7 @@ Weaver 的安全设计覆盖多层防护：URL 安全多层检查（SSRF 防护�
 <tr><td align="center">✅</td><td>安全与可信度</td><td>URL 多层安全检查、三信号可信度评估、启动安全审计</td></tr>
 <tr><td align="center">✅</td><td>可观测性</td><td>Prometheus 指标、OpenTelemetry、LLM 使用统计、告警系统</td></tr>
 <tr><td align="center">✅</td><td>记忆系统</td><td>MAGMA 多图记忆、时序图演化、自适应检索（演化/集成子模块持续实验性改进）</td></tr>
-<tr><td align="center">📋</td><td>性能优化</td><td>大规模知识图谱查询优化、缓存命中率提升、并发处理增强</td></tr>
+<tr><td align="center">✅</td><td>性能优化</td><td>大规模知识图谱查询优化（社区报告 N+1 批量化）、缓存命中率提升（快捷搜索端点响应缓存 + 查询键归一）、并发处理增强（抓取并发与 CPU 解耦、图谱/搜索热路径并发化）</td></tr>
 </table>
 
 ---
