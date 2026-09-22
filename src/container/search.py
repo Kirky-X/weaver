@@ -121,7 +121,9 @@ class ContainerSearchMixin:
             if self._vector_repo is None:
                 return None
 
-            bm25_retriever = BM25Retriever(self.relational_pool())
+            # BM25Retriever takes no pool — the corpus index is built by
+            # BM25IndexService; the retriever only loads it from disk.
+            bm25_retriever = BM25Retriever()
 
             # Initialize Flashrank reranker
             reranker = None

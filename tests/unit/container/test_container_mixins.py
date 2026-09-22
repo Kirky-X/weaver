@@ -1317,6 +1317,33 @@ class TestContainerSearchHybridSearchEngine:
         c._hybrid_engine = existing
         assert c.hybrid_search_engine() is existing
 
+    def test_hybrid_engine_does_not_pass_pool_into_bm25_language(self) -> None:
+        """Regression: BM25Retriever(self.relational_pool()) fed the pool
+        into the ``language: str`` slot — the retriever takes no pool
+        parameter — and the poisoned language gets serialized into index
+        metadata.
+        """
+        c = _make_container()
+        c._hybrid_engine = None
+        c._vector_repo = MagicMock()
+        c._settings = _make_settings()
+        c._strategy = _make_strategy()
+
+        mock_bm25_cls = MagicMock()
+        with (
+            patch.object(c, "vector_repo", return_value=MagicMock()),
+            patch.object(c, "relational_pool", return_value=MagicMock()),
+            patch(
+                "modules.knowledge.search.retrievers.bm25_retriever.BM25Retriever",
+                mock_bm25_cls,
+            ),
+            patch("modules.knowledge.search.HybridSearchConfig", return_value=MagicMock()),
+            patch("container.search.HybridSearchEngine", return_value=MagicMock()),
+        ):
+            c.hybrid_search_engine()
+
+        assert mock_bm25_cls.call_args.args == ()
+
     def test_hybrid_engine_with_reranker_enabled(self) -> None:
         c = _make_container()
         c._hybrid_engine = None
