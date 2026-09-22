@@ -562,8 +562,8 @@ class TestCrawlerTitleExtraction:
 
 
 class TestGlobalConcurrencyDecoupledFromCpu:
-    """R-concurrency-001: crawling is IO-bound — the global fetch limit
-    must be min(host_count, max_concurrency), not capped by os.cpu_count().
+    """Crawling is IO-bound — the global fetch limit must be
+    min(host_count, max_concurrency), not capped by os.cpu_count().
     """
 
     @pytest.fixture
@@ -602,13 +602,10 @@ class TestGlobalConcurrencyDecoupledFromCpu:
             return real_semaphore(value)
 
         monkeypatch.setattr("modules.ingestion.crawling.crawler.asyncio.Semaphore", spy_semaphore)
-        # Drive just the semaphore-setup path: stop after setup via a
-        # failing per-item fetch.
-        crawler._fetch_and_parse = AsyncMock(side_effect=RuntimeError("stop"))
-        try:
-            asyncio.run(crawler.crawl_batch(items))
-        except RuntimeError:
-            pass
+        # global_sem is the first Semaphore created in crawl_batch; the empty
+        # fetch keeps the batch cheap while exercising the full setup path.
+        crawler._fetch_html = AsyncMock(return_value=(None, 0))
+        asyncio.run(crawler.crawl_batch(items))
 
         assert 10 in captured  # global: min(host_count=10, max=16), no cpu term
         assert 1 not in captured  # cpu_count=1 must not appear anywhere
