@@ -6,7 +6,7 @@
 
 | 脚本                      | 描述                                                                          |
 | ------------------------- | ----------------------------------------------------------------------------- |
-| `pipeline.py`             | 管道测试、待处理文章处理、重新处理、**源初始化**（`seed-sources` 子命令）     |
+| `pipeline.py`             | 管道测试、待处理文章处理、重新处理、**源初始化与清单导入**（`seed-sources`/`import-sources`） |
 | `db.py`                   | 数据库查询、检查、**DuckDB 综合审计**（`audit` 子命令）、修复工具             |
 | `data_io.py`              | PG↔DuckDB / Neo4j↔LadybugDB 导入/导出 + **跨库一致性校验**（`verify` 子命令） |
 | `tools.py`                | 性能评估、环境验证、数据库种子、代码检查                                      |
@@ -49,6 +49,11 @@ uv run scripts/pipeline.py reprocess --article-id <uuid>
 uv run scripts/pipeline.py seed-sources                    # 创建所有源配置
 uv run scripts/pipeline.py seed-sources --pipeline         # 创建并触发管道
 uv run scripts/pipeline.py seed-sources --dry-run          # 仅预览
+
+# 从清单文件批量导入源（幂等：URL 已存在则跳过，不覆盖已有配置）
+uv run scripts/pipeline.py import-sources --file feeds.txt --type rss --verify
+uv run scripts/pipeline.py import-sources --file ids.txt --type newsnow --verify
+uv run scripts/pipeline.py import-sources --file feeds.txt --type rss --dry-run
 ```
 
 ### 子命令
@@ -59,6 +64,7 @@ uv run scripts/pipeline.py seed-sources --dry-run          # 仅预览
 | `process-pending` | 处理所有 `persist_status='pending'` 的文章                                        |
 | `reprocess`       | 重新处理不完整文章（`--incomplete`/`--article-id`/`--dry-run`）                   |
 | `seed-sources`    | 创建所有 NewsNow + RSS 源配置，可选触发管道（`--pipeline`/`--dry-run`/`--batch`） |
+| `import-sources`  | 从清单文件批量导入 rss URL / newsnow 源 id，`--verify` 在线验证通过才注入，按 URL 幂等 |
 
 ---
 
