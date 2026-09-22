@@ -264,12 +264,14 @@ class TestGLiNERTimeoutDefense:
 
         assert _t.monotonic() - t0 < 3  # 超时切断而非永久挂起
 
-        # 超时后 GLiNER 被禁用，后续调用直接跳过
+        # 首次超时进入冷却（默认 300s）而非永久禁用，后续调用短路
 
-        assert gliner._config.enabled is False
+        assert gliner._config.enabled is True
 
         t1 = _t.monotonic()
 
         await extractor._extract_gliner_entities(state, "body text")
 
-        assert _t.monotonic() - t1 < 0.5  # 禁用后立即返回
+        assert _t.monotonic() - t1 < 0.5  # 冷却期内立即返回
+
+        assert gliner.extract_entities.await_count == 1  # 冷却期内未再调用

@@ -561,3 +561,104 @@ class TestWarmup:
             assert ext._initialized is False
 
             assert ext._model is None
+
+
+class TestGLiNERTimeoutCooldown:
+    """超时冷却恢复：首次超时进入冷却（到期自动重试），连续 2 次超时才永久禁用。
+
+    旧契约（一次超时即 enabled=False 永久禁用）让单次 HF 下载挂死杀掉
+    进程余生的实体增强；新契约以确定性冷却 + 连续超时计数收敛两种场景。
+    """
+
+    def _make_extractor(self, gliner, timeout: float = 0.2, cooldown: float = 0.0):
+        from modules.processing.nodes.extraction.entity_extractor import (
+            EntityExtractorNode as EntityExtractor,
+        )
+
+        return EntityExtractor(
+            llm=MagicMock(),
+            budget=MagicMock(),
+            prompt_loader=MagicMock(),
+            spacy=MagicMock(),
+            settings=None,
+            vector_repo=None,
+            relation_type_normalizer=None,
+            gliner_extractor=gliner,
+            gliner_timeout=timeout,
+            timeout_cooldown_seconds=cooldown,
+        )
+
+    @staticmethod
+    def _make_gliner():
+        from modules.processing.nodes.extraction.gliner_extractor import (
+            GLiNERConfig,
+            GLiNERExtractor,
+        )
+
+        gliner = GLiNERExtractor(config=GLiNERConfig(enabled=True))
+        gliner.extract_entities = AsyncMock()
+        return gliner
+
+    @staticmethod
+    def _make_state():
+        return {"raw": MagicMock(url="https://x/1"), "cleaned": {"body": "x" * 100}}
+
+    async def _hang(self, _text):
+        await asyncio.Event().wait()
+
+    @pytest.mark.asyncio
+    async def test_first_timeout_enters_cooldown_not_permanent(self) -> None:
+        gliner = self._make_gliner()
+        gliner.extract_entities.side_effect = self._hang
+        extractor = self._make_extractor(gliner, cooldown=50.0)
+
+        state = self._make_state()
+        result = await extractor._extract_gliner_entities(state, "body text")
+
+        assert result == []
+        assert gliner._config.enabled is True  # 冷却而非永久禁用
+        assert extractor._gliner_consecutive_timeouts == 1
+
+    @pytest.mark.asyncio
+    async def test_cooldown_short_circuits_without_calling(self) -> None:
+        gliner = self._make_gliner()
+        gliner.extract_entities.side_effect = self._hang
+        extractor = self._make_extractor(gliner, cooldown=50.0)
+        state = self._make_state()
+
+        await extractor._extract_gliner_entities(state, "body text")
+        assert gliner.extract_entities.await_count == 1
+
+        await extractor._extract_gliner_entities(state, "body text")
+        assert gliner.extract_entities.await_count == 1  # 冷却期内未再调用
+
+    @pytest.mark.asyncio
+    async def test_cooldown_expiry_retries_and_success_resets(self) -> None:
+        gliner = self._make_gliner()
+        gliner.extract_entities.side_effect = self._hang
+        extractor = self._make_extractor(gliner, cooldown=0.0)
+        state = self._make_state()
+
+        await extractor._extract_gliner_entities(state, "body text")
+
+        gliner.extract_entities.side_effect = None
+        gliner.extract_entities.return_value = [{"text": "特斯拉", "type": "ORG"}]
+        result = await extractor._extract_gliner_entities(state, "body text")
+
+        assert result == [{"text": "特斯拉", "type": "ORG"}]
+        assert extractor._gliner_consecutive_timeouts == 0  # 成功重置计数
+
+    @pytest.mark.asyncio
+    async def test_second_timeout_permanently_disables(self) -> None:
+        gliner = self._make_gliner()
+        gliner.extract_entities.side_effect = self._hang
+        extractor = self._make_extractor(gliner, cooldown=0.0)
+        state = self._make_state()
+
+        await extractor._extract_gliner_entities(state, "body text")
+        await extractor._extract_gliner_entities(state, "body text")
+
+        assert gliner._config.enabled is False  # 连续 2 次超时 → 永久禁用
+
+        await extractor._extract_gliner_entities(state, "body text")
+        assert gliner.extract_entities.await_count == 2  # 禁用后短路
