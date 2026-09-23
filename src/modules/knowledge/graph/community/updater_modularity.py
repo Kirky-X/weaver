@@ -36,11 +36,19 @@ class ModularityCalculator:
         self._pool = pool
         self._database_type = database_type or DatabaseType.NEO4J.value
 
-    async def _calculate_modularity(self) -> float | None:
-        """Calculate current graph modularity.
+    async def modularity_inputs(
+        self,
+    ) -> tuple[list[tuple[str, str, float]], dict[str, int]]:
+        """Query the edge snapshot and current assignments.
+
+        The Entity-Entity edge set is not touched by community updates
+        (HAS_ENTITY/MENTIONS/FOLLOWED_BY are excluded), so within one update
+        flow the edges can be fetched once and reused for both the before and
+        after scores — only the assignment map changes.
 
         Returns:
-            Modularity score or None if calculation fails.
+            (edges, assignments): canonicalized undirected edges and
+            entity_name → int community_id mapping.
         """
         from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 
@@ -68,31 +76,51 @@ class ModularityCalculator:
 
         try:
             results = await self._pool.execute_query(query)
-            if not results:
-                return None
 
             # Canonicalize undirected edges (dedupe both-direction rows and
             # accidental duplicates, keep max weight) so _compute_modularity's
             # undirected formulation counts each edge exactly once.
             edge_map: dict[tuple[str, str], float] = {}
-            for r in results:
+            for r in results or []:
                 source, target = r["source"], r["target"]
                 weight = r["weight"]
                 lo, hi = (source, target) if source < target else (target, source)
                 if (lo, hi) not in edge_map or weight > edge_map[(lo, hi)]:
                     edge_map[(lo, hi)] = weight
             edges = [(lo, hi, w) for (lo, hi), w in edge_map.items()]
+            # Lazy: no edges → modularity is None regardless of assignments,
+            # so skip the assignment query entirely (legacy behavior).
             if not edges:
-                return None
+                return [], {}
 
-            # Get community assignments for modularity calculation
-            assignments = await self._get_community_assignments_for_modularity()
-
-            return _compute_modularity(edges, assignments)
+            assignments = await self.community_assignments()
+            return edges, assignments
 
         except Exception as exc:
-            log.debug("calculate_modularity_failed", error=str(exc))
+            log.debug("modularity_inputs_failed", error=str(exc))
+            return [], {}
+
+    async def community_assignments(self) -> dict[str, int]:
+        """Get current entity → community assignments (fresh from the graph)."""
+        return await self._get_community_assignments_for_modularity()
+
+    def modularity_from(
+        self,
+        edges: list[tuple[str, str, float]],
+        assignments: dict[str, int],
+    ) -> float | None:
+        """Pure computation: modularity for the given edges and assignments."""
+        if not edges:
             return None
+        return _compute_modularity(edges, assignments)
+
+    async def _calculate_modularity(self) -> float | None:
+        """Calculate current graph modularity (legacy entry point).
+
+        Equivalent to ``modularity_from(*await modularity_inputs())``.
+        """
+        edges, assignments = await self.modularity_inputs()
+        return self.modularity_from(edges, assignments)
 
     async def _get_community_assignments_for_modularity(self) -> dict[str, int]:
         """Get community assignments for modularity calculation.

@@ -635,6 +635,40 @@ class TestExecute:
         assert isinstance(result, IncrementalUpdateResult)
         assert result.affected_communities == 2
 
+    async def test_edge_snapshot_queried_once_per_flow(
+        self, updater, mock_graph_pool
+    ):
+        """R-modularity-002: the Entity-Entity edge snapshot is queried
+        exactly ONCE per incremental flow — before/after share it."""
+        edge_calls: list[str] = []
+        base_responses = [
+            [],  # modularity before - edges
+            [{"community_id": "c1"}, {"neighbor_community_id": "c2"}],
+            [{"id1": "e1", "id2": "e2", "weight": 1.0}],
+            [{"node_id": "e1", "community_id": "c1"}, {"node_id": "e2", "community_id": "c1"}],
+            [],  # reassign delete
+            [],  # reassign create
+            [],  # entity count update
+            [],  # check emptied
+            [],  # mark stale counts
+        ]
+        responses = iter(base_responses)
+
+        async def counting_query(query, params=None):
+            if "MATCH (e1:Entity)-[r]->(e2:Entity)" in query:
+                edge_calls.append(query)
+                return responses.__next__()
+            return next(responses)
+
+        mock_graph_pool.execute_query = AsyncMock(side_effect=counting_query)
+        updater._mark_community_empty = AsyncMock()
+
+        await updater.execute(["e1", "e2"])
+
+        assert len(edge_calls) == 1, (
+            f"edge snapshot queried {len(edge_calls)}x — must be exactly once"
+        )
+
     @pytest.mark.asyncio
     async def test_execute_empty_subgraph_returns_early(self, updater, mock_graph_pool):
         """Execute returns early when subgraph is empty."""
@@ -1124,3 +1158,68 @@ class TestReassignConcurrency:
         assert result["reassigned"] == n
         # Serial would be >= n*0.1 = 0.6s; concurrent ~0.1s.
         assert elapsed < 0.4, f"expected concurrent reassignment, took {elapsed:.2f}s"
+
+
+class TestModularityInputsComputeSplit:
+    """R-modularity-001: graph queries (modularity_inputs) split from pure
+    computation (modularity_from), so the incremental update flow queries
+    the edge snapshot once and computes before/after against different
+    assignment maps."""
+
+    @pytest.fixture
+    def calculator(self, mock_graph_pool):
+        from modules.knowledge.graph.community.updater_modularity import ModularityCalculator
+
+        return ModularityCalculator(mock_graph_pool, database_type="neo4j")
+
+    @pytest.mark.asyncio
+    async def test_modularity_inputs_returns_edges_and_assignments(
+        self, calculator, mock_graph_pool
+    ):
+        mock_graph_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"source": "a", "target": "b", "weight": 2.0}],
+                [
+                    {"entity_name": "a", "community_id": "c1"},
+                    {"entity_name": "b", "community_id": "c2"},
+                ],
+            ]
+        )
+
+        edges, assignments = await calculator.modularity_inputs()
+
+        assert edges == [("a", "b", 2.0)]
+        assert assignments == {"a": 0, "b": 1}
+
+    def test_modularity_from_is_pure_and_handles_empty_edges(self, calculator):
+        edges = [("a", "b", 1.0)]
+        assignments = {"a": 0, "b": 1}
+
+        result = calculator.modularity_from(edges, assignments)
+        assert result is not None
+
+        # no edges → None, matching legacy _calculate_modularity behavior
+        assert calculator.modularity_from([], {"a": 0}) is None
+
+    @pytest.mark.asyncio
+    async def test_calculate_legacy_entry_matches_split_path(
+        self, calculator, mock_graph_pool
+    ):
+        rows = [
+            {"source": "a", "target": "b", "weight": 2.0},
+            {"source": "b", "target": "c", "weight": 1.0},
+        ]
+        assignments_rows = [
+            {"entity_name": "a", "community_id": "c1"},
+            {"entity_name": "b", "community_id": "c1"},
+            {"entity_name": "c", "community_id": "c2"},
+        ]
+        mock_graph_pool.execute_query = AsyncMock(side_effect=[rows, assignments_rows])
+
+        legacy = await calculator._calculate_modularity()
+
+        mock_graph_pool.execute_query = AsyncMock(side_effect=[rows, assignments_rows])
+        edges, assignments = await calculator.modularity_inputs()
+        split = calculator.modularity_from(edges, assignments)
+
+        assert legacy == split

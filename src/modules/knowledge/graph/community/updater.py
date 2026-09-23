@@ -167,8 +167,11 @@ class IncrementalCommunityUpdater:
 
         log.info("incremental_execute_start", entity_count=len(entity_names))
 
-        # Calculate modularity before
-        modularity_before = await self._calculate_modularity()
+        # Calculate modularity before — the edge snapshot is fetched once and
+        # reused for the after score (community updates change only the
+        # assignment map, not the filtered Entity-Entity edges)
+        modularity_edges, modularity_assignments = await self._calculate_modularity_inputs()
+        modularity_before = self._modularity_score(modularity_edges, modularity_assignments)
 
         # Step 1: Identify affected communities
         affected_communities = await self._identify_affected_communities(entity_names)
@@ -204,8 +207,10 @@ class IncrementalCommunityUpdater:
             affected_communities, diff_result.get("entity_count_changes", {})
         )
 
-        # Calculate modularity after
-        modularity_after = await self._calculate_modularity()
+        # Calculate modularity after: same edges, fresh assignments
+        modularity_after = self._modularity_score(
+            modularity_edges, await self._modularity_assignments()
+        )
 
         result = IncrementalUpdateResult(
             affected_communities=len(affected_communities),
@@ -480,6 +485,18 @@ class IncrementalCommunityUpdater:
     async def _calculate_modularity(self) -> float | None:
         """Calculate current graph modularity. Delegates to modularity calculator."""
         return await self._modularity_calculator._calculate_modularity()
+
+    async def _calculate_modularity_inputs(self):
+        """Fetch the (edges, assignments) snapshot once for before/after reuse."""
+        return await self._modularity_calculator.modularity_inputs()
+
+    async def _modularity_assignments(self):
+        """Fresh assignment map (post-update)."""
+        return await self._modularity_calculator.community_assignments()
+
+    def _modularity_score(self, edges, assignments):
+        """Pure modularity computation over a shared edge snapshot."""
+        return self._modularity_calculator.modularity_from(edges, assignments)
 
     async def _get_community_assignments_for_modularity(self) -> dict[str, int]:
         """Get community assignments for modularity calculation. Delegates to modularity calculator."""
