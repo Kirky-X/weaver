@@ -268,18 +268,38 @@ class LadybugLocalContextBuilder(BaseLocalContextBuilder):
         """Get articles related to the query text.
 
         This is a fallback when no entities are found.
-        Uses parameterized query via GraphQueryBuilder.
 
-        After the Article node slim-down, the graph query
-        returns only ``a.pg_id AS id`` and does NOT filter by query text
-        (Article nodes no longer store titles). Titles are batch-fetched
-        from PostgreSQL via ``enrich_articles_with_titles`` when
-        ``self._article_repo`` is available, then used to filter articles
-        by case-insensitive substring match against the query. When no
-        titles match, an empty list is returned so the caller
-        (``_handle_no_entities``) can fall back to
-        ``_search_articles_in_relational_db`` for a body-text search.
+        Preferred path: pre-filter in PostgreSQL via ``search_by_text``
+        (title+body match, cheap and complete), then confirm the matched
+        pg_ids exist as Article nodes with a point lookup — the old
+        unbounded ``MATCH (a:Article) RETURN a.pg_id LIMIT $limit`` scan
+        missed most matches because the matched id was almost never in the
+        first ``limit`` arbitrary rows.
+
+        Fallback (no ``article_repo`` / no ``search_by_text``): the legacy
+        full-scan + title-enrichment path, preserved verbatim.
         """
+        repo = getattr(self, "_article_repo", None)
+        if repo is not None and hasattr(repo, "search_by_text") and query.strip():
+            try:
+                hits = await repo.search_by_text(query, limit=limit)
+                prematched_ids = [h["id"] for h in hits if h.get("id")]
+                if not prematched_ids:
+                    log.info("articles_prefilter_no_match", query=query)
+                    return []
+                cypher = self._query_builder.build_articles_by_ids_query()
+                results = await self._pool.execute_query(
+                    cypher, {"ids": prematched_ids, "limit": limit}
+                )
+                graph_ids = {r["id"] for r in results}
+                articles = [h for h in hits if h.get("id") in graph_ids]
+                if articles:
+                    log.info("articles_found_by_text", count=len(articles), query=query)
+                return articles
+            except Exception as exc:
+                log.warning("articles_prefilter_failed", error=str(exc))
+                # fall through to the legacy scan below
+
         cypher = self._query_builder.build_articles_by_text_query(limit)
 
         try:
