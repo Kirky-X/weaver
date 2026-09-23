@@ -364,7 +364,12 @@ async def search_unified(
         sources=result_sources,
         metadata=result_metadata,
     )
-    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
+    # Web-search fallback results go stale as background ingestion catches
+    # up — serve them from cache only for a few seconds, not the full TTL.
+    fallback_ttl = 15 if web_search_used else None
+    await store_search(
+        request, cache_params, response_payload.model_dump(mode="json"), ttl_override=fallback_ttl
+    )
     return success_response(response_payload)
 
 

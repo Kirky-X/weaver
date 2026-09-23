@@ -65,12 +65,28 @@ async def get_cached_search(request: Request, params: dict[str, Any]) -> dict[st
     return None
 
 
-async def store_search(request: Request, params: dict[str, Any], payload: dict[str, Any]) -> None:
-    """Store a SearchResponse payload dict (best-effort)."""
+async def store_search(
+    request: Request,
+    params: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    ttl_override: int | None = None,
+) -> None:
+    """Store a SearchResponse payload dict (best-effort).
+
+    ``ttl_override`` replaces the configured TTL for this write only —
+    e.g. web-search fallback responses get a short TTL so stale external
+    snippets are not served while ingestion catches up. ``0`` disables
+    the write (same as the configured ``ttl <= 0`` rule).
+    """
     if params.get("no_cache"):
         return
     cache_client, ttl = _cache_config(request)
     if cache_client is None:
+        return
+    if ttl_override is not None:
+        ttl = max(0, int(ttl_override))
+    if ttl <= 0:
         return
     try:
         await cache_client.set(
