@@ -424,6 +424,17 @@ class GraphQueryBuilder(Protocol):
         """
         ...
 
+    def build_articles_by_ids_query(self, limit: int = 10) -> str:
+        """Build query to fetch Article nodes by pg_id list (point lookup).
+
+        Args:
+            limit: Maximum results.
+
+        Returns:
+            Query string with $ids and $limit parameters.
+        """
+        ...
+
 
 class Neo4jQueryBuilder:
     """Neo4j (Cypher) implementation of GraphQueryBuilder."""
@@ -1217,6 +1228,17 @@ class Neo4jQueryBuilder:
         LIMIT $limit
         """
 
+    def build_articles_by_ids_query(self, limit: int = 10) -> str:
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (a:Article)
+        WHERE a.pg_id IN $ids
+        RETURN a.pg_id AS id
+        LIMIT $limit
+        """
+
 
 class LadybugQueryBuilder:
     """LadybugDB implementation of GraphQueryBuilder.
@@ -1939,6 +1961,17 @@ class LadybugQueryBuilder:
         # query returns pg_ids only; callers must filter by title in PostgreSQL.
         return """
         MATCH (a:Article)
+        RETURN a.pg_id AS id
+        LIMIT $limit
+        """
+
+    def build_articles_by_ids_query(self, limit: int = 10) -> str:
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (a:Article)
+        WHERE a.pg_id IN $ids
         RETURN a.pg_id AS id
         LIMIT $limit
         """

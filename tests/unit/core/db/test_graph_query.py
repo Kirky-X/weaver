@@ -1149,3 +1149,27 @@ class TestEntitySearchQueryBidirectional:
         config = EntitySearchConfig(query="test", limit=10, use_aliases=False)
         result = self.builder().build_entity_search_query(config)
         assert "$query CONTAINS toLower(e.canonical_name)" in result
+
+
+class TestBuildArticlesByIdsQuery:
+    """R-graph-fallback-001: id-point lookup for the Ladybug text fallback."""
+
+    @pytest.mark.parametrize("builder_cls", [Neo4jQueryBuilder, LadybugQueryBuilder])
+    def test_returns_parameterized_id_lookup(self, builder_cls) -> None:
+        result = builder_cls().build_articles_by_ids_query()
+        assert "MATCH (a:Article)" in result
+        assert "a.pg_id IN $ids" in result
+        assert "RETURN a.pg_id AS id" in result
+        assert "$limit" in result
+        # no full-scan / no text filtering in the graph
+        assert "$query" not in result
+
+    @pytest.mark.parametrize("builder_cls", [Neo4jQueryBuilder, LadybugQueryBuilder])
+    def test_rejects_non_positive_limit(self, builder_cls) -> None:
+        with pytest.raises(ValueError):
+            builder_cls().build_articles_by_ids_query(limit=0)
+
+    def test_protocol_declares_method(self) -> None:
+        from core.db.graph_query_builders import GraphQueryBuilder
+
+        assert hasattr(GraphQueryBuilder, "build_articles_by_ids_query")
