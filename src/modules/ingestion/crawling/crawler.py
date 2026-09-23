@@ -152,6 +152,18 @@ class Crawler:
             # Retry queue failure must not break the crawl flow
             log.warning("retry_queue_enqueue_failed", url=url, host=host, error=str(exc))
 
+    async def _extract_body_and_title(self, html: str) -> tuple[str, str | None]:
+        """Parse a page once via bare_extraction, returning (body, title).
+
+        One trafilatura pass produces both the plain-text body and the title;
+        the old extract-then-re-extract flow parsed the whole page twice
+        whenever the feed omitted a title.
+        """
+        parsed = await asyncio.to_thread(trafilatura.bare_extraction, html, include_comments=False)
+        if not parsed:
+            return "", None
+        return (parsed.text or ""), (parsed.title or None)
+
     async def crawl_batch(
         self,
         items: list[NewsItem],
@@ -196,6 +208,7 @@ class Crawler:
             host = urlparse(item.url).netloc
             body = ""
             html_content: str | None = None
+            parsed_title: str | None = None
 
             if item.body:
                 # Body already extracted from content:encoded in the RSS feed.
@@ -226,24 +239,14 @@ class Crawler:
                             html, _ = await self._fetch_html(item.url, force_browser=True)
                             html_content = html
                             if html:
-                                body = (
-                                    await asyncio.to_thread(
-                                        trafilatura.extract, html, include_comments=False
-                                    )
-                                    or ""
-                                )
+                                body, parsed_title = await self._extract_body_and_title(html)
             else:
                 # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:
                     html, _ = await self._fetch_html(item.url)
                     html_content = html
                     if html:
-                        body = (
-                            await asyncio.to_thread(
-                                trafilatura.extract, html, include_comments=False
-                            )
-                            or ""
-                        )
+                        body, parsed_title = await self._extract_body_and_title(html)
 
                 if len(body) < self._min_article_length:
                     log.debug(
@@ -256,42 +259,23 @@ class Crawler:
                         html, _ = await self._fetch_html(item.url, force_browser=True)
                         html_content = html
                         if html:
-                            body = (
-                                await asyncio.to_thread(
-                                    trafilatura.extract, html, include_comments=False
-                                )
-                                or ""
-                            )
+                            body, parsed_title = await self._extract_body_and_title(html)
 
-            # Extract title from HTML if not provided by RSS/source
-            title = item.title
+            # Extract title from HTML if not provided by RSS/source. Prefer
+            # the title from the page parse we already ran — a second
+            # bare_extraction pass re-parses the whole page for nothing.
+            title = item.title or parsed_title
             if not title and html_content:
-                # 1. Try trafilatura first (best quality when it works)
-                try:
-                    bare = await asyncio.to_thread(
-                        trafilatura.bare_extraction, html_content, include_comments=False
+                # Cheap <meta og:title> / <title> tag parse — trafilatura
+                # returns title=None for some sites (e.g. IT之家, Solidot).
+                extracted = _extract_title_from_html(html_content)
+                if extracted:
+                    title = extracted
+                    log.debug(
+                        "crawler_title_extracted_html_tag",
+                        url=item.url,
+                        title=title[:50],
                     )
-                    if bare and bare.title:
-                        title = bare.title
-                        log.debug(
-                            "crawler_title_extracted_trafilatura",
-                            url=item.url,
-                            title=title[:50],
-                        )
-                except Exception as exc:
-                    log.debug("crawler_title_trafilatura_failed", url=item.url, error=str(exc))
-
-                # 2. Fallback: parse <meta og:title> or <title> tag from HTML
-                #    trafilatura returns title=None for some sites (e.g. IT之家, Solidot)
-                if not title:
-                    extracted = _extract_title_from_html(html_content)
-                    if extracted:
-                        title = extracted
-                        log.debug(
-                            "crawler_title_extracted_html_tag",
-                            url=item.url,
-                            title=title[:50],
-                        )
 
             return RawArticle(
                 url=item.url,
