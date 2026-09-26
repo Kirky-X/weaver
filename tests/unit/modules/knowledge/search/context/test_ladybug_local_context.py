@@ -1166,9 +1166,7 @@ class TestGetRelatedArticlesByTextPrefilter:
         return builder, mock_article_repo
 
     @pytest.mark.asyncio
-    async def test_pg_hit_point_looks_up_ids_in_graph(
-        self, prefilter_builder, mock_pool
-    ) -> None:
+    async def test_pg_hit_point_looks_up_ids_in_graph(self, prefilter_builder, mock_pool) -> None:
         builder, repo = prefilter_builder
         repo.search_by_text = AsyncMock(
             return_value=[

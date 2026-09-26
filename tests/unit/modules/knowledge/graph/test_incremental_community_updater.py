@@ -635,9 +635,7 @@ class TestExecute:
         assert isinstance(result, IncrementalUpdateResult)
         assert result.affected_communities == 2
 
-    async def test_edge_snapshot_queried_once_per_flow(
-        self, updater, mock_graph_pool
-    ):
+    async def test_edge_snapshot_queried_once_per_flow(self, updater, mock_graph_pool):
         """R-modularity-002: the Entity-Entity edge snapshot is queried
         exactly ONCE per incremental flow — before/after share it."""
         edge_calls: list[str] = []
@@ -1202,9 +1200,7 @@ class TestModularityInputsComputeSplit:
         assert calculator.modularity_from([], {"a": 0}) is None
 
     @pytest.mark.asyncio
-    async def test_calculate_legacy_entry_matches_split_path(
-        self, calculator, mock_graph_pool
-    ):
+    async def test_calculate_legacy_entry_matches_split_path(self, calculator, mock_graph_pool):
         rows = [
             {"source": "a", "target": "b", "weight": 2.0},
             {"source": "b", "target": "c", "weight": 1.0},
