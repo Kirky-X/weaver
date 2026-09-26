@@ -8,8 +8,9 @@ Features:
 - File output with rotation support
 - Environment-based configuration
 
-Note: SENSITIVE_PATTERNS are defined locally to avoid circular imports.
-See core.utils.sanitize for similar patterns used in data sanitization.
+Note: SENSITIVE_PATTERNS are defined locally; redact_sensitive_data also
+applies core.utils.sanitize's URL credential patterns (postgresql/redis
+DSNs, `token:` forms, ?api_key=).
 """
 
 from __future__ import annotations
@@ -88,6 +89,12 @@ SENSITIVE_PATTERNS = [
         re.compile(r"(postgres|mysql|mongodb|redis|bolt)://([^:]+):([^@]+)@", re.IGNORECASE),
         r"\1://\2:***REDACTED***@",
     ),
+    # Same schemes with an EMPTY user (`redis://:pw@host`) — the pattern
+    # above requires at least one username character before the colon
+    (
+        re.compile(r"(\w[\w+.-]*://:)([^@]+)(@)", re.IGNORECASE),
+        r"\1***REDACTED***\3",
+    ),
     # Bearer/token patterns. The value must look like a credential
     # (>= 20 chars of token-alphabet characters) so prose such as
     # "token was refreshed" or "token count exceeded" is not redacted.
@@ -114,7 +121,30 @@ def redact_sensitive_data(message: str) -> str:
     sanitized = message
     for pattern, replacement in SENSITIVE_PATTERNS:
         sanitized = pattern.sub(replacement, sanitized)
+    # Second pass: URL-credential forms (postgresql://user:pw@, token: x,
+    # ?api_key=...) that the local patterns above don't cover. Deferred
+    # import: core.utils.__init__ pulls article_enrichment which imports
+    # this package — a module-level import here would be circular.
+    from core.utils.sanitize import SENSITIVE_PATTERNS as URL_CREDENTIAL_PATTERNS
+
+    for pattern, replacement in URL_CREDENTIAL_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
     return sanitized
+
+
+# Extra keys whose VALUE must be redacted wholesale. Key-level matching is
+# needed because SENSITIVE_PATTERNS expect `key=value` inside one string,
+# which never matches a bare extra value.
+# Branch A (credentials): containment semantics — `db_password_value`,
+# `Password1`, `secret_sauce` all match; over-redaction is the safe direction.
+# Branch B (tokens): requires a word boundary before the token word and is
+# end-anchored, so `id_token`/`access_token` match while `token_count`,
+# `tokens_used` (counters/metadata, not credentials) do not.
+_SENSITIVE_EXTRA_KEY_RE = re.compile(
+    r"(?:password|pwd|passwd|api[_-]?key|secret|authorization)"
+    r"|(?:^|[_-])(?:api[-_]?|access[-_]?|refresh[-_]?|auth[-_]?)?token$",
+    re.IGNORECASE,
+)
 
 
 def log_filter(record: Any) -> bool:
@@ -147,15 +177,22 @@ def log_filter(record: Any) -> bool:
         else:
             record["extra"]["request_id"] = "N/A"
 
-    # Sanitize the log message
-    if hasattr(record, "message") and isinstance(record["message"], str):
+    # Sanitize the log message (loguru records are plain dicts — the old
+    # hasattr(record, "message"/"extra") guards were always False, silently
+    # disabling both redaction branches)
+    if isinstance(record.get("message"), str):
         record["message"] = redact_sensitive_data(record["message"])
 
     # Sanitize any extra fields
-    if hasattr(record, "extra"):
-        for key, value in record["extra"].items():
-            if isinstance(value, str):
-                record["extra"][key] = redact_sensitive_data(value)
+    extra = record.get("extra")
+    if extra:
+        for key, value in extra.items():
+            if _SENSITIVE_EXTRA_KEY_RE.search(key):
+                # Credential-named key: redact the value whatever its type
+                # (nested dict/list structures are not deep-scanned)
+                extra[key] = "***REDACTED***"
+            elif isinstance(value, str):
+                extra[key] = redact_sensitive_data(value)
 
     # Format structured extra fields for output (excluding internal fields)
     _INTERNAL_FIELDS = {"request_id", "trace_id", "component", "_format_extra"}
@@ -176,6 +213,7 @@ def configure_logging(
     log_file: str | None = None,
     log_rotation: str | None = None,
     log_retention: str | None = None,
+    log_format: str = "text",
 ) -> None:
     """Configure loguru with formatted output and context vars.
 
@@ -184,8 +222,16 @@ def configure_logging(
         log_file: Path to log file. If None, uses LOG_FILE env var.
         log_rotation: Log rotation size/time. Default "10 MB".
         log_retention: Log retention period. Default "7 days".
+        log_format: "text" (default, human-readable) or "json" (one JSON
+            object per line for log collectors). Any other value raises
+            ValueError before sinks are reconfigured.
     """
+    if log_format not in ("text", "json"):
+        # Direct callers bypass pydantic validation; keep the fail-fast here
+        raise ValueError(f"Unsupported log_format: {log_format!r} (expected 'text' or 'json')")
+
     level = "DEBUG" if debug else "INFO"
+    serialize = log_format == "json"
 
     logger.remove()
 
@@ -195,6 +241,7 @@ def configure_logging(
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>req={extra[request_id]}</yellow> <yellow>trace={extra[trace_id]}</yellow> - <level>{message}</level> <dim>{extra[_format_extra]}</dim>",
         level=level,
         filter=log_filter,
+        serialize=serialize,
     )
 
     # File output (if configured)
@@ -212,6 +259,7 @@ def configure_logging(
             retention=retention,
             compression="gz",  # Compress rotated logs
             enqueue=True,  # Thread-safe writes
+            serialize=serialize,
         )
 
 

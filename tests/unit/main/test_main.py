@@ -94,6 +94,8 @@ def mock_settings():
 
     settings.observability.log_retention = "7 days"
 
+    settings.observability.log_format = "text"
+
     settings.spacy = MagicMock()
 
     settings.spacy.force_install = False

@@ -383,3 +383,145 @@ class TestCrawlSourceReliability:
 
         after = counter._value.get()
         assert after == before + 1
+
+
+class TestConsecutiveEmptyYield:
+    """Zero-yield sources (reachable but 0 items) get their own counter.
+
+    A permanently empty source (e.g. newsnow-freebuf returning an empty
+    items list) used to reset the failure counter every round and never
+    triggered any warning. These tests pin the dedicated empty-yield logic.
+    """
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        return SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+
+    def _ok_source(self, scheduler, items):
+        source = MagicMock()
+        source.id = "src-empty"
+        source.enabled = True
+        source.source_type = "rss"
+        scheduler._registry.get_source.return_value = source
+        parser = MagicMock()
+        parser.parse = AsyncMock(return_value=items)
+        scheduler._registry.get_parser.return_value = parser
+        scheduler._repo = MagicMock()
+        scheduler._repo.update_crawl_state = AsyncMock()
+        return source
+
+    @pytest.mark.asyncio
+    async def test_empty_yield_increments_counter_and_warns_at_threshold(self, scheduler):
+        self._ok_source(scheduler, [])
+        for i in range(scheduler._max_consecutive_empty):
+            await scheduler._crawl_source("src-empty")
+            assert scheduler._consecutive_empty["src-empty"] == i + 1
+
+        assert scheduler._consecutive_empty["src-empty"] == scheduler._max_consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_nonempty_yield_resets_counter(self, scheduler):
+        from modules.ingestion.domain.models import NewsItem
+
+        item = NewsItem(
+            url="https://x/1", title="t", source="s", source_host="x", source_id="src-empty"
+        )
+        self._ok_source(scheduler, [item])
+
+        await scheduler._crawl_source("src-empty")
+        assert "src-empty" not in scheduler._consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_failure_resets_empty_counter(self, scheduler):
+        source = MagicMock()
+        source.id = "src-empty"
+        source.enabled = True
+        source.source_type = "rss"
+        scheduler._registry.get_source.return_value = source
+        parser = MagicMock()
+        parser.parse = AsyncMock(return_value=[])
+        scheduler._registry.get_parser.return_value = parser
+        scheduler._repo = MagicMock()
+        scheduler._repo.update_crawl_state = AsyncMock()
+
+        await scheduler._crawl_source("src-empty")
+        assert scheduler._consecutive_empty.get("src-empty") == 1
+
+        parser.parse = AsyncMock(side_effect=RuntimeError("boom"))
+        await scheduler._crawl_source("src-empty")
+        assert "src-empty" not in scheduler._consecutive_empty
+
+    @pytest.mark.asyncio
+    async def test_default_threshold_is_six(self, scheduler):
+        assert scheduler._max_consecutive_empty == 6
+
+
+class TestIntervalJitter:
+    """Interval triggers carry jitter = min(interval*60*0.15, 300s).
+
+    225+ sources share one 30-minute interval; without jitter they fire in
+    lockstep after every scheduler restart (60 newsnow sources on one host).
+    """
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        scheduler = SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+        scheduler._scheduler = MagicMock()
+        return scheduler
+
+    def _source(self, interval_minutes: int):
+        source = MagicMock()
+        source.id = "src-j"
+        source.enabled = True
+        source.interval_minutes = interval_minutes
+        return source
+
+    def test_30min_interval_gets_270s_jitter(self, scheduler):
+        scheduler._schedule_source(self._source(30))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 270
+
+    def test_long_interval_jitter_capped_at_300s(self, scheduler):
+        scheduler._schedule_source(self._source(120))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 300
+
+    def test_jitter_is_positive_for_short_interval(self, scheduler):
+        scheduler._schedule_source(self._source(5))
+        kwargs = scheduler._scheduler.add_job.call_args.kwargs
+        assert kwargs["jitter"] == 45
+
+
+class TestUnscheduleCleansEmptyCounters:
+    """R-ingestion-scheduling-001: removing a source's job must not leave
+    stale zero-yield counters (a recreated id would inherit the old count)."""
+
+    @pytest.fixture
+    def scheduler(self):
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
+
+        scheduler = SourceScheduler(
+            registry=MagicMock(),
+            on_items_discovered=AsyncMock(),
+        )
+        scheduler._scheduler = MagicMock()
+        return scheduler
+
+    def test_unschedule_source_clears_empty_tracking(self, scheduler):
+        scheduler._consecutive_empty["src-gone"] = 3
+        scheduler._empty_warned.add("src-gone")
+
+        scheduler.unschedule_source("src-gone")
+
+        assert "src-gone" not in scheduler._consecutive_empty
+        assert "src-gone" not in scheduler._empty_warned

@@ -38,7 +38,13 @@ def _cache_config(request: Request) -> tuple[Any | None, int]:
 
 
 def _fingerprint(params: dict[str, Any]) -> str:
-    canonical = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)
+    # Whitespace/case variants of a query are semantically identical for
+    # retrieval — normalize so they share one cache entry instead of
+    # diluting the hit rate. Responses still echo the caller's original q.
+    normalized = dict(params)
+    if isinstance(normalized.get("q"), str):
+        normalized["q"] = normalized["q"].strip().casefold()
+    canonical = json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -59,12 +65,28 @@ async def get_cached_search(request: Request, params: dict[str, Any]) -> dict[st
     return None
 
 
-async def store_search(request: Request, params: dict[str, Any], payload: dict[str, Any]) -> None:
-    """Store a SearchResponse payload dict (best-effort)."""
+async def store_search(
+    request: Request,
+    params: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    ttl_override: int | None = None,
+) -> None:
+    """Store a SearchResponse payload dict (best-effort).
+
+    ``ttl_override`` replaces the configured TTL for this write only —
+    e.g. web-search fallback responses get a short TTL so stale external
+    snippets are not served while ingestion catches up. ``0`` disables
+    the write (same as the configured ``ttl <= 0`` rule).
+    """
     if params.get("no_cache"):
         return
     cache_client, ttl = _cache_config(request)
     if cache_client is None:
+        return
+    if ttl_override is not None:
+        ttl = max(0, int(ttl_override))
+    if ttl <= 0:
         return
     try:
         await cache_client.set(

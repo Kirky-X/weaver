@@ -133,8 +133,11 @@ class SubgraphClusteringService:
 
         log.info("incremental_community_update_start")
 
-        # Get modularity before
-        result.modularity_before = await self._modularity_calculator._calculate_modularity()
+        # Edge snapshot is fetched once: community updates change only the
+        # HAS_ENTITY assignment map, not the (filtered) Entity-Entity edges,
+        # so before/after share the same edge input.
+        modularity_inputs = await self._modularity_calculator.modularity_inputs()
+        result.modularity_before = self._modularity_calculator.modularity_from(*modularity_inputs)
 
         # If entity names not provided, get pending entities
         if entity_names is None:
@@ -200,8 +203,11 @@ class SubgraphClusteringService:
         # Cypher UPDATE on the (small) set of just-touched communities.
         await self._populate_community_titles(sorted(set(new_assignments.values())))
 
-        # Get modularity after
-        result.modularity_after = await self._modularity_calculator._calculate_modularity()
+        # Get modularity after: same edges, fresh assignments
+        new_assignments = await self._modularity_calculator.community_assignments()
+        result.modularity_after = self._modularity_calculator.modularity_from(
+            modularity_inputs[0], new_assignments
+        )
 
         # Update metadata
         await self._updater._update_metadata(result)

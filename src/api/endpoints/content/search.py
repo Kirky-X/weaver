@@ -364,7 +364,12 @@ async def search_unified(
         sources=result_sources,
         metadata=result_metadata,
     )
-    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
+    # Web-search fallback results go stale as background ingestion catches
+    # up — serve them from cache only for a few seconds, not the full TTL.
+    fallback_ttl = 15 if web_search_used else None
+    await store_search(
+        request, cache_params, response_payload.model_dump(mode="json"), ttl_override=fallback_ttl
+    )
     return success_response(response_payload)
 
 
@@ -436,7 +441,27 @@ async def search_local(
     Shortcut for ``GET /search?mode=local``. Returns entity-focused results
     with article context from the local subgraph.
     """
+    # Key-compatible with search_unified's cache_params at its mode=local
+    # defaults, so `/search?q=...&mode=local` and this endpoint share entries.
+    cache_params = {
+        "q": q,
+        "mode": "local",
+        "community_level": 0,
+        "threshold": 0.0,
+        "limit": 20,
+        "category": None,
+        "use_hybrid": True,
+        "global_mode": "map_reduce",
+        "output_mode": "context",
+        "enrich_entities": False,
+        "no_cache": request.query_params.get("no_cache") == "true",
+    }
+    cached = await get_cached_search(request, cache_params)
+    if cached is not None:
+        return success_response(SearchResponse.model_validate(cached))
+
     result = await _execute_explicit_search(q, "local", 0, local_engine, None)
+    await store_search(request, cache_params, result.model_dump(mode="json"))
     return success_response(result)
 
 
@@ -453,7 +478,26 @@ async def search_global(
     Shortcut for ``GET /search?mode=global``. Returns community-report-based
     answers spanning multiple entities.
     """
+    # Key-compatible with search_unified's cache_params at mode=global.
+    cache_params = {
+        "q": q,
+        "mode": "global",
+        "community_level": community_level,
+        "threshold": 0.0,
+        "limit": 20,
+        "category": None,
+        "use_hybrid": True,
+        "global_mode": "map_reduce",
+        "output_mode": "context",
+        "enrich_entities": False,
+        "no_cache": request.query_params.get("no_cache") == "true",
+    }
+    cached = await get_cached_search(request, cache_params)
+    if cached is not None:
+        return success_response(SearchResponse.model_validate(cached))
+
     result = await _execute_explicit_search(q, "global", community_level, None, global_engine)
+    await store_search(request, cache_params, result.model_dump(mode="json"))
     return success_response(result)
 
 

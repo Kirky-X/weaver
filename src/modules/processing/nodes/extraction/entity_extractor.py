@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import tomllib
 from typing import TYPE_CHECKING, Any
 
@@ -101,6 +102,7 @@ class EntityExtractorNode:
         relation_type_normalizer: RelationTypeNormalizer | None = None,
         gliner_extractor: GLiNERExtractor | None = None,
         gliner_timeout: float = 300.0,
+        timeout_cooldown_seconds: float = 300.0,
     ) -> None:
         self._llm = llm
         self._budget = budget
@@ -111,6 +113,9 @@ class EntityExtractorNode:
         self._relation_type_normalizer = relation_type_normalizer
         self._gliner_extractor = gliner_extractor
         self._gliner_timeout = gliner_timeout
+        self._gliner_cooldown_seconds = timeout_cooldown_seconds
+        self._gliner_disabled_until = 0.0
+        self._gliner_consecutive_timeouts = 0
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Extract entities and relations."""
@@ -184,29 +189,50 @@ class EntityExtractorNode:
         # Phase 1.5: GLiNER zero-shot extraction (if available)
         gliner_entities = []
         if self._gliner_extractor and self._gliner_extractor._config.enabled:
+            if time.monotonic() < self._gliner_disabled_until:
+                log.debug(
+                    "gliner_timeout_cooldown_active",
+                    url=state["raw"].url,
+                    remaining_seconds=round(self._gliner_disabled_until - time.monotonic(), 1),
+                )
+                return []
             try:
                 # Wall-clock 超时：GLiNER 专用单线程池被 HF 下载挂死/长推理
-                # 占用后，后续调用会在死线程后永久排队——超时即禁用 GLiNER
-                # （spaCy/LLM 实体继续），防止 deep 批次被拖到超时。
+                # 占用后，后续调用会在死线程后排队——首次超时进冷却（到期
+                # 自动重试），连续 2 次超时才永久禁用（spaCy/LLM 实体继续），
+                # 防止 deep 批次被拖到超时。
                 gliner_entities = await asyncio.wait_for(
                     self._gliner_extractor.extract_entities(body),
                     timeout=self._gliner_timeout,
                 )
+                self._gliner_consecutive_timeouts = 0
                 log.debug(
                     "gliner_extraction_completed",
                     entity_count=len(gliner_entities),
                     url=state["raw"].url,
                 )
             except TimeoutError:
-                self._gliner_extractor._config.enabled = False
-                log.warning(
-                    "gliner_extraction_timeout_disabled",
-                    timeout=self._gliner_timeout,
-                    url=state["raw"].url,
-                    hint="GLiNER worker hung (HF download/model load); "
-                    "disabled for the rest of this process — spaCy/LLM "
-                    "entities continue",
-                )
+                self._gliner_consecutive_timeouts += 1
+                if self._gliner_consecutive_timeouts >= 2:
+                    self._gliner_extractor._config.enabled = False
+                    log.warning(
+                        "gliner_extraction_timeout_disabled",
+                        timeout=self._gliner_timeout,
+                        consecutive_timeouts=self._gliner_consecutive_timeouts,
+                        url=state["raw"].url,
+                        hint="GLiNER worker hung repeatedly (HF download/"
+                        "model load); disabled for the rest of this "
+                        "process — spaCy/LLM entities continue",
+                    )
+                else:
+                    self._gliner_disabled_until = time.monotonic() + self._gliner_cooldown_seconds
+                    log.warning(
+                        "gliner_timeout_cooldown",
+                        timeout=self._gliner_timeout,
+                        cooldown_seconds=self._gliner_cooldown_seconds,
+                        url=state["raw"].url,
+                        hint="GLiNER worker possibly hung; cooling down before one retry",
+                    )
             except Exception as e:
                 log.warning(
                     "gliner_extraction_failed",

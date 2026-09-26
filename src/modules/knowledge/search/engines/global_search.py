@@ -73,7 +73,6 @@ class GlobalSearchEngine:
         context_builder: Any,
         llm: LLMClient | None = None,
         default_max_tokens: int = 12000,
-        max_communities: int = 10,
         hybrid_engine: HybridSearchEngine | None = None,
         local_engine: Any = None,
         search_settings: Any = None,
@@ -84,14 +83,12 @@ class GlobalSearchEngine:
             context_builder: ContextBuilder instance for building search context.
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
-            max_communities: Maximum communities to process.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
             local_engine: Optional local search engine for fallback when no relevant communities found.
             search_settings: Optional SearchSettings for timeout configuration.
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
-        self._max_communities = max_communities
         self._hybrid_engine = hybrid_engine
         self._local = local_engine
         self._context_builder = context_builder
@@ -121,10 +118,13 @@ class GlobalSearchEngine:
     def _collect_entities(communities) -> list[str]:
         return list(set(e for c in communities if c.key_entities for e in c.key_entities))
 
-    def _get_timeout(self, field: str, default: float) -> float:
+    def _get_setting(self, field: str, default: Any) -> Any:
         if self._search_settings is not None:
             return getattr(self._search_settings, field, default)
         return default
+
+    def _get_timeout(self, field: str, default: float) -> float:
+        return float(self._get_setting(field, default))
 
     async def search(
         self,
@@ -174,13 +174,14 @@ class GlobalSearchEngine:
                 log.warning("global_search_no_llm_configured", query=query[:50])
                 return self._build_no_llm_result(query, communities, community_level)
 
-            # Sort communities by similarity score (weight) and limit to top 3
-            # to avoid excessive LLM calls causing timeouts
+            # Sort communities by similarity score (weight) and limit the map
+            # phase to the configured top-N to avoid excessive LLM calls
+            max_communities = self._get_setting("global_max_communities", 3)
             sorted_communities = sorted(
                 communities,
                 key=lambda c: c.similarity_score,
                 reverse=True,
-            )[:3]
+            )[:max_communities]
 
             # Skip LLM calls when all communities have very low relevance
             sorted_communities = [c for c in sorted_communities if c.similarity_score >= 0.15]
@@ -323,7 +324,9 @@ class GlobalSearchEngine:
         total_tokens = 0
         community_weights: list = []
 
-        semaphore = asyncio.Semaphore(3)  # Reduced concurrent LLM calls
+        semaphore = asyncio.Semaphore(
+            self._get_setting("global_map_concurrency", 3)
+        )  # Reduced concurrent LLM calls
 
         async def process_community(
             idx: int, community: CommunityContext
@@ -550,11 +553,18 @@ class GlobalSearchEngine:
         if not communities:
             return []
 
-        contexts = []
-        for comm in communities:
-            # Get entities for this community
-            entities = await self._context_builder.get_community_entities(comm.get("id", ""))
+        # Fetch all community entities concurrently (gather keeps input
+        # order) — serial awaits here put up to max_communities graph
+        # round-trips on the hot path before the LLM map stage.
+        entity_lists = await asyncio.gather(
+            *(
+                self._context_builder.get_community_entities(comm.get("id", ""))
+                for comm in communities
+            )
+        )
 
+        contexts = []
+        for comm, entities in zip(communities, entity_lists, strict=True):
             similarity = comm.get("similarity_score")
             if similarity is None:
                 similarity = (comm.get("rank") or 1.0) / 10.0

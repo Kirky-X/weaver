@@ -45,13 +45,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import os
+import re
 import sys
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -328,14 +331,42 @@ NEWSNOW_IDS = [
     "tencent",
     "qqvideo",
     "iqiyi",
+    # Synced with upstream newsnext/newsnow shared/sources.json on 2026-09-23;
+    # all live-verified against the czl.net instance (21/21 pass). The bare
+    # ids above (36kr, cls, wallstreetcn, ...) are upstream redirect aliases
+    # that the server resolves to the fine-grained sources listed here.
+    "aihot",
+    "bilibili-hot-search",
+    "chongbuluo-hot",
+    "chongbuluo-latest",
+    "cls-depth",
+    "cls-hot",
+    "cls-telegraph",
+    "dongqiudi",
+    "fastbull-express",
+    "fastbull-news",
+    "github-trending-today",
+    "iqiyi-hot-ranklist",
+    "mktnews-flash",
+    "pcbeta-windows11",
+    "qqvideo-tv-hotsearch",
+    "tencent-hot",
+    "v2ex-share",
+    "wallstreetcn-hot",
+    "wallstreetcn-news",
+    "wallstreetcn-quick",
+    "xueqiu-hotstock",
 ]
 
+# Live-verified 2026-09-22 (HTTP 200 + feedparser yields linked entries).
+# Excluded as permanently broken upstream on anyfeeder — re-verify before
+# re-adding: "36kr" (malformed XML), "douban/review/book" (empty feed),
+# "freebuf" (405, returns site homepage), "weibo/search/hot" (RSSHub 503).
 RSS_FEEDS: dict[str, str] = {
     "solidot": "https://www.solidot.org/index.rss",
     "cnbeta": "https://plink.anyfeeder.com/cnbeta",
     "huxiu": "https://plink.anyfeeder.com/huxiu",
     "sixcolors": "https://feedpress.me/sixcolors",
-    "36kr": "https://plink.anyfeeder.com/36kr",
     "aljazeera_news": "https://plink.anyfeeder.com/aljazeera/news",
     "appinn": "https://plink.anyfeeder.com/appinn",
     "arstechnica": "https://plink.anyfeeder.com/arstechnica",
@@ -358,11 +389,9 @@ RSS_FEEDS: dict[str, str] = {
     "chinadaily_world": "https://plink.anyfeeder.com/chinadaily/world",
     "dapenti_caijing": "https://plink.anyfeeder.com/dapenti/caijing",
     "dapenti_xilei": "https://plink.anyfeeder.com/dapenti/xilei",
-    "douban_review_book": "https://plink.anyfeeder.com/douban/review/book",
     "fortunechina": "https://plink.anyfeeder.com/fortunechina",
     "fortunechina_keji": "https://plink.anyfeeder.com/fortunechina/keji",
     "fortunechina_shangye": "https://plink.anyfeeder.com/fortunechina/shangye",
-    "freebuf": "https://plink.anyfeeder.com/freebuf",
     "gcores": "https://plink.anyfeeder.com/gcores",
     "guokr_scientific": "https://plink.anyfeeder.com/guokr/scientific",
     "idaily_today": "https://plink.anyfeeder.com/idaily/today",
@@ -398,7 +427,6 @@ RSS_FEEDS: dict[str, str] = {
     "tmtpost": "https://plink.anyfeeder.com/tmtpost",
     "toodaylab": "https://plink.anyfeeder.com/toodaylab",
     "vice": "https://plink.anyfeeder.com/vice",
-    "weibo_search_hot": "https://plink.anyfeeder.com/weibo/search/hot",
     "weixin_AI_era": "https://plink.anyfeeder.com/weixin/AI_era",
     "weixin_CBNweekly": "https://plink.anyfeeder.com/weixin/CBNweekly2008",
     "weixin_DJ00123987": "https://plink.anyfeeder.com/weixin/DJ00123987",
@@ -491,11 +519,14 @@ RSS_FEEDS: dict[str, str] = {
 }
 
 
+DEFAULT_NEWSNOW_API_BASE = "https://newsnow.czl.net/api/s?id="
+
+
 def build_newsnow_config(source_id: str) -> dict[str, Any]:
     return {
         "id": f"newsnow-{source_id}",
         "name": f"NewsNow {source_id}",
-        "url": f"https://newsnow.czl.net/api/s?id={source_id}",
+        "url": f"{DEFAULT_NEWSNOW_API_BASE}{source_id}",
         "source_type": "newsnow",
         "enabled": True,
         "interval_minutes": 30,
@@ -777,7 +808,7 @@ async def cmd_seed_sources(args) -> int:
             print(f"\nBatch {batch_num}/{len(batches)} ({len(batch)} sources)...")
             for cfg in batch:
                 try:
-                    await repo.upsert(cfg)
+                    await repo.upsert(cfg, preserve_enabled=True)
                     added += 1
                 except Exception:
                     skipped += 1
@@ -803,6 +834,379 @@ async def cmd_seed_sources(args) -> int:
 
     finally:
         await container.shutdown()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# import-sources: bulk import from a user-supplied list (rss URLs / newsnow ids)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Mirrors the Accept profile of a browser so feeds behind coarse WAF rules are
+# not rejected before the parser ever sees the body.
+_VERIFY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+}
+_VERIFY_TIMEOUT = httpx.Timeout(25.0, connect=10.0)
+_VERIFY_CONCURRENCY = 6
+_MAX_VERIFY_BYTES = 8 * 1024 * 1024
+_MAX_IMPORT_ENTRIES = 1000
+# Same status set NewsNowParser accepts at runtime.
+_NEWSNOW_VALID_STATUSES = ("success", "cache")
+
+
+def parse_source_list(text: str) -> list[str]:
+    """Parse a list file: one entry per line, ``#`` comments and blanks ignored, dedup keeping first occurrence."""
+    seen: dict[str, None] = {}
+    for line in text.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        seen.setdefault(entry, None)
+    if len(seen) > _MAX_IMPORT_ENTRIES:
+        raise ValueError(f"list has {len(seen)} entries, more than the {_MAX_IMPORT_ENTRIES} limit")
+    return list(seen)
+
+
+def slug_from_url(url: str) -> str:
+    """Derive a source slug from the site name (second-level host label) plus path segments.
+
+    Uses the second-level label heuristic: multi-part public suffixes
+    (``bbc.co.uk`` → ``co``) produce a wrong-but-stable site name; uniqueness
+    is enforced downstream by ``_resolve_imports``, not here.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"not a valid http(s) URL: {url!r}")
+    labels = parsed.hostname.removeprefix("www.").split(".")
+    site = labels[-2] if len(labels) >= 2 else labels[0]
+    raw = f"{site}-{parsed.path.strip('/')}"
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    if not slug:
+        raise ValueError(f"cannot derive a slug from URL: {url!r}")
+    return slug[:90]
+
+
+def build_rss_entry(url: str, interval_minutes: int = 30) -> dict[str, Any]:
+    slug = slug_from_url(url)
+    return {
+        "id": f"rss-{slug}",
+        "name": slug.replace("-", " ").title(),
+        "url": url,
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": interval_minutes,
+        "credibility": 0.70,
+        "tier": 2,
+    }
+
+
+def build_newsnow_entry(
+    source_id: str,
+    api_base: str = DEFAULT_NEWSNOW_API_BASE,
+    interval_minutes: int = 30,
+) -> dict[str, Any]:
+    sid = source_id.strip()
+    if not sid:
+        raise ValueError("NewsNow source id must be non-empty")
+    return {
+        "id": f"newsnow-{sid}",
+        "name": f"NewsNow {sid}",
+        "url": f"{api_base}{quote(sid, safe='')}",
+        "source_type": "newsnow",
+        "enabled": True,
+        "interval_minutes": interval_minutes,
+        "credibility": 0.70,
+        "tier": 2,
+    }
+
+
+async def _fetch_limited(client: httpx.AsyncClient, url: str) -> tuple[int, bytes]:
+    """GET with a hard cap on buffered bytes so a misdirected URL cannot exhaust memory."""
+    async with client.stream("GET", url, headers=_VERIFY_HEADERS) as response:
+        if response.status_code != 200:
+            return response.status_code, b""
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > _MAX_VERIFY_BYTES:
+                break
+            chunks.append(chunk)
+        return response.status_code, b"".join(chunks)
+
+
+async def verify_rss_feed(url: str, client: httpx.AsyncClient | None = None) -> tuple[bool, str]:
+    """Live-check a feed with the same bar RSSParser applies at runtime: HTTP 200 plus at least one linked entry."""
+    import feedparser
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=_VERIFY_TIMEOUT, follow_redirects=True) as own:
+                status_code, content = await _fetch_limited(own, url)
+        else:
+            status_code, content = await _fetch_limited(client, url)
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if status_code != 200:
+        return False, f"HTTP {status_code}"
+    if len(content) > _MAX_VERIFY_BYTES:
+        return False, f"payload exceeds {_MAX_VERIFY_BYTES} bytes"
+    feed = await asyncio.to_thread(feedparser.parse, content)
+    linked = sum(1 for entry in feed.entries if entry.get("link"))
+    if linked == 0:
+        return False, f"0 linked entries (bozo={getattr(feed, 'bozo', False)})"
+    return True, "ok"
+
+
+async def verify_newsnow_feed(
+    url: str, client: httpx.AsyncClient | None = None
+) -> tuple[bool, str]:
+    """Live-check a NewsNow API endpoint: HTTP 200, accepted status field, and at least one url+title item."""
+    import json_repair
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=_VERIFY_TIMEOUT, follow_redirects=True) as own:
+                status_code, content = await _fetch_limited(own, url)
+        else:
+            status_code, content = await _fetch_limited(client, url)
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if status_code != 200:
+        return False, f"HTTP {status_code}"
+    if len(content) > _MAX_VERIFY_BYTES:
+        return False, f"payload exceeds {_MAX_VERIFY_BYTES} bytes"
+    try:
+        data = await asyncio.to_thread(json_repair.loads, content)
+    except Exception as exc:
+        return False, f"json_parse_failed: {type(exc).__name__}: {exc}"
+    if not isinstance(data, dict):
+        return False, "unparseable JSON payload"
+    api_status = data.get("status")
+    if api_status not in _NEWSNOW_VALID_STATUSES:
+        return False, f"api status {api_status!r} not in {_NEWSNOW_VALID_STATUSES}"
+    valid = sum(1 for entry in data.get("items", []) if entry.get("url") and entry.get("title"))
+    if valid == 0:
+        return False, "0 valid entries (url+title)"
+    return True, "ok"
+
+
+async def _resolve_imports(
+    repo: Any, configs: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Split candidate configs into (to_upsert, skipped_existing_lines).
+
+    A URL already configured (any type) is reported and left untouched. A
+    generated id colliding with any other URL — in the database or within the
+    same batch — gets a deterministic url-hash suffix, so same-slug sites can
+    never overwrite each other and re-runs converge to the same ids.
+    """
+    existing_sources = await repo.list_sources(enabled_only=False)
+    url_to_id = {s.url: s.id for s in existing_sources}
+    taken_ids = {s.id for s in existing_sources}
+
+    to_upsert: list[dict[str, Any]] = []
+    skipped_existing: list[str] = []
+    for cfg in configs:
+        if cfg["url"] in url_to_id:
+            skipped_existing.append(f"{url_to_id[cfg['url']]} <- {cfg['url']}")
+            continue
+        if cfg["id"] in taken_ids:
+            url_hash = hashlib.sha256(cfg["url"].encode()).hexdigest()[:8]
+            cfg["id"] = f"{cfg['id']}-{url_hash}"
+        taken_ids.add(cfg["id"])
+        to_upsert.append(cfg)
+    return to_upsert, skipped_existing
+
+
+async def cmd_import_sources(args) -> int:
+    """Import sources from a list file: rss URLs verbatim, newsnow entries as ``{api_base}{id}``.
+
+    Idempotent by URL — sources already configured (any type) are reported and
+    left untouched, so re-running never overrides hand-tuned configs.
+    """
+    from config.settings import Settings
+    from container import Container
+    from modules.ingestion.domain.models import SourceConfig as SourceConfigModel
+
+    items = parse_source_list(Path(args.file).read_text(encoding="utf-8"))
+    if not items:
+        print(f"No entries parsed from {args.file}")
+        return 1
+
+    if args.type == "newsnow":
+        configs = [
+            build_newsnow_entry(item, api_base=args.api_base, interval_minutes=args.interval)
+            for item in items
+        ]
+        verifier = verify_newsnow_feed
+    else:
+        configs = [build_rss_entry(item, interval_minutes=args.interval) for item in items]
+        verifier = verify_rss_feed
+
+    print(f"Parsed {len(configs)} {args.type} entr(ies) from {args.file}")
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+    try:
+        repo = container.source_config_repo()
+
+        to_upsert, skipped_existing = await _resolve_imports(repo, configs)
+
+        skipped_failed: list[str] = []
+        if args.verify and to_upsert:
+            sem = asyncio.Semaphore(args.concurrency)
+
+            async with httpx.AsyncClient(
+                timeout=_VERIFY_TIMEOUT,
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_connections=args.concurrency,
+                    max_keepalive_connections=args.concurrency,
+                ),
+            ) as probe:
+
+                async def check(url: str) -> tuple[bool, str]:
+                    async with sem:
+                        return await verifier(url, client=probe)
+
+                urls_in_order = [cfg["url"] for cfg in to_upsert]
+                results = await asyncio.gather(*(check(u) for u in urls_in_order))
+            verdicts = dict(zip(urls_in_order, results, strict=True))
+            still_queued: list[dict[str, Any]] = []
+            for cfg in to_upsert:
+                ok, detail = verdicts[cfg["url"]]
+                if ok:
+                    still_queued.append(cfg)
+                else:
+                    skipped_failed.append(f"{cfg['id']}: {detail} ({cfg['url']})")
+            to_upsert = still_queued
+
+        print(
+            f"\nNew: {len(to_upsert)} | already configured: {len(skipped_existing)} | "
+            f"verify failed: {len(skipped_failed)}"
+        )
+        for line in skipped_existing:
+            print(f"  = exists: {line}")
+        for line in skipped_failed:
+            print(f"  ! verify failed: {line}")
+
+        if args.dry_run:
+            print("\nDry-run: no changes made")
+            return 0
+
+        created = 0
+        for cfg in to_upsert:
+            try:
+                await repo.upsert(SourceConfigModel(**cfg), preserve_enabled=True)
+                created += 1
+            except Exception as exc:
+                print(f"  ! upsert failed {cfg['id']}: {exc}")
+        print(
+            f"\nDone: {created} created, {len(skipped_existing)} already existed, "
+            f"{len(skipped_failed)} skipped (verify failed)"
+        )
+        return 0 if created == len(to_upsert) else 1
+    finally:
+        await container.shutdown()
+
+
+UPSTREAM_SOURCES_URL = "https://raw.githubusercontent.com/newsnext/newsnow/main/shared/sources.json"
+
+
+def classify_upstream_drift(
+    upstream: dict[str, Any], local_ids: list[str]
+) -> tuple[list[str], list[str], list[tuple[str, str | None]]]:
+    """Split local newsnow ids against upstream sources.json into drift buckets.
+
+    Returns (upstream_new, vanished_or_disabled, redirects):
+    - upstream_new: available upstream (disable falsy, no redirect) but absent locally
+    - vanished_or_disabled: locally configured, but upstream marks it disable
+      (True or "cf") or the id no longer exists
+    - redirects: locally configured bare ids that upstream turned into
+      redirect aliases (server-side resolved, informational only)
+    """
+    available: list[str] = []
+    disabled: list[str] = []
+    redirect_map: dict[str, str | None] = {}
+    for sid, src in upstream.items():
+        src = src if isinstance(src, dict) else {}
+        disable = src.get("disable", False)
+        redirect = src.get("redirect")
+        if redirect:
+            redirect_map[sid] = redirect
+        elif not disable:
+            available.append(sid)
+        else:
+            disabled.append(sid)
+
+    local_set = set(local_ids)
+    upstream_new = sorted(set(available) - local_set)
+    vanished = sorted((local_set & set(disabled)) | (local_set - set(upstream)))
+    redirects = sorted((sid, redirect_map.get(sid)) for sid in local_set & set(redirect_map))
+    return upstream_new, vanished, redirects
+
+
+async def cmd_check_upstream(args) -> int:
+    """Report drift between locally configured newsnow sources and upstream.
+
+    Read-only: never mutates source_configs. Actionable drift is handled by
+    re-running seed-sources / import-sources, not by this command.
+    """
+    from config.settings import Settings
+    from container import Container
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            response = await client.get(args.api_file)
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"Failed to fetch upstream sources from {args.api_file}: {exc}")
+        return 1
+
+    import json_repair
+
+    upstream = json_repair.loads(response.content)
+    if not isinstance(upstream, dict):
+        print(f"Unexpected upstream payload from {args.api_file} (not a JSON object)")
+        return 1
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+    try:
+        repo = container.source_config_repo()
+        sources = await repo.list_sources(enabled_only=False)
+        local_ids = sorted(
+            s.id.removeprefix("newsnow-") for s in sources if s.source_type == "newsnow"
+        )
+    finally:
+        await container.shutdown()
+
+    upstream_new, vanished, redirects = classify_upstream_drift(upstream, local_ids)
+
+    print(
+        f"Upstream sources: {len(upstream)} | local newsnow sources: {len(local_ids)} "
+        f"(from {args.api_file})"
+    )
+    print(f"\n+ upstream new ({len(upstream_new)}): available upstream, not configured locally")
+    for sid in upstream_new:
+        print(f"  + {sid}")
+    print(f"\n- vanished/disabled ({len(vanished)}): locally configured, unavailable upstream")
+    for sid in vanished:
+        print(f"  - {sid}")
+    print(f"\n~ redirect aliases ({len(redirects)}): server-side resolved, no action needed")
+    for sid, target in redirects:
+        print(f"  ~ {sid} -> {target}")
+    print(
+        "\nActionable: import new ids via `import-sources --type newsnow --verify`; "
+        "disable vanished ids via the sources API."
+    )
+    return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2029,6 +2433,52 @@ Examples:
         "--batch", type=int, default=10, help="Sources per batch (default: 10)"
     )
 
+    # import-sources subcommand
+    import_parser = subparsers.add_parser(
+        "import-sources",
+        help="Import sources from a list file (rss URLs or newsnow ids), optionally live-verify before upsert",
+    )
+    import_parser.add_argument(
+        "--file", required=True, help="List file: one entry per line, # comments allowed"
+    )
+    import_parser.add_argument(
+        "--type",
+        choices=["rss", "newsnow"],
+        required=True,
+        help="rss: each line is a feed URL; newsnow: each line is a NewsNow source id",
+    )
+    import_parser.add_argument(
+        "--api-base",
+        default=DEFAULT_NEWSNOW_API_BASE,
+        help=f"NewsNow API base (default: {DEFAULT_NEWSNOW_API_BASE})",
+    )
+    import_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Live-verify each source before upsert; failures are skipped and reported",
+    )
+    import_parser.add_argument("--dry-run", action="store_true", help="Preview only, no changes")
+    import_parser.add_argument(
+        "--interval", type=int, default=30, help="Crawl interval in minutes (default: 30)"
+    )
+    import_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=_VERIFY_CONCURRENCY,
+        help=f"Parallel verifications with --verify (default: {_VERIFY_CONCURRENCY})",
+    )
+
+    # check-upstream subcommand
+    upstream_parser = subparsers.add_parser(
+        "check-upstream",
+        help="Report drift between local newsnow sources and upstream newsnext/newsnow (read-only)",
+    )
+    upstream_parser.add_argument(
+        "--api-file",
+        default=UPSTREAM_SOURCES_URL,
+        help=f"Upstream sources.json URL (default: {UPSTREAM_SOURCES_URL})",
+    )
+
     args = parser.parse_args()
 
     if args.command == "test":
@@ -2039,6 +2489,10 @@ Examples:
         return asyncio.run(cmd_reprocess(args))
     elif args.command == "seed-sources":
         return asyncio.run(cmd_seed_sources(args))
+    elif args.command == "import-sources":
+        return asyncio.run(cmd_import_sources(args))
+    elif args.command == "check-upstream":
+        return asyncio.run(cmd_check_upstream(args))
     else:
         parser.print_help()
         return 1

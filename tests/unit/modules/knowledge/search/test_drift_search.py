@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: © 2026 Kirky.X
 """Unit tests for DRIFT Search Engine."""
 
+import asyncio
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -724,3 +726,134 @@ class TestFollowUpSourceEntities:
         )
 
         assert result["results"][0]["source_entities"] == ["EntityA", "EntityB"]
+
+
+class TestFollowUpPhaseConcurrency:
+    """follow-up 有界并发契约：并发可观察、达阈值取消剩余、max_follow_ups 语义不变。"""
+
+    @pytest.fixture
+    def mock_context_builder(self):
+        builder = MagicMock()
+        builder.build = AsyncMock()
+        return builder
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.call = AsyncMock(return_value={"content": "Test answer"})
+        return llm
+
+    def _make_engine(self, mock_context_builder, mock_llm, mock_local, **config_kwargs):
+        return DRIFTSearchEngine(
+            context_builder=mock_context_builder,
+            llm=mock_llm,
+            config=DriftConfig(**config_kwargs),
+            local_engine=mock_local,
+        )
+
+    @staticmethod
+    def _result(question: str, confidence: float):
+        from modules.knowledge.search.engines.local_search import SearchResult
+
+        return SearchResult(
+            query=question,
+            answer="答案",
+            context_tokens=1,
+            confidence=confidence,
+        )
+
+    @pytest.mark.asyncio
+    async def test_follow_up_searches_start_concurrently(
+        self, mock_context_builder, mock_llm
+    ) -> None:
+        started: list[str] = []
+        concurrent_overlap = False
+
+        async def search(question: str):
+            nonlocal concurrent_overlap
+            started.append(question)
+            if len(started) == 1:
+                # 第一个查询未完成时，第二个查询应已启动（并发证据）
+                for _ in range(200):
+                    if len(started) >= 2:
+                        concurrent_overlap = True
+                        break
+                    await asyncio.sleep(0.005)
+            return self._result(question, 0.1)
+
+        mock_local = MagicMock()
+        mock_local.search = search
+        engine = self._make_engine(
+            mock_context_builder, mock_llm, mock_local, confidence_threshold=0.99
+        )
+
+        result = await engine._follow_up_phase(
+            query="测试查询",
+            initial_answer="初始答案",
+            follow_up_questions=["问题一？", "问题二？"],
+        )
+
+        assert result["llm_calls"] == 2
+        assert concurrent_overlap is True
+
+    @pytest.mark.asyncio
+    async def test_follow_up_cancels_remaining_on_threshold(
+        self, mock_context_builder, mock_llm
+    ) -> None:
+        entered: list[str] = []
+        completed: list[str] = []
+        release = asyncio.Event()
+
+        async def search(question: str):
+            entered.append(question)
+            if question != "高置信？":
+                await release.wait()
+            completed.append(question)
+            return self._result(question, 0.95 if question == "高置信？" else 0.1)
+
+        mock_local = MagicMock()
+        mock_local.search = search
+        engine = self._make_engine(
+            mock_context_builder, mock_llm, mock_local, confidence_threshold=0.7
+        )
+
+        result = await engine._follow_up_phase(
+            query="测试查询",
+            initial_answer="初始答案",
+            follow_up_questions=["高置信？", "低置信？", "低置信二？"],
+        )
+
+        assert [r["question"] for r in result["results"]] == ["高置信？"]
+        assert result["llm_calls"] == 1
+        assert "高置信？" in completed
+        assert "低置信？" not in completed  # 达阈值后被取消，未跑完
+        assert "低置信二？" not in completed
+        # 并发启动的间接证据：至少一个低置信查询已进入（取消可能早于其首步执行）
+        assert len(entered) >= 2
+
+    @pytest.mark.asyncio
+    async def test_max_follow_ups_cap_preserved(self, mock_context_builder, mock_llm) -> None:
+        searched: list[str] = []
+
+        async def search(question: str):
+            searched.append(question)
+            return self._result(question, 0.1)
+
+        mock_local = MagicMock()
+        mock_local.search = search
+        engine = self._make_engine(
+            mock_context_builder,
+            mock_llm,
+            mock_local,
+            max_follow_ups=2,
+            confidence_threshold=0.99,
+        )
+
+        result = await engine._follow_up_phase(
+            query="测试查询",
+            initial_answer="初始答案",
+            follow_up_questions=["问题一？", "问题二？", "问题三？", "问题四？"],
+        )
+
+        assert len(result["results"]) == 2
+        assert len(searched) == 2

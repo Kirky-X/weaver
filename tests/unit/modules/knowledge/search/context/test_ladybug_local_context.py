@@ -1152,3 +1152,47 @@ class TestGetRelatedEntitiesParams:
         cypher, params = mock_pool.execute_query.call_args[0]
         assert "$relation_types" not in cypher
         assert "relation_types" not in params
+
+
+class TestGetRelatedArticlesByTextPrefilter:
+    """R-graph-fallback-002: PG pre-filter via search_by_text, then an
+    id-point lookup in the graph — never the unbounded Article full scan."""
+
+    @pytest.fixture
+    def prefilter_builder(self, mock_pool):
+        mock_article_repo = Mock()
+        mock_article_repo.search_by_text = AsyncMock()
+        builder = LadybugLocalContextBuilder(graph_pool=mock_pool, article_repo=mock_article_repo)
+        return builder, mock_article_repo
+
+    @pytest.mark.asyncio
+    async def test_pg_hit_point_looks_up_ids_in_graph(self, prefilter_builder, mock_pool) -> None:
+        builder, repo = prefilter_builder
+        repo.search_by_text = AsyncMock(
+            return_value=[
+                {"id": "pg-1", "title": "LibreOffice 再次谴责微软文档使用的私有格式"},
+                {"id": "pg-2", "title": "LibreOffice 25.2 发布"},
+            ]
+        )
+        # Only pg-1 exists as an Article node in the graph
+        mock_pool.execute_query = AsyncMock(return_value=[{"id": "pg-1"}])
+
+        result = await builder._get_related_articles_by_text("LibreOffice", limit=10)
+
+        sql = mock_pool.execute_query.await_args.args[0]
+        assert "a.pg_id IN $ids" in sql, "must point-lookup by ids, not full-scan"
+        assert mock_pool.execute_query.await_args.args[1]["ids"] == ["pg-1", "pg-2"]
+        assert len(result) == 1
+        assert result[0]["id"] == "pg-1"
+        assert "LibreOffice" in result[0]["title"]
+
+    @pytest.mark.asyncio
+    async def test_pg_miss_skips_graph_query(self, prefilter_builder, mock_pool) -> None:
+        builder, repo = prefilter_builder
+        repo.search_by_text = AsyncMock(return_value=[])
+        mock_pool.execute_query = AsyncMock()
+
+        result = await builder._get_related_articles_by_text("xyznonexistent", limit=10)
+
+        assert result == []
+        mock_pool.execute_query.assert_not_awaited()

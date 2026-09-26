@@ -54,6 +54,11 @@ log = get_logger(__name__)
 
 _FALLBACK_RECOVERY_INTERVAL = 60.0
 
+# Infrastructure endpoints scraped continuously (e.g. Prometheus every few
+# seconds); counting them would drain the global bucket exactly when
+# observability matters most.
+DEFAULT_EXEMPT_PATHS = frozenset({"/metrics", "/health"})
+
 
 # ── Lua script for atomic token bucket ─────────────────────────────
 
@@ -529,19 +534,43 @@ class RateLimitMiddleware:
 
         rate_limiter: TokenBucketRateLimiter instance.
 
+        exempt_paths: Exact-match paths that skip rate limiting entirely
+            (defaults to DEFAULT_EXEMPT_PATHS; pass an empty frozenset to
+            disable exemptions).
+
 
 
     """
 
-    def __init__(self, app: Any, rate_limiter: TokenBucketRateLimiter) -> None:
+    def __init__(
+        self,
+        app: Any,
+        rate_limiter: TokenBucketRateLimiter,
+        exempt_paths: frozenset[str] | None = None,
+    ) -> None:
 
         self._app = app
 
         self._rate_limiter = rate_limiter
 
+        self._exempt_paths = DEFAULT_EXEMPT_PATHS if exempt_paths is None else exempt_paths
+
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         """ASGI entry point: check rate limits before forwarding request."""
         if scope["type"] != "http":
+            await self._app(scope, receive, send)
+
+            return
+
+        # Exact-match exemption before any key extraction or token spend
+        # (infrastructure endpoints like /metrics are scraped continuously).
+        # Behind a proxy mounted with --root-path, the prefix is stripped
+        # so the exemption still matches the route the app registered.
+        path = scope.get("path", "")
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :] or "/"
+        if path in self._exempt_paths:
             await self._app(scope, receive, send)
 
             return

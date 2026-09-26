@@ -41,6 +41,12 @@ class MetricsCollector:
         ["call_point", "from_provider", "reason"],
     )
 
+    source_zero_yield_total = Counter(
+        "source_zero_yield_total",
+        "Sources reaching the prolonged zero-yield warning threshold",
+        ["source_id"],
+    )
+
     # LLM token metrics
     llm_token_input_total = Counter(
         "llm_token_input_total",

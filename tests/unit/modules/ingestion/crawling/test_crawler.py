@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,8 +88,8 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract",
-            return_value=LONG_CONTENT,
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch(sample_news_items)
@@ -109,8 +112,8 @@ class TestCrawlerCrawlBatch:
         )
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract",
-            return_value=LONG_CONTENT,
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch([item])
@@ -136,11 +139,14 @@ class TestCrawlerCrawlBatch:
 
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
-        # First call returns None (plain text not extractable), second returns long content
-        extract_results = [None, LONG_CONTENT]
-        with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract",
-            side_effect=extract_results,
+        # prefill extract finds nothing; the browser-refetch bare pass
+        # yields the long body
+        with (
+            patch("modules.ingestion.crawling.crawler.trafilatura.extract", return_value=None),
+            patch(
+                "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+                return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
+            ),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch([item])
@@ -202,7 +208,8 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             await crawler.crawl_batch(
@@ -220,7 +227,10 @@ class TestCrawlerCrawlBatch:
 
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body></body></html>", {}))
 
-        with patch("modules.ingestion.crawling.crawler.trafilatura.extract", return_value=None):
+        with patch(
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=None,
+        ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
 
             item = NewsItem(
@@ -243,7 +253,8 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
 
@@ -294,7 +305,8 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = mock_fetch
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch([item1, item2])
@@ -329,7 +341,8 @@ class TestCrawlerConcurrency:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html>Content</html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch(items)
@@ -355,7 +368,8 @@ class TestCrawlerConcurrency:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html>Content</html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher, default_per_host=2)
             results = await crawler.crawl_batch(items)
@@ -482,8 +496,8 @@ class TestCrawlerTitleExtraction:
         mock_doc.title = None  # trafilatura fails to extract title
         with (
             patch(
-                "modules.ingestion.crawling.crawler.trafilatura.extract",
-                return_value=LONG_CONTENT,
+                "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+                return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
             ),
             patch(
                 "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
@@ -514,8 +528,8 @@ class TestCrawlerTitleExtraction:
         )
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract",
-            return_value=LONG_CONTENT,
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+            return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch([item])
@@ -544,8 +558,8 @@ class TestCrawlerTitleExtraction:
         mock_doc.title = None
         with (
             patch(
-                "modules.ingestion.crawling.crawler.trafilatura.extract",
-                return_value=LONG_CONTENT,
+                "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
+                return_value=SimpleNamespace(text=LONG_CONTENT, title=None),
             ),
             patch(
                 "modules.ingestion.crawling.crawler.trafilatura.bare_extraction",
@@ -557,3 +571,101 @@ class TestCrawlerTitleExtraction:
 
         assert len(results) == 1
         assert results[0].title == "Solidot 文章标题"
+
+
+class TestGlobalConcurrencyDecoupledFromCpu:
+    """Crawling is IO-bound — the global fetch limit must be
+    min(host_count, max_concurrency), not capped by os.cpu_count().
+    """
+
+    @pytest.fixture
+    def crawler(self):
+        from modules.ingestion.crawling.crawler import Crawler
+        from modules.ingestion.fetching.base import BaseFetcher
+
+        fetcher = MagicMock(spec=BaseFetcher)
+        return Crawler(smart_fetcher=fetcher, max_concurrency=16)
+
+    def _items(self, hosts: list[str]):
+        from modules.ingestion.domain.models import NewsItem
+
+        return [
+            NewsItem(
+                url=f"https://{h}/article-{i}",
+                title=f"t{i}",
+                source="s",
+                source_host=h,
+                source_id="src",
+            )
+            for i, h in enumerate(hosts)
+        ]
+
+    def test_global_semaphore_ignores_cpu_count(self, crawler, monkeypatch):
+        # 10 distinct hosts; a 1-core machine previously capped the global
+        # semaphore at 1 despite max_concurrency=16 (expected: 10).
+        monkeypatch.setattr("os.cpu_count", lambda: 1)
+        items = self._items([f"h{i}" for i in range(10)])
+
+        captured: list[int] = []
+        real_semaphore = asyncio.Semaphore
+
+        def spy_semaphore(value):
+            captured.append(value)
+            return real_semaphore(value)
+
+        monkeypatch.setattr("modules.ingestion.crawling.crawler.asyncio.Semaphore", spy_semaphore)
+        # global_sem is the first Semaphore created in crawl_batch; the empty
+        # fetch keeps the batch cheap while exercising the full setup path.
+        crawler._fetch_html = AsyncMock(return_value=(None, 0))
+        asyncio.run(crawler.crawl_batch(items))
+
+        assert 10 in captured  # global: min(host_count=10, max=16), no cpu term
+        assert 1 not in captured  # cpu_count=1 must not appear anywhere
+
+
+class TestSingleExtractionPass:
+    """R-crawler-and-cache-001: one bare_extraction pass yields both body
+    and title — no second full-page parse when the feed omits the title."""
+
+    @pytest.fixture
+    def crawler(self):
+        from modules.ingestion.crawling.crawler import Crawler
+        from modules.ingestion.fetching.base import BaseFetcher
+
+        return Crawler(smart_fetcher=MagicMock(spec=BaseFetcher), max_concurrency=16)
+
+    @pytest.mark.asyncio
+    async def test_title_from_same_extraction_no_second_parse(self, crawler, monkeypatch):
+        from types import SimpleNamespace
+
+        long_text = "x" * 500
+        calls = {"extract": 0, "bare": 0}
+
+        def fake_bare(html, include_comments=False):
+            calls["bare"] += 1
+            return SimpleNamespace(text=long_text, title="Parsed Title")
+
+        monkeypatch.setattr(
+            "modules.ingestion.crawling.crawler.trafilatura.bare_extraction", fake_bare
+        )
+        crawler._fetch_html = AsyncMock(return_value=("<html>page</html>", None))
+
+        from modules.ingestion.domain.models import NewsItem
+
+        items = [
+            NewsItem(
+                url="https://h.example/a",
+                title="",  # missing title — the second-parse trigger
+                body="",
+                source="s",
+                source_host="h.example",
+                source_id="src",
+            )
+        ]
+        results = await crawler.crawl_batch(items)
+
+        assert len(results) == 1
+        article = results[0]
+        assert article.title == "Parsed Title"
+        assert article.body == long_text
+        assert calls["bare"] == 1, "exactly one bare_extraction pass expected"

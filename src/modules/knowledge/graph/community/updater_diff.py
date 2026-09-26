@@ -9,6 +9,7 @@ communities, writing fresh assignments, and marking stale reports.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING
@@ -38,9 +39,15 @@ class DiffWriter:
         database_type: Graph database type string (e.g. neo4j or ladybug).
     """
 
-    def __init__(self, pool: GraphPool, database_type: str | None = None) -> None:
+    def __init__(
+        self,
+        pool: GraphPool,
+        database_type: str | None = None,
+        reassign_concurrency: int = 10,
+    ) -> None:
         self._pool = pool
         self._database_type = database_type or DatabaseType.NEO4J.value
+        self._reassign_concurrency = reassign_concurrency
 
     async def _write_diff(
         self,
@@ -77,27 +84,44 @@ class DiffWriter:
                     entity_count_changes[old_comm] -= 1
                 entity_count_changes[new_comm] += 1
 
-        # Write changes to Neo4j
-        for node_id, new_comm in new_assignments.items():
-            old_comm = old_assignments.get(node_id)
-            if old_comm != new_comm:
+        # Write changes to Neo4j — concurrent with a bounded semaphore; each
+        # coroutine keeps its own delete→create pairing so per-entity ordering
+        # is preserved.
+        moved = {
+            node_id: (old_assignments.get(node_id), new_comm)
+            for node_id, new_comm in new_assignments.items()
+            if old_assignments.get(node_id) != new_comm
+        }
+        sem = asyncio.Semaphore(self._reassign_concurrency)
+
+        async def reassign(node_id: str, old_comm: str | None, new_comm: str) -> None:
+            async with sem:
                 await self._reassign_entity(node_id, old_comm, new_comm)
 
-        # Check for emptied communities
-        for comm_id, change in entity_count_changes.items():
-            # Get current entity count for the community
-            count_query = """
-            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
-            WHERE (e.pruned IS NULL OR e.pruned = false)
-            RETURN count(e) AS count
+        await asyncio.gather(*(reassign(nid, old, new) for nid, (old, new) in moved.items()))
+
+        # Check for emptied communities — one grouped aggregate instead of a
+        # count query per community.
+        candidate_ids = list(entity_count_changes.keys())
+        counts: dict[str, int] = {}
+        if candidate_ids:
+            aggregate_query = """
+            MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)
+            WHERE c.id IN $community_ids AND (e.pruned IS NULL OR e.pruned = false)
+            RETURN c.id AS community_id, count(e) AS count
             """
             try:
-                result = await self._pool.execute_query(count_query, {"community_id": comm_id})
-                if result and result[0]["count"] == 0:
+                rows = await self._pool.execute_query(
+                    aggregate_query, {"community_ids": candidate_ids}
+                )
+                counts = {row["community_id"]: row["count"] for row in rows or []}
+            except Exception as exc:
+                log.warning("batch_empty_community_check_failed", error=str(exc))
+
+            for comm_id in candidate_ids:
+                if counts.get(comm_id, 0) == 0:
                     await self._mark_community_empty(comm_id)
                     emptied += 1
-            except Exception as exc:
-                log.warning("check_empty_community_failed", comm_id=comm_id, error=str(exc))
 
         log.debug(
             "write_diff_complete",

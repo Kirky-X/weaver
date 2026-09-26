@@ -23,6 +23,10 @@ log = get_logger(__name__)
 
 # After this many consecutive failures, auto-disable the source
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
+# After this many consecutive successful crawls yielding 0 items, warn once.
+# A permanently empty source (API alive, items list always empty) never hits
+# the failure path, so without this it would spin silently forever.
+DEFAULT_MAX_CONSECUTIVE_EMPTY = 6
 # Wall-clock cap for a single source parse. The fetcher has its own timeouts;
 # this is the last line of defence against a hung parser blocking its slot.
 DEFAULT_CRAWL_TIMEOUT_SECONDS = 300.0
@@ -49,14 +53,18 @@ class SourceScheduler:
         ],
         repo: SourceConfigRepo | None = None,
         max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+        max_consecutive_empty: int = DEFAULT_MAX_CONSECUTIVE_EMPTY,
         crawl_timeout: float = DEFAULT_CRAWL_TIMEOUT_SECONDS,
     ) -> None:
         self._registry = registry
         self._on_items = on_items_discovered
         self._repo = repo
         self._max_consecutive_failures = max_consecutive_failures
+        self._max_consecutive_empty = max_consecutive_empty
         self._crawl_timeout = crawl_timeout
         self._consecutive_failures: dict[str, int] = {}
+        self._consecutive_empty: dict[str, int] = {}
+        self._empty_warned: set[str] = set()
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -132,20 +140,34 @@ class SourceScheduler:
                 source_id=source_id,
                 error=str(exc),
             )
+        finally:
+            # A recreated source id must start with a clean zero-yield slate.
+            self._consecutive_empty.pop(source_id, None)
+            self._empty_warned.discard(source_id)
 
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""
+        # Stagger triggers: 225+ sources sharing one interval would otherwise
+        # fire in lockstep after every restart (crawling bursts, 60 newsnow
+        # sources on one host). 15% of the interval, hard-capped at 5 minutes.
+        jitter_seconds = min(int(source.interval_minutes * 60 * 0.15), 300)
         self._scheduler.add_job(
             self._crawl_source,
             "interval",
             minutes=source.interval_minutes,
+            jitter=jitter_seconds,
             args=[source.id, None, None],
             id=f"source_{source.id}",
             max_instances=1,
             coalesce=True,
             replace_existing=True,
         )
-        log.debug("source_scheduled", source_id=source.id, interval=source.interval_minutes)
+        log.debug(
+            "source_scheduled",
+            source_id=source.id,
+            interval=source.interval_minutes,
+            jitter_seconds=jitter_seconds,
+        )
 
     async def _crawl_source(
         self,
@@ -199,6 +221,8 @@ class SourceScheduler:
                 await self._on_items(items, source, max_items, task_id, force)
                 # Reset consecutive failure counter on success
                 self._consecutive_failures.pop(source_id, None)
+                self._consecutive_empty.pop(source_id, None)
+                self._empty_warned.discard(source_id)
                 log.info(
                     "source_crawled",
                     source_id=source_id,
@@ -208,9 +232,15 @@ class SourceScheduler:
             else:
                 # No new items is not a failure — reset counter
                 self._consecutive_failures.pop(source_id, None)
+                self._track_empty_yield(source_id)
                 log.debug("source_no_new_items", source_id=source_id)
         except Exception as exc:
             import traceback
+
+            # A failing source is not an empty source: reset the empty
+            # counter, failures have their own backoff/disable path.
+            self._consecutive_empty.pop(source_id, None)
+            self._empty_warned.discard(source_id)
 
             # Track consecutive failures
             self._consecutive_failures[source_id] = self._consecutive_failures.get(source_id, 0) + 1
@@ -232,6 +262,24 @@ class SourceScheduler:
             # Auto-disable source when threshold exceeded
             if failure_count >= self._max_consecutive_failures:
                 await self._auto_disable_source(source, failure_count)
+
+    def _track_empty_yield(self, source_id: str) -> None:
+        """Count a successful crawl that yielded 0 items; warn once at threshold.
+
+        A permanently empty source never enters the failure path, so without
+        this it would spin at full frequency forever with no signal.
+        """
+        count = self._consecutive_empty.get(source_id, 0) + 1
+        self._consecutive_empty[source_id] = count
+        if count >= self._max_consecutive_empty and source_id not in self._empty_warned:
+            self._empty_warned.add(source_id)
+            MetricsCollector.source_zero_yield_total.labels(source_id=source_id).inc()
+            log.warning(
+                "source_prolonged_zero_yield",
+                source_id=source_id,
+                consecutive_empty=count,
+                threshold=self._max_consecutive_empty,
+            )
 
     def _next_backoff_time(self, source_id: str, failure_count: int) -> datetime:
         """Compute the backoff next-run time after ``failure_count`` failures."""
@@ -274,6 +322,8 @@ class SourceScheduler:
         """
         source.enabled = False
         self._consecutive_failures.pop(source.id, None)
+        self._consecutive_empty.pop(source.id, None)
+        self._empty_warned.discard(source.id)
         # Observability: auto-disable must not be silent — it silently
         # shrinks collection coverage until someone notices.
         MetricsCollector.source_auto_disabled_total.labels(source_id=source.id).inc()

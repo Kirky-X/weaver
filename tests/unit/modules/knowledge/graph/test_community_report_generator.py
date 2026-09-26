@@ -177,6 +177,7 @@ class TestCommunityReportGeneratorGenerateAllReports:
                 Community(id="c2", title="C2", level=0, entity_count=2),
             ]
         )
+        generator._repo.get_reports_existence = AsyncMock(return_value={"c1": False, "c2": False})
 
         # Mock generate_report to succeed
         generator.generate_report = AsyncMock(
@@ -203,6 +204,9 @@ class TestCommunityReportGeneratorGenerateAllReports:
                 Community(id="c3", title="C3", level=0, entity_count=2),
             ]
         )
+        generator._repo.get_reports_existence = AsyncMock(
+            return_value={"c1": False, "c2": False, "c3": False}
+        )
 
         # Mock generate_report with mixed results
         generator.generate_report = AsyncMock(
@@ -228,6 +232,7 @@ class TestCommunityReportGeneratorGenerateAllReports:
                 Community(id="orphan", title="Orphan", level=-1, entity_count=1),  # Orphan
             ]
         )
+        generator._repo.get_reports_existence = AsyncMock(return_value={"c1": False})
 
         generator.generate_report = AsyncMock(
             return_value=ReportGenerationResult(
@@ -250,6 +255,7 @@ class TestCommunityReportGeneratorGenerateAllReports:
                 Community(id="c1", title="C1", level=1, entity_count=2),
             ]
         )
+        generator._repo.get_reports_existence = AsyncMock(return_value={"c1": False})
 
         generator.generate_report = AsyncMock(
             return_value=ReportGenerationResult(
@@ -416,3 +422,75 @@ class TestGetCommunityDataBackendCompatibility:
         query = pool.execute_query.call_args[0][0]
         assert "coalesce(c.article_count, 0)" in query
         assert data["article_count"] == 5
+
+
+class TestGenerateAllReportsBatchExistence:
+    """R-graph-queries-001: the filter phase must use ONE batch existence
+    query instead of per-community get_report calls (N+1 over up to
+    MAX_COMMUNITIES_PER_LEVEL communities)."""
+
+    @pytest.fixture
+    def batch_generator(self):
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+
+        llm = MagicMock()
+        llm._prompts = MagicMock()
+        llm._prompts.get = MagicMock(return_value="Test prompt")
+        llm.call_at = AsyncMock()
+        llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+
+        generator = CommunityReportGenerator(pool, llm)
+        generator._repo = MagicMock()
+        generator._repo.get_report = AsyncMock(return_value=None)
+        generator._repo.delete_report = AsyncMock(return_value=True)
+        return generator
+
+    @pytest.mark.asyncio
+    async def test_default_path_zero_per_item_get_report(self, batch_generator):
+        communities = [
+            Community(id=f"c{i}", title=f"C{i}", level=0, entity_count=2) for i in range(5)
+        ]
+        communities.append(Community(id="orphan", title="O", level=-1, entity_count=0))
+        batch_generator._repo.list_communities = AsyncMock(return_value=communities)
+        batch_generator._repo.get_reports_existence = AsyncMock(
+            return_value={f"c{i}": False for i in range(5)}
+        )
+        batch_generator.generate_report = AsyncMock(
+            return_value=ReportGenerationResult(community_id="c0", success=True, report_id="r")
+        )
+
+        result = await batch_generator.generate_all_reports()
+
+        batch_generator._repo.get_reports_existence.assert_awaited_once()
+        batch_generator._repo.get_report.assert_not_awaited()
+        assert result["total"] == 5
+        assert result["success"] == 5
+        # orphans are skipped entirely: not queried, not generated
+        assert "orphan" not in (batch_generator._repo.get_reports_existence.call_args[0][0])
+
+    @pytest.mark.asyncio
+    async def test_stale_path_fetches_report_only_for_existing(self, batch_generator):
+        from modules.knowledge.graph.community.models import CommunityReport
+
+        communities = [
+            Community(id="c-new", title="N", level=0, entity_count=2),
+            Community(id="c-stale", title="S", level=0, entity_count=2),
+        ]
+        batch_generator._repo.list_communities = AsyncMock(return_value=communities)
+        batch_generator._repo.get_reports_existence = AsyncMock(
+            return_value={"c-new": False, "c-stale": True}
+        )
+        stale_report = MagicMock()
+        stale_report.stale = True
+        batch_generator._repo.get_report = AsyncMock(return_value=stale_report)
+        batch_generator.generate_report = AsyncMock(
+            return_value=ReportGenerationResult(community_id="c-new", success=True, report_id="r")
+        )
+
+        result = await batch_generator.generate_all_reports(regenerate_stale=True)
+
+        # get_report only for the existing community, never for the new one
+        batch_generator._repo.get_report.assert_awaited_once_with("c-stale")
+        batch_generator._repo.delete_report.assert_awaited_once_with("c-stale")
+        assert result["total"] == 2

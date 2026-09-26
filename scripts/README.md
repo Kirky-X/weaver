@@ -6,7 +6,7 @@
 
 | 脚本                      | 描述                                                                          |
 | ------------------------- | ----------------------------------------------------------------------------- |
-| `pipeline.py`             | 管道测试、待处理文章处理、重新处理、**源初始化**（`seed-sources` 子命令）     |
+| `pipeline.py`             | 管道测试、待处理文章处理、重新处理、**源初始化与清单导入**（`seed-sources`/`import-sources`） |
 | `db.py`                   | 数据库查询、检查、**DuckDB 综合审计**（`audit` 子命令）、修复工具             |
 | `data_io.py`              | PG↔DuckDB / Neo4j↔LadybugDB 导入/导出 + **跨库一致性校验**（`verify` 子命令） |
 | `tools.py`                | 性能评估、环境验证、数据库种子、代码检查                                      |
@@ -49,6 +49,14 @@ uv run scripts/pipeline.py reprocess --article-id <uuid>
 uv run scripts/pipeline.py seed-sources                    # 创建所有源配置
 uv run scripts/pipeline.py seed-sources --pipeline         # 创建并触发管道
 uv run scripts/pipeline.py seed-sources --dry-run          # 仅预览
+
+# 从清单文件批量导入源（幂等：URL 已存在则跳过，不覆盖已有配置）
+uv run scripts/pipeline.py import-sources --file feeds.txt --type rss --verify
+uv run scripts/pipeline.py import-sources --file ids.txt --type newsnow --verify
+uv run scripts/pipeline.py import-sources --file feeds.txt --type rss --dry-run
+
+# 对账上游 newsnext/newsnow 源列表（只读，不改库）
+uv run scripts/pipeline.py check-upstream
 ```
 
 ### 子命令
@@ -59,6 +67,8 @@ uv run scripts/pipeline.py seed-sources --dry-run          # 仅预览
 | `process-pending` | 处理所有 `persist_status='pending'` 的文章                                        |
 | `reprocess`       | 重新处理不完整文章（`--incomplete`/`--article-id`/`--dry-run`）                   |
 | `seed-sources`    | 创建所有 NewsNow + RSS 源配置，可选触发管道（`--pipeline`/`--dry-run`/`--batch`） |
+| `import-sources`  | 从清单文件批量导入 rss URL / newsnow 源 id，`--verify` 在线验证通过才注入，按 URL 幂等 |
+| `check-upstream`  | 对比库内 newsnow 源与上游 sources.json，报告新增/失效/redirect 别名三类漂移（只读） |
 
 ---
 
@@ -259,3 +269,14 @@ specmark 工作流脚本已迁移至 `specmark/scripts/`（本地工作副本：
 bash specmark/scripts/archive_change.sh <change-name> [--sync]
 python specmark/scripts/merge_delta_spec.py --main <spec.md> --delta <delta.md> --out <out.md>
 ```
+
+
+### Postgres 主库恢复后的源配置对账
+
+本地 Postgres 离线期间，源配置以 DuckDB 降级库为准。主库恢复后按序执行：
+
+1. `uv run scripts/pipeline.py seed-sources` — 幂等 upsert 全部内置清单源；
+   `preserve_enabled=True` 语义保证不会复活任何手工禁用的源（如已验证故障的
+   rss-36kr、newsnow-36kr 等）。
+2. 对历史清单回放 `import-sources --file <清单> --verify`（按 URL 幂等，已存在跳过）。
+3. `uv run scripts/pipeline.py check-upstream` — 报告与上游的漂移，按提示增量处理。

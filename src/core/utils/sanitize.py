@@ -23,11 +23,14 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"(bolt://[^:]+:)([^@]+)(@.+)", re.IGNORECASE), r"\1***\3"),
     # API keys in URL params
     (re.compile(r"([?&]api[_-]?key=)([^&]+)", re.IGNORECASE), r"\1***"),
-    # Password in connection strings
-    (re.compile(r"(password[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
-    # Generic secret/token patterns
-    (re.compile(r"(token[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
-    (re.compile(r"(secret[\"']?\s*[=:]\s*[\"']?)([^\"'\s,]+)", re.IGNORECASE), r"\1***"),
+    # Password in connection strings. Value excludes `*` (same idempotency
+    # rationale as the token/secret patterns below)
+    (re.compile(r"(password[\"']?\s*[=:]\s*[\"']?)([^\"'\s,*]+)", re.IGNORECASE), r"\1***"),
+    # Generic secret/token patterns. The value excludes `*` so an already
+    # redacted `***REDACTED***` value (e.g. from a second sanitizer pass)
+    # is not rewritten again.
+    (re.compile(r"(token[\"']?\s*[=:]\s*[\"']?)([^\"'\s,*]+)", re.IGNORECASE), r"\1***"),
+    (re.compile(r"(secret[\"']?\s*[=:]\s*[\"']?)([^\"'\s,*]+)", re.IGNORECASE), r"\1***"),
 ]
 
 

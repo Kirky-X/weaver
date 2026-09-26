@@ -55,20 +55,24 @@ class TestGlobalSearchEngineBasic:
         )
 
         assert engine is not None
-        assert engine._max_communities == 10  # default
+        assert engine._get_setting("global_max_communities", 3) == 3  # default
 
     @pytest.mark.asyncio
     async def test_global_search_with_custom_params(self, mock_context_builder, mock_llm):
         """Test global search engine with custom parameters."""
+        from types import SimpleNamespace
+
         engine = GlobalSearchEngine(
             context_builder=mock_context_builder,
             llm=mock_llm,
             default_max_tokens=15000,
-            max_communities=20,
         )
 
         assert engine._default_max_tokens == 15000
-        assert engine._max_communities == 20
+        # Community count / concurrency come from search_settings now
+        settings = SimpleNamespace(global_max_communities=20)
+        engine._search_settings = settings
+        assert engine._get_setting("global_max_communities", 3) == 20
 
     @pytest.mark.asyncio
     async def test_global_search_returns_search_result(self, mock_context_builder, mock_llm):
