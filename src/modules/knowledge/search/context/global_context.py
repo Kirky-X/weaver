@@ -89,11 +89,12 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
 
             query_embedding = embeddings[0]
 
-            cypher = """
+            cypher = f"""
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
             WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
             WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
             WHERE score > $threshold
+            WHERE score > {self._similarity_threshold}
             RETURN c.id AS id,
                    c.title AS title,
                    COALESCE(r.summary, '') AS summary,

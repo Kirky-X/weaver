@@ -214,6 +214,7 @@ class TestNeo4jWriterWrite:
     @pytest.mark.asyncio
     async def test_write_entity_merge_failure_propagates(self, writer):
         """entity merge failure propagates (no silent partial graph state)."""
+        """T016-H1: entity merge failure propagates (no silent partial graph state)."""
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
@@ -371,6 +372,26 @@ class TestNeo4jWriterWriteEntities:
                 ],
                 state=state,
             )
+
+
+class TestNeo4jWriterResolveCanonicalName:
+    """Test _resolve_canonical_name method."""
+
+    @pytest.fixture
+    def writer(self):
+        """Create Neo4jWriter instance."""
+        writer = Neo4jWriter(MagicMock())
+        writer._entity_repo = MagicMock()
+        return writer
+
+    @pytest.mark.asyncio
+    async def test_resolve_existing_entity(self, writer):
+        """Test resolve returns existing entity name."""
+        writer._entity_repo.find_entity = AsyncMock(
+            return_value=EntityView.model_validate(
+                {"neo4j_id": "id1", "name": "张三", "entity_type": "人物"}
+            )
+        )
 
 
 class TestNeo4jWriterCreateFollowedRelations:

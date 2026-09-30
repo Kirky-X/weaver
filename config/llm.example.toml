@@ -254,3 +254,6 @@ cached = 0.5
 input = 0.0
 output = 0.0
 cached = 0.1
+# agnes 为免费档，费率记 0.0——rates 非空即激活 CostCalculator 接线，
+# 使 cost_usd 走真实计算链路（当前恒为 0.0）。接入付费 provider 时
+# 在此填写真实费率（禁止编造价格）。

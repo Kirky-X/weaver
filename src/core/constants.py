@@ -428,6 +428,9 @@ class Status(str, enum.Enum):
         except ValueError as _exc:
             valid_values = [m.value for m in cls]
             raise ValueError(f"Invalid status '{value}'. Valid values: {valid_values}") from _exc
+            raise ValueError(
+                f"Invalid pipeline task status '{value}'. Valid values: {valid_values}"
+            ) from _exc
 
 
 # ── Health Check Status Constants ────────────────────────────────────
@@ -450,6 +453,64 @@ class HealthCheckStatus(str, enum.Enum):
             valid_values = [m.value for m in cls]
             raise ValueError(
                 f"Invalid health check status '{value}'. Valid values: {valid_values}"
+            ) from _exc
+
+
+# ── Migration Status Constants ───────────────────────────────────────
+
+
+class MigrationStatus(str, enum.Enum):
+    """Migration operation status values."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def from_str(cls, value: str) -> MigrationStatus:
+        """Convert string to MigrationStatus enum.
+
+        Args:
+            value: String value to convert.
+
+        Returns:
+            Corresponding MigrationStatus enum member.
+
+        Raises:
+            ValueError: If value is not a valid migration status.
+        """
+        try:
+            return cls(value.lower())
+        except ValueError as _exc:
+            valid_values = [m.value for m in cls]
+            raise ValueError(
+                f"Invalid migration status '{value}'. Valid values: {valid_values}"
+            ) from _exc
+
+
+# ── Task Status Constants ────────────────────────────────────────────
+
+
+class TaskStatus(str, enum.Enum):
+    """Background task execution status."""
+
+    RUNNING = "running"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    NOT_FOUND = "not_found"
+
+    @classmethod
+    def from_str(cls, value: str) -> TaskStatus:
+        """Convert string to TaskStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError as _exc:
+            valid_values = [m.value for m in cls]
+            raise ValueError(
+                f"Invalid task status '{value}'. Valid values: {valid_values}"
             ) from _exc
 
 

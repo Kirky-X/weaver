@@ -276,6 +276,8 @@ class TestAPISettingsPortDetection:
 class TestApiKeyGenerationCaching:
     """lazily generated API key must be cached per instance."""
 
+    """T003: lazily generated API key must be cached per instance."""
+
     def test_generated_key_is_stable(self) -> None:
         """Repeated get_api_key() calls return the same generated key."""
         settings = APISettings(api_key="")
@@ -315,6 +317,8 @@ class TestApiKeyGenerationCaching:
 
 class TestHmacSecretIndependence:
     """production forbids HMAC secret fallback to API key."""
+
+    """T031: production forbids HMAC secret fallback to API key."""
 
     def test_production_hmac_enabled_without_secret_raises(self) -> None:
         settings = APISettings(
