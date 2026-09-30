@@ -16,6 +16,7 @@ from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability import get_logger
 from core.constants import EmbeddingModel, EntityType, LanguageCode
+from core.constants import EmbeddingModel
 from core.prompt.loader import PromptLoader
 from core.utils.paths import CONFIG_DIR
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
@@ -125,6 +126,38 @@ class EntityExtractorNode:
         body = state["cleaned"]["body"]
         language = state.get("language", LanguageCode.ZH.value)
 
+        disable_data_metrics = (
+            self._settings.entity.disable_data_metrics_nodes if self._settings else False
+        )
+        spacy_entities = await self._extract_spacy_entities(state, body, language)
+        gliner_entities = await self._extract_gliner_entities(state, body)
+        entity_name_to_embedding = await self._embed_and_store_entities(
+            state, spacy_entities, gliner_entities
+        )
+        await self._llm_refine_and_validate(
+            state,
+            body,
+            disable_data_metrics,
+            spacy_entities,
+            gliner_entities,
+            entity_name_to_embedding,
+        )
+
+        state.setdefault("prompt_versions", {})["entity_extractor"] = (
+            self._prompt_loader.get_version("entity_extractor")
+        )
+
+        log.info(
+            "entities_extracted",
+            url=state["raw"].url,
+            entity_count=len(state.get("entities") or []),
+            relation_count=len(state.get("relations") or []),
+        )
+        return state
+
+    async def _extract_spacy_entities(self, state: PipelineState, body: str, language: str):
+        """Phase 1: spaCy NER (sync, run in executor)."""
+        # Phase 1: spaCy NER (sync, run in executor)
         disable_data_metrics = (
             self._settings.entity.disable_data_metrics_nodes if self._settings else False
         )
@@ -340,6 +373,13 @@ class EntityExtractorNode:
             # Filter data metrics entities BEFORE relation validation so
             # relations pointing at removed entities are dropped as dangling
             # by _validate_and_clean_entities_relations instead of surviving.
+            # Normalize relation types
+            await self._normalize_relation_types(state)
+
+            # Post-validation: entity types + relation integrity
+            self._validate_and_clean_entities_relations(state)
+            entity_count = len(result.entities)
+            # Filter data metrics entities when configured
             if disable_data_metrics:
                 state["entities"] = [e for e in state["entities"] if e.get("type") != "数据指标"]
 
@@ -369,8 +409,12 @@ class EntityExtractorNode:
                 error=str(e),
                 url=state["raw"].url,
             )
+            import traceback as _tb
+
+            _tb.print_exc()
             state["entities"] = []
             state["relations"] = []
+            entity_count = 0
             state.setdefault("degraded_fields", []).extend(["entities", "relations"])
             state.setdefault("degradation_reasons", {}).update(
                 {

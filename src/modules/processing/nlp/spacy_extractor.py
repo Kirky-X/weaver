@@ -13,6 +13,7 @@ from core.constants import EntityType, LanguageCode
 from core.observability import get_logger
 from core.utils.paths import CACHE_DIR, CONFIG_DIR
 from core.utils.toml_loader import load_toml_or_warn
+from core.utils.paths import CACHE_DIR
 
 log = get_logger(__name__)
 

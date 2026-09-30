@@ -500,6 +500,7 @@ class ContainerLifecycleMixin:
         scheduler.add_job(
             jobs.recover_stale_sagas,
             IntervalTrigger(minutes=settings.recover_stale_sagas_interval_minutes),
+            IntervalTrigger(minutes=10),
             id="recover_stale_sagas",
             name="Recover stale sagas",
             max_instances=1,
@@ -510,6 +511,7 @@ class ContainerLifecycleMixin:
         scheduler.add_job(
             jobs.dispatch_outbox_events,
             IntervalTrigger(seconds=settings.dispatch_outbox_interval_seconds),
+            IntervalTrigger(seconds=30),
             id="dispatch_outbox_events",
             name="Dispatch outbox events",
             max_instances=1,

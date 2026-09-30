@@ -28,6 +28,8 @@ def _trusted_proxies() -> list[str]:
         # Docstring contract: degrade to zero-trust on ANY settings failure
         # (container not initialized, malformed config, ...) rather than 500.
         log.debug("trusted_proxies_unavailable", error=str(exc), exc_type=type(exc).__name__)
+    except (RuntimeError, ImportError) as exc:
+        log.debug("trusted_proxies_unavailable", error=str(exc))
         return []
 
 

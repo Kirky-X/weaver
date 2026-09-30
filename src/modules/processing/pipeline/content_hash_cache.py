@@ -29,6 +29,9 @@ log = get_logger(__name__)
 # from pipeline.toml ``content_hash_version``（配置驱动失效：prompt/输出
 # 结构变更时 bump 配置值，旧快照立即全部视为 miss）。
 _DEFAULT_SCHEMA_VERSION = 2
+# Bump when the cached snapshot schema changes: entries written by older
+# versions are treated as misses instead of being merged into new states.
+_CACHE_SCHEMA_VERSION = 2
 
 # Keys never cached: per-article identity and non-serializable objects.
 # ``_cache_hit`` (and any future private marker) is excluded via the
@@ -37,6 +40,7 @@ _UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
 
 # Cached snapshots expire after 7 days (overridable via
 # pipeline.toml ``content_hash_cache_ttl_seconds``).
+# Cached snapshots expire after 7 days
 _CACHE_TTL_SECONDS = 604800
 
 
@@ -103,6 +107,7 @@ class ContentHashCacheService:
                     if (
                         isinstance(parsed, dict)
                         and parsed.get("_schema_version") == self._schema_version
+                        and parsed.get("_schema_version") == _CACHE_SCHEMA_VERSION
                         and "cleaned" in parsed
                     ):
                         results.append(parsed)
@@ -205,6 +210,7 @@ class ContentHashCacheService:
             async with self._cache_client.pipeline() as pipe:
                 for key, payload in serialized:
                     pipe.set(key, payload, ex=self._ttl_seconds)
+                    pipe.set(key, payload, ex=_CACHE_TTL_SECONDS)
                 await pipe.execute()
         except Exception as exc:
             log.warning("content_hash_cache_write_failed", error=str(exc))

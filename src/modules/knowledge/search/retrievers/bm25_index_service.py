@@ -138,6 +138,12 @@ class BM25IndexService:
         # Take the flag BEFORE any await: the watermark read below is a
         # suspension point, so two concurrent calls could otherwise both
         # pass the check and run concurrent index mutations.
+        cutoff = since or self._last_build_time or await self._read_watermark()
+        if cutoff is None:
+            # No previous build, do full build instead
+            log.info("bm25_incremental_no_previous_build")
+            return await self.build_full_index()
+
         self._is_building = True
 
         try:

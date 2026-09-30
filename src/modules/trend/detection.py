@@ -121,17 +121,13 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 # Only 7 and 30 days are supported.
-
+_SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
 # Minimum EventNode count to produce trends.
-
 _MIN_EVENT_COUNT: int = 50
 
-
 # Trend score weights.
-
 _FREQ_WEIGHT: float = 0.6
 
 _SENTIMENT_WEIGHT: float = 0.4

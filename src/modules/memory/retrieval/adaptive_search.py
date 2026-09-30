@@ -461,7 +461,15 @@ class AdaptiveSearchEngine:
         neighbor_cache, causal_edges_traversed = await self._prefetch_neighbors(
             candidates, intent, query_embedding, event_cache
         )
-        graph_adapter = _IntentGraphAdapter()
+        # Expose via last_metadata for endpoint callers.
+        self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
+        graph_adapter = _IntentGraphAdapter(
+            temporal_repo=self._temporal_repo,
+            causal_repo=self._causal_repo,
+            query_embedding=query_embedding,
+            intent=intent,
+            event_cache=self._event_cache,
+        )
         graph_adapter.set_cached_neighbors(neighbor_cache)
 
         # Use BeamSearchReranker for traversal

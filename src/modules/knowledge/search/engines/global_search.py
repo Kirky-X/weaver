@@ -195,7 +195,7 @@ class GlobalSearchEngine:
 
             # Parallel LLM calls with semaphore for rate limiting and timeout
             map_result = await self._map_communities_with_llm(
-                query, sorted_communities, community_level, max_tokens, use_llm, start
+                query, communities, sorted_communities, community_level, max_tokens, use_llm, start
             )
             fallback, intermediate_answers, community_weights, total_tokens = map_result
             if fallback is not None:
@@ -243,6 +243,16 @@ class GlobalSearchEngine:
             local_result = await self._local.search(query=query, use_llm=use_llm)
             if isinstance(local_result, dict) or hasattr(local_result, "metadata"):
                 return self._apply_local_fallback_metadata(local_result)
+            if isinstance(local_result, dict):
+                local_result["metadata"] = {
+                    **local_result.get("metadata", {}),
+                    "search_type": SearchMode.HYBRID.value,
+                    "fallback_from_global": True,
+                }
+                return local_result
+            elif hasattr(local_result, "metadata"):
+                local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                local_result.metadata["fallback_from_global"] = True
 
         return SearchResult(
             query=query,
@@ -313,6 +323,7 @@ class GlobalSearchEngine:
     async def _map_communities_with_llm(
         self,
         query: str,
+        communities,
         sorted_communities: list,
         community_level: int,
         max_tokens: int,
@@ -480,6 +491,18 @@ class GlobalSearchEngine:
                         local_result,
                         fallback_reason="low_relevance_skip",
                     )
+                if isinstance(local_result, dict):
+                    local_result["metadata"] = {
+                        **local_result.get("metadata", {}),
+                        "search_type": SearchMode.HYBRID.value,
+                        "fallback_from_global": True,
+                        "fallback_reason": "low_relevance_skip",
+                    }
+                    return local_result
+                elif hasattr(local_result, "metadata"):
+                    local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                    local_result.metadata["fallback_from_global"] = True
+                    local_result.metadata["fallback_reason"] = "low_relevance_skip"
             except Exception as exc:
                 log.warning("global_search_local_fallback_failed", error=str(exc))
 
