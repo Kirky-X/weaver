@@ -96,6 +96,12 @@ log_response_body = false               # 记录响应体预览（仅 DEBUG 级�
 # 代理感知客户端 IP（X-Forwarded-For 信任列表）
 # trusted_proxies = ["10.0.0.1"]        # 可信代理 IP 列表（默认空=不信任 XFF）
 
+# HTTP 日志隐私治理
+log_response_body = false               # 记录响应体预览（仅 DEBUG 级且 true 时生效）
+
+# 代理感知客户端 IP（X-Forwarded-For 信任列表）
+# trusted_proxies = ["10.0.0.1"]        # 可信代理 IP 列表（默认空=不信任 XFF）
+
 # ============================================================
 # Scheduler Configuration
 # ============================================================
@@ -152,6 +158,9 @@ result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 
 # Global search map 阶段（社区数与 LLM 并发，默认 3/3 冻结旧行为）
 global_max_communities = 3             # 进入 map 阶段的最大社区数（≥1）
 global_map_concurrency = 3             # map 阶段 LLM 并发上限（≥1，勿超过 llm.toml 各 provider concurrency）
+
+# 搜索结果缓存（Redis，0=关闭）
+result_cache_ttl = 300                  # 搜索响应缓存 TTL（秒，默认 300，0=关闭）
 
 # ============================================================
 # Observability Configuration

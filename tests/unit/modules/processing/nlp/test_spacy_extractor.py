@@ -622,7 +622,7 @@ class TestDisableDataMetricsFiltering:
 
 
 class TestModelCaching:
-    """Tests for model caching in SpacyExtractor.
+    """Tests for model caching in SpacyExtractor (T001).
 
     The extractor must load each spaCy model at most once per instance:
     wheel extraction and spacy.load are expensive (hundreds of MB), so
@@ -721,6 +721,8 @@ class TestModelCaching:
 
 class TestWheelExtractionPersistence:
     """wheel extraction targets a persistent directory reused across calls."""
+
+    """T001: wheel extraction targets a persistent directory reused across calls."""
 
     @staticmethod
     def _make_wheel(path: Any) -> None:

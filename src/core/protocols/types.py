@@ -3,6 +3,7 @@
 """Shared type definitions used in Protocol signatures.
 
 This module DEFINES PersistStatus (owned here since so the protocols
+This module DEFINES PersistStatus (owned here since T020 so the protocols
 layer never depends on ``core.db``) and re-exports the remaining types used
 in Protocol method signatures.
 
@@ -87,6 +88,7 @@ class PersistStatus(str, enum.Enum):
 
         Valid transitions:
         - PENDING → PROCESSING, FAILED, SAGA_STARTED, LADYBUG_DONE, NEO4J_DONE
+        - PENDING → PROCESSING, FAILED, SAGA_STARTED
         - PROCESSING → PG_DONE, FAILED
         - PG_DONE → NEO4J_DONE, LADYBUG_DONE, NEO4J_FAILED, FAILED
         - NEO4J_FAILED → PENDING, PG_DONE (allows retry)

@@ -218,6 +218,8 @@ class LiteLLMCaller:
             # JSON Schema constraint: inject it as an explicit instruction so
             # providers without response_format support still receive it.
             # The schema-validation retry lives in
+            # providers without response_format support (e.g. Agnes) still
+            # receive it. The schema-validation retry lives in
             # LLMClient.structured_call.
             schema_instruction = (
                 "\n\n你的输出必须是符合以下 JSON Schema 的单个 JSON 对象，"

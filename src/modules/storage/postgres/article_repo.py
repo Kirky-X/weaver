@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from core.protocols.types import ArticleTitleMeta
     from core.types.ingestion_models import RawArticle
 
+from typing import Any
 
 from core.db import Article, PersistStatus
 from core.observability import get_logger

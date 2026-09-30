@@ -48,6 +48,8 @@ from fastapi import FastAPI
 
 from fastapi.testclient import TestClient
 
+from api.middleware.api_response import register_exception_handlers
+
 
 from api.middleware.api_response import register_exception_handlers
 

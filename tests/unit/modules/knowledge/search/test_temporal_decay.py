@@ -13,6 +13,7 @@ from modules.knowledge.search.temporal_decay import (
     TemporalAwareRetriever,
     apply_temporal_decay,
     calculate_age_in_days,
+    apply_temporal_decay,
 )
 
 
