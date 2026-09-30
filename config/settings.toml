@@ -20,6 +20,8 @@ host = "localhost"
 port = 6379
 db = 0
 
+[llm]
+
 [fetcher]
 default_per_host_concurrency = 2
 httpx_timeout = 15.0

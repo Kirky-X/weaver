@@ -550,6 +550,7 @@ class PipelineProcessSettings(BaseModel):
     # task never leaves the source permanently locked).
     trigger_source_timeout_seconds: float = 300.0
     source_lock_ttl_seconds: int = 600
+    drain_timeout: float = 30.0  # Pipeline drain timeout
     worker_poll_interval: float = 1.0  # seconds between queue polls
     worker_batch_size: int = 5  # items per batch (reduced from 20 to speed up first-batch response)
     worker_error_delay: float = 5.0  # seconds after error
@@ -593,6 +594,7 @@ class DedupSettings(BaseModel):
     """Cross-source deduplication configuration.
 
     Environment variables: WEAVER_DEDUP__ENABLE_SIMHASH_DEDUP, etc.
+    Environment variables: WEAVER__DEDUP__ENABLE_SIMHASH_DEDUP, etc.
     Backed by settings.toml [dedup]; consumed by the SimHash title
     deduplicator wiring in the container.
     """

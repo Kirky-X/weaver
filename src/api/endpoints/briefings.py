@@ -46,6 +46,7 @@ router = APIRouter(prefix="/briefings", tags=["briefings"])
 log = get_logger(__name__)
 
 # Category whitelist derived from the shared vocabulary.
+# Category whitelist (finance/tech/ai/general).
 # None means "综合" (general) and is handled by the service layer.
 _CATEGORY_ALTS = "|".join(sorted(BRIEFING_CATEGORIES))
 _CATEGORY_PATTERN = f"^(?:{_CATEGORY_ALTS})$"
