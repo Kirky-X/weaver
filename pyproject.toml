@@ -58,7 +58,7 @@ dependencies = [
     "typer>=0.24.1",
     "pandas>=3.0.2",
     # ── Knowledge Cache ──────────────────────────────────────
-    "rapidfuzz>=3.0.0",
+    "rapidfuzz>=3.14.6",
     "pycountry>=26.2.16",
     "geonamescache>=2.0.0",
     "cachetools>=7.2.0",
