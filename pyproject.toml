@@ -93,7 +93,7 @@ search-enhancement = [
 # (pdf_text_extraction_failed) instead of failing the crawl batch.
 pdf-extraction = [
     "pypdf>=5.1.0",
-    "pdfplumber>=0.11.4",
+    "pdfplumber>=0.11.10",
 ]
 # NOTE: PaddleNLP SKEP sentiment analysis (paddlenlp>=2.7.0) is NOT declared
 # as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.40.0
