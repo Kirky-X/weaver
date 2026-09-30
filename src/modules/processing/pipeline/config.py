@@ -29,6 +29,7 @@ class StageConfig(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+    """Configuration for a single pipeline stage (name + enabled flag)."""
 
     name: str = ""
     enabled: bool = True

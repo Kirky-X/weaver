@@ -56,6 +56,10 @@ log = get_logger(__name__)
 # Daily briefing category namespace — single source in core.constants.
 # Distinct from articles_core.category which uses CategoryType enum
 # (政治/经济/科技/...).
+# Daily briefing category namespace.
+# Maps to {finance, tech, ai, general} — distinct from articles_core.category
+# which uses CategoryType enum (政治/经济/科技/...).
+VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
 
 # daily_briefing_items.rank CHECK constraint is [1, 10] (misc.py).
 # Cap items at 10 to fit the constraint; sort by score desc to keep top-10.

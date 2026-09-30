@@ -308,6 +308,7 @@ class AnalyticsStorage:
 
             # LEFT JOIN article_bodies to fetch body in the same query
             # (vertical split). Body serves the AI-category keyword
+            # (vertical split per §9.1). Body serves the AI-category keyword
             # filter below; ArticleBody.summary (written by analyze) is the
             # primary LLM input for briefing generation — supersedes
             # full-body input (token optimization).

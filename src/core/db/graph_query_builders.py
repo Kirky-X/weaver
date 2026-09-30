@@ -857,6 +857,11 @@ class Neo4jQueryBuilder:
             confidence = f"coalesce(r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
             where_clause = f"{where_clause} AND {confidence}" if where_clause else confidence
         where_sql = f"WHERE {where_clause}" if where_clause else ""
+        confidence_filter = (
+            f" AND coalesce(r.weight, 1.0) >= {_clamp_confidence(min_confidence)}"
+            if min_confidence is not None
+            else ""
+        )
 
         if mode == "aggregate":
             return f"""

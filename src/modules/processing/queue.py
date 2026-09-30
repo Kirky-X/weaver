@@ -59,6 +59,7 @@ class ProcessingQueue:
             # Truncate the offending value: callers may pass an arbitrarily
             # long malformed string, and this message is logged upstream.
             raise ValueError(f"Invalid UUID format: {article_id[:16]!r}") from _exc
+            raise ValueError(f"Invalid UUID format: {article_id!r}") from _exc
 
         async with self._op_lock:
             current_len = await self._cache.llen(QUEUE_KEY)

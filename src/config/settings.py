@@ -41,7 +41,6 @@ from pydantic_settings import (
 from config.subconfigs import (
     APISettings,
     BingSettings,
-    DedupSettings,
     DuckDBSettings,
     EntitySettings,
     FakeNewsDetectorSettings,
@@ -67,6 +66,7 @@ from config.subconfigs import (
     TemporalMemorySettings,
     TrafficAnomalySettings,
     URLSecuritySettings,
+    DedupSettings,
 )
 from core.llm.config.config import LLMSettings
 from core.utils.paths import PROJECT_ROOT
