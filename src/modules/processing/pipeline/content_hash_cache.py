@@ -37,6 +37,7 @@ _UNCACHEABLE_KEYS = frozenset({"raw", "article_id", "task_id"})
 
 # Cached snapshots expire after 7 days (overridable via
 # pipeline.toml ``content_hash_cache_ttl_seconds``).
+# Cached snapshots expire after 7 days
 _CACHE_TTL_SECONDS = 604800
 
 

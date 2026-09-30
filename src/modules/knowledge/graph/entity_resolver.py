@@ -19,6 +19,7 @@ from tenacity import (
 )
 
 from core.constants import DEFAULT_ENTITY_MERGE_RETRIES, EmbeddingModel, EntityType
+from core.constants import EmbeddingModel, EntityType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger

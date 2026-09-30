@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+# SPDX-FileCopyrightText: © 2026 Weaver Contributors
+"""Tests for scheduler distributed lock (T013)."""
 from core.cache.distributed_lock import (
     distributed_lock,
     trigger_interval_seconds,

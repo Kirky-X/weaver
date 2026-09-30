@@ -278,6 +278,32 @@ async def test_search_temporal_events_semantic_mode_fetches_wider_window(repo, m
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_search_temporal_events_semantic_mode_fetches_wider_window(repo, mock_pool):
+    """语义模式必须取比 limit 更宽的候选窗口再重排。
+
+    若 LIMIT == limit，只有最旧的 CONTAINS 命中进入候选，新事件无论
+    相似度多高都进不了 top-N。语义模式候选数应为 max(limit*5, 50)；
+    非语义模式保持 limit。
+    """
+    mock_pool.execute_query.return_value = []
+
+    # 语义模式：候选窗口放大
+    await repo.search_temporal_events(query="AI", limit=10, query_embedding=[1.0, 0.0])
+    params = mock_pool.execute_query.call_args[0][1]
+    assert params["candidate_limit"] == 50  # max(10*5, 50)
+
+    # LIMIT 子句使用 candidate_limit 参数
+    query = mock_pool.execute_query.call_args[0][0]
+    assert "LIMIT $candidate_limit" in query
+
+    # 非语义模式：保持旧行为，候选数等于 limit
+    await repo.search_temporal_events(query="AI", limit=7)
+    params = mock_pool.execute_query.call_args[0][1]
+    assert params["candidate_limit"] == 7
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_search_temporal_events_uses_query_embedding(repo, mock_pool):
     """query_embedding 提供时按余弦相似度降序重排。
 

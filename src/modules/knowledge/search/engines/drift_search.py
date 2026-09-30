@@ -457,6 +457,8 @@ class DRIFTSearchEngine:
         Returns None when no confidence marker is present — callers must
         not treat the absence of a marker as a mid-range score.
         """
+        import re
+
         # Look for [置信度: X.X] or similar patterns
         patterns = [
             r"\[置信度[：:]\s*([\d.]+)\]",

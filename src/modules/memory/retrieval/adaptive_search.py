@@ -461,6 +461,8 @@ class AdaptiveSearchEngine:
         neighbor_cache, causal_edges_traversed = await self._prefetch_neighbors(
             candidates, intent, query_embedding, event_cache
         )
+        # Expose via last_metadata for endpoint callers.
+        self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
         graph_adapter = _IntentGraphAdapter()
         graph_adapter.set_cached_neighbors(neighbor_cache)
 
