@@ -80,7 +80,7 @@ database-fallback = [
     "real-ladybug>=0.15.3",
 ]
 cache-fallback = [
-    "cashews>=7.5.0",
+    "cashews>=7.6.0",
 ]
 search-enhancement = [
     "flashrank>=0.2.10",
