@@ -30,11 +30,61 @@ from core.mappers.article_state_mapper import ArticleStateMapper
 from core.observability import get_logger
 from core.protocols import RelationalPool
 from core.types.pipeline_state import PipelineState
+from core.url_utils import normalize_url
 
 if TYPE_CHECKING:
     pass
 
 log = get_logger(__name__)
+
+# Minimum body length to consider a fetch successful (vs anti-bot error page)
+_MIN_BODY_LENGTH = 200
+
+
+def _build_core_body_values(
+    raw: Any,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Build ArticleCore / ArticleBody kwargs + body_source for a RawArticle.
+
+    Shared by ``insert_raw`` and ``bulk_insert_raw`` to keep body-length
+    fallback, normalization, and content-hash logic in one place.
+
+    Args:
+        raw: RawArticle with non-empty url.
+
+    Returns:
+        Tuple of (core_kwargs, body_kwargs, body_source) where body_source
+        is "full" or "description" (the latter when raw.body < _MIN_BODY_LENGTH
+        and a description fallback is available).
+    """
+    effective_body = raw.body
+    body_source = "full"
+    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
+        effective_body = raw.description
+        body_source = "description"
+        log.info(
+            "body_too_short_using_description",
+            url=raw.url,
+            body_len=len(raw.body),
+            desc_len=len(raw.description),
+        )
+
+    normalized_url = normalize_url(raw.url)
+    content_hash = ChangeDetector.compute_hash({"title": raw.title or "", "body": effective_body})
+
+    core_kwargs: dict[str, Any] = {
+        "source_url": normalized_url,
+        "source_host": raw.source_host or "",
+        "source_id": raw.source_id,
+        "title": raw.title or "",
+        "persist_status": PersistStatus.PENDING,
+        "content_hash": content_hash,
+    }
+    if raw.publish_time:
+        core_kwargs["publish_time"] = raw.publish_time
+
+    body_kwargs: dict[str, Any] = {"body": effective_body}
+    return core_kwargs, body_kwargs, body_source
 
 
 class ArticleRepo:
@@ -53,6 +103,8 @@ class ArticleRepo:
 
 class ArticleWriter:
     """ArticleWriter half of the ArticleRepo split."""
+
+    """ArticleWriter half of the ArticleRepo split (T022)."""
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
@@ -420,6 +472,7 @@ class ArticleWriter:
         of all-null rows.
 
         Previously only filled 4 fields (persist_status, score,
+        REM-004: Previously only filled 4 fields (persist_status, score,
         sentiment_score, is_news, sentiment), leaving 6 fields NULL
         (category, language, region, credibility_score, publish_time, summary).
         Now fills all required fields for API responses.
@@ -433,6 +486,7 @@ class ArticleWriter:
         async with self._pool.session() as session:
             # Update ArticleCore: persist_status + score/sentiment_score fallback
             # + category/language/region/credibility_score/publish_time fallbacks
+            # + REM-004: category/language/region/credibility_score/publish_time fallbacks
             # Note: score and sentiment_score are in ArticleCore, NOT ArticleAnalysis
             result = await session.execute(
                 update(ArticleCore)
@@ -476,6 +530,7 @@ class ArticleWriter:
             # This prevents all-null rows for terminal articles.
             # Only reachable when this call transitioned the row (see above),
             # so the PG_DONE guard below matches exactly that row.
+            # This prevents all-null rows for terminal articles
             await session.execute(
                 update(ArticleAnalysis)
                 .where(
@@ -493,6 +548,7 @@ class ArticleWriter:
             )
 
             # Update ArticleBody summary for terminal articles
+            # REM-004: Update ArticleBody summary for terminal articles
             # Terminal articles skip cleaner, so summary would be NULL without this
             await session.execute(
                 update(ArticleBody)

@@ -732,7 +732,7 @@ class ContainerServicesMixin:
         """Get SimHash title deduplicator (wiring).
 
         Cross-source title-level deduplication; uses cache pool for
-        fingerprint storage.
+        fingerprint storage. See ``temp/report.md`` D1 dead-code fix.
         Returns None when disabled via ``settings.dedup.enable_simhash_dedup``.
         """
         from modules.ingestion import SimHashDeduplicator
@@ -932,6 +932,7 @@ class ContainerServicesMixin:
 
     def outbox_repo(self):
         """Get the transactional outbox repository."""
+        """Get the transactional outbox repository (T018)."""
         if self._outbox_repo is None:
             from modules.storage.postgres import OutboxRepo
 

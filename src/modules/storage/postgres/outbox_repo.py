@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import case, func, select, update
+from sqlalchemy import select, update
 
 from core.db.models import EventOutbox
 from core.observability import get_logger

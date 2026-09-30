@@ -370,6 +370,7 @@ async def search_unified(
     await store_search(
         request, cache_params, response_payload.model_dump(mode="json"), ttl_override=fallback_ttl
     )
+    await store_search(request, cache_params, response_payload.model_dump(mode="json"))
     return success_response(response_payload)
 
 
@@ -837,6 +838,18 @@ async def search_causal(
         raise HTTPException(
             status_code=500, detail="Internal server error during causal search"
         ) from exc
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 _TIME_RANGE_RE = re.compile(r"^(\d+)([dhm])$")

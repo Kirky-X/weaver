@@ -114,6 +114,7 @@ def apply_temporal_decay(
     """Apply exponential temporal decay to a relevance score (score * multiplier)."""
     retriever = TemporalAwareRetriever(enabled=True, half_life_days=half_life_days)
     return score * retriever.calculate_decay(age_in_days)
+    return score * retriever._calculate_decay(age_in_days)
 
 
 def calculate_age_in_days(

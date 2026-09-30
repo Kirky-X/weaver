@@ -94,6 +94,7 @@ def distributed_lock(
                 await _release_lock(cache_pool, name, holder_id)
 
         return cast(F, wrapper)
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
