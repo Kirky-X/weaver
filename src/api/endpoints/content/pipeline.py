@@ -236,6 +236,7 @@ async def _execute_trigger_background(
 
     Source triggers are executed **sequentially** to avoid DuckDB write lock
     contention. Per-source timeout still applies.
+    contention (HIGH-1). Per-source timeout still applies.
     """
     started_at = datetime.now(UTC).isoformat()
     try:
@@ -443,6 +444,7 @@ async def _release_source_locks(
     task_id: str,
 ) -> None:
     """Release per-source dedup locks."""
+    """Release per-source dedup locks (vuln-0002 fix)."""
     if not locked_source_ids:
         return
     release_keys = [f"{_SOURCE_LOCK_KEY_PREFIX}{sid}" for sid in locked_source_ids]
@@ -456,6 +458,7 @@ async def _release_source_locks(
                 stale_keys.append(key)
         if stale_keys:
             await cache.delete(*stale_keys)
+        await cache.delete(*release_keys)
     except Exception:
         log.warning(
             "source_lock_release_failed",
@@ -1122,6 +1125,7 @@ async def process_single_url(
     # Launch background processing. Track in ``_background_tasks`` so the
     # event loop does not garbage-collect the task before completion
     # (asyncio.create_task GC risk; RUF006 suppression no longer needed).
+    # (asyncio.create_task GC risk; previously suppressed via ``# noqa: RUF006``).
     background_task = asyncio.create_task(_process_single_url(request.url, task_id, cache))
     _background_tasks.add(background_task)
     background_task.add_done_callback(_background_tasks.discard)

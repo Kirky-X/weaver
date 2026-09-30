@@ -16,6 +16,7 @@ from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability import get_logger
 from core.constants import EmbeddingModel, EntityType, LanguageCode
+from core.constants import EmbeddingModel
 from core.prompt.loader import PromptLoader
 from core.utils.paths import CONFIG_DIR
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
@@ -340,6 +341,13 @@ class EntityExtractorNode:
             # Filter data metrics entities BEFORE relation validation so
             # relations pointing at removed entities are dropped as dangling
             # by _validate_and_clean_entities_relations instead of surviving.
+            # Normalize relation types
+            await self._normalize_relation_types(state)
+
+            # Post-validation: entity types + relation integrity
+            self._validate_and_clean_entities_relations(state)
+            entity_count = len(result.entities)
+            # Filter data metrics entities when configured
             if disable_data_metrics:
                 state["entities"] = [e for e in state["entities"] if e.get("type") != "数据指标"]
 
@@ -369,8 +377,12 @@ class EntityExtractorNode:
                 error=str(e),
                 url=state["raw"].url,
             )
+            import traceback as _tb
+
+            _tb.print_exc()
             state["entities"] = []
             state["relations"] = []
+            entity_count = 0
             state.setdefault("degraded_fields", []).extend(["entities", "relations"])
             state.setdefault("degradation_reasons", {}).update(
                 {

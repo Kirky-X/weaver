@@ -382,6 +382,8 @@ class LLMClient:
         log.debug("llm_cache_miss", label=str(parsed_label))
         self._cache_misses += 1
 
+        truncated_payload = self._truncate_payload_for_callpoint(payload, cp)
+
         # 构建label链
         labels = self._router.resolve(parsed_label)
         if fallback_labels:
@@ -591,6 +593,9 @@ class LLMClient:
         )
 
         return parsed_result
+        if output_model:
+            return parse_llm_json(response.content, output_model)
+        return response.content
 
     async def _write_redis_cache(self, cache_key: str, response: Any, ttl: int) -> None:
         """Write response to Redis cache (best-effort)."""

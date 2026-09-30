@@ -107,6 +107,14 @@ def _verify_env_or_admin_key(key: str) -> str:
     """
     from container import get_settings
 
+    if key is None:
+        raise BusinessError(
+            status_code=401,
+            code=ResponseCode.ERR_AUTH_FAILED,
+            message="Missing API key. Provide X-API-Key header.",
+        )
+
+    # Fallback: env-var-based key
     settings = get_settings()
 
     expected_key = settings.api.get_api_key()

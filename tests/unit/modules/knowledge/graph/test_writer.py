@@ -450,6 +450,7 @@ class TestNeo4jWriterEdgeCases:
     @pytest.mark.asyncio
     async def test_write_entities_batch_failure(self, writer_with_mocks):
         """batch merge failure propagates (all-or-nothing)."""
+        """T016-H1: batch merge failure propagates (all-or-nothing)."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_entities_batch = AsyncMock(side_effect=Exception("Batch error"))
 
@@ -559,6 +560,7 @@ class TestNeo4jWriterEdgeCases:
     @pytest.mark.asyncio
     async def test_write_entity_relations_merge_failure(self, writer_with_mocks):
         """relation batch failure propagates."""
+        """T016-H1: relation batch failure propagates."""
         writer, mock_entity_repo, _ = writer_with_mocks
         mock_entity_repo.merge_relations_batch = AsyncMock(side_effect=Exception("Merge error"))
 
@@ -683,6 +685,8 @@ class TestNeo4jWriterFollowedBy:
 class TestRelationBatchWrite:
     """relations flush through merge_relations_batch; types normalize once."""
 
+    """T010: relations flush through merge_relations_batch; types normalize once."""
+
     @staticmethod
     def _make_repo():
         repo = MagicMock()
@@ -783,6 +787,8 @@ class TestRelationBatchWrite:
 
 class TestWriteCircuitBreaker:
     """consecutive write failures open the circuit; writes fail fast."""
+
+    """T016: consecutive write failures open the circuit; writes fail fast."""
 
     def _make_failing_writer(self):
         with (

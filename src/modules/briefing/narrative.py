@@ -68,6 +68,8 @@ log = get_logger(__name__)
 
 # Briefing categories — single source in core.constants (shared with
 # BriefingGenerator).
+# 4 briefing categories (mirrors BriefingGenerator).
+VALID_BRIEFING_CATEGORIES: frozenset[str] = frozenset({"finance", "tech", "ai", "general"})
 
 # Minimum NarrativeNode count to produce narrative briefing.
 # Below this threshold, raise InsufficientNarrativeError so the caller

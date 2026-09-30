@@ -40,6 +40,7 @@ def redact_query(query: str, max_len: int = _MAX_QUERY_LOG_LEN) -> str:
     if len(redacted) > max_len:
         redacted = redacted[:max_len]
     return redacted
+    return "&".join(parts)
 
 
 class HTTPLoggingMiddleware:
