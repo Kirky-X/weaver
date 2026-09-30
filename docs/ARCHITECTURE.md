@@ -553,6 +553,7 @@ LLM 响应缓存（内存 TTLCache + Redis, TTL 按 call_point 1-7 天）的 key
 Prompt 侧的时间锚定采用**日粒度 + 尾置**：`call_at` 在 system prompt 模板尾部追加 `当前日期: YYYY-MM-DD`,而非前缀注入秒级时间戳。这保证同一自然日内 request_payload 逐字节稳定——客户端缓存 key 可命中、服务端前缀缓存自当日第二次调用起命中；跨日自然轮换,保留缓存新鲜度。
 
 成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.openai.gpt-4o`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。项目默认接入 OpenAI 等大型 LLM,Agnes 仅为测试档。
+成本计量：`config/llm.toml` 的 `[cost]` 段按完整 label（如 `chat.agnes.agnes-2.0-flash`）声明费率（USD/1K tokens）;rates 非空即激活 `CostCalculator`,usage 事件的 `cost_usd` 走真实计算链路。免费档费率记 0.0。
 
 ### Token 消耗控制
 

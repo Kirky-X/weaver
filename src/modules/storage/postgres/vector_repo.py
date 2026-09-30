@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.db import Article, ArticleVector, EntityVector, VectorType
