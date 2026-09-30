@@ -106,6 +106,7 @@ class TestContentHashCacheHit:
         assert result[0] is not None
 
         assert result[0]["category"] == "politics"
+        assert result[0]["cleaned"]["title"] == "Cleaned"
 
         assert result[0]["cleaned"]["title"] == "Cleaned"
 
@@ -237,6 +238,12 @@ class TestContentHashCacheWrite:
         state["category"] = "politics"
 
         state["quality_score"] = 0.85
+        state["sentiment"] = {"sentiment_score": 0.5, "sentiment": "neutral"}
+        state["credibility"] = {"score": 0.9}
+        state["vectors"] = {"title": [0.1], "content": [0.2], "model_id": "m1"}
+        state["article_id"] = "should-not-be-cached"
+        state["task_id"] = "also-not-cached"
+        state["_cache_hit"] = False
 
         state["sentiment"] = {"sentiment_score": 0.5, "sentiment": "neutral"}
 

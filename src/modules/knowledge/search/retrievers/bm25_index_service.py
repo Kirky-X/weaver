@@ -138,6 +138,12 @@ class BM25IndexService:
         # Take the flag BEFORE any await: the watermark read below is a
         # suspension point, so two concurrent calls could otherwise both
         # pass the check and run concurrent index mutations.
+        cutoff = since or self._last_build_time or await self._read_watermark()
+        if cutoff is None:
+            # No previous build, do full build instead
+            log.info("bm25_incremental_no_previous_build")
+            return await self.build_full_index()
+
         self._is_building = True
 
         try:
@@ -324,3 +330,38 @@ class BM25IndexService:
             "document_count": self._retriever.get_document_count(),
             "rebuild_interval_seconds": self._rebuild_interval,
         }
+
+
+def create_bm25_scheduler_job(
+    scheduler: Any,
+    index_service: BM25IndexService,
+) -> Any:
+    """Create and register BM25 rebuild job with APScheduler.
+
+    Args:
+        scheduler: APScheduler AsyncScheduler instance.
+        index_service: BM25IndexService instance.
+
+    Returns:
+        The scheduled job.
+    """
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    trigger = IntervalTrigger(seconds=index_service._rebuild_interval)
+
+    job = scheduler.add_job(
+        index_service.scheduled_rebuild,
+        trigger=trigger,
+        id="bm25_rebuild_index",
+        name="BM25 Index Rebuild",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    log.info(
+        "bm25_scheduler_job_added",
+        interval_seconds=index_service._rebuild_interval,
+        job_id=job.id,
+    )
+
+    return job

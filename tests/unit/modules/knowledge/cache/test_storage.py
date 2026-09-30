@@ -521,6 +521,8 @@ class TestKnowledgeCacheDecayHotness:
 class TestKnowledgeCachePathGuard:
     """non-path cache_path values are rejected at init (mock-leak defense)."""
 
+    """T005: non-path cache_path values are rejected at init (mock-leak defense)."""
+
     def test_rejects_magic_mock_path(self):
         """A MagicMock (auto __fspath__) must not become a filesystem path."""
         with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):

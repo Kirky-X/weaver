@@ -103,10 +103,9 @@ if TYPE_CHECKING:
 
 
 # Constraints: only 7 and 30 days are supported.
-
+_SUPPORTED_WINDOW_DAYS: frozenset[int] = frozenset({7, 30})
 
 # Direction thresholds.
-
 _UP_THRESHOLD: float = 0.1
 
 _DOWN_THRESHOLD: float = -0.1

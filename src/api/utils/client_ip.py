@@ -44,7 +44,7 @@ def resolve_client_ip(
     """
     if not client_host:
         return "unknown"
-    if forwarded_for and client_host in trusted_proxies:
+    if forwarded_for and client_host in (trusted_proxies or ()):
         hops = [hop.strip() for hop in forwarded_for.split(",") if hop.strip()]
         if hops:
             return hops[-1]
