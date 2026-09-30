@@ -137,7 +137,7 @@ class RawBulkWriter:
         articles: list[Any],
         task_id: uuid.UUID | None = None,
     ) -> list[uuid.UUID]:
-        """Bulk insert raw articles with single commit and URL dedup (fix).
+        """Bulk insert raw articles with single commit and URL dedup (P0-2 fix).
 
         Replaces the N-call ``insert_raw`` for-loop in
         ``DiscoveryProcessor.on_items_discovered`` (170-176) to cut N
@@ -270,6 +270,8 @@ class RawBulkWriter:
 
                     # Skip if content_hash already exists in DB
                     effective_body, _ = resolve_effective_body(raw.body, raw.description)
+                    # Skip if content_hash already exists (cross-source dup
+                    # in DB, or within the same batch)
                     ch = ChangeDetector.compute_hash(
                         {"title": raw.title or "", "body": effective_body}
                     )
@@ -344,7 +346,6 @@ class RawBulkWriter:
                         if prompt_versions:
                             analysis_values["prompt_versions"] = prompt_versions
                         new_objects.append(ArticleAnalysis(**analysis_values))
-
                     # add_all the dependent objects (referencing core.id)
                     session.add_all(new_objects)
 
@@ -385,3 +386,4 @@ class RawBulkWriter:
                         error=str(per_exc),
                     )
             return [r for r in results if r is not None]
+            return fallback_ids

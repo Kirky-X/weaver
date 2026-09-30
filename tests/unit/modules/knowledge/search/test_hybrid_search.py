@@ -511,6 +511,8 @@ class TestHybridSearchResult:
 class TestOffLoopExecution:
     """sync rerank/MMR work must run off the event loop thread."""
 
+    """T002: sync rerank/MMR work must run off the event loop thread."""
+
     @pytest.mark.asyncio
     async def test_rerank_runs_off_event_loop(
         self,

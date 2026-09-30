@@ -161,6 +161,7 @@ SCHEMA_QUERIES = [
         synced_at TIMESTAMP WITH TIME ZONE
     )""",
     # ── Event Outbox (transactional outbox, at-least-once) ──
+    # ── Event Outbox (T018: transactional outbox, at-least-once) ──
     """CREATE TABLE IF NOT EXISTS event_outbox
     (
         id BIGINT DEFAULT nextval('event_outbox_seq') PRIMARY KEY,

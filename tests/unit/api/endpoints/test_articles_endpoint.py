@@ -657,6 +657,8 @@ class TestArticlesEndpointHTTPLevel:
         from api.endpoints.content.articles import router
         from api.middleware.api_response import register_exception_handlers
 
+        from api.middleware.api_response import register_exception_handlers
+
         app = FastAPI()
         register_exception_handlers(app)
         app.include_router(router)

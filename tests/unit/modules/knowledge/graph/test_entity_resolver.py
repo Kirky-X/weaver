@@ -1466,6 +1466,8 @@ class TestBatchTargetValidation:
 class TestBatchRetrievalConcurrency:
     """Phase A retrieval is bounded-concurrent with order preserved."""
 
+    """T008: Phase A retrieval is bounded-concurrent with order preserved."""
+
     @pytest.fixture
     def mock_entity_repo(self):
         repo = MagicMock()

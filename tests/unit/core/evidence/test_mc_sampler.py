@@ -370,6 +370,8 @@ class TestMCSamplerIntegration:
 class TestMCSamplerBatchScoring:
     """区域评分批量化：N 次 LLM 调用合并为 1 次."""
 
+    """区域评分批量化：N 次 LLM 调用合并为 1 次（R-evidence-001）."""
+
     @pytest.fixture
     def sampler(self):
         llm_client = AsyncMock()
