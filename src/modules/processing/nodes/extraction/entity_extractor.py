@@ -129,38 +129,6 @@ class EntityExtractorNode:
         disable_data_metrics = (
             self._settings.entity.disable_data_metrics_nodes if self._settings else False
         )
-        spacy_entities = await self._extract_spacy_entities(state, body, language)
-        gliner_entities = await self._extract_gliner_entities(state, body)
-        entity_name_to_embedding = await self._embed_and_store_entities(
-            state, spacy_entities, gliner_entities
-        )
-        await self._llm_refine_and_validate(
-            state,
-            body,
-            disable_data_metrics,
-            spacy_entities,
-            gliner_entities,
-            entity_name_to_embedding,
-        )
-
-        state.setdefault("prompt_versions", {})["entity_extractor"] = (
-            self._prompt_loader.get_version("entity_extractor")
-        )
-
-        log.info(
-            "entities_extracted",
-            url=state["raw"].url,
-            entity_count=len(state.get("entities") or []),
-            relation_count=len(state.get("relations") or []),
-        )
-        return state
-
-    async def _extract_spacy_entities(self, state: PipelineState, body: str, language: str):
-        """Phase 1: spaCy NER (sync, run in executor)."""
-        # Phase 1: spaCy NER (sync, run in executor)
-        disable_data_metrics = (
-            self._settings.entity.disable_data_metrics_nodes if self._settings else False
-        )
         spacy_entities = await self._extract_spacy_entities(
             state, body, language, disable_data_metrics
         )

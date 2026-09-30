@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from typing import Any
 
 from sqlalchemy import select
 
@@ -117,7 +116,6 @@ class RawBulkWriter:
             body = ArticleBody(
                 article_id=core.id,
                 **body_kwargs,
-                body=effective_body,
             )
             session.add(body)
 
@@ -274,9 +272,6 @@ class RawBulkWriter:
                     effective_body, _ = resolve_effective_body(raw.body, raw.description)
                     # Skip if content_hash already exists (cross-source dup
                     # in DB, or within the same batch)
-                    effective_body = raw.body
-                    if len(effective_body) < _MIN_BODY_LENGTH and raw.description:
-                        effective_body = raw.description
                     ch = ChangeDetector.compute_hash(
                         {"title": raw.title or "", "body": effective_body}
                     )

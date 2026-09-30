@@ -28,8 +28,6 @@ def _trusted_proxies() -> list[str]:
         # Docstring contract: degrade to zero-trust on ANY settings failure
         # (container not initialized, malformed config, ...) rather than 500.
         log.debug("trusted_proxies_unavailable", error=str(exc), exc_type=type(exc).__name__)
-    except (RuntimeError, ImportError) as exc:
-        log.debug("trusted_proxies_unavailable", error=str(exc))
         return []
 
 
@@ -46,7 +44,7 @@ def resolve_client_ip(
     """
     if not client_host:
         return "unknown"
-    if forwarded_for and client_host in trusted_proxies:
+    if forwarded_for and client_host in (trusted_proxies or ()):
         hops = [hop.strip() for hop in forwarded_for.split(",") if hop.strip()]
         if hops:
             return hops[-1]

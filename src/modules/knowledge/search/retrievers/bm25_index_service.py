@@ -330,3 +330,38 @@ class BM25IndexService:
             "document_count": self._retriever.get_document_count(),
             "rebuild_interval_seconds": self._rebuild_interval,
         }
+
+
+def create_bm25_scheduler_job(
+    scheduler: Any,
+    index_service: BM25IndexService,
+) -> Any:
+    """Create and register BM25 rebuild job with APScheduler.
+
+    Args:
+        scheduler: APScheduler AsyncScheduler instance.
+        index_service: BM25IndexService instance.
+
+    Returns:
+        The scheduled job.
+    """
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    trigger = IntervalTrigger(seconds=index_service._rebuild_interval)
+
+    job = scheduler.add_job(
+        index_service.scheduled_rebuild,
+        trigger=trigger,
+        id="bm25_rebuild_index",
+        name="BM25 Index Rebuild",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    log.info(
+        "bm25_scheduler_job_added",
+        interval_seconds=index_service._rebuild_interval,
+        job_id=job.id,
+    )
+
+    return job

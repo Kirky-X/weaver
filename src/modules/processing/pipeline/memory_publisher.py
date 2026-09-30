@@ -93,7 +93,6 @@ class MemoryEventPublisher:
                     )
                 except Exception as exc:
                     row_ids[i] = None
-                    row_ids[id(event)] = None
                     log.error(
                         "outbox_enqueue_failed",
                         article_id=event.article_id,

@@ -28,7 +28,6 @@ from api.schemas.response import APIResponse, ResponseCode, success_response
 from config.settings import Settings
 from container import get_settings
 from core.constants import RedisKeys, Status
-from core.constants import PipelineTaskStatus
 from core.exceptions import BusinessError
 from core.observability import get_logger, metrics
 from core.protocols import CachePool, RelationalPool
@@ -245,7 +244,6 @@ async def _execute_trigger_background(
             cache,
             task_id,
             Status.RUNNING,
-            PipelineTaskStatus.RUNNING,
             source_id_field,
             source_ids_field,
             queued_at,
@@ -259,7 +257,6 @@ async def _execute_trigger_background(
                 cache,
                 task_id,
                 Status.COMPLETED,
-                PipelineTaskStatus.COMPLETED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -296,7 +293,6 @@ async def _execute_trigger_background(
                 cache,
                 task_id,
                 Status.FAILED,
-                PipelineTaskStatus.FAILED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -316,7 +312,6 @@ async def _execute_trigger_background(
                 cache,
                 task_id,
                 Status.COMPLETED,
-                PipelineTaskStatus.COMPLETED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -337,7 +332,6 @@ async def _execute_trigger_background(
                 cache,
                 task_id,
                 Status.FAILED,
-                PipelineTaskStatus.FAILED,
                 source_id_field,
                 source_ids_field,
                 queued_at,
@@ -415,7 +409,7 @@ def _log_trigger_results(
 async def _update_trigger_status(
     cache: CachePool,
     task_id: str,
-    status: PipelineTaskStatus,
+    status: Status,
     source_id: str | None,
     source_ids: list[str] | None,
     queued_at: str,

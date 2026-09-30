@@ -783,7 +783,6 @@ class ArticleReader:
             # array_append(mc.path, a.id) instead of `mc.path || a.id`:
             # DuckDB rejects UUID[] || UUID without an explicit cast, while
             # array_append works on both PostgreSQL and DuckDB.
-            # Use recursive CTE to get entire merge chain in single query
             result = await session.execute(
                 text("""
                      WITH RECURSIVE merge_chain AS (SELECT id, merged_into, ARRAY[id] as path, false as cycle
@@ -793,7 +792,6 @@ class ArticleReader:
                                                     UNION ALL
 
                                                     SELECT a.id, a.merged_into, array_append(mc.path, a.id), a.id = ANY (mc.path)
-                                                    SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY (mc.path)
                                                     FROM articles_core a
                                                              INNER JOIN merge_chain mc ON a.id = mc.merged_into
                                                     WHERE NOT mc.cycle)

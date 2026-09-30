@@ -463,13 +463,7 @@ class AdaptiveSearchEngine:
         )
         # Expose via last_metadata for endpoint callers.
         self._last_metadata["causal_edges_traversed"] = causal_edges_traversed
-        graph_adapter = _IntentGraphAdapter(
-            temporal_repo=self._temporal_repo,
-            causal_repo=self._causal_repo,
-            query_embedding=query_embedding,
-            intent=intent,
-            event_cache=self._event_cache,
-        )
+        graph_adapter = _IntentGraphAdapter()
         graph_adapter.set_cached_neighbors(neighbor_cache)
 
         # Use BeamSearchReranker for traversal

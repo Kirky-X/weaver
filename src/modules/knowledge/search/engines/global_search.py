@@ -195,7 +195,7 @@ class GlobalSearchEngine:
 
             # Parallel LLM calls with semaphore for rate limiting and timeout
             map_result = await self._map_communities_with_llm(
-                query, communities, sorted_communities, community_level, max_tokens, use_llm, start
+                query, sorted_communities, community_level, max_tokens, use_llm, start
             )
             fallback, intermediate_answers, community_weights, total_tokens = map_result
             if fallback is not None:
@@ -323,7 +323,6 @@ class GlobalSearchEngine:
     async def _map_communities_with_llm(
         self,
         query: str,
-        communities,
         sorted_communities: list,
         community_level: int,
         max_tokens: int,
