@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: weaver-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build sdist + wheel
@@ -38,3 +42,15 @@ jobs:
         with:
           generate_release_notes: true
           files: dist/*
+
+      - name: Verify release uniqueness (idempotency guard)
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          COUNT=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq "[.[] | select(.tag_name == \"${TAG}\")] | length")
+          echo "release objects for ${TAG}: ${COUNT}"
+          if [ "${COUNT}" != "1" ]; then
+            echo "::error::expected exactly 1 release for ${TAG}, found ${COUNT}; release state is not idempotent"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
